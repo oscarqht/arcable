@@ -1,0 +1,37 @@
+{
+  "name": "arcable-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arcable monorepo containing Chrome/Firefox extension, Next.js webapp, and shared libraries.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@arcable/web",
+    "dev:extension": "npm run dev --workspace=@arcable/extension",
+    "build": "npm run build --workspaces --if-present",
+    "build:shared": "npm run build --workspace=@arcable/shared",
+    "build:web": "npm run build --workspace=@arcable/web",
+    "build:extension": "npm run build --workspace=@arcable/extension",
+    "build:extension:chrome": "npm run build:chrome --workspace=@arcable/extension",
+    "build:extension:firefox": "npm run build:firefox --workspace=@arcable/extension",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "keywords": [
+    "arcable",
+    "monorepo",
+    "chrome-extension",
+    "firefox-extension",
+    "nextjs",
+    "react",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

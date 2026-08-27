@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Arcable",
+  "version": "0.1.0",
+  "description": "Arcable - Unified browser workspace and intelligence extension with Raindrop.io sync",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "arcable@extension.local",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "identity",
+    "https://api.raindrop.io/*",
+    "https://raindrop.io/*",
+    "https://oh-auth.vercel.app/*",
+    "http://localhost:3000/*",
+    "https://*.arcable.dev/*"
+  ],
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "Arcable"
+  },
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://oh-auth.vercel.app/*",
+        "http://localhost:3000/*",
+        "https://*.arcable.dev/*"
+      ],
+      "js": ["oauth-bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
