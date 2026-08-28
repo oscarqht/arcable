@@ -7,6 +7,7 @@ export interface Tab {
   customEmojiIcon?: string;
   parentFolderId?: string; // Optional: if undefined/null, tab belongs to the root of the space (not applicable if favourite)
   parentSpaceId?: string;  // Optional: required when tab is not a favourite, undefined when favourite
+  order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
 }
@@ -19,6 +20,7 @@ export interface Folder {
   parentFolderId?: string; // Optional: nested folder support (null/undefined if root in space)
   parentSpaceId: string;   // Required: parent space id
   isExpanded?: boolean;    // UI state for folder collapse/expansion
+  order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
 }
@@ -28,6 +30,7 @@ export interface Space {
   name: string;
   emojiIcon?: string;
   colors?: string;         // Optional theme color or gradient
+  order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
 }
@@ -39,3 +42,7 @@ export interface ArcableWorkspaceData {
   activeSpaceId: string;
   version?: number;
 }
+
+export type WorkspaceSiblingItem =
+  | { type: 'folder'; data: Folder; id: string; order: number }
+  | { type: 'tab'; data: Tab; id: string; order: number };

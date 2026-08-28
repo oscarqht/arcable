@@ -12,6 +12,7 @@ interface PinnedTabsShelfProps {
   onTogglePinTab: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
   onAddPinnedTab: () => void;
+  onReorderPinnedTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
 }
 
 export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
@@ -22,12 +23,56 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onTogglePinTab,
   onToggleFavouriteTab,
   onAddPinnedTab,
+  onReorderPinnedTabs,
 }) => {
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
 
   if (tabs.length === 0) {
     return null;
   }
+
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ id: tabId, type: 'pinnedTab' }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    const pos = e.clientX < midX ? 'before' : 'after';
+    setDragOverTabId(tabId);
+    setDropPosition(pos);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTabId(null);
+    setDropPosition(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetTabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = dropPosition || 'after';
+    setDragOverTabId(null);
+    setDropPosition(null);
+
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { id: string; type: string };
+      if (!parsed || !parsed.id || parsed.id === targetTabId) return;
+
+      if (onReorderPinnedTabs) {
+        onReorderPinnedTabs(parsed.id, targetTabId, pos);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div
@@ -75,13 +120,25 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       >
         {tabs.map((tab) => {
           const isHovered = hoveredTabId === tab.id;
+          const isDragTarget = dragOverTabId === tab.id;
           const displayTitle = tab.customTitle || cleanUrl(tab.url);
 
           return (
             <div
               key={tab.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, tab.id)}
+              onDragOver={(e) => handleDragOver(e, tab.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, tab.id)}
               onMouseEnter={() => setHoveredTabId(tab.id)}
-              onMouseLeave={() => setHoveredTabId(null)}
+              onMouseLeave={() => {
+                setHoveredTabId(null);
+                if (dragOverTabId === tab.id) {
+                  setDragOverTabId(null);
+                  setDropPosition(null);
+                }
+              }}
               onClick={() => {
                 if (onOpenTab) {
                   onOpenTab(tab.url);
@@ -96,13 +153,16 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 padding: '6px 8px',
                 backgroundColor: isHovered ? '#e2e8f0' : '#ffffff',
                 border: '1px solid #cbd5e1',
+                borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : '1px solid #cbd5e1',
+                borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : '1px solid #cbd5e1',
                 borderRadius: '6px',
-                cursor: 'pointer',
+                cursor: 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
                 overflow: 'hidden',
+                userSelect: 'none',
               }}
-              title={`${displayTitle}\n${tab.url}`}
+              title={`${displayTitle}\n${tab.url} (Drag to reorder)`}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
                 <span style={{ fontSize: '14px', flexShrink: 0 }}>{tab.customEmojiIcon || '🌐'}</span>

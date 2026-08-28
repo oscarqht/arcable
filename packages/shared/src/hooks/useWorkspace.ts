@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Space, Folder, Tab, ArcableWorkspaceData } from '../types/workspace';
+import { Space, Folder, Tab, ArcableWorkspaceData, WorkspaceSiblingItem } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -14,6 +14,66 @@ import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
 
+export function getSortedSpaces(spaces: Space[]): Space[] {
+  return [...spaces].sort((a, b) => {
+    const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+    const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function getSortedTabs(tabs: Tab[]): Tab[] {
+  return [...tabs].sort((a, b) => {
+    const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+    const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function getSortedSiblings(
+  folders: Folder[],
+  tabs: Tab[],
+  parentSpaceId: string,
+  parentFolderId?: string
+): WorkspaceSiblingItem[] {
+  const normFolderParentId = parentFolderId || undefined;
+
+  const matchingFolders = folders
+    .filter(
+      (f) =>
+        f.parentSpaceId === parentSpaceId &&
+        (f.parentFolderId || undefined) === normFolderParentId
+    )
+    .map((f) => ({
+      type: 'folder' as const,
+      data: f,
+      id: f.id,
+      order: f.order !== undefined ? f.order : f.createdAt || 0,
+    }));
+
+  const matchingTabs = tabs
+    .filter(
+      (t) =>
+        !t.favourite &&
+        !t.pinned &&
+        t.parentSpaceId === parentSpaceId &&
+        (t.parentFolderId || undefined) === normFolderParentId
+    )
+    .map((t) => ({
+      type: 'tab' as const,
+      data: t,
+      id: t.id,
+      order: t.order !== undefined ? t.order : t.createdAt || 0,
+    }));
+
+  return [...matchingFolders, ...matchingTabs].sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
   activeSpaceId: 'space_personal',
   version: 1,
@@ -23,6 +83,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       name: 'Personal',
       emojiIcon: '🏠',
       colors: '#6366f1',
+      order: 1000,
       createdAt: 1700000000000,
       updatedAt: 1700000000000,
     },
@@ -31,6 +92,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       name: 'Work',
       emojiIcon: '💼',
       colors: '#ec4899',
+      order: 2000,
       createdAt: 1700000001000,
       updatedAt: 1700000001000,
     },
@@ -43,6 +105,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       colors: '#3b82f6',
       parentSpaceId: 'space_personal',
       isExpanded: true,
+      order: 1000,
       createdAt: 1700000002000,
       updatedAt: 1700000002000,
     },
@@ -54,6 +117,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       parentFolderId: 'folder_dev',
       parentSpaceId: 'space_personal',
       isExpanded: true,
+      order: 1000,
       createdAt: 1700000003000,
       updatedAt: 1700000003000,
     },
@@ -64,6 +128,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       colors: '#f59e0b',
       parentSpaceId: 'space_personal',
       isExpanded: false,
+      order: 2000,
       createdAt: 1700000004000,
       updatedAt: 1700000004000,
     },
@@ -74,6 +139,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       colors: '#8b5cf6',
       parentSpaceId: 'space_work',
       isExpanded: true,
+      order: 1000,
       createdAt: 1700000005000,
       updatedAt: 1700000005000,
     },
@@ -86,6 +152,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       favourite: true,
       customTitle: 'Arcable Hub',
       customEmojiIcon: '✨',
+      order: 1000,
       createdAt: 1700000006000,
       updatedAt: 1700000006000,
     },
@@ -97,6 +164,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       customEmojiIcon: '🐙',
       parentFolderId: 'folder_dev',
       parentSpaceId: 'space_personal',
+      order: 2000,
       createdAt: 1700000007000,
       updatedAt: 1700000007000,
     },
@@ -108,6 +176,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       customEmojiIcon: '📖',
       parentFolderId: 'folder_docs',
       parentSpaceId: 'space_personal',
+      order: 1000,
       createdAt: 1700000008000,
       updatedAt: 1700000008000,
     },
@@ -119,6 +188,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       customEmojiIcon: '⚡',
       parentFolderId: 'folder_reads',
       parentSpaceId: 'space_personal',
+      order: 1000,
       createdAt: 1700000009000,
       updatedAt: 1700000009000,
     },
@@ -129,6 +199,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       customTitle: 'Work Notion',
       customEmojiIcon: '📝',
       parentSpaceId: 'space_work',
+      order: 1000,
       createdAt: 1700000010000,
       updatedAt: 1700000010000,
     },
@@ -140,6 +211,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       customEmojiIcon: '📐',
       parentFolderId: 'folder_work_projects',
       parentSpaceId: 'space_work',
+      order: 1000,
       createdAt: 1700000011000,
       updatedAt: 1700000011000,
     },
@@ -213,7 +285,8 @@ export function useWorkspace() {
   }, []);
 
   // Active space
-  const activeSpace = data.spaces.find((s) => s.id === data.activeSpaceId) || data.spaces[0];
+  const sortedSpaces = getSortedSpaces(data.spaces);
+  const activeSpace = sortedSpaces.find((s) => s.id === data.activeSpaceId) || sortedSpaces[0];
 
   const setActiveSpace = useCallback((spaceId: string) => {
     savePendingOperation(createWorkspaceOperation('WORKSPACE_SET_ACTIVE_SPACE', spaceId));
@@ -225,11 +298,13 @@ export function useWorkspace() {
 
   // ================= Space CRUD =================
   const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; colors?: string }) => {
+    const maxOrder = data.spaces.reduce((max, s) => Math.max(max, s.order ?? 0), 0);
     const newSpace: Space = {
       id: generateId('space'),
       name: spaceInput.name.trim() || 'New Space',
       emojiIcon: spaceInput.emojiIcon || '📁',
       colors: spaceInput.colors || '#6366f1',
+      order: maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -243,7 +318,7 @@ export function useWorkspace() {
     }));
 
     return newSpace;
-  }, [saveWorkspaceData]);
+  }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
     savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, updates));
@@ -268,6 +343,7 @@ export function useWorkspace() {
           name: 'General',
           emojiIcon: '🌐',
           colors: '#6366f1',
+          order: 1000,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
@@ -301,14 +377,20 @@ export function useWorkspace() {
     customEmojiIcon?: string;
     colors?: string;
   }) => {
+    const targetSpaceId = folderInput.parentSpaceId;
+    const targetFolderId = folderInput.parentFolderId || undefined;
+    const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolderId);
+    const maxOrder = siblings.reduce((max, item) => Math.max(max, item.order), 0);
+
     const newFolder: Folder = {
       id: generateId('folder'),
       name: folderInput.name.trim() || 'New Folder',
-      parentSpaceId: folderInput.parentSpaceId,
-      parentFolderId: folderInput.parentFolderId || undefined,
+      parentSpaceId: targetSpaceId,
+      parentFolderId: targetFolderId,
       customEmojiIcon: folderInput.customEmojiIcon || '📁',
       colors: folderInput.colors || '#3b82f6',
       isExpanded: true,
+      order: maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -321,7 +403,7 @@ export function useWorkspace() {
     }));
 
     return newFolder;
-  }, [saveWorkspaceData]);
+  }, [data.folders, data.tabs, saveWorkspaceData]);
 
   const updateFolder = useCallback((id: string, updates: Partial<Omit<Folder, 'id'>>) => {
     savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, updates));
@@ -400,6 +482,20 @@ export function useWorkspace() {
 
     const isFav = Boolean(tabInput.favourite);
     const isPinned = !isFav && Boolean(tabInput.pinned);
+    const targetSpaceId = isFav ? undefined : (tabInput.parentSpaceId || activeSpace?.id || 'space_personal');
+    const targetFolderId = (isFav || isPinned) ? undefined : (tabInput.parentFolderId || undefined);
+
+    let maxOrder = 0;
+    if (isFav) {
+      maxOrder = data.tabs.filter((t) => t.favourite).reduce((max, t) => Math.max(max, t.order ?? 0), 0);
+    } else if (isPinned && targetSpaceId) {
+      maxOrder = data.tabs
+        .filter((t) => !t.favourite && t.pinned && t.parentSpaceId === targetSpaceId)
+        .reduce((max, t) => Math.max(max, t.order ?? 0), 0);
+    } else if (targetSpaceId) {
+      const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolderId);
+      maxOrder = siblings.reduce((max, item) => Math.max(max, item.order), 0);
+    }
 
     const newTab: Tab = {
       id: generateId('tab'),
@@ -408,8 +504,9 @@ export function useWorkspace() {
       favourite: isFav || undefined,
       customTitle: tabInput.customTitle?.trim() || undefined,
       customEmojiIcon: tabInput.customEmojiIcon?.trim() || undefined,
-      parentSpaceId: isFav ? undefined : (tabInput.parentSpaceId || activeSpace?.id || 'space_personal'),
-      parentFolderId: (isFav || isPinned) ? undefined : (tabInput.parentFolderId || undefined),
+      parentSpaceId: targetSpaceId,
+      parentFolderId: targetFolderId,
+      order: maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -422,7 +519,7 @@ export function useWorkspace() {
     }));
 
     return newTab;
-  }, [activeSpace, saveWorkspaceData]);
+  }, [activeSpace, data.folders, data.tabs, saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
     savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
@@ -514,6 +611,392 @@ export function useWorkspace() {
     }));
   }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
 
+  // ================= Reordering Operations =================
+  const reorderSpaces = useCallback(
+    (sourceSpaceId: string, targetSpaceId: string, position: 'before' | 'after') => {
+      if (sourceSpaceId === targetSpaceId) return;
+
+      saveWorkspaceData((prev) => {
+        const sorted = getSortedSpaces(prev.spaces);
+        const sourceIdx = sorted.findIndex((s) => s.id === sourceSpaceId);
+        const targetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
+        if (sourceIdx < 0 || targetIdx < 0) return prev;
+
+        const [moved] = sorted.splice(sourceIdx, 1);
+        const newTargetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
+        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+        sorted.splice(insertIdx, 0, moved);
+
+        const reindexed = sorted.map((s, idx) => ({
+          ...s,
+          order: (idx + 1) * 1000,
+          updatedAt: s.id === sourceSpaceId ? Date.now() : s.updatedAt,
+        }));
+
+        const updatedSource = reindexed.find((s) => s.id === sourceSpaceId);
+        if (updatedSource) {
+          savePendingOperation(
+            createWorkspaceOperation('SPACE_UPDATE', sourceSpaceId, { order: updatedSource.order })
+          );
+        }
+
+        return {
+          ...prev,
+          spaces: reindexed,
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const moveSpace = useCallback(
+    (spaceId: string, direction: 'left' | 'right') => {
+      saveWorkspaceData((prev) => {
+        const sorted = getSortedSpaces(prev.spaces);
+        const idx = sorted.findIndex((s) => s.id === spaceId);
+        if (idx < 0) return prev;
+        const targetIdx = direction === 'left' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= sorted.length) return prev;
+
+        const [moved] = sorted.splice(idx, 1);
+        sorted.splice(targetIdx, 0, moved);
+
+        const reindexed = sorted.map((s, i) => ({
+          ...s,
+          order: (i + 1) * 1000,
+          updatedAt: s.id === spaceId ? Date.now() : s.updatedAt,
+        }));
+
+        const updated = reindexed.find((s) => s.id === spaceId);
+        if (updated) {
+          savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', spaceId, { order: updated.order }));
+        }
+
+        return {
+          ...prev,
+          spaces: reindexed,
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const reorderSiblingItem = useCallback(
+    (params: {
+      sourceId: string;
+      sourceType: 'folder' | 'tab';
+      targetId: string;
+      targetType: 'folder' | 'tab';
+      position: 'before' | 'after' | 'inside';
+    }) => {
+      const { sourceId, sourceType, targetId, targetType, position } = params;
+      if (sourceId === targetId) return;
+
+      saveWorkspaceData((prev) => {
+        const sourceFolder = sourceType === 'folder' ? prev.folders.find((f) => f.id === sourceId) : undefined;
+        const sourceTab = sourceType === 'tab' ? prev.tabs.find((t) => t.id === sourceId) : undefined;
+        if (!sourceFolder && !sourceTab) return prev;
+
+        const targetFolder = targetType === 'folder' ? prev.folders.find((f) => f.id === targetId) : undefined;
+        const targetTab = targetType === 'tab' ? prev.tabs.find((t) => t.id === targetId) : undefined;
+        if (!targetFolder && !targetTab) return prev;
+
+        // Case 1: Drop inside a folder
+        if (position === 'inside' && targetFolder) {
+          if (sourceType === 'folder') {
+            if (sourceFolder?.id === targetFolder.id) return prev;
+            let currParent: string | undefined = targetFolder.parentFolderId;
+            while (currParent) {
+              if (currParent === sourceFolder?.id) return prev;
+              const p = prev.folders.find((f) => f.id === currParent);
+              currParent = p?.parentFolderId;
+            }
+          }
+
+          const childSiblings = getSortedSiblings(
+            prev.folders,
+            prev.tabs,
+            targetFolder.parentSpaceId,
+            targetFolder.id
+          ).filter((s) => s.id !== sourceId);
+          const maxOrder = childSiblings.reduce((max, s) => Math.max(max, s.order), 0);
+          const newOrder = maxOrder + 1000;
+
+          if (sourceType === 'tab') {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', sourceId, {
+                parentSpaceId: targetFolder.parentSpaceId,
+                parentFolderId: targetFolder.id,
+                pinned: false,
+                favourite: false,
+                order: newOrder,
+              })
+            );
+
+            return {
+              ...prev,
+              tabs: prev.tabs.map((t) =>
+                t.id === sourceId
+                  ? {
+                      ...t,
+                      parentSpaceId: targetFolder.parentSpaceId,
+                      parentFolderId: targetFolder.id,
+                      pinned: false,
+                      favourite: false,
+                      order: newOrder,
+                      updatedAt: Date.now(),
+                    }
+                  : t
+              ),
+            };
+          } else {
+            savePendingOperation(
+              createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
+                parentSpaceId: targetFolder.parentSpaceId,
+                parentFolderId: targetFolder.id,
+                order: newOrder,
+              })
+            );
+
+            return {
+              ...prev,
+              folders: prev.folders.map((f) =>
+                f.id === sourceId
+                  ? {
+                      ...f,
+                      parentSpaceId: targetFolder.parentSpaceId,
+                      parentFolderId: targetFolder.id,
+                      order: newOrder,
+                      updatedAt: Date.now(),
+                    }
+                  : f
+              ),
+            };
+          }
+        }
+
+        // Case 2: Drop before or after target item
+        const parentSpaceId = targetFolder
+          ? targetFolder.parentSpaceId
+          : targetTab?.parentSpaceId || prev.activeSpaceId;
+        const parentFolderId = targetFolder ? targetFolder.parentFolderId : targetTab?.parentFolderId;
+
+        if (sourceType === 'folder') {
+          if (sourceFolder?.id === parentFolderId) return prev;
+          let currParent: string | undefined = parentFolderId;
+          while (currParent) {
+            if (currParent === sourceFolder?.id) return prev;
+            const p = prev.folders.find((f) => f.id === currParent);
+            currParent = p?.parentFolderId;
+          }
+        }
+
+        const siblings = getSortedSiblings(prev.folders, prev.tabs, parentSpaceId, parentFolderId).filter(
+          (s) => s.id !== sourceId
+        );
+
+        const targetIdx = siblings.findIndex((s) => s.id === targetId);
+        if (targetIdx < 0) return prev;
+
+        const sourceItem: WorkspaceSiblingItem =
+          sourceType === 'folder'
+            ? { type: 'folder', data: sourceFolder!, id: sourceId, order: 0 }
+            : { type: 'tab', data: sourceTab!, id: sourceId, order: 0 };
+
+        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+        siblings.splice(insertIdx, 0, sourceItem);
+
+        const updatedOrderMap = new Map<string, number>();
+        siblings.forEach((s, idx) => {
+          updatedOrderMap.set(s.id, (idx + 1) * 1000);
+        });
+
+        const updatedFolders = prev.folders.map((f) => {
+          if (f.id === sourceId) {
+            return {
+              ...f,
+              parentSpaceId,
+              parentFolderId: parentFolderId || undefined,
+              order: updatedOrderMap.get(f.id) ?? f.order ?? 1000,
+              updatedAt: Date.now(),
+            };
+          }
+          if (updatedOrderMap.has(f.id)) {
+            return { ...f, order: updatedOrderMap.get(f.id)! };
+          }
+          return f;
+        });
+
+        const updatedTabs = prev.tabs.map((t) => {
+          if (t.id === sourceId) {
+            return {
+              ...t,
+              parentSpaceId,
+              parentFolderId: parentFolderId || undefined,
+              pinned: false,
+              favourite: false,
+              order: updatedOrderMap.get(t.id) ?? t.order ?? 1000,
+              updatedAt: Date.now(),
+            };
+          }
+          if (updatedOrderMap.has(t.id)) {
+            return { ...t, order: updatedOrderMap.get(t.id)! };
+          }
+          return t;
+        });
+
+        if (sourceType === 'tab') {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', sourceId, {
+              parentSpaceId,
+              parentFolderId: parentFolderId || undefined,
+              pinned: false,
+              favourite: false,
+              order: updatedOrderMap.get(sourceId),
+            })
+          );
+        } else {
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
+              parentSpaceId,
+              parentFolderId: parentFolderId || undefined,
+              order: updatedOrderMap.get(sourceId),
+            })
+          );
+        }
+
+        return {
+          ...prev,
+          folders: updatedFolders,
+          tabs: updatedTabs,
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const moveSiblingItem = useCallback(
+    (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => {
+      saveWorkspaceData((prev) => {
+        const folder = itemType === 'folder' ? prev.folders.find((f) => f.id === itemId) : undefined;
+        const tab = itemType === 'tab' ? prev.tabs.find((t) => t.id === itemId) : undefined;
+        if (!folder && !tab) return prev;
+
+        const parentSpaceId = folder ? folder.parentSpaceId : tab?.parentSpaceId || prev.activeSpaceId;
+        const parentFolderId = folder ? folder.parentFolderId : tab?.parentFolderId;
+
+        const siblings = getSortedSiblings(prev.folders, prev.tabs, parentSpaceId, parentFolderId);
+        const idx = siblings.findIndex((s) => s.id === itemId);
+        if (idx < 0) return prev;
+
+        const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= siblings.length) return prev;
+
+        const [moved] = siblings.splice(idx, 1);
+        siblings.splice(targetIdx, 0, moved);
+
+        const updatedOrderMap = new Map<string, number>();
+        siblings.forEach((s, i) => {
+          updatedOrderMap.set(s.id, (i + 1) * 1000);
+        });
+
+        const updatedFolders = prev.folders.map((f) =>
+          updatedOrderMap.has(f.id)
+            ? { ...f, order: updatedOrderMap.get(f.id)!, updatedAt: f.id === itemId ? Date.now() : f.updatedAt }
+            : f
+        );
+        const updatedTabs = prev.tabs.map((t) =>
+          updatedOrderMap.has(t.id)
+            ? { ...t, order: updatedOrderMap.get(t.id)!, updatedAt: t.id === itemId ? Date.now() : t.updatedAt }
+            : t
+        );
+
+        const newOrder = updatedOrderMap.get(itemId);
+        if (itemType === 'tab') {
+          savePendingOperation(createWorkspaceOperation('TAB_UPDATE', itemId, { order: newOrder }));
+        } else {
+          savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', itemId, { order: newOrder }));
+        }
+
+        return {
+          ...prev,
+          folders: updatedFolders,
+          tabs: updatedTabs,
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const reorderPinnedTabs = useCallback(
+    (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
+      if (sourceTabId === targetTabId) return;
+      saveWorkspaceData((prev) => {
+        const currentSpace = prev.activeSpaceId;
+        const pinned = getSortedTabs(
+          prev.tabs.filter((t) => !t.favourite && t.pinned && t.parentSpaceId === currentSpace)
+        );
+        const sourceIdx = pinned.findIndex((t) => t.id === sourceTabId);
+        const targetIdx = pinned.findIndex((t) => t.id === targetTabId);
+        if (sourceIdx < 0 || targetIdx < 0) return prev;
+
+        const [moved] = pinned.splice(sourceIdx, 1);
+        const newTargetIdx = pinned.findIndex((t) => t.id === targetTabId);
+        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+        pinned.splice(insertIdx, 0, moved);
+
+        const orderMap = new Map<string, number>();
+        pinned.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+
+        const updatedTabs = prev.tabs.map((t) =>
+          orderMap.has(t.id)
+            ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
+            : t
+        );
+
+        savePendingOperation(
+          createWorkspaceOperation('TAB_UPDATE', sourceTabId, { order: orderMap.get(sourceTabId) })
+        );
+
+        return { ...prev, tabs: updatedTabs };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const reorderFavouriteTabs = useCallback(
+    (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
+      if (sourceTabId === targetTabId) return;
+      saveWorkspaceData((prev) => {
+        const favs = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite)));
+        const sourceIdx = favs.findIndex((t) => t.id === sourceTabId);
+        const targetIdx = favs.findIndex((t) => t.id === targetTabId);
+        if (sourceIdx < 0 || targetIdx < 0) return prev;
+
+        const [moved] = favs.splice(sourceIdx, 1);
+        const newTargetIdx = favs.findIndex((t) => t.id === targetTabId);
+        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+        favs.splice(insertIdx, 0, moved);
+
+        const orderMap = new Map<string, number>();
+        favs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+
+        const updatedTabs = prev.tabs.map((t) =>
+          orderMap.has(t.id)
+            ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
+            : t
+        );
+
+        savePendingOperation(
+          createWorkspaceOperation('TAB_UPDATE', sourceTabId, { order: orderMap.get(sourceTabId) })
+        );
+
+        return { ...prev, tabs: updatedTabs };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
   const resetToDefault = useCallback(() => {
     clearStoredPendingOperations();
     saveWorkspaceData(DEFAULT_WORKSPACE);
@@ -571,14 +1054,18 @@ export function useWorkspace() {
     return false;
   }, [saveWorkspaceData]);
 
-  // Global favourites (visible across all spaces)
-  const favouriteTabs = data.tabs.filter((t) => Boolean(t.favourite));
+  // Global favourites (visible across all spaces, sorted)
+  const favouriteTabs = getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite)));
 
   // Helpers for filtering items by active space
   const currentSpaceId = activeSpace?.id || '';
-  const pinnedTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && t.pinned);
+  const pinnedTabs = getSortedTabs(
+    data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && t.pinned)
+  );
   const rootTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && !t.pinned && !t.parentFolderId);
   const rootFolders = data.folders.filter((f) => f.parentSpaceId === currentSpaceId && !f.parentFolderId);
+
+  const rootSiblings = getSortedSiblings(data.folders, data.tabs, currentSpaceId, undefined);
 
   const getChildFolders = useCallback((folderId: string) => {
     return data.folders.filter((f) => f.parentFolderId === folderId);
@@ -588,15 +1075,27 @@ export function useWorkspace() {
     return data.tabs.filter((t) => !t.favourite && t.parentFolderId === folderId && !t.pinned);
   }, [data.tabs]);
 
+  const getChildSiblings = useCallback(
+    (folderId: string) => {
+      const folder = data.folders.find((f) => f.id === folderId);
+      const spaceId = folder?.parentSpaceId || currentSpaceId;
+      return getSortedSiblings(data.folders, data.tabs, spaceId, folderId);
+    },
+    [data.folders, data.tabs, currentSpaceId]
+  );
+
   return {
     data,
     isLoaded,
     activeSpace,
+    sortedSpaces,
     setActiveSpace,
     // Space operations
     createSpace,
     updateSpace,
     deleteSpace,
+    reorderSpaces,
+    moveSpace,
     // Folder operations
     createFolder,
     updateFolder,
@@ -608,6 +1107,11 @@ export function useWorkspace() {
     deleteTab,
     togglePinTab,
     toggleFavouriteTab,
+    // Sibling reordering
+    reorderSiblingItem,
+    moveSiblingItem,
+    reorderPinnedTabs,
+    reorderFavouriteTabs,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,
@@ -622,7 +1126,10 @@ export function useWorkspace() {
     pinnedTabs,
     rootTabs,
     rootFolders,
+    rootSiblings,
     getChildFolders,
     getChildTabs,
+    getChildSiblings,
   };
 }
+

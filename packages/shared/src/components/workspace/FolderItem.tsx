@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Folder, Tab } from '../../types/workspace';
+import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { TabRow } from './TabRow';
 
 interface FolderItemProps {
@@ -19,6 +20,16 @@ interface FolderItemProps {
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onMoveSiblingItem?: (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => void;
+  onReorderSiblingItem?: (params: {
+    sourceId: string;
+    sourceType: 'folder' | 'tab';
+    targetId: string;
+    targetType: 'folder' | 'tab';
+    position: 'before' | 'after' | 'inside';
+  }) => void;
 }
 
 export const FolderItem: React.FC<FolderItemProps> = ({
@@ -36,38 +47,166 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
+  onMoveUp,
+  onMoveDown,
+  onMoveSiblingItem,
+  onReorderSiblingItem,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
 
-  const childFolders = allFolders.filter((f) => f.parentFolderId === folder.id);
-  const childTabs = allTabs.filter((t) => t.parentFolderId === folder.id && !t.pinned);
+  const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
-  const totalItemCount = childFolders.length + childTabs.length;
+  const totalItemCount = siblings.length;
 
   const accentColor = folder.colors || '#3b82f6';
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        id: folder.id,
+        type: 'folder',
+        parentFolderId: folder.parentFolderId,
+        parentSpaceId: folder.parentSpaceId,
+      })
+    );
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const height = rect.height;
+
+    if (relativeY < height * 0.25) {
+      setDropIndicator('before');
+    } else if (relativeY > height * 0.75) {
+      setDropIndicator('after');
+    } else {
+      setDropIndicator('inside');
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDropIndicator(null);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentIndicator = dropIndicator || 'inside';
+    setDropIndicator(null);
+
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+      if (!parsed || !parsed.id) return;
+      if (parsed.id === folder.id) return;
+
+      if (onReorderSiblingItem) {
+        onReorderSiblingItem({
+          sourceId: parsed.id,
+          sourceType: parsed.type,
+          targetId: folder.id,
+          targetType: 'folder',
+          position: currentIndicator,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleChildTabDrop = (e: React.DragEvent, targetTab: Tab) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+      if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const pos = e.clientY < midY ? 'before' : 'after';
+
+      if (onReorderSiblingItem) {
+        onReorderSiblingItem({
+          sourceId: parsed.id,
+          sourceType: parsed.type,
+          targetId: targetTab.id,
+          targetType: 'tab',
+          position: pos,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginLeft: depth > 0 ? `${depth * 14}px` : '0' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        marginLeft: depth > 0 ? `${depth * 14}px` : '0',
+      }}
+    >
       {/* Folder Header Row */}
       <div
+        draggable
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseLeave={() => {
+          setIsHovered(false);
+          setDropIndicator(null);
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '6px 10px',
-          backgroundColor: isHovered ? '#f8fafc' : 'transparent',
+          backgroundColor:
+            dropIndicator === 'inside'
+              ? '#e0f2fe'
+              : isHovered
+              ? '#f8fafc'
+              : 'transparent',
           border: '1px solid transparent',
+          borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '1px solid transparent',
+          borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '1px solid transparent',
           borderLeft: `3px solid ${accentColor}`,
           borderRadius: '6px',
-          cursor: 'pointer',
+          cursor: 'grab',
           transition: 'all 0.12s ease',
           userSelect: 'none',
         }}
         onClick={() => onToggleExpand(folder.id)}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+          {/* Drag Handle */}
+          <span
+            style={{
+              fontSize: '11px',
+              color: isHovered ? '#94a3b8' : 'transparent',
+              cursor: 'grab',
+              lineHeight: 1,
+              userSelect: 'none',
+              transition: 'color 0.12s ease',
+            }}
+            title="Drag to reorder folder"
+          >
+            ⠿
+          </span>
+
           {/* Chevron */}
           <span
             style={{
@@ -111,6 +250,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           >
             {totalItemCount}
           </span>
+
+          {dropIndicator === 'inside' && (
+            <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>
+              (drop into folder)
+            </span>
+          )}
         </div>
 
         {/* Folder Action Buttons */}
@@ -124,6 +269,42 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Move Up/Down */}
+          {onMoveUp && (
+            <button
+              title="Move up"
+              onClick={onMoveUp}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                borderRadius: '4px',
+                padding: '2px 4px',
+                fontSize: '10px',
+                cursor: 'pointer',
+                color: '#64748b',
+              }}
+            >
+              ▲
+            </button>
+          )}
+          {onMoveDown && (
+            <button
+              title="Move down"
+              onClick={onMoveDown}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                borderRadius: '4px',
+                padding: '2px 4px',
+                fontSize: '10px',
+                cursor: 'pointer',
+                color: '#64748b',
+              }}
+            >
+              ▼
+            </button>
+          )}
+
           <button
             title="Add tab in this folder"
             onClick={() => onAddTabInFolder(folder.id)}
@@ -203,39 +384,68 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             marginLeft: '8px',
           }}
         >
-          {/* Child Subfolders */}
-          {childFolders.map((subFolder) => (
-            <FolderItem
-              key={subFolder.id}
-              folder={subFolder}
-              allFolders={allFolders}
-              allTabs={allTabs}
-              depth={depth + 1}
-              onToggleExpand={onToggleExpand}
-              onEditFolder={onEditFolder}
-              onDeleteFolder={onDeleteFolder}
-              onAddSubFolder={onAddSubFolder}
-              onAddTabInFolder={onAddTabInFolder}
-              onOpenTab={onOpenTab}
-              onEditTab={onEditTab}
-              onDeleteTab={onDeleteTab}
-              onTogglePinTab={onTogglePinTab}
-              onToggleFavouriteTab={onToggleFavouriteTab}
-            />
-          ))}
+          {/* Interleaved Sibling Items */}
+          {siblings.map((item, index) => {
+            const hasPrev = index > 0;
+            const hasNext = index < siblings.length - 1;
 
-          {/* Child Tabs */}
-          {childTabs.map((tab) => (
-            <TabRow
-              key={tab.id}
-              tab={tab}
-              onOpen={onOpenTab}
-              onEdit={onEditTab}
-              onDelete={onDeleteTab}
-              onTogglePin={onTogglePinTab}
-              onToggleFavourite={onToggleFavouriteTab}
-            />
-          ))}
+            if (item.type === 'folder') {
+              return (
+                <FolderItem
+                  key={item.id}
+                  folder={item.data}
+                  allFolders={allFolders}
+                  allTabs={allTabs}
+                  depth={depth + 1}
+                  onToggleExpand={onToggleExpand}
+                  onEditFolder={onEditFolder}
+                  onDeleteFolder={onDeleteFolder}
+                  onAddSubFolder={onAddSubFolder}
+                  onAddTabInFolder={onAddTabInFolder}
+                  onOpenTab={onOpenTab}
+                  onEditTab={onEditTab}
+                  onDeleteTab={onDeleteTab}
+                  onTogglePinTab={onTogglePinTab}
+                  onToggleFavouriteTab={onToggleFavouriteTab}
+                  onMoveUp={
+                    hasPrev && onMoveSiblingItem
+                      ? () => onMoveSiblingItem(item.id, 'folder', 'up')
+                      : undefined
+                  }
+                  onMoveDown={
+                    hasNext && onMoveSiblingItem
+                      ? () => onMoveSiblingItem(item.id, 'folder', 'down')
+                      : undefined
+                  }
+                  onMoveSiblingItem={onMoveSiblingItem}
+                  onReorderSiblingItem={onReorderSiblingItem}
+                />
+              );
+            }
+
+            return (
+              <TabRow
+                key={item.id}
+                tab={item.data}
+                onOpen={onOpenTab}
+                onEdit={onEditTab}
+                onDelete={onDeleteTab}
+                onTogglePin={onTogglePinTab}
+                onToggleFavourite={onToggleFavouriteTab}
+                onMoveUp={
+                  hasPrev && onMoveSiblingItem
+                    ? () => onMoveSiblingItem(item.id, 'tab', 'up')
+                    : undefined
+                }
+                onMoveDown={
+                  hasNext && onMoveSiblingItem
+                    ? () => onMoveSiblingItem(item.id, 'tab', 'down')
+                    : undefined
+                }
+                onDropItem={handleChildTabDrop}
+              />
+            );
+          })}
 
           {/* Empty Folder Placeholder */}
           {totalItemCount === 0 && (

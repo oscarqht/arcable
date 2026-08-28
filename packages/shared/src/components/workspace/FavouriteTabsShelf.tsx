@@ -11,6 +11,7 @@ export interface FavouriteTabsShelfProps {
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
+  onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
 }
 
 export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
@@ -20,8 +21,52 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onDeleteTab,
   onToggleFavouriteTab,
   onAddFavouriteTab,
+  onReorderFavouriteTabs,
 }) => {
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ id: tabId, type: 'favTab' }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    const pos = e.clientX < midX ? 'before' : 'after';
+    setDragOverTabId(tabId);
+    setDropPosition(pos);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTabId(null);
+    setDropPosition(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetTabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = dropPosition || 'after';
+    setDragOverTabId(null);
+    setDropPosition(null);
+
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { id: string; type: string };
+      if (!parsed || !parsed.id || parsed.id === targetTabId) return;
+
+      if (onReorderFavouriteTabs) {
+        onReorderFavouriteTabs(parsed.id, targetTabId, pos);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div
@@ -103,13 +148,25 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         >
           {tabs.map((tab) => {
             const isHovered = hoveredTabId === tab.id;
+            const isDragTarget = dragOverTabId === tab.id;
             const displayTitle = tab.customTitle || cleanUrl(tab.url) || 'Untitled';
 
             return (
               <div
                 key={tab.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, tab.id)}
+                onDragOver={(e) => handleDragOver(e, tab.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, tab.id)}
                 onMouseEnter={() => setHoveredTabId(tab.id)}
-                onMouseLeave={() => setHoveredTabId(null)}
+                onMouseLeave={() => {
+                  setHoveredTabId(null);
+                  if (dragOverTabId === tab.id) {
+                    setDragOverTabId(null);
+                    setDropPosition(null);
+                  }
+                }}
                 onClick={() => {
                   if (onOpenTab) {
                     onOpenTab(tab.url);
@@ -124,14 +181,17 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   padding: '8px 10px',
                   backgroundColor: isHovered ? '#f0fdf4' : '#f8fafc',
                   border: isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
+                  borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
+                  borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
                   borderRadius: '8px',
-                  cursor: 'pointer',
+                  cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
                   overflow: 'hidden',
+                  userSelect: 'none',
                   boxShadow: isHovered ? '0 2px 4px rgba(0,0,0,0.04)' : 'none',
                 }}
-                title={`${displayTitle}\n${tab.url} (Favourite - Global)`}
+                title={`${displayTitle}\n${tab.url} (Favourite - Drag to reorder)`}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
                   <span

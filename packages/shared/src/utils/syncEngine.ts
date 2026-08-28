@@ -143,6 +143,7 @@ export function applyOperation(
         name: op.payload?.name || 'New Space',
         emojiIcon: op.payload?.emojiIcon || '📁',
         colors: op.payload?.colors || '#6366f1',
+        order: op.payload?.order !== undefined ? op.payload.order : undefined,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };
@@ -195,6 +196,7 @@ export function applyOperation(
         customEmojiIcon: op.payload?.customEmojiIcon || '📁',
         colors: op.payload?.colors || '#3b82f6',
         isExpanded: op.payload?.isExpanded !== undefined ? op.payload.isExpanded : true,
+        order: op.payload?.order !== undefined ? op.payload.order : undefined,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };
@@ -249,6 +251,7 @@ export function applyOperation(
         customEmojiIcon: op.payload?.customEmojiIcon,
         parentSpaceId: isFav ? undefined : (op.payload?.parentSpaceId || cloned.activeSpaceId),
         parentFolderId: (isFav || isPinned) ? undefined : (op.payload?.parentFolderId || undefined),
+        order: op.payload?.order !== undefined ? op.payload.order : undefined,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };
