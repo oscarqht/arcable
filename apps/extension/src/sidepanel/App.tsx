@@ -138,7 +138,18 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        width: '100%',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+        overscrollBehavior: 'none',
+        backgroundColor: '#f8fafc',
+      }}
+    >
       <Header
         title="Arcable"
         logoSrc={browser.runtime.getURL('icons/icon32.png')}
@@ -158,7 +169,17 @@ export const App: React.FC = () => {
         }
       />
 
-      <div style={{ padding: '12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{
+          padding: '12px',
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          overflowX: 'hidden',
+          overscrollBehavior: 'none',
+        }}
+      >
         <WorkspaceManager
           compact={true}
           defaultViewMode="focused"

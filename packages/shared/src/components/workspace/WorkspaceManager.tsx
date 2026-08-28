@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useMemo, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -177,7 +177,181 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   };
 
-  // Concurrency & sequence guards for sync
+  const activePillRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll active space pill into view when active space changes
+  useEffect(() => {
+    if (activePillRef.current) {
+      activePillRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }
+  }, [activeSpace?.id]);
+
+  // Horizontal wheel / two-finger swipe gesture to switch spaces with circular wrap-around
+  const wheelAccumulatorRef = useRef(0);
+  const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCooldownRef = useRef(false);
+
+  useEffect(() => {
+    // Only enable gesture in focused space mode or compact/sidepanel view
+    if (viewMode !== 'focused' && !compact) {
+      return;
+    }
+
+    const handleWheel = (e: WheelEvent) => {
+      // Do nothing if we only have 0 or 1 space or if a modal is open
+      if (
+        sortedSpaces.length <= 1 ||
+        isSpaceModalOpen ||
+        isFolderModalOpen ||
+        isTabModalOpen ||
+        isJsonModalOpen
+      ) {
+        return;
+      }
+
+      // Check if horizontal delta is dominant
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+
+      if (absX < 8 || absX <= absY * 0.85) {
+        return;
+      }
+
+      // Don't intercept if user is typing in an input/textarea
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      // Prevent native horizontal page scroll / bounce / back-forward navigation
+      e.preventDefault();
+
+      if (isCooldownRef.current) {
+        return;
+      }
+
+      wheelAccumulatorRef.current += e.deltaX;
+
+      if (wheelTimeoutRef.current) {
+        clearTimeout(wheelTimeoutRef.current);
+      }
+      wheelTimeoutRef.current = setTimeout(() => {
+        wheelAccumulatorRef.current = 0;
+      }, 180);
+
+      const THRESHOLD = 30;
+
+      if (wheelAccumulatorRef.current >= THRESHOLD) {
+        // Scrolled right / two-finger swipe left -> Switch to Next Space (circle back to 1st)
+        wheelAccumulatorRef.current = 0;
+        isCooldownRef.current = true;
+        setTimeout(() => {
+          isCooldownRef.current = false;
+        }, 320);
+
+        const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortedSpaces.length;
+        setActiveSpace(sortedSpaces[nextIndex].id);
+      } else if (wheelAccumulatorRef.current <= -THRESHOLD) {
+        // Scrolled left / two-finger swipe right -> Switch to Prev Space (circle back to last)
+        wheelAccumulatorRef.current = 0;
+        isCooldownRef.current = true;
+        setTimeout(() => {
+          isCooldownRef.current = false;
+        }, 320);
+
+        const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+        const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + sortedSpaces.length) % sortedSpaces.length;
+        setActiveSpace(sortedSpaces[prevIndex].id);
+      }
+    };
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        const deltaX = Math.abs(e.touches[0].clientX - touchStartX);
+        const deltaY = Math.abs(e.touches[0].clientY - touchStartY);
+        if (deltaX > deltaY && deltaX > 8) {
+          const target = e.target as HTMLElement | null;
+          if (!target || (!['INPUT', 'TEXTAREA'].includes(target.tagName) && !target.isContentEditable)) {
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (
+        sortedSpaces.length <= 1 ||
+        isSpaceModalOpen ||
+        isFolderModalOpen ||
+        isTabModalOpen ||
+        isJsonModalOpen
+      ) {
+        return;
+      }
+      if (e.changedTouches.length === 1) {
+        const deltaX = e.changedTouches[0].clientX - touchStartX;
+        const deltaY = e.changedTouches[0].clientY - touchStartY;
+        const elapsed = Date.now() - touchStartTime;
+
+        if (elapsed < 500 && Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+          const target = e.target as HTMLElement | null;
+          if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+            return;
+          }
+
+          if (deltaX < 0) {
+            // Swiped left -> Next space (circle back to 1st)
+            const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+            const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortedSpaces.length;
+            setActiveSpace(sortedSpaces[nextIndex].id);
+          } else {
+            // Swiped right -> Prev space (circle back to last)
+            const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+            const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + sortedSpaces.length) % sortedSpaces.length;
+            setActiveSpace(sortedSpaces[prevIndex].id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      if (wheelTimeoutRef.current) {
+        clearTimeout(wheelTimeoutRef.current);
+      }
+    };
+  }, [
+    viewMode,
+    compact,
+    sortedSpaces,
+    activeSpace?.id,
+    setActiveSpace,
+    isSpaceModalOpen,
+    isFolderModalOpen,
+    isTabModalOpen,
+    isJsonModalOpen,
+  ]);
   const syncInProgressRef = React.useRef(false);
   const syncQueuedRef = React.useRef(false);
   const syncSeqRef = React.useRef(0);
@@ -740,16 +914,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               scrollbarWidth: 'thin',
             }}
           >
-            {sortedSpaces.map((space, index) => {
+            {sortedSpaces.map((space) => {
               const isActive = space.id === activeSpace?.id;
               const spaceColor = space.colors || '#376757';
               const isDragTarget = dragOverSpaceId === space.id;
-              const hasPrev = index > 0;
-              const hasNext = index < sortedSpaces.length - 1;
 
               return (
                 <div
                   key={space.id}
+                  ref={isActive ? activePillRef : null}
                   draggable
                   onDragStart={(e) => handleSpaceDragStart(e, space.id)}
                   onDragOver={(e) => handleSpaceDragOver(e, space.id)}
@@ -760,6 +933,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     }
                   }}
                   onDrop={(e) => handleSpaceDrop(e, space.id)}
+                  onDragEnd={handleSpaceDragEnd}
                   onClick={() => setActiveSpace(space.id)}
                   style={{
                     display: 'flex',
@@ -772,6 +946,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     border: `1px solid ${isActive ? spaceColor : '#e2e8f0'}`,
                     borderLeft: isDragTarget && spaceDropPos === 'before' ? '3px solid #0284c7' : undefined,
                     borderRight: isDragTarget && spaceDropPos === 'after' ? '3px solid #0284c7' : undefined,
+                    opacity: draggingSpaceId === space.id ? 0.45 : 1,
                     cursor: 'grab',
                     fontSize: '13px',
                     fontWeight: isActive ? 600 : 500,
@@ -785,51 +960,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 >
                   <span>{space.emojiIcon || '📁'}</span>
                   <span>{space.name}</span>
-
-                  {/* Move Left/Right */}
-                  {sortedSpaces.length > 1 && (
-                    <div
-                      style={{ display: 'flex', gap: '2px', marginLeft: '2px' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {hasPrev && (
-                        <button
-                          type="button"
-                          onClick={() => moveSpace(space.id, 'left')}
-                          title="Move left"
-                          style={{
-                            border: 'none',
-                            background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
-                            color: isActive ? '#ffffff' : '#475569',
-                            fontSize: '9px',
-                            padding: '1px 3px',
-                            borderRadius: '3px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ◀
-                        </button>
-                      )}
-                      {hasNext && (
-                        <button
-                          type="button"
-                          onClick={() => moveSpace(space.id, 'right')}
-                          title="Move right"
-                          style={{
-                            border: 'none',
-                            background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
-                            color: isActive ? '#ffffff' : '#475569',
-                            fontSize: '9px',
-                            padding: '1px 3px',
-                            borderRadius: '3px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ▶
-                        </button>
-                      )}
-                    </div>
-                  )}
 
                   {isActive && (
                     <div
