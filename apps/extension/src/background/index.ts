@@ -10,6 +10,7 @@ import {
   fetchRaindropUser,
   fetchRaindropCollections,
   createRaindropBookmark,
+  syncWorkspaceWithRaindrop,
 } from '@arcable/shared/utils';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -232,6 +233,26 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: collections };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to fetch collections' };
+        }
+      }
+
+      // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
+      case 'RAINDROP_SYNC_WORKSPACE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string } | undefined;
+        try {
+          const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
+            localState: payload?.localState,
+            deviceId: payload?.deviceId,
+            deviceName: payload?.deviceName || 'Arcable Extension',
+          });
+          return { success: result.success, data: result, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to sync workspace' };
         }
       }
 

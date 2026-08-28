@@ -88,6 +88,34 @@ export const App: React.FC = () => {
     }
   };
 
+  const [syncingWorkspace, setSyncingWorkspace] = useState(false);
+  const [workspaceSyncSuccess, setWorkspaceSyncSuccess] = useState(false);
+
+  const handleSyncWorkspace = async () => {
+    if (!authState.isAuthenticated) return;
+    setSyncingWorkspace(true);
+    setWorkspaceSyncSuccess(false);
+
+    try {
+      const rawRes = await browser.runtime.sendMessage({
+        type: 'RAINDROP_SYNC_WORKSPACE',
+        payload: { deviceName: 'Arcable Extension' },
+      });
+      const response = rawRes as ExtensionResponse;
+
+      if (response && response.success) {
+        setWorkspaceSyncSuccess(true);
+        setTimeout(() => setWorkspaceSyncSuccess(false), 3000);
+      } else {
+        alert(`Workspace sync error: ${response?.error || 'Failed'}`);
+      }
+    } catch (e: any) {
+      alert(`Workspace sync error: ${e.message}`);
+    } finally {
+      setSyncingWorkspace(false);
+    }
+  };
+
   const handleClear = async () => {
     await browser.storage.local.remove('arcable_items');
     setItems([]);
@@ -100,9 +128,29 @@ export const App: React.FC = () => {
         badgeText="Extension"
         badgeVariant="info"
         actions={
-          <Button size="sm" variant="ghost" onClick={() => browser.runtime.openOptionsPage()}>
-            ⚙️
-          </Button>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.open) {
+                  chrome.windows.getCurrent((win) => {
+                    if (win.id) chrome.sidePanel.open({ windowId: win.id });
+                  });
+                } else {
+                  // Fallback: open sidepanel page in a tab or window
+                  browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+                }
+              }}
+              title="Open Arcable Sidepanel"
+              style={{ fontSize: '11px', padding: '2px 6px', height: '24px' }}
+            >
+              📑 Sidepanel
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => browser.runtime.openOptionsPage()} title="Settings">
+              ⚙️
+            </Button>
+          </div>
         }
       />
 
@@ -172,6 +220,18 @@ export const App: React.FC = () => {
             >
               Save to Local Workspace
             </Button>
+
+            {authState.isAuthenticated && (
+              <Button
+                variant="outline"
+                size="sm"
+                style={{ width: '100%', borderColor: '#bae6fd', color: '#0284c7' }}
+                onClick={handleSyncWorkspace}
+                isLoading={syncingWorkspace}
+              >
+                {workspaceSyncSuccess ? '✓ Workspace Synced!' : '☁️ Sync Workspace to Raindrop'}
+              </Button>
+            )}
           </div>
         </Card>
 
