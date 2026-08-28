@@ -243,12 +243,13 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Not authenticated with Raindrop' };
         }
 
-        const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string } | undefined;
+        const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string; pendingOps?: any[] } | undefined;
         try {
           const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
             localState: payload?.localState,
             deviceId: payload?.deviceId,
             deviceName: payload?.deviceName || 'Arcable Extension',
+            pendingOps: payload?.pendingOps,
           });
           return { success: result.success, data: result, error: result.error };
         } catch (err: any) {

@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Header, Card, Button, Badge } from '@arcable/shared/components';
-import { formatDate, generateId, cleanUrl } from '@arcable/shared/utils';
-import { ArcableItem, RaindropAuthState, ExtensionResponse } from '@arcable/shared/types';
+import {
+  formatDate,
+  generateId,
+  cleanUrl,
+  getOrCreateDeviceId,
+  getStoredPendingOperations,
+  clearStoredPendingOperations,
+} from '@arcable/shared/utils';
+import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
@@ -97,13 +104,38 @@ export const App: React.FC = () => {
     setWorkspaceSyncSuccess(false);
 
     try {
+      let localState: any = undefined;
+      if (typeof window !== 'undefined') {
+        const storedWorkspaceRaw = window.localStorage.getItem('arcable_workspace_data');
+        if (storedWorkspaceRaw) {
+          try {
+            localState = JSON.parse(storedWorkspaceRaw);
+          } catch {}
+        }
+      }
+
+      const deviceId = getOrCreateDeviceId();
+      const pendingOps = getStoredPendingOperations();
+
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
-        payload: { deviceName: 'Arcable Extension' },
+        payload: {
+          deviceName: 'Arcable Extension',
+          localState,
+          deviceId,
+          pendingOps,
+        },
       });
-      const response = rawRes as ExtensionResponse;
+      const response = rawRes as ExtensionResponse<SyncResult>;
 
       if (response && response.success) {
+        clearStoredPendingOperations();
+        if (response.data?.latestSnapshot && typeof window !== 'undefined') {
+          window.localStorage.setItem(
+            'arcable_workspace_data',
+            JSON.stringify(response.data.latestSnapshot)
+          );
+        }
         setWorkspaceSyncSuccess(true);
         setTimeout(() => setWorkspaceSyncSuccess(false), 3000);
       } else {

@@ -42,10 +42,19 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const handleSyncRaindrop = async () => {
+  const handleSyncRaindrop = async (syncParams?: {
+    localState: any;
+    deviceId: string;
+    pendingOps: any[];
+  }) => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SYNC_WORKSPACE',
-      payload: { deviceName: 'Sidepanel' },
+      payload: {
+        deviceName: 'Sidepanel',
+        localState: syncParams?.localState,
+        deviceId: syncParams?.deviceId,
+        pendingOps: syncParams?.pendingOps,
+      },
     });
     if (!res || !res.success) {
       throw new Error(res?.error || 'Failed to sync with Raindrop');

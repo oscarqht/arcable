@@ -1,5 +1,5 @@
 import { ArcableWorkspaceData } from '../types/workspace';
-import { ArcableSyncFile, SyncResult } from '../types/sync';
+import { ArcableSyncFile, SyncResult, WorkspaceOperation } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem } from '../types/raindrop';
 import {
   fetchRaindropCollections,
@@ -16,6 +16,7 @@ import {
   clearStoredPendingOperations,
   compactSyncFile,
   createInitialSyncFile,
+  isPlaceholderSnapshot,
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
@@ -65,76 +66,94 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
 }
 
 /**
+ * Finds all existing "data.json" / "data.json.txt" raindrop items under the specified collection.
+ */
+export async function findAllRaindropDataJsonItems(
+  token: string,
+  collectionId: number
+): Promise<RaindropBookmarkItem[]> {
+  const items: RaindropBookmarkItem[] = [];
+
+  // 1. Search by term 'data'
+  try {
+    const searchRes = await fetchRaindropItems(token, collectionId, {
+      search: 'data',
+      perpage: 50,
+    });
+    for (const item of searchRes.items) {
+      if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+        items.push(item);
+      }
+    }
+  } catch (err) {
+    console.warn('[RaindropSync] Search for data file failed, falling back to full list:', err);
+  }
+
+  // 2. Fallback: list items in the collection
+  try {
+    const listRes = await fetchRaindropItems(token, collectionId, { perpage: 50 });
+    for (const item of listRes.items) {
+      if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+        items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error('[RaindropSync] Error listing items in collection:', err);
+  }
+
+  return items;
+}
+
+/**
  * Searches for an existing "data.json" / "data.json.txt" raindrop item under the specified collection.
  */
 export async function findRaindropDataJsonItem(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem | null> {
-  // First search by term 'data'
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'data',
-      perpage: 20,
-    });
-
-    const foundInSearch = searchRes.items.find(isDataJsonItem);
-    if (foundInSearch) {
-      return foundInSearch;
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for data file failed, falling back to full list:', err);
-  }
-
-  // Fallback: list items in the collection
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, { perpage: 50 });
-    const foundInList = listRes.items.find(isDataJsonItem);
-    return foundInList || null;
-  } catch (err) {
-    console.error('[RaindropSync] Error listing items in collection:', err);
-    return null;
-  }
+  const all = await findAllRaindropDataJsonItems(token, collectionId);
+  return all.length > 0 ? all[0] : null;
 }
 
 /**
  * Fetches and parses the ArcableSyncFile from Raindrop.
- * If data.json does not exist or contains legacy/empty data, bootstraps a valid ArcableSyncFile.
+ * If data.json does not exist or contains legacy/empty placeholder data, bootstraps a valid ArcableSyncFile from local state.
  */
 export async function fetchRaindropSyncFile(
   token: string,
   collectionId: number,
   localFallback: ArcableWorkspaceData,
   deviceId: string
-): Promise<{ syncFile: ArcableSyncFile; existingItem: RaindropBookmarkItem | null }> {
-  const existingItem = await findRaindropDataJsonItem(token, collectionId);
+): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
+  const existingItems = await findAllRaindropDataJsonItems(token, collectionId);
 
-  if (!existingItem) {
+  if (existingItems.length === 0) {
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
-      existingItem: null,
+      existingItems: [],
     };
   }
 
-  // Resolve best download URL (file.path or link)
-  const fileUrl = existingItem.file?.path || existingItem.link;
+  // Use the first (or most recently updated) data item
+  const latestItem = existingItems[0];
+  const fileUrl = latestItem.file?.path || latestItem.link;
 
   try {
     let rawContent = fileUrl ? await fetchRaindropFileContent(token, fileUrl) : '';
 
     // Fallback: check item note or excerpt if remote file download was empty or not plain text
     if (!rawContent || !rawContent.trim()) {
-      if (existingItem.note && existingItem.note.trim().startsWith('{')) {
-        rawContent = existingItem.note;
-      } else if (existingItem.excerpt && existingItem.excerpt.trim().startsWith('{')) {
-        rawContent = existingItem.excerpt;
+      if (latestItem.note && latestItem.note.trim().startsWith('{')) {
+        rawContent = latestItem.note;
+      } else if (latestItem.excerpt && latestItem.excerpt.trim().startsWith('{')) {
+        rawContent = latestItem.excerpt;
       }
     }
 
     if (!rawContent || !rawContent.trim()) {
       return {
         syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItem,
+        existingItems,
       };
     }
 
@@ -143,7 +162,7 @@ export async function fetchRaindropSyncFile(
       console.warn('[RaindropSync] Remote data item returned HTML/XML error instead of JSON, bootstrapping from local state.');
       return {
         syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItem,
+        existingItems,
       };
     }
 
@@ -154,12 +173,25 @@ export async function fetchRaindropSyncFile(
       console.warn('[RaindropSync] Failed to parse remote data.json, bootstrapping from local state:', parseErr);
       return {
         syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItem,
+        existingItems,
       };
     }
 
     // Case 1: Already an ArcableSyncFile format
     if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
+      // If remote snapshot is just an empty placeholder (e.g. space_default with 0 operations)
+      // and localFallback has actual user data, adopt localFallback to restore the real workspace state.
+      if (
+        isPlaceholderSnapshot(parsed.baselineSnapshot) &&
+        parsed.operations.length === 0 &&
+        !isPlaceholderSnapshot(localFallback)
+      ) {
+        return {
+          syncFile: createInitialSyncFile(localFallback, deviceId),
+          existingItems,
+        };
+      }
+
       return {
         syncFile: {
           version: parsed.version || 1,
@@ -167,28 +199,38 @@ export async function fetchRaindropSyncFile(
           baselineSnapshot: parsed.baselineSnapshot,
           operations: parsed.operations,
         },
-        existingItem,
+        existingItems,
       };
     }
 
     // Case 2: Legacy single ArcableWorkspaceData snapshot ({ spaces, folders, tabs })
     if (parsed && Array.isArray(parsed.spaces)) {
+      if (
+        isPlaceholderSnapshot(parsed as ArcableWorkspaceData) &&
+        !isPlaceholderSnapshot(localFallback)
+      ) {
+        return {
+          syncFile: createInitialSyncFile(localFallback, deviceId),
+          existingItems,
+        };
+      }
+
       return {
         syncFile: createInitialSyncFile(parsed as ArcableWorkspaceData, deviceId),
-        existingItem,
+        existingItems,
       };
     }
 
     // Case 3: Empty object or unrecognized structure
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
-      existingItem,
+      existingItems,
     };
   } catch (err) {
     console.warn('[RaindropSync] Unexpected error reading remote data.json, using local state:', err);
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
-      existingItem,
+      existingItems,
     };
   }
 }
@@ -196,7 +238,7 @@ export async function fetchRaindropSyncFile(
 /**
  * Core multi-device sync function:
  * 1. Finds/creates root "Arcable" collection in Raindrop.
- * 2. Fetches remote "data.json" sync file (or initializes if missing/legacy).
+ * 2. Fetches remote "data.json" sync file (or initializes if missing/legacy/placeholder).
  * 3. Appends local pending operations.
  * 4. Compacts baseline snapshot with 7-day inactive device TTL and Lamport ordering.
  * 5. Deletes existing "data.json" raindrop item(s).
@@ -209,6 +251,7 @@ export async function syncWorkspaceWithRaindrop(
     localState?: ArcableWorkspaceData;
     deviceId?: string;
     deviceName?: string;
+    pendingOps?: WorkspaceOperation[];
   }
 ): Promise<SyncResult> {
   const clean = cleanRaindropToken(token);
@@ -238,16 +281,18 @@ export async function syncWorkspaceWithRaindrop(
       tabs: [],
     };
 
-    // 2. Fetch remote sync file & existing item
-    const { syncFile: remoteSyncFile, existingItem } = await fetchRaindropSyncFile(
+    // 2. Fetch remote sync file & existing items
+    const { syncFile: remoteSyncFile, existingItems } = await fetchRaindropSyncFile(
       clean,
       collection._id,
       localState,
       deviceId
     );
 
-    // 3. Read local pending operations
-    const pendingOps = getStoredPendingOperations();
+    // 3. Read local pending operations (prefer passed-in options.pendingOps if provided)
+    const pendingOps = options?.pendingOps !== undefined
+      ? options.pendingOps
+      : getStoredPendingOperations();
 
     // 4. Compact sync file & compute latest snapshot
     const compacted = compactSyncFile(
@@ -258,12 +303,14 @@ export async function syncWorkspaceWithRaindrop(
       Date.now()
     );
 
-    // 5. Delete existing data.json item if present
-    if (existingItem && existingItem._id) {
-      try {
-        await deleteRaindropBookmark(clean, existingItem._id);
-      } catch (delErr) {
-        console.warn('[RaindropSync] Warning: Failed to delete previous data.json item:', delErr);
+    // 5. Delete existing data.json items if present
+    for (const item of existingItems) {
+      if (item._id) {
+        try {
+          await deleteRaindropBookmark(clean, item._id);
+        } catch (delErr) {
+          console.warn('[RaindropSync] Warning: Failed to delete previous data.json item:', delErr);
+        }
       }
     }
 
@@ -278,8 +325,10 @@ export async function syncWorkspaceWithRaindrop(
 
     const uploadedItemId = uploadResult?.item?._id;
 
-    // 7. Clear pending operations now that they are persisted in the cloud log
-    clearStoredPendingOperations();
+    // 7. Clear pending operations if on client and not managed by caller
+    if (typeof window !== 'undefined' && options?.pendingOps === undefined) {
+      clearStoredPendingOperations();
+    }
 
     return {
       success: true,

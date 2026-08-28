@@ -456,6 +456,24 @@ export function compactSyncFile(
 }
 
 /**
+ * Checks if a snapshot is just a fallback/empty placeholder structure
+ * (e.g. created during server-side initializations with only space_default and no tabs/folders).
+ */
+export function isPlaceholderSnapshot(data: ArcableWorkspaceData | undefined | null): boolean {
+  if (!data) return true;
+  if (!data.spaces || data.spaces.length === 0) return true;
+  if (
+    data.spaces.length === 1 &&
+    (data.spaces[0].id === 'space_default' || data.spaces[0].id === 'space_fallback') &&
+    (!data.folders || data.folders.length === 0) &&
+    (!data.tabs || data.tabs.length === 0)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Creates an empty/initial ArcableSyncFile bootstrapped with a given initial state.
  */
 export function createInitialSyncFile(

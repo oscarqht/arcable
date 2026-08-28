@@ -187,7 +187,11 @@ export default function HomePage() {
     }
   };
 
-  const handleSyncWorkspace = async () => {
+  const handleSyncWorkspace = async (syncParams?: {
+    localState: any;
+    deviceId: string;
+    pendingOps: any[];
+  }) => {
     try {
       const res = await fetch('/api/raindrop/sync', {
         method: 'POST',
@@ -195,6 +199,9 @@ export default function HomePage() {
         body: JSON.stringify({
           token: authState.accessToken,
           deviceName: 'Arcable Web App',
+          localState: syncParams?.localState,
+          deviceId: syncParams?.deviceId,
+          pendingOps: syncParams?.pendingOps,
         }),
       });
 

@@ -1,8 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Space, Folder, Tab } from '../../types/workspace';
+import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
+import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { useWorkspace } from '../../hooks/useWorkspace';
+import {
+  getOrCreateDeviceId,
+  getStoredPendingOperations,
+  clearStoredPendingOperations,
+} from '../../utils/syncEngine';
 import { Button } from '../Button';
 import { TabRow } from './TabRow';
 import { FolderItem } from './FolderItem';
@@ -18,7 +24,11 @@ export interface WorkspaceManagerProps {
   headerTitle?: string;
   showJsonInspector?: boolean;
   raindropToken?: string;
-  onSyncRaindrop?: () => Promise<void | any>;
+  onSyncRaindrop?: (params: {
+    localState: ArcableWorkspaceData;
+    deviceId: string;
+    pendingOps: WorkspaceOperation[];
+  }) => Promise<SyncResult | void | any>;
 }
 
 export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
@@ -47,6 +57,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     deleteTab,
     togglePinTab,
     resetToDefault,
+    applyLatestSnapshot,
     pinnedTabs,
     rootTabs,
     rootFolders,
@@ -90,18 +101,46 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     setSyncLoading(true);
 
     try {
+      let result: SyncResult | null = null;
+
       if (onSyncRaindrop) {
-        await onSyncRaindrop();
-        setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
-      } else if (raindropToken) {
-        const res = await syncWithRaindropToken(raindropToken);
-        if (res.success) {
-          setSyncFeedback({ message: `✓ Synced with Raindrop! (${res.opsAppliedCount || 0} ops uploaded)` });
-        } else {
-          setSyncFeedback({ message: res.error || 'Failed to sync with Raindrop.', isError: true });
+        const deviceId = getOrCreateDeviceId();
+        const pendingOps = getStoredPendingOperations();
+        const res = await onSyncRaindrop({
+          localState: data,
+          deviceId,
+          pendingOps,
+        });
+
+        if (res && typeof res === 'object') {
+          result = res as SyncResult;
+          if (res.success) {
+            clearStoredPendingOperations();
+            if (res.latestSnapshot) {
+              applyLatestSnapshot(res.latestSnapshot);
+            }
+          }
         }
+      } else if (raindropToken) {
+        result = await syncWithRaindropToken(raindropToken);
       } else {
         setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
+        return;
+      }
+
+      if (result) {
+        if (result.success) {
+          setSyncFeedback({
+            message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} ops applied)`,
+          });
+        } else {
+          setSyncFeedback({
+            message: result.error || 'Failed to sync with Raindrop.',
+            isError: true,
+          });
+        }
+      } else if (onSyncRaindrop) {
+        setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
       }
     } catch (err: any) {
       setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });

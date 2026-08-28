@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       localState: body?.localState,
       deviceId: body?.deviceId,
       deviceName: body?.deviceName || 'Arcable Web App',
+      pendingOps: body?.pendingOps,
     });
 
     if (!result.success) {
