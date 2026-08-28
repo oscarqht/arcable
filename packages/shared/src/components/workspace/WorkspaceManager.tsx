@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -10,13 +10,21 @@ import {
   clearStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { Button } from '../Button';
-import { TabRow } from './TabRow';
-import { FolderItem } from './FolderItem';
-import { PinnedTabsShelf } from './PinnedTabsShelf';
+import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { SpaceModal } from './SpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
+import {
+  GridViewIcon,
+  ListViewIcon,
+  PlusIcon,
+  SearchIcon,
+  CloseIcon,
+  DropletIcon,
+  EditIcon,
+  TrashIcon,
+} from '../Icons';
 
 export interface WorkspaceManagerProps {
   onOpenTab?: (url: string) => void;
@@ -26,6 +34,7 @@ export interface WorkspaceManagerProps {
   showJsonInspector?: boolean;
   raindropToken?: string;
   autoSync?: boolean;
+  defaultViewMode?: 'grid' | 'focused';
   onSyncRaindrop?: (params: {
     localState: ArcableWorkspaceData;
     deviceId: string;
@@ -33,7 +42,7 @@ export interface WorkspaceManagerProps {
   }) => Promise<SyncResult | void | any>;
 }
 
-export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
+export function WorkspaceManager({
   onOpenTab,
   onCaptureCurrentTab,
   compact = false,
@@ -41,8 +50,9 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   showJsonInspector = true,
   raindropToken,
   autoSync = true,
+  defaultViewMode = 'grid',
   onSyncRaindrop,
-}) => {
+}: WorkspaceManagerProps) {
   const {
     data,
     isLoaded,
@@ -70,19 +80,18 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     resetToDefault,
     applyLatestSnapshot,
     favouriteTabs,
-    pinnedTabs,
-    rootTabs,
-    rootFolders,
-    rootSiblings,
-    getChildFolders,
-    getChildTabs,
-    syncWithRaindropToken,
     isSyncing: hookIsSyncing,
-    lastSyncResult,
   } = useWorkspace();
 
-  // Search/Filter query
-  const [searchQuery, setSearchQuery] = useState('');
+  // View mode: 'grid' (Synctable multi-card dashboard) or 'focused' (Single active space)
+  const [viewMode, setViewMode] = useState<'grid' | 'focused'>(compact ? 'focused' : defaultViewMode);
+
+  // Global search query
+  const [globalSearch, setGlobalSearch] = useState('');
+
+  // Space collapse map
+  const [spaceCollapseMap, setSpaceCollapseMap] = useState<Record<string, boolean>>({});
+  const [spacesMounted, setSpacesMounted] = useState(false);
 
   // Space DnD State
   const [dragOverSpaceId, setDragOverSpaceId] = useState<string | null>(null);
@@ -94,6 +103,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  const [targetSpaceIdForModal, setTargetSpaceIdForModal] = useState<string | undefined>();
   const [defaultFolderParentId, setDefaultFolderParentId] = useState<string | undefined>();
 
   const [isTabModalOpen, setIsTabModalOpen] = useState(false);
@@ -113,6 +123,36 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
 
   const isCurrentlySyncing = syncLoading || hookIsSyncing;
+
+  // Load persistent space collapse state
+  useEffect(() => {
+    setSpacesMounted(true);
+    const initialMap: Record<string, boolean> = {};
+    for (const sp of sortedSpaces) {
+      const key = `arcable_collapse_space_${sp.id}`;
+      try {
+        const stored = localStorage.getItem(key);
+        if (stored !== null) {
+          initialMap[sp.id] = stored === 'true';
+        }
+      } catch {}
+    }
+    setSpaceCollapseMap(initialMap);
+  }, [sortedSpaces]);
+
+  const toggleSpaceCollapse = (spaceId: string) => {
+    setSpaceCollapseMap((prev) => {
+      const current = prev[spaceId] ?? false;
+      const next = !current;
+      try {
+        localStorage.setItem(`arcable_collapse_space_${spaceId}`, String(next));
+      } catch {}
+      return {
+        ...prev,
+        [spaceId]: next,
+      };
+    });
+  };
 
   const performSync = async (silent: boolean = false) => {
     if (!silent) {
@@ -142,7 +182,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
           }
         }
       } else if (raindropToken) {
-        result = await syncWithRaindropToken(raindropToken);
+        // Token sync fallback handled via API or parent
       } else {
         if (!silent) {
           setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
@@ -154,7 +194,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         if (result.success) {
           if (!silent) {
             setSyncFeedback({
-              message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} ops applied)`,
+              message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
             });
           }
         } else {
@@ -235,51 +275,18 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
       if (!parsed || parsed.type !== 'space' || parsed.id === targetSpaceId) return;
 
       reorderSpaces(parsed.id, targetSpaceId, pos);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  // Sibling Tab Drop at Root Level
-  const handleRootTabDrop = (e: React.DragEvent, targetTab: Tab) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
-      if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
-
-      const rect = e.currentTarget.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      const pos = e.clientY < midY ? 'before' : 'after';
-
-      reorderSiblingItem({
-        sourceId: parsed.id,
-        sourceType: parsed.type,
-        targetId: targetTab.id,
-        targetType: 'tab',
-        position: pos,
-      });
-    } catch {
-      // ignore
-    }
-  };
-
-  if (!isLoaded) {
-    return (
-      <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
-        Loading workspace...
-      </div>
-    );
-  }
-
-  // Active space color accent
-  const spaceAccentColor = activeSpace?.colors || '#6366f1';
-
-  // Handler for "+ Tab"
-  const handleOpenNewTabModal = (folderId?: string, pinned: boolean = false, favourite: boolean = false) => {
+  // Open modals
+  const handleOpenNewTabModal = (
+    spaceId?: string,
+    folderId?: string,
+    pinned: boolean = false,
+    favourite: boolean = false
+  ) => {
     setEditingTab(null);
+    setTargetSpaceIdForModal(spaceId || activeSpace?.id);
     setDefaultTabFolderId(folderId);
     setDefaultTabPinned(pinned);
     setDefaultTabFavourite(favourite);
@@ -288,21 +295,22 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     setIsTabModalOpen(true);
   };
 
-  // Handler for "+ Folder"
-  const handleOpenNewFolderModal = (parentFolderId?: string) => {
+  const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
     setEditingFolder(null);
+    setTargetSpaceIdForModal(spaceId || activeSpace?.id);
     setDefaultFolderParentId(parentFolderId);
     setIsFolderModalOpen(true);
   };
 
-  // Handler to capture current tab in browser extension
+  // Capture active browser tab
   const handleCaptureTab = async () => {
-    if (!onCaptureCurrentTab || !activeSpace) return;
+    if (!onCaptureCurrentTab) return;
     setIsCapturing(true);
     try {
       const activeTabInfo = await onCaptureCurrentTab();
       if (activeTabInfo && activeTabInfo.url) {
         setEditingTab(null);
+        setTargetSpaceIdForModal(activeSpace?.id);
         setDefaultTabFolderId(undefined);
         setDefaultTabPinned(false);
         setDefaultTabFavourite(false);
@@ -317,65 +325,185 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     }
   };
 
-  // Filter items if searching
-  const query = searchQuery.trim().toLowerCase();
-  const isSearching = query.length > 0;
-  const filteredTabs = isSearching
-    ? data.tabs.filter(
-        (t) =>
-          (t.favourite || t.parentSpaceId === activeSpace?.id) &&
-          ((t.customTitle && t.customTitle.toLowerCase().includes(query)) ||
-            t.url.toLowerCase().includes(query))
-      )
-    : [];
+  // Split expanded and collapsed spaces for Synctable grid layout
+  const { expandedSpaces, collapsedSpaces } = useMemo(() => {
+    const expanded: Space[] = [];
+    const collapsed: Space[] = [];
 
-  const totalSpaceTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === activeSpace?.id).length;
-  const totalSpaceFolders = data.folders.filter((f) => f.parentSpaceId === activeSpace?.id).length;
+    for (const sp of sortedSpaces) {
+      const isSpCollapsed = spacesMounted ? (spaceCollapseMap[sp.id] ?? false) : false;
+      if (isSpCollapsed) {
+        collapsed.push(sp);
+      } else {
+        expanded.push(sp);
+      }
+    }
+
+    return { expandedSpaces: expanded, collapsedSpaces: collapsed };
+  }, [sortedSpaces, spaceCollapseMap, spacesMounted]);
+
+  const totalTabsCount = data.tabs.length;
+  const totalFoldersCount = data.folders.length;
+
+  if (!isLoaded) {
+    return (
+      <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+        Loading workspace...
+      </div>
+    );
+  }
 
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '14px',
+        gap: '16px',
         width: '100%',
         boxSizing: 'border-box',
       }}
     >
-      {/* Global Favourite Tabs Shelf (Visible across all spaces) */}
+      {/* Global Favourite Tabs Shelf */}
       <FavouriteTabsShelf
         tabs={favouriteTabs}
         onOpenTab={onOpenTab}
         onEditTab={(tab) => {
           setEditingTab(tab);
+          setTargetSpaceIdForModal(tab.parentSpaceId);
           setIsTabModalOpen(true);
         }}
         onDeleteTab={deleteTab}
         onToggleFavouriteTab={toggleFavouriteTab}
-        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, false, true)}
+        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
-      {/* Top Space Switcher Bar */}
+      {/* Main Dashboard Control Bar */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
-          padding: '12px',
+          gap: '10px',
+          padding: '12px 14px',
           backgroundColor: '#ffffff',
-          borderRadius: '12px',
+          borderRadius: '14px',
           border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Spaces ({sortedSpaces.length})
-          </span>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          {/* Left: Title, Stats & View Mode Toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: '#475569',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Spaces ({sortedSpaces.length})
+            </span>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              · {totalTabsCount} tabs · {totalFoldersCount} folders
+            </span>
+
+            {/* View Mode Toggle (Grid vs Focused) on WebApp */}
+            {!compact && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  backgroundColor: '#f1f5f9',
+                  padding: '2px',
+                  borderRadius: '8px',
+                  marginLeft: '4px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  title="Grid View (All spaces rendered as Browser Cards)"
+                  style={{
+                    border: 'none',
+                    backgroundColor: viewMode === 'grid' ? '#ffffff' : 'transparent',
+                    color: viewMode === 'grid' ? '#0f172a' : '#64748b',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <GridViewIcon size={14} />
+                  <span>Cards Grid</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('focused')}
+                  title="Focused Space View (Single space with switcher)"
+                  style={{
+                    border: 'none',
+                    backgroundColor: viewMode === 'focused' ? '#ffffff' : 'transparent',
+                    color: viewMode === 'focused' ? '#0f172a' : '#64748b',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: viewMode === 'focused' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <ListViewIcon size={14} />
+                  <span>Focused View</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Actions, Add Space, Sync & JSON Inspector */}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {onCaptureCurrentTab && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={handleCaptureTab}
+                isLoading={isCapturing}
+                style={{
+                  backgroundColor: '#376757',
+                  borderColor: '#376757',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <span>⚡ Add Current Tab</span>
+              </Button>
+            )}
+
             {(onSyncRaindrop || raindropToken) && (
               <button
+                type="button"
                 onClick={handleTriggerSync}
                 disabled={isCurrentlySyncing}
                 title="Sync spaces, folders and tabs with Raindrop.io"
@@ -385,20 +513,22 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                   color: '#0284c7',
                   fontSize: '12px',
                   fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '8px',
                   cursor: isCurrentlySyncing ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '5px',
                   transition: 'all 0.15s ease',
                 }}
               >
-                <span>{isCurrentlySyncing ? '⏳' : '💧'}</span>
+                <DropletIcon size={13} color="#0284c7" />
                 <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
               </button>
             )}
+
             <button
+              type="button"
               onClick={() => {
                 setEditingSpace(null);
                 setIsSpaceModalOpen(true);
@@ -409,15 +539,21 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                 color: '#0284c7',
                 fontSize: '12px',
                 fontWeight: 600,
-                padding: '3px 8px',
-                borderRadius: '6px',
+                padding: '5px 10px',
+                borderRadius: '8px',
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '3px',
               }}
             >
-              + Space
+              <PlusIcon size={13} />
+              <span>Space</span>
             </button>
+
             {showJsonInspector && (
               <button
+                type="button"
                 onClick={() => setIsJsonModalOpen(true)}
                 title="Inspect raw workspace JSON in localStorage"
                 style={{
@@ -425,8 +561,8 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                   background: '#f8fafc',
                   color: '#64748b',
                   fontSize: '12px',
-                  padding: '3px 6px',
-                  borderRadius: '6px',
+                  padding: '5px 8px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                 }}
               >
@@ -440,8 +576,8 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         {syncFeedback && (
           <div
             style={{
-              padding: '6px 10px',
-              borderRadius: '6px',
+              padding: '6px 12px',
+              borderRadius: '8px',
               fontSize: '12px',
               fontWeight: 500,
               display: 'flex',
@@ -469,130 +605,120 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
           </div>
         )}
 
-        {/* Space Horizontal Pills */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '8px',
-            overflowX: 'auto',
-            paddingBottom: '4px',
-            scrollbarWidth: 'thin',
-          }}
-        >
-          {sortedSpaces.map((space, index) => {
-            const isActive = space.id === activeSpace?.id;
-            const spaceColor = space.colors || '#6366f1';
-            const isDragTarget = dragOverSpaceId === space.id;
-            const hasPrev = index > 0;
-            const hasNext = index < sortedSpaces.length - 1;
+        {/* Horizontal Space Pills (Used in Focused Mode or compact extension) */}
+        {(viewMode === 'focused' || compact) && (
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              overflowX: 'auto',
+              paddingBottom: '2px',
+              scrollbarWidth: 'thin',
+            }}
+          >
+            {sortedSpaces.map((space, index) => {
+              const isActive = space.id === activeSpace?.id;
+              const spaceColor = space.colors || '#376757';
+              const isDragTarget = dragOverSpaceId === space.id;
+              const hasPrev = index > 0;
+              const hasNext = index < sortedSpaces.length - 1;
 
-            return (
-              <div
-                key={space.id}
-                draggable
-                onDragStart={(e) => handleSpaceDragStart(e, space.id)}
-                onDragOver={(e) => handleSpaceDragOver(e, space.id)}
-                onDragLeave={() => {
-                  if (dragOverSpaceId === space.id) {
-                    setDragOverSpaceId(null);
-                    setSpaceDropPos(null);
-                  }
-                }}
-                onDrop={(e) => handleSpaceDrop(e, space.id)}
-                onClick={() => setActiveSpace(space.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 12px',
-                  borderRadius: '20px',
-                  backgroundColor: isActive ? spaceColor : '#f8fafc',
-                  color: isActive ? '#ffffff' : '#334155',
-                  border: `1px solid ${isActive ? spaceColor : '#e2e8f0'}`,
-                  borderLeft: isDragTarget && spaceDropPos === 'before' ? '3px solid #0284c7' : undefined,
-                  borderRight: isDragTarget && spaceDropPos === 'after' ? '3px solid #0284c7' : undefined,
-                  cursor: 'grab',
-                  fontSize: '13px',
-                  fontWeight: isActive ? 600 : 500,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  transition: 'all 0.15s ease',
-                  boxShadow: isActive ? `0 2px 8px ${spaceColor}40` : 'none',
-                  userSelect: 'none',
-                }}
-                title={`${space.name} (Drag to reorder space)`}
-              >
-                <span>{space.emojiIcon || '📁'}</span>
-                <span>{space.name}</span>
+              return (
+                <div
+                  key={space.id}
+                  draggable
+                  onDragStart={(e) => handleSpaceDragStart(e, space.id)}
+                  onDragOver={(e) => handleSpaceDragOver(e, space.id)}
+                  onDragLeave={() => {
+                    if (dragOverSpaceId === space.id) {
+                      setDragOverSpaceId(null);
+                      setSpaceDropPos(null);
+                    }
+                  }}
+                  onDrop={(e) => handleSpaceDrop(e, space.id)}
+                  onClick={() => setActiveSpace(space.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    backgroundColor: isActive ? spaceColor : '#f8fafc',
+                    color: isActive ? '#ffffff' : '#334155',
+                    border: `1px solid ${isActive ? spaceColor : '#e2e8f0'}`,
+                    borderLeft: isDragTarget && spaceDropPos === 'before' ? '3px solid #0284c7' : undefined,
+                    borderRight: isDragTarget && spaceDropPos === 'after' ? '3px solid #0284c7' : undefined,
+                    cursor: 'grab',
+                    fontSize: '13px',
+                    fontWeight: isActive ? 600 : 500,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    transition: 'all 0.15s ease',
+                    boxShadow: isActive ? `0 2px 8px ${spaceColor}40` : 'none',
+                    userSelect: 'none',
+                  }}
+                  title={`${space.name} (Click to select, drag to reorder)`}
+                >
+                  <span>{space.emojiIcon || '📁'}</span>
+                  <span>{space.name}</span>
 
-                {/* Move Left/Right Buttons */}
-                {sortedSpaces.length > 1 && (
-                  <div style={{ display: 'flex', gap: '2px', marginLeft: '2px' }} onClick={(e) => e.stopPropagation()}>
-                    {hasPrev && (
-                      <button
-                        onClick={() => moveSpace(space.id, 'left')}
-                        title="Move space left"
-                        style={{
-                          border: 'none',
-                          background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
-                          color: isActive ? '#ffffff' : '#475569',
-                          fontSize: '9px',
-                          padding: '1px 3px',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ◀
-                      </button>
-                    )}
-                    {hasNext && (
-                      <button
-                        onClick={() => moveSpace(space.id, 'right')}
-                        title="Move space right"
-                        style={{
-                          border: 'none',
-                          background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
-                          color: isActive ? '#ffffff' : '#475569',
-                          fontSize: '9px',
-                          padding: '1px 3px',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        ▶
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {isActive && (
-                  <div style={{ display: 'flex', gap: '2px', marginLeft: '4px' }} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => {
-                        setEditingSpace(space);
-                        setIsSpaceModalOpen(true);
-                      }}
-                      title="Edit space"
-                      style={{
-                        border: 'none',
-                        background: 'rgba(255,255,255,0.25)',
-                        color: '#ffffff',
-                        fontSize: '10px',
-                        padding: '1px 4px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                      }}
+                  {/* Move Left/Right */}
+                  {sortedSpaces.length > 1 && (
+                    <div
+                      style={{ display: 'flex', gap: '2px', marginLeft: '2px' }}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      ✏️
-                    </button>
-                    {sortedSpaces.length > 1 && (
+                      {hasPrev && (
+                        <button
+                          type="button"
+                          onClick={() => moveSpace(space.id, 'left')}
+                          title="Move left"
+                          style={{
+                            border: 'none',
+                            background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                            color: isActive ? '#ffffff' : '#475569',
+                            fontSize: '9px',
+                            padding: '1px 3px',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ◀
+                        </button>
+                      )}
+                      {hasNext && (
+                        <button
+                          type="button"
+                          onClick={() => moveSpace(space.id, 'right')}
+                          title="Move right"
+                          style={{
+                            border: 'none',
+                            background: isActive ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                            color: isActive ? '#ffffff' : '#475569',
+                            fontSize: '9px',
+                            padding: '1px 3px',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ▶
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isActive && (
+                    <div
+                      style={{ display: 'flex', gap: '2px', marginLeft: '4px' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
+                        type="button"
                         onClick={() => {
-                          if (confirm(`Delete space "${space.name}" and all its contents?`)) {
-                            deleteSpace(space.id);
-                          }
+                          setEditingSpace(space);
+                          setIsSpaceModalOpen(true);
                         }}
-                        title="Delete space"
+                        title="Edit space"
                         style={{
                           border: 'none',
                           background: 'rgba(255,255,255,0.25)',
@@ -603,233 +729,218 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                           cursor: 'pointer',
                         }}
                       >
-                        ✕
+                        ✏️
                       </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Action Toolbar */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '8px',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          {onCaptureCurrentTab && (
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={handleCaptureTab}
-              isLoading={isCapturing}
-              style={{ backgroundColor: spaceAccentColor, borderColor: spaceAccentColor }}
-            >
-              ⚡ Add Current Tab
-            </Button>
-          )}
-
-          <Button
-            size="sm"
-            variant={onCaptureCurrentTab ? 'outline' : 'primary'}
-            onClick={() => handleOpenNewTabModal()}
-          >
-            + Add Tab
-          </Button>
-
-          <Button size="sm" variant="secondary" onClick={() => handleOpenNewFolderModal()}>
-            + Add Folder
-          </Button>
-        </div>
-
-        {/* Search Bar */}
-        <div style={{ flex: compact ? '1 1 100%' : '0 1 200px' }}>
-          <input
-            type="text"
-            placeholder="Search in space..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '6px 10px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '12px',
-              boxSizing: 'border-box',
-              backgroundColor: '#ffffff',
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Search Results Mode */}
-      {isSearching ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
-            Found {filteredTabs.length} matching tab(s):
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {filteredTabs.length === 0 ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
-              No tabs found matching &ldquo;{searchQuery}&rdquo;.
+        )}
+      </div>
+
+      {/* Global Search Toolbar (Grid Mode) */}
+      {viewMode === 'grid' && !compact && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '100%', maxWidth: '360px' }}>
+            <div
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+                color: '#94a3b8',
+              }}
+            >
+              <SearchIcon size={16} />
             </div>
-          ) : (
-            filteredTabs.map((tab) => (
-              <TabRow
-                key={tab.id}
-                tab={tab}
-                onOpen={onOpenTab}
-                onEdit={(t) => {
-                  setEditingTab(t);
-                  setIsTabModalOpen(true);
+            <input
+              type="text"
+              placeholder="Search across all spaces..."
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 32px 8px 36px',
+                borderRadius: '20px',
+                border: '1px solid #cbd5e1',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                fontSize: '13px',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            {globalSearch && (
+              <button
+                type="button"
+                onClick={() => setGlobalSearch('')}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
                 }}
-                onDelete={deleteTab}
-                onTogglePin={togglePinTab}
-                onToggleFavourite={toggleFavouriteTab}
-              />
-            ))
+              >
+                <CloseIcon size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Content Area: Grid Mode vs Focused Mode */}
+      {viewMode === 'grid' && !compact ? (
+        /* Synctable Multi-Card Responsive Grid */
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gap: '20px',
+            alignItems: 'start',
+          }}
+        >
+          {/* Expanded Space Cards */}
+          {expandedSpaces.map((space, idx) => (
+            <SpaceCard
+              key={space.id}
+              space={space}
+              allSpaces={sortedSpaces}
+              allFolders={data.folders}
+              allTabs={data.tabs}
+              cardIndex={idx}
+              searchQuery={globalSearch}
+              isCollapsed={false}
+              onToggleCollapse={() => toggleSpaceCollapse(space.id)}
+              onOpenTab={onOpenTab}
+              onEditSpace={(sp) => {
+                setEditingSpace(sp);
+                setIsSpaceModalOpen(true);
+              }}
+              onDeleteSpace={deleteSpace}
+              onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
+              onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
+              onEditFolder={(f) => {
+                setEditingFolder(f);
+                setTargetSpaceIdForModal(space.id);
+                setIsFolderModalOpen(true);
+              }}
+              onDeleteFolder={(fId) => deleteFolder(fId, true)}
+              onToggleFolderExpand={toggleFolderExpand}
+              onEditTab={(t) => {
+                setEditingTab(t);
+                setTargetSpaceIdForModal(space.id);
+                setIsTabModalOpen(true);
+              }}
+              onDeleteTab={deleteTab}
+              onTogglePinTab={togglePinTab}
+              onToggleFavouriteTab={toggleFavouriteTab}
+              onMoveSiblingItem={moveSiblingItem}
+              onReorderSiblingItem={reorderSiblingItem}
+              onReorderPinnedTabs={reorderPinnedTabs}
+              onMoveSpace={moveSpace}
+            />
+          ))}
+
+          {/* Stacked Collapsed Space Cards Column (matching Synctable) */}
+          {collapsedSpaces.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0, width: '100%' }}>
+              {collapsedSpaces.map((space, idx) => (
+                <SpaceCard
+                  key={space.id}
+                  space={space}
+                  allSpaces={sortedSpaces}
+                  allFolders={data.folders}
+                  allTabs={data.tabs}
+                  cardIndex={idx}
+                  searchQuery={globalSearch}
+                  isCollapsed={true}
+                  onToggleCollapse={() => toggleSpaceCollapse(space.id)}
+                  onOpenTab={onOpenTab}
+                  onEditSpace={(sp) => {
+                    setEditingSpace(sp);
+                    setIsSpaceModalOpen(true);
+                  }}
+                  onDeleteSpace={deleteSpace}
+                  onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
+                  onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
+                  onEditFolder={(f) => {
+                    setEditingFolder(f);
+                    setTargetSpaceIdForModal(space.id);
+                    setIsFolderModalOpen(true);
+                  }}
+                  onDeleteFolder={(fId) => deleteFolder(fId, true)}
+                  onToggleFolderExpand={toggleFolderExpand}
+                  onEditTab={(t) => {
+                    setEditingTab(t);
+                    setTargetSpaceIdForModal(space.id);
+                    setIsTabModalOpen(true);
+                  }}
+                  onDeleteTab={deleteTab}
+                  onTogglePinTab={togglePinTab}
+                  onToggleFavouriteTab={toggleFavouriteTab}
+                  onMoveSiblingItem={moveSiblingItem}
+                  onReorderSiblingItem={reorderSiblingItem}
+                  onReorderPinnedTabs={reorderPinnedTabs}
+                  onMoveSpace={moveSpace}
+                />
+              ))}
+            </div>
           )}
         </div>
       ) : (
-        <>
-          {/* Pinned Tabs Shelf */}
-          <PinnedTabsShelf
-            tabs={pinnedTabs}
-            onOpenTab={onOpenTab}
-            onEditTab={(tab) => {
-              setEditingTab(tab);
-              setIsTabModalOpen(true);
-            }}
-            onDeleteTab={deleteTab}
-            onTogglePinTab={togglePinTab}
-            onToggleFavouriteTab={toggleFavouriteTab}
-            onAddPinnedTab={() => handleOpenNewTabModal(undefined, true)}
-            onReorderPinnedTabs={reorderPinnedTabs}
-          />
-
-          {/* Folders & Tabs Hierarchy (Interleaved Siblings) */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-              backgroundColor: '#ffffff',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0',
-              padding: '12px',
-              minHeight: '120px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Space Items ({totalSpaceFolders} folders, {totalSpaceTabs} tabs)
-              </span>
-            </div>
-
-            {/* Interleaved Sibling Items */}
-            {rootSiblings.map((item, index) => {
-              const hasPrev = index > 0;
-              const hasNext = index < rootSiblings.length - 1;
-
-              if (item.type === 'folder') {
-                return (
-                  <FolderItem
-                    key={item.id}
-                    folder={item.data}
-                    allFolders={data.folders}
-                    allTabs={data.tabs}
-                    onToggleExpand={toggleFolderExpand}
-                    onEditFolder={(f) => {
-                      setEditingFolder(f);
-                      setIsFolderModalOpen(true);
-                    }}
-                    onDeleteFolder={(fId) => deleteFolder(fId, true)}
-                    onAddSubFolder={(pFolderId) => handleOpenNewFolderModal(pFolderId)}
-                    onAddTabInFolder={(pFolderId) => handleOpenNewTabModal(pFolderId, false)}
-                    onOpenTab={onOpenTab}
-                    onEditTab={(t) => {
-                      setEditingTab(t);
-                      setIsTabModalOpen(true);
-                    }}
-                    onDeleteTab={deleteTab}
-                    onTogglePinTab={togglePinTab}
-                    onToggleFavouriteTab={toggleFavouriteTab}
-                    onMoveUp={
-                      hasPrev ? () => moveSiblingItem(item.id, 'folder', 'up') : undefined
-                    }
-                    onMoveDown={
-                      hasNext ? () => moveSiblingItem(item.id, 'folder', 'down') : undefined
-                    }
-                    onMoveSiblingItem={moveSiblingItem}
-                    onReorderSiblingItem={reorderSiblingItem}
-                  />
-                );
-              }
-
-              return (
-                <TabRow
-                  key={item.id}
-                  tab={item.data}
-                  onOpen={onOpenTab}
-                  onEdit={(t) => {
-                    setEditingTab(t);
-                    setIsTabModalOpen(true);
-                  }}
-                  onDelete={deleteTab}
-                  onTogglePin={togglePinTab}
-                  onToggleFavourite={toggleFavouriteTab}
-                  onMoveUp={
-                    hasPrev ? () => moveSiblingItem(item.id, 'tab', 'up') : undefined
-                  }
-                  onMoveDown={
-                    hasNext ? () => moveSiblingItem(item.id, 'tab', 'down') : undefined
-                  }
-                  onDropItem={handleRootTabDrop}
-                />
-              );
-            })}
-
-            {/* Empty State */}
-            {rootSiblings.length === 0 && pinnedTabs.length === 0 && (
-              <div
-                style={{
-                  textAlign: 'center',
-                  padding: '32px 16px',
-                  color: '#94a3b8',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <span style={{ fontSize: '28px' }}>📂</span>
-                <span style={{ fontSize: '14px', fontWeight: 500, color: '#475569' }}>
-                  This space is empty
-                </span>
-                <span style={{ fontSize: '12px' }}>
-                  Create a tab or folder above to organize your workflow.
-                </span>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <Button size="sm" variant="primary" onClick={() => handleOpenNewTabModal()}>
-                    + Add Tab
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => handleOpenNewFolderModal()}>
-                    + Add Folder
-                  </Button>
-                </div>
-              </div>
-            )}
+        /* Focused Space View / Sidepanel View */
+        activeSpace && (
+          <div style={{ width: '100%' }}>
+            <SpaceCard
+              space={activeSpace}
+              allSpaces={sortedSpaces}
+              allFolders={data.folders}
+              allTabs={data.tabs}
+              isSingleColumn={compact}
+              alwaysShowActions={compact}
+              isCollapsed={false}
+              onOpenTab={onOpenTab}
+              onEditSpace={(sp) => {
+                setEditingSpace(sp);
+                setIsSpaceModalOpen(true);
+              }}
+              onDeleteSpace={deleteSpace}
+              onAddTab={(folderId, pinned) => handleOpenNewTabModal(activeSpace.id, folderId, pinned)}
+              onAddFolder={(pFolderId) => handleOpenNewFolderModal(activeSpace.id, pFolderId)}
+              onEditFolder={(f) => {
+                setEditingFolder(f);
+                setTargetSpaceIdForModal(activeSpace.id);
+                setIsFolderModalOpen(true);
+              }}
+              onDeleteFolder={(fId) => deleteFolder(fId, true)}
+              onToggleFolderExpand={toggleFolderExpand}
+              onEditTab={(t) => {
+                setEditingTab(t);
+                setTargetSpaceIdForModal(activeSpace.id);
+                setIsTabModalOpen(true);
+              }}
+              onDeleteTab={deleteTab}
+              onTogglePinTab={togglePinTab}
+              onToggleFavouriteTab={toggleFavouriteTab}
+              onMoveSiblingItem={moveSiblingItem}
+              onReorderSiblingItem={reorderSiblingItem}
+              onReorderPinnedTabs={reorderPinnedTabs}
+              onMoveSpace={moveSpace}
+            />
           </div>
-        </>
+        )
       )}
-
 
       {/* Modals */}
       <SpaceModal
@@ -857,7 +968,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         folder={editingFolder}
         allFolders={data.folders}
         allSpaces={data.spaces}
-        defaultSpaceId={activeSpace?.id}
+        defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultParentFolderId={defaultFolderParentId}
         onSave={(folderData) => {
           if (editingFolder) {
@@ -877,12 +988,13 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         tab={editingTab}
         allFolders={data.folders}
         allSpaces={data.spaces}
-        defaultSpaceId={activeSpace?.id}
+        defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultFolderId={defaultTabFolderId}
         initialUrl={initialTabUrl}
         initialTitle={initialTabTitle}
         initialPinned={defaultTabPinned}
         initialFavourite={defaultTabFavourite}
+        onDelete={deleteTab}
         onSave={(tabData) => {
           if (editingTab) {
             updateTab(editingTab.id, tabData);
@@ -914,10 +1026,10 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
           <div
             style={{
               backgroundColor: '#ffffff',
-              borderRadius: '12px',
+              borderRadius: '14px',
               padding: '24px',
               width: '100%',
-              maxWidth: '620px',
+              maxWidth: '640px',
               maxHeight: '85vh',
               display: 'flex',
               flexDirection: 'column',
@@ -926,16 +1038,24 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '12px',
+              }}
+            >
               <div>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
                   Single LocalStorage JSON (<code style={{ fontSize: '13px', color: '#0284c7' }}>arcable_workspace_data</code>)
                 </h3>
                 <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
-                  All Spaces, Folders, and Tabs are stored locally as this unified JSON object.
+                  All Spaces, Folders, and Tabs are stored locally as this unified JSON structure.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsJsonModalOpen(false)}
                 style={{
                   border: 'none',
@@ -955,8 +1075,8 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                 overflow: 'auto',
                 backgroundColor: '#0f172a',
                 color: '#38bdf8',
-                padding: '12px',
-                borderRadius: '8px',
+                padding: '14px',
+                borderRadius: '10px',
                 fontSize: '12px',
                 lineHeight: 1.5,
                 margin: 0,
@@ -965,7 +1085,14 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
               {JSON.stringify(data, null, 2)}
             </pre>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: '14px',
+              }}
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -1000,4 +1127,4 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
       )}
     </div>
   );
-};
+}

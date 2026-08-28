@@ -146,6 +146,7 @@ export const App: React.FC = () => {
       <div style={{ padding: '12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <WorkspaceManager
           compact={true}
+          defaultViewMode="focused"
           headerTitle="Sidepanel Workspace"
           onOpenTab={handleOpenTab}
           onCaptureCurrentTab={handleCaptureCurrentTab}

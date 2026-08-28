@@ -38,7 +38,6 @@ export default function HomePage() {
 
   // Load auth status from API on mount
   useEffect(() => {
-    // Check URL parameters for OAuth status or errors
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const err = params.get('error');
@@ -139,7 +138,6 @@ export default function HomePage() {
 
     setItems([newItem, ...items]);
 
-    // If connected to Raindrop and URL exists, save to Raindrop
     if (authState.isAuthenticated && url.trim() && saveToRaindrop) {
       try {
         await fetch('/api/raindrop/bookmarks', {
@@ -240,14 +238,14 @@ export default function HomePage() {
         }
       />
 
-      <main style={{ maxWidth: '1040px', width: '100%', margin: '28px auto', padding: '0 16px', boxSizing: 'border-box' }}>
+      <main style={{ maxWidth: '1440px', width: '100%', margin: '24px auto', padding: '0 20px', boxSizing: 'border-box' }}>
         {/* Hero Header */}
-        <div style={{ marginBottom: '24px', textAlign: 'center' }}>
+        <div style={{ marginBottom: '20px', textAlign: 'center' }}>
           <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', marginBottom: '6px' }}>
             Arcable Workspace Hub
           </h1>
-          <p style={{ fontSize: '15px', color: '#64748b', margin: 0 }}>
-            Unified hierarchy with Spaces, Folders & Tabs stored locally in a single JSON structure.
+          <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
+            Unified hierarchy with Spaces, Folders & Tabs rendered as sleek Synctable-style Browser Cards.
           </p>
         </div>
 
@@ -257,31 +255,31 @@ export default function HomePage() {
             onClick={() => setActiveTab('workspace')}
             style={{
               padding: '8px 18px',
-              borderRadius: '8px',
-              border: activeTab === 'workspace' ? '1px solid #0284c7' : '1px solid #e2e8f0',
-              backgroundColor: activeTab === 'workspace' ? '#0284c7' : '#ffffff',
+              borderRadius: '20px',
+              border: activeTab === 'workspace' ? '1px solid #376757' : '1px solid #e2e8f0',
+              backgroundColor: activeTab === 'workspace' ? '#376757' : '#ffffff',
               color: activeTab === 'workspace' ? '#ffffff' : '#475569',
               fontWeight: 600,
-              fontSize: '14px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'workspace' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              boxShadow: activeTab === 'workspace' ? '0 2px 8px rgba(55, 103, 87, 0.25)' : 'none',
               transition: 'all 0.15s ease',
             }}
           >
-            🗂️ Workspace (Spaces & Folders)
+            🗂️ Spaces & Cards
           </button>
           <button
             onClick={() => setActiveTab('raindrop')}
             style={{
               padding: '8px 18px',
-              borderRadius: '8px',
+              borderRadius: '20px',
               border: activeTab === 'raindrop' ? '1px solid #0284c7' : '1px solid #e2e8f0',
               backgroundColor: activeTab === 'raindrop' ? '#0284c7' : '#ffffff',
               color: activeTab === 'raindrop' ? '#ffffff' : '#475569',
               fontWeight: 600,
-              fontSize: '14px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'raindrop' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              boxShadow: activeTab === 'raindrop' ? '0 2px 8px rgba(2, 132, 199, 0.25)' : 'none',
               transition: 'all 0.15s ease',
             }}
           >
@@ -291,14 +289,14 @@ export default function HomePage() {
             onClick={() => setActiveTab('info')}
             style={{
               padding: '8px 18px',
-              borderRadius: '8px',
-              border: activeTab === 'info' ? '1px solid #0284c7' : '1px solid #e2e8f0',
-              backgroundColor: activeTab === 'info' ? '#0284c7' : '#ffffff',
+              borderRadius: '20px',
+              border: activeTab === 'info' ? '1px solid #6366f1' : '1px solid #e2e8f0',
+              backgroundColor: activeTab === 'info' ? '#6366f1' : '#ffffff',
               color: activeTab === 'info' ? '#ffffff' : '#475569',
               fontWeight: 600,
-              fontSize: '14px',
+              fontSize: '13px',
               cursor: 'pointer',
-              boxShadow: activeTab === 'info' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              boxShadow: activeTab === 'info' ? '0 2px 8px rgba(99, 102, 241, 0.25)' : 'none',
               transition: 'all 0.15s ease',
             }}
           >
@@ -306,11 +304,12 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* Tab 1: Workspace Management (Spaces, Folders, Tabs CRUD) */}
+        {/* Tab 1: Workspace Management */}
         {activeTab === 'workspace' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <WorkspaceManager
               showJsonInspector={true}
+              defaultViewMode="grid"
               raindropToken={authState.accessToken}
               onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
             />
@@ -319,7 +318,7 @@ export default function HomePage() {
 
         {/* Tab 2: Raindrop Sync */}
         {activeTab === 'raindrop' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1040px', margin: '0 auto' }}>
             <RaindropAuthCard
               authState={authState}
               isLoading={authLoading}
@@ -463,7 +462,7 @@ export default function HomePage() {
 
         {/* Tab 3: Architecture Info */}
         {activeTab === 'info' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', maxWidth: '1040px', margin: '0 auto' }}>
             <Card title="Monorepo Packages" subtitle="Active workspace modules">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
@@ -472,7 +471,7 @@ export default function HomePage() {
                     <Badge variant="success">Next.js 15</Badge>
                   </div>
                   <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                    Web client and management dashboard with interactive Spaces, Folders, and Tabs hierarchy.
+                    Web client and dashboard with Synctable-style Browser Cards and multi-space grid.
                   </p>
                 </div>
 
@@ -482,7 +481,7 @@ export default function HomePage() {
                     <Badge variant="info">Sidepanel + Popup</Badge>
                   </div>
                   <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                    MV3 browser extension with Sidepanel view, active tab capture, and unified local storage persistence.
+                    MV3 browser extension with full Sidepanel Space Card view, 1-click active tab capture, and unified local storage.
                   </p>
                 </div>
 
@@ -492,7 +491,7 @@ export default function HomePage() {
                     <Badge variant="default">React + TS</Badge>
                   </div>
                   <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                    Shared types, Workspace CRUD hooks, UI components, modals, and single-JSON storage managers.
+                    Shared SpaceCard, TabRow, FolderItem, Icons, CRUD hooks, and single-JSON storage managers.
                   </p>
                 </div>
               </div>

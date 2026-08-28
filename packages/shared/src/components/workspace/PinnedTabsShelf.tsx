@@ -3,9 +3,20 @@
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
+import { getDomain, getFaviconUrl } from '../../utils/treeUtils';
+import {
+  PinIcon,
+  PlusIcon,
+  StarIcon,
+  EditIcon,
+  TrashIcon,
+  GlobeIcon,
+} from '../Icons';
 
-interface PinnedTabsShelfProps {
+export interface PinnedTabsShelfProps {
   tabs: Tab[];
+  isDarkTheme?: boolean;
+  shelfBg?: string;
   onOpenTab?: (url: string) => void;
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
@@ -17,6 +28,8 @@ interface PinnedTabsShelfProps {
 
 export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   tabs,
+  isDarkTheme = false,
+  shelfBg,
   onOpenTab,
   onEditTab,
   onDeleteTab,
@@ -66,51 +79,67 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       const parsed = JSON.parse(raw) as { id: string; type: string };
       if (!parsed || !parsed.id || parsed.id === targetTabId) return;
 
-      if (onReorderPinnedTabs) {
-        onReorderPinnedTabs(parsed.id, targetTabId, pos);
-      }
-    } catch {
-      // ignore
-    }
+      onReorderPinnedTabs?.(parsed.id, targetTabId, pos);
+    } catch {}
   };
+
+  const resolvedBg = shelfBg || (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.03)');
+  const itemBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.85)';
+  const itemHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.25)' : '#ffffff';
+  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
 
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
-        padding: '10px',
-        backgroundColor: '#f8fafc',
-        borderRadius: '10px',
-        border: '1px solid #e2e8f0',
+        gap: '8px',
+        padding: '8px 10px',
+        backgroundColor: resolvedBg,
+        borderRadius: '12px',
+        border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}`,
       }}
     >
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '12px' }}>📌</span>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.85 }}>
+          <PinIcon size={13} filled={true} />
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+            }}
+          >
             Pinned ({tabs.length})
           </span>
         </div>
         <button
+          type="button"
           onClick={onAddPinnedTab}
-          title="Add new pinned tab"
+          title="Add pinned tab"
           style={{
             border: 'none',
-            background: 'none',
-            color: '#0284c7',
+            background: 'transparent',
+            color: 'inherit',
             fontSize: '11px',
             fontWeight: 600,
             cursor: 'pointer',
             padding: '2px 6px',
             borderRadius: '4px',
+            opacity: 0.85,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
           }}
         >
-          + Pin Tab
+          <PlusIcon size={12} />
+          <span>Pin Tab</span>
         </button>
       </div>
 
+      {/* Grid of Pinned Tabs */}
       <div
         style={{
           display: 'grid',
@@ -121,7 +150,9 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
         {tabs.map((tab) => {
           const isHovered = hoveredTabId === tab.id;
           const isDragTarget = dragOverTabId === tab.id;
-          const displayTitle = tab.customTitle || cleanUrl(tab.url);
+          const domain = getDomain(tab.url);
+          const favicon = getFaviconUrl(tab.url);
+          const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Pinned Tab';
 
           return (
             <div
@@ -140,10 +171,12 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 }
               }}
               onClick={() => {
-                if (onOpenTab) {
-                  onOpenTab(tab.url);
-                } else {
-                  window.open(tab.url, '_blank', 'noopener,noreferrer');
+                if (tab.url) {
+                  if (onOpenTab) {
+                    onOpenTab(tab.url);
+                  } else {
+                    window.open(tab.url, '_blank', 'noopener,noreferrer');
+                  }
                 }
               }}
               style={{
@@ -151,29 +184,47 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '6px 8px',
-                backgroundColor: isHovered ? '#e2e8f0' : '#ffffff',
-                border: '1px solid #cbd5e1',
-                borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : '1px solid #cbd5e1',
-                borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : '1px solid #cbd5e1',
-                borderRadius: '6px',
+                backgroundColor: isHovered ? itemHoverBg : itemBg,
+                color: textColor,
+                border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}`,
+                borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : undefined,
+                borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : undefined,
+                borderRadius: '8px',
                 cursor: 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
                 overflow: 'hidden',
                 userSelect: 'none',
+                boxShadow: isHovered ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
               }}
-              title={`${displayTitle}\n${tab.url} (Drag to reorder)`}
+              title={`${displayTitle}\n${tab.url}`}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                <span style={{ fontSize: '14px', flexShrink: 0 }}>{tab.customEmojiIcon || '🌐'}</span>
+                {tab.customEmojiIcon ? (
+                  <span style={{ fontSize: '13px', lineHeight: 1, flexShrink: 0 }}>
+                    {tab.customEmojiIcon}
+                  </span>
+                ) : favicon ? (
+                  <img
+                    src={favicon}
+                    alt=""
+                    style={{ width: '14px', height: '14px', objectFit: 'contain', borderRadius: '3px', flexShrink: 0 }}
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <GlobeIcon size={13} />
+                )}
+
                 <span
                   style={{
                     fontSize: '12px',
                     fontWeight: 500,
-                    color: '#0f172a',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    color: 'inherit',
                   }}
                 >
                   {displayTitle}
@@ -187,64 +238,72 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     gap: '2px',
-                    backgroundColor: '#e2e8f0',
                     paddingLeft: '4px',
+                    flexShrink: 0,
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {onToggleFavouriteTab && (
                     <button
-                      title="Add to favourites (global)"
+                      type="button"
+                      title={tab.favourite ? 'Remove favourite' : 'Add to global favourites'}
                       onClick={() => onToggleFavouriteTab(tab.id)}
                       style={{
                         border: 'none',
-                        background: 'none',
-                        fontSize: '11px',
+                        background: 'transparent',
+                        color: tab.favourite ? '#eab308' : 'inherit',
                         cursor: 'pointer',
                         padding: '1px 2px',
+                        display: 'flex',
                       }}
                     >
-                      ⭐
+                      <StarIcon size={12} filled={Boolean(tab.favourite)} />
                     </button>
                   )}
                   <button
+                    type="button"
                     title="Unpin"
                     onClick={() => onTogglePinTab(tab.id)}
                     style={{
                       border: 'none',
-                      background: 'none',
-                      fontSize: '11px',
+                      background: 'transparent',
+                      color: 'inherit',
                       cursor: 'pointer',
                       padding: '1px 2px',
+                      display: 'flex',
                     }}
                   >
-                    📍
+                    <PinIcon size={12} />
                   </button>
                   <button
+                    type="button"
                     title="Edit"
                     onClick={() => onEditTab(tab)}
                     style={{
                       border: 'none',
-                      background: 'none',
-                      fontSize: '11px',
+                      background: 'transparent',
+                      color: 'inherit',
                       cursor: 'pointer',
                       padding: '1px 2px',
+                      display: 'flex',
                     }}
                   >
-                    ✏️
+                    <EditIcon size={11} />
                   </button>
                   <button
+                    type="button"
                     title="Delete"
                     onClick={() => onDeleteTab(tab.id)}
                     style={{
                       border: 'none',
-                      background: 'none',
-                      fontSize: '11px',
+                      background: 'transparent',
+                      color: '#ef4444',
                       cursor: 'pointer',
                       padding: '1px 2px',
+                      display: 'flex',
                     }}
                   >
-                    🗑️
+                    <TrashIcon size={11} />
                   </button>
                 </div>
               )}

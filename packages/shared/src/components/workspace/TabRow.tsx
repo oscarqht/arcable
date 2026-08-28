@@ -3,9 +3,24 @@
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
+import { getDomain, getFaviconUrl } from '../../utils/treeUtils';
+import {
+  CopyIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  PinIcon,
+  StarIcon,
+  EditIcon,
+  TrashIcon,
+  GlobeIcon,
+  DragHandleIcon,
+} from '../Icons';
 
-interface TabRowProps {
+export interface TabRowProps {
   tab: Tab;
+  isDarkTheme?: boolean;
+  compact?: boolean;
+  alwaysShowActions?: boolean;
   onOpen?: (url: string) => void;
   onEdit: (tab: Tab) => void;
   onDelete: (id: string) => void;
@@ -18,11 +33,13 @@ interface TabRowProps {
   onDragOverItem?: (e: React.DragEvent, tab: Tab) => void;
   onDropItem?: (e: React.DragEvent, tab: Tab) => void;
   onDragEndItem?: (e: React.DragEvent) => void;
-  compact?: boolean;
 }
 
 export const TabRow: React.FC<TabRowProps> = ({
   tab,
+  isDarkTheme = false,
+  compact = false,
+  alwaysShowActions = false,
   onOpen,
   onEdit,
   onDelete,
@@ -35,17 +52,44 @@ export const TabRow: React.FC<TabRowProps> = ({
   onDragOverItem,
   onDropItem,
   onDragEndItem,
-  compact = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
+
+  const domain = getDomain(tab.url);
+  const favicon = getFaviconUrl(tab.url);
+  const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled Tab';
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (onOpen) {
-      onOpen(tab.url);
-    } else {
-      window.open(tab.url, '_blank', 'noopener,noreferrer');
+    if (tab.url) {
+      if (onOpen) {
+        onOpen(tab.url);
+      } else {
+        window.open(tab.url, '_blank', 'noopener,noreferrer');
+      }
+    }
+  };
+
+  const handleCopyUrl = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (tab.url) {
+      navigator.clipboard.writeText(tab.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }
+  };
+
+  const handleOpenLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (tab.url) {
+      if (onOpen) {
+        onOpen(tab.url);
+      } else {
+        window.open(tab.url, '_blank', 'noopener,noreferrer');
+      }
     }
   };
 
@@ -98,7 +142,11 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
   };
 
-  const displayTitle = tab.customTitle || cleanUrl(tab.url) || 'Untitled Tab';
+  // Color tokens
+  const hoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
+  const activeIconHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
+  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
+  const showActions = alwaysShowActions || isHovered;
 
   return (
     <div
@@ -113,209 +161,195 @@ export const TabRow: React.FC<TabRowProps> = ({
         setIsHovered(false);
         setDropIndicator(null);
       }}
+      onClick={handleClick}
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: compact ? '6px 8px' : '8px 12px',
-        backgroundColor: isHovered ? '#f1f5f9' : '#ffffff',
-        border: '1px solid #e2e8f0',
-        borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '1px solid #e2e8f0',
-        borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '1px solid #e2e8f0',
+        height: '36px',
+        padding: '0 8px 0 10px',
         borderRadius: '8px',
-        transition: 'all 0.12s ease',
-        cursor: 'grab',
+        backgroundColor: isHovered ? hoverBg : 'transparent',
+        borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
+        borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
+        color: textColor,
+        cursor: 'pointer',
         gap: '8px',
-        position: 'relative',
+        transition: 'background-color 0.12s ease',
         userSelect: 'none',
+        boxSizing: 'border-box',
+        width: '100%',
+        minWidth: 0,
+        position: 'relative',
       }}
-      onClick={handleClick}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-        {/* Drag handle */}
-        <span
-          style={{
-            fontSize: '12px',
-            color: isHovered ? '#94a3b8' : 'transparent',
-            cursor: 'grab',
-            lineHeight: 1,
-            userSelect: 'none',
-            transition: 'color 0.12s ease',
-          }}
-          title="Drag to reorder"
-        >
-          ⠿
-        </span>
+      {/* Left side: Drag handle (on hover), Favicon/Emoji, Title (Full Width) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+        {/* Drag Handle on hover */}
+        {isHovered && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              opacity: 0.6,
+              cursor: 'grab',
+              flexShrink: 0,
+              color: 'inherit',
+            }}
+            title="Drag to reorder"
+          >
+            <DragHandleIcon size={12} />
+          </span>
+        )}
 
-        {/* Emoji or Icon */}
-        <span
+        {/* Favicon or Custom Emoji */}
+        <div
           style={{
-            fontSize: compact ? '14px' : '16px',
-            display: 'inline-flex',
+            width: '20px',
+            height: '20px',
+            display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '24px',
-            height: '24px',
-            borderRadius: '6px',
-            backgroundColor: '#f8fafc',
             flexShrink: 0,
+            borderRadius: '4px',
+            overflow: 'hidden',
           }}
         >
-          {tab.customEmojiIcon || '🌐'}
-        </span>
-
-        {/* Title and URL */}
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              fontSize: compact ? '12px' : '13px',
-              fontWeight: 500,
-              color: '#0f172a',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-            title={displayTitle}
-          >
-            {displayTitle}
-          </div>
-          {!compact && (
-            <div
+          {tab.customEmojiIcon ? (
+            <span style={{ fontSize: '14px', lineHeight: 1 }}>{tab.customEmojiIcon}</span>
+          ) : favicon && !imgError ? (
+            <img
+              src={favicon}
+              alt=""
+              onError={() => setImgError(true)}
+              style={{ width: '16px', height: '16px', objectFit: 'contain', borderRadius: '3px' }}
+            />
+          ) : domain ? (
+            <span
               style={{
-                fontSize: '11px',
-                color: '#94a3b8',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                width: '18px',
+                height: '18px',
+                borderRadius: '4px',
+                backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.08)',
+                color: 'inherit',
+                fontSize: '10px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                textTransform: 'uppercase',
               }}
-              title={tab.url}
             >
-              {tab.url}
-            </div>
+              {domain.charAt(0)}
+            </span>
+          ) : (
+            <GlobeIcon size={14} color="inherit" style={{ opacity: 0.6 }} />
           )}
         </div>
+
+        {/* Title taking 100% available width */}
+        <span
+          style={{
+            fontSize: '13px',
+            fontWeight: 500,
+            color: 'inherit',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={displayTitle}
+        >
+          {displayTitle}
+        </span>
       </div>
 
-      {/* Action Buttons */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '3px',
-          opacity: isHovered ? 1 : 0.3,
-          transition: 'opacity 0.15s ease',
-          flexShrink: 0,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Reorder Up/Down buttons */}
-        {onMoveUp && (
+      {/* Right side: Action Buttons (Only takes width when hovered or alwaysShowActions) */}
+      {showActions && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            flexShrink: 0,
+            marginLeft: '4px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Copy URL */}
           <button
-            title="Move up"
-            onClick={onMoveUp}
+            type="button"
+            onClick={handleCopyUrl}
+            title="Copy URL"
             style={{
               border: 'none',
               background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
               borderRadius: '4px',
-              padding: '2px 4px',
-              fontSize: '10px',
               cursor: 'pointer',
-              color: '#64748b',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.85,
+              transition: 'background-color 0.12s ease',
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            ▲
+            {copied ? <CheckIcon size={14} color="#10b981" /> : <CopyIcon size={14} />}
           </button>
-        )}
-        {onMoveDown && (
+
+          {/* Open in new tab */}
           <button
-            title="Move down"
-            onClick={onMoveDown}
+            type="button"
+            onClick={handleOpenLink}
+            title="Open in new tab"
             style={{
               border: 'none',
               background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
               borderRadius: '4px',
-              padding: '2px 4px',
-              fontSize: '10px',
               cursor: 'pointer',
-              color: '#64748b',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.85,
+              transition: 'background-color 0.12s ease',
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            ▼
+            <ExternalLinkIcon size={14} />
           </button>
-        )}
 
-        {/* Favourite toggle */}
-        {onToggleFavourite && (
+          {/* Edit */}
           <button
-            title={tab.favourite ? 'Remove from favourites' : 'Add to favourites (global)'}
-            onClick={() => onToggleFavourite(tab.id)}
+            type="button"
+            onClick={() => onEdit(tab)}
+            title="Edit tab"
             style={{
               border: 'none',
-              background: tab.favourite ? '#fef3c7' : 'transparent',
-              borderRadius: '4px',
+              background: 'transparent',
+              color: 'inherit',
               padding: '3px 4px',
-              fontSize: '12px',
-              cursor: 'pointer',
-              color: tab.favourite ? '#eab308' : '#64748b',
-            }}
-          >
-            ⭐
-          </button>
-        )}
-
-        {/* Pin toggle */}
-        {onTogglePin && !tab.favourite && (
-          <button
-            title={tab.pinned ? 'Unpin tab' : 'Pin to top shelf'}
-            onClick={() => onTogglePin(tab.id)}
-            style={{
-              border: 'none',
-              background: tab.pinned ? '#fef3c7' : 'transparent',
               borderRadius: '4px',
-              padding: '3px 4px',
-              fontSize: '12px',
               cursor: 'pointer',
-              color: tab.pinned ? '#d97706' : '#64748b',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.85,
+              transition: 'background-color 0.12s ease',
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            📌
+            <EditIcon size={13} />
           </button>
-        )}
-
-        {/* Edit */}
-        <button
-          title="Edit tab"
-          onClick={() => onEdit(tab)}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            borderRadius: '4px',
-            padding: '3px 4px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            color: '#64748b',
-          }}
-        >
-          ✏️
-        </button>
-
-        {/* Delete */}
-        <button
-          title="Delete tab"
-          onClick={() => onDelete(tab.id)}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            borderRadius: '4px',
-            padding: '3px 4px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            color: '#ef4444',
-          }}
-        >
-          🗑️
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

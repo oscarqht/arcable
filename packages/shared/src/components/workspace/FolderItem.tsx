@@ -3,13 +3,29 @@
 import React, { useState } from 'react';
 import { Folder, Tab } from '../../types/workspace';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
+import { getAllFolderTabUrls } from '../../utils/treeUtils';
 import { TabRow } from './TabRow';
+import {
+  ChevronRightIcon,
+  CopyIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  PlusIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  EditIcon,
+  TrashIcon,
+  DragHandleIcon,
+} from '../Icons';
 
-interface FolderItemProps {
+export interface FolderItemProps {
   folder: Folder;
   allFolders: Folder[];
   allTabs: Tab[];
   depth?: number;
+  isDarkTheme?: boolean;
+  compact?: boolean;
+  alwaysShowActions?: boolean;
   onToggleExpand: (folderId: string) => void;
   onEditFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string) => void;
@@ -37,6 +53,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   allFolders,
   allTabs,
   depth = 0,
+  isDarkTheme = false,
+  compact = false,
+  alwaysShowActions = false,
   onToggleExpand,
   onEditFolder,
   onDeleteFolder,
@@ -53,13 +72,37 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onReorderSiblingItem,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
 
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
   const totalItemCount = siblings.length;
+  const folderColor = folder.colors || null;
 
-  const accentColor = folder.colors || '#3b82f6';
+  const handleCopyFolder = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const urls = getAllFolderTabUrls(folder.id, allFolders, allTabs);
+    if (urls.length > 0) {
+      navigator.clipboard.writeText(urls.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }
+  };
+
+  const handleOpenFolder = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const urls = getAllFolderTabUrls(folder.id, allFolders, allTabs);
+    if (urls.length > 0) {
+      if (onOpenTab) {
+        urls.forEach((url) => onOpenTab(url));
+      } else {
+        urls.forEach((url) => window.open(url, '_blank', 'noopener,noreferrer'));
+      }
+    }
+  };
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData(
@@ -104,57 +147,31 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       const raw = e.dataTransfer.getData('application/json');
       if (!raw) return;
       const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
-      if (!parsed || !parsed.id) return;
-      if (parsed.id === folder.id) return;
+      if (!parsed || !parsed.id || parsed.id === folder.id) return;
 
-      if (onReorderSiblingItem) {
-        onReorderSiblingItem({
-          sourceId: parsed.id,
-          sourceType: parsed.type,
-          targetId: folder.id,
-          targetType: 'folder',
-          position: currentIndicator,
-        });
-      }
-    } catch {
-      // ignore
-    }
+      onReorderSiblingItem?.({
+        sourceId: parsed.id,
+        sourceType: parsed.type,
+        targetId: folder.id,
+        targetType: 'folder',
+        position: currentIndicator,
+      });
+    } catch {}
   };
 
-  const handleChildTabDrop = (e: React.DragEvent, targetTab: Tab) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
-      if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
-
-      const rect = e.currentTarget.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      const pos = e.clientY < midY ? 'before' : 'after';
-
-      if (onReorderSiblingItem) {
-        onReorderSiblingItem({
-          sourceId: parsed.id,
-          sourceType: parsed.type,
-          targetId: targetTab.id,
-          targetType: 'tab',
-          position: pos,
-        });
-      }
-    } catch {
-      // ignore
-    }
-  };
+  const hoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
+  const activeIconHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
+  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
+  const subtextColor = isDarkTheme ? 'rgba(255, 255, 255, 0.65)' : 'rgba(25, 28, 27, 0.6)';
+  const guideLineColor = isDarkTheme ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.1)';
 
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '4px',
-        marginLeft: depth > 0 ? `${depth * 14}px` : '0',
+        gap: '2px',
+        marginLeft: depth > 0 ? `${depth * 12}px` : '0',
       }}
     >
       {/* Folder Header Row */}
@@ -169,83 +186,113 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           setIsHovered(false);
           setDropIndicator(null);
         }}
+        onClick={() => onToggleExpand(folder.id)}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '6px 10px',
+          height: '34px',
+          padding: '0 8px 0 10px',
+          borderRadius: '8px',
           backgroundColor:
             dropIndicator === 'inside'
-              ? '#e0f2fe'
+              ? isDarkTheme ? 'rgba(255, 255, 255, 0.25)' : '#e0f2fe'
               : isHovered
-              ? '#f8fafc'
+              ? hoverBg
               : 'transparent',
-          border: '1px solid transparent',
-          borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '1px solid transparent',
-          borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '1px solid transparent',
-          borderLeft: `3px solid ${accentColor}`,
-          borderRadius: '6px',
-          cursor: 'grab',
-          transition: 'all 0.12s ease',
+          borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
+          borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
+          color: textColor,
+          cursor: 'pointer',
+          transition: 'background-color 0.12s ease',
           userSelect: 'none',
+          boxSizing: 'border-box',
         }}
-        onClick={() => onToggleExpand(folder.id)}
       >
+        {/* Left section: drag handle, chevron, folder icon, folder title, color badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-          {/* Drag Handle */}
+          {/* Drag Handle on hover */}
           <span
             style={{
-              fontSize: '11px',
-              color: isHovered ? '#94a3b8' : 'transparent',
+              display: 'inline-flex',
+              alignItems: 'center',
+              opacity: isHovered ? 0.6 : 0,
               cursor: 'grab',
-              lineHeight: 1,
-              userSelect: 'none',
-              transition: 'color 0.12s ease',
+              flexShrink: 0,
+              transition: 'opacity 0.12s ease',
+              color: 'inherit',
             }}
             title="Drag to reorder folder"
           >
-            ⠿
+            <DragHandleIcon size={12} />
           </span>
 
-          {/* Chevron */}
-          <span
+          {/* Rotating Chevron */}
+          <div
             style={{
-              fontSize: '11px',
-              color: '#64748b',
-              display: 'inline-block',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
               transition: 'transform 0.15s ease',
+              opacity: 0.7,
+              flexShrink: 0,
             }}
           >
-            ▶
-          </span>
+            <ChevronRightIcon size={14} />
+          </div>
 
-          {/* Emoji */}
-          <span style={{ fontSize: '15px' }}>{folder.customEmojiIcon || '📁'}</span>
+          {/* Folder Icon / Custom Emoji */}
+          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {folder.customEmojiIcon ? (
+              <span style={{ fontSize: '14px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
+            ) : isExpanded ? (
+              <FolderOpenIcon size={16} color={folderColor || (isDarkTheme ? '#9ed1bd' : '#3b82f6')} />
+            ) : (
+              <FolderIcon size={16} color={folderColor || (isDarkTheme ? '#9ed1bd' : '#3b82f6')} />
+            )}
+          </div>
 
-          {/* Name */}
+          {/* Folder Title */}
           <span
             style={{
               fontSize: '13px',
               fontWeight: 600,
-              color: '#1e293b',
+              color: 'inherit',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
+            title={folder.name}
           >
             {folder.name}
           </span>
 
-          {/* Count Badge */}
+          {/* Color Dot if custom color exists */}
+          {folderColor && (
+            <span
+              style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                backgroundColor: folderColor,
+                flexShrink: 0,
+                boxShadow: '0 0 2px rgba(0,0,0,0.2)',
+              }}
+              title={`Color: ${folderColor}`}
+            />
+          )}
+
+          {/* Item Count Badge */}
           <span
             style={{
               fontSize: '10px',
               fontWeight: 600,
-              backgroundColor: '#e2e8f0',
-              color: '#475569',
+              backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.08)',
+              color: 'inherit',
               borderRadius: '10px',
               padding: '1px 6px',
+              flexShrink: 0,
             }}
           >
             {totalItemCount}
@@ -258,118 +305,161 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           )}
         </div>
 
-        {/* Folder Action Buttons */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            opacity: isHovered ? 1 : 0.2,
-            transition: 'opacity 0.15s ease',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Move Up/Down */}
-          {onMoveUp && (
-            <button
-              title="Move up"
-              onClick={onMoveUp}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                borderRadius: '4px',
-                padding: '2px 4px',
-                fontSize: '10px',
-                cursor: 'pointer',
-                color: '#64748b',
-              }}
-            >
-              ▲
-            </button>
-          )}
-          {onMoveDown && (
-            <button
-              title="Move down"
-              onClick={onMoveDown}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                borderRadius: '4px',
-                padding: '2px 4px',
-                fontSize: '10px',
-                cursor: 'pointer',
-                color: '#64748b',
-              }}
-            >
-              ▼
-            </button>
-          )}
-
-          <button
-            title="Add tab in this folder"
-            onClick={() => onAddTabInFolder(folder.id)}
+        {/* Right Section: Folder Action Buttons on Hover */}
+        {(alwaysShowActions || isHovered) && (
+          <div
             style={{
-              border: 'none',
-              background: 'transparent',
-              padding: '3px 5px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer',
-              color: '#0284c7',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px',
+              flexShrink: 0,
+              marginLeft: '4px',
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            + Tab
-          </button>
-          <button
-            title="Add nested subfolder"
-            onClick={() => onAddSubFolder(folder.id)}
+            {/* Copy all folder URLs */}
+            <button
+            type="button"
+            onClick={handleCopyFolder}
+            title={`Copy all ${totalItemCount} tab URLs`}
             style={{
               border: 'none',
               background: 'transparent',
-              padding: '3px 5px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer',
-              color: '#0284c7',
-            }}
-          >
-            + Subfolder
-          </button>
-          <button
-            title="Edit folder"
-            onClick={() => onEditFolder(folder)}
-            style={{
-              border: 'none',
-              background: 'transparent',
+              color: 'inherit',
               padding: '3px 4px',
               borderRadius: '4px',
-              fontSize: '12px',
               cursor: 'pointer',
-              color: '#64748b',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            ✏️
+            {copied ? <CheckIcon size={14} color="#10b981" /> : <CopyIcon size={14} />}
           </button>
+
+          {/* Open all folder tabs */}
           <button
-            title="Delete folder and contents"
+            type="button"
+            onClick={handleOpenFolder}
+            title={`Open all ${totalItemCount} tabs in browser`}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <ExternalLinkIcon size={14} />
+          </button>
+
+          {/* Add tab in folder */}
+          <button
+            type="button"
+            onClick={() => onAddTabInFolder(folder.id)}
+            title="Add tab inside this folder"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <PlusIcon size={14} />
+          </button>
+
+          {/* Add subfolder */}
+          <button
+            type="button"
+            onClick={() => onAddSubFolder(folder.id)}
+            title="Add nested subfolder"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <FolderIcon size={13} />
+          </button>
+
+          {/* Edit folder */}
+          <button
+            type="button"
+            onClick={() => onEditFolder(folder)}
+            title="Edit folder"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '3px 4px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <EditIcon size={13} />
+          </button>
+
+          {/* Delete folder */}
+          <button
+            type="button"
             onClick={() => {
-              if (confirm(`Delete folder "${folder.name}" and all contents?`)) {
+              if (confirm(`Delete folder "${folder.name}" and all its contents?`)) {
                 onDeleteFolder(folder.id);
               }
             }}
+            title="Delete folder"
             style={{
               border: 'none',
               background: 'transparent',
+              color: '#ef4444',
               padding: '3px 4px',
               borderRadius: '4px',
-              fontSize: '12px',
               cursor: 'pointer',
-              color: '#ef4444',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: 0.8,
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            🗑️
+            <TrashIcon size={13} />
           </button>
         </div>
+      )}
       </div>
 
       {/* Expanded Folder Contents */}
@@ -378,13 +468,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '4px',
+            gap: '2px',
             paddingLeft: '12px',
-            borderLeft: '1px dashed #cbd5e1',
-            marginLeft: '8px',
+            borderLeft: `1.5px solid ${guideLineColor}`,
+            marginLeft: '14px',
+            marginTop: '2px',
           }}
         >
-          {/* Interleaved Sibling Items */}
           {siblings.map((item, index) => {
             const hasPrev = index > 0;
             const hasNext = index < siblings.length - 1;
@@ -397,6 +487,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   allFolders={allFolders}
                   allTabs={allTabs}
                   depth={depth + 1}
+                  isDarkTheme={isDarkTheme}
+                  compact={compact}
+                  alwaysShowActions={alwaysShowActions}
                   onToggleExpand={onToggleExpand}
                   onEditFolder={onEditFolder}
                   onDeleteFolder={onDeleteFolder}
@@ -427,6 +520,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <TabRow
                 key={item.id}
                 tab={item.data}
+                isDarkTheme={isDarkTheme}
+                compact={compact}
+                alwaysShowActions={alwaysShowActions}
                 onOpen={onOpenTab}
                 onEdit={onEditTab}
                 onDelete={onDeleteTab}
@@ -442,34 +538,55 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     ? () => onMoveSiblingItem(item.id, 'tab', 'down')
                     : undefined
                 }
-                onDropItem={handleChildTabDrop}
+                onDropItem={(e, targetTab) => {
+                  try {
+                    const raw = e.dataTransfer.getData('application/json');
+                    if (!raw) return;
+                    const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+                    if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const midY = rect.top + rect.height / 2;
+                    const pos = e.clientY < midY ? 'before' : 'after';
+
+                    onReorderSiblingItem?.({
+                      sourceId: parsed.id,
+                      sourceType: parsed.type,
+                      targetId: targetTab.id,
+                      targetType: 'tab',
+                      position: pos,
+                    });
+                  } catch {}
+                }}
               />
             );
           })}
 
-          {/* Empty Folder Placeholder */}
+          {/* Empty Folder State */}
           {totalItemCount === 0 && (
             <div
               style={{
                 fontSize: '12px',
-                color: '#94a3b8',
-                fontStyle: 'italic',
+                color: subtextColor,
                 padding: '6px 8px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
               }}
             >
-              <span>Empty folder</span>
+              <span style={{ fontStyle: 'italic', opacity: 0.8 }}>Empty folder</span>
               <button
+                type="button"
                 onClick={() => onAddTabInFolder(folder.id)}
                 style={{
                   border: 'none',
-                  background: 'none',
-                  color: '#0284c7',
+                  background: 'transparent',
+                  color: 'inherit',
                   fontSize: '11px',
+                  fontWeight: 600,
                   cursor: 'pointer',
-                  padding: 0,
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  opacity: 0.9,
                 }}
               >
                 + Add tab

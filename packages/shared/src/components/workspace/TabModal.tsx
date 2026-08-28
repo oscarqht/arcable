@@ -16,6 +16,7 @@ interface TabModalProps {
   initialTitle?: string;
   initialPinned?: boolean;
   initialFavourite?: boolean;
+  onDelete?: (tabId: string) => void;
   onSave: (tabData: {
     url: string;
     parentSpaceId?: string;
@@ -41,6 +42,7 @@ export const TabModal: React.FC<TabModalProps> = ({
   initialTitle,
   initialPinned,
   initialFavourite,
+  onDelete,
   onSave,
 }) => {
   const [url, setUrl] = useState('');
@@ -323,13 +325,41 @@ export const TabModal: React.FC<TabModalProps> = ({
             />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
-            <Button type="button" variant="secondary" size="md" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" size="md">
-              {tab ? 'Save Changes' : 'Add Tab'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
+            {tab && onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Delete tab "${customTitle || url}"?`)) {
+                    onDelete(tab.id);
+                    onClose();
+                  }
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#ef4444',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                🗑️ Delete Tab
+              </button>
+            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Button type="button" variant="secondary" size="md" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="md">
+                {tab ? 'Save Changes' : 'Add Tab'}
+              </Button>
+            </div>
           </div>
         </form>
       </div>
