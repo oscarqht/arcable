@@ -399,6 +399,127 @@ export function useWorkspace() {
     });
   }, [data.spaces, saveWorkspaceData]);
 
+  const convertSpaceToFolder = useCallback(
+    (sourceSpaceId: string, targetSpaceId: string, targetParentFolderId?: string) => {
+      if (sourceSpaceId === targetSpaceId) return;
+
+      const sourceSpace = data.spaces.find((s) => s.id === sourceSpaceId);
+      const targetSpace = data.spaces.find((s) => s.id === targetSpaceId);
+      if (!sourceSpace || !targetSpace) return;
+
+      const cleanTargetParentFolderId = targetParentFolderId?.trim() || undefined;
+
+      // 1. Calculate order in target space / target parent folder
+      const siblings = getSortedSiblings(
+        data.folders,
+        data.tabs,
+        targetSpaceId,
+        cleanTargetParentFolderId
+      );
+      const maxOrder = siblings.reduce((max, item) => Math.max(max, item.order), 0);
+
+      // 2. Create the new folder representing the converted space
+      const newFolder: Folder = {
+        id: generateId('folder'),
+        name: sourceSpace.name,
+        customEmojiIcon: sourceSpace.emojiIcon || '📁',
+        colors: sourceSpace.colors || undefined,
+        parentSpaceId: targetSpaceId,
+        parentFolderId: cleanTargetParentFolderId,
+        isExpanded: true,
+        order: maxOrder + 1000,
+        createdAt: sourceSpace.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // 3. Queue pending operations for sync engine
+      savePendingOperation(createWorkspaceOperation('FOLDER_CREATE', newFolder.id, newFolder));
+
+      // 4. Transform all folders in source space
+      // Folders that were root in source space become children of newFolder
+      // Folders that were subfolders keep their parentFolderId, but their parentSpaceId changes to targetSpaceId
+      data.folders.forEach((f) => {
+        if (f.parentSpaceId === sourceSpaceId) {
+          const isRootInSource = !f.parentFolderId;
+          const nextParentFolderId = isRootInSource ? newFolder.id : f.parentFolderId;
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', f.id, {
+              parentSpaceId: targetSpaceId,
+              parentFolderId: nextParentFolderId || null,
+            })
+          );
+        }
+      });
+
+      // 5. Transform all tabs in source space
+      // Tabs that were root in source space (including pinned tabs) become children of newFolder with pinned: false
+      // Tabs that were in subfolders keep their parentFolderId with parentSpaceId: targetSpaceId, pinned: false
+      data.tabs.forEach((t) => {
+        if (!t.favourite && t.parentSpaceId === sourceSpaceId) {
+          const isRootInSource = !t.parentFolderId;
+          const nextParentFolderId = isRootInSource ? newFolder.id : t.parentFolderId;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, {
+              parentSpaceId: targetSpaceId,
+              parentFolderId: nextParentFolderId || null,
+              pinned: false,
+            })
+          );
+        }
+      });
+
+      // 6. Delete source space
+      savePendingOperation(createWorkspaceOperation('SPACE_DELETE', sourceSpaceId));
+
+      // 7. Commit state
+      saveWorkspaceData((prev) => {
+        const remainingSpaces = prev.spaces.filter((s) => s.id !== sourceSpaceId);
+        const nextActiveSpaceId =
+          prev.activeSpaceId === sourceSpaceId ? targetSpaceId : prev.activeSpaceId;
+
+        const nextFolders = prev.folders
+          .map((f) => {
+            if (f.parentSpaceId === sourceSpaceId) {
+              const isRootInSource = !f.parentFolderId;
+              return {
+                ...f,
+                parentSpaceId: targetSpaceId,
+                parentFolderId: isRootInSource ? newFolder.id : f.parentFolderId,
+                updatedAt: Date.now(),
+              };
+            }
+            return f;
+          })
+          .concat(newFolder);
+
+        const nextTabs = prev.tabs.map((t) => {
+          if (!t.favourite && t.parentSpaceId === sourceSpaceId) {
+            const isRootInSource = !t.parentFolderId;
+            return {
+              ...t,
+              parentSpaceId: targetSpaceId,
+              parentFolderId: isRootInSource ? newFolder.id : t.parentFolderId,
+              pinned: false,
+              updatedAt: Date.now(),
+            };
+          }
+          return t;
+        });
+
+        return {
+          ...prev,
+          spaces: remainingSpaces,
+          folders: nextFolders,
+          tabs: nextTabs,
+          activeSpaceId: nextActiveSpaceId,
+        };
+      });
+
+      return newFolder;
+    },
+    [data.spaces, data.folders, data.tabs, saveWorkspaceData]
+  );
+
   // ================= Folder CRUD =================
   const createFolder = useCallback((folderInput: {
     name: string;
@@ -1218,6 +1339,7 @@ export function useWorkspace() {
     createSpace,
     updateSpace,
     deleteSpace,
+    convertSpaceToFolder,
     reorderSpaces,
     moveSpace,
     // Folder operations

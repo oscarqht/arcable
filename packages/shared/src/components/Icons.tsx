@@ -185,6 +185,25 @@ export const FolderOpenIcon: React.FC<IconProps> = ({ size = 16, color = 'curren
   </svg>
 );
 
+export const FolderInputIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+  >
+    <path d="M2 9V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9.5" />
+    <path d="M2 13h10" />
+    <path d="m9 16 3-3-3-3" />
+  </svg>
+);
+
 export const PinIcon: React.FC<IconProps & { filled?: boolean }> = ({ size = 16, color = 'currentColor', filled = false, className, style }) => (
   <svg
     width={size}

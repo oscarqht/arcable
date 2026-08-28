@@ -5,6 +5,7 @@ export * from './Badge';
 export * from './RaindropAuthCard';
 export * from './Icons';
 export * from './workspace/SpaceModal';
+export * from './workspace/ConvertSpaceModal';
 export * from './workspace/FolderModal';
 export * from './workspace/TabModal';
 export * from './workspace/TabRow';

@@ -26,6 +26,7 @@ import {
   TrashIcon,
   FolderIcon,
   FolderPlusIcon,
+  FolderInputIcon,
 } from '../Icons';
 
 export interface SpaceCardProps {
@@ -42,6 +43,7 @@ export interface SpaceCardProps {
   onOpenTab?: (url: string) => void;
   onEditSpace?: (space: Space) => void;
   onDeleteSpace?: (spaceId: string) => void;
+  onConvertSpace?: (space: Space) => void;
   onAddTab?: (folderId?: string, pinned?: boolean) => void;
   onAddFolder?: (parentFolderId?: string) => void;
   onEditFolder?: (folder: Folder) => void;
@@ -77,6 +79,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onOpenTab,
   onEditSpace,
   onDeleteSpace,
+  onConvertSpace,
   onAddTab,
   onAddFolder,
   onEditFolder,
@@ -452,6 +455,32 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <FolderPlusIcon size={16} />
+              </button>
+            )}
+
+            {/* Convert Space to Folder Button */}
+            {onConvertSpace && allSpaces.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onConvertSpace(space)}
+                title="Convert space into a folder in another space"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.75,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <FolderInputIcon size={14} />
               </button>
             )}
 

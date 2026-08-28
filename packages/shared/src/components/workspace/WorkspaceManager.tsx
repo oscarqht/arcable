@@ -14,6 +14,7 @@ import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { SpaceModal } from './SpaceModal';
+import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import {
@@ -78,6 +79,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     createSpace,
     updateSpace,
     deleteSpace,
+    convertSpaceToFolder,
     reorderSpaces,
     moveSpace,
     createFolder,
@@ -117,6 +119,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // Modals state
   const [isSpaceModalOpen, setIsSpaceModalOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
+
+  const [isConvertSpaceModalOpen, setIsConvertSpaceModalOpen] = useState(false);
+  const [convertingSpace, setConvertingSpace] = useState<Space | null>(null);
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
@@ -562,6 +567,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setTargetSpaceIdForModal(spaceId || activeSpace?.id);
     setDefaultFolderParentId(parentFolderId);
     setIsFolderModalOpen(true);
+  };
+
+  const handleOpenConvertSpaceModal = (spaceToConvert: Space) => {
+    setConvertingSpace(spaceToConvert);
+    setIsConvertSpaceModalOpen(true);
   };
 
   // Capture active browser tab
@@ -1115,6 +1125,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   setIsSpaceModalOpen(true);
                 }}
                 onDeleteSpace={deleteSpace}
+                onConvertSpace={handleOpenConvertSpaceModal}
                 onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
                 onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
                 onEditFolder={(f) => {
@@ -1191,6 +1202,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       setIsSpaceModalOpen(true);
                     }}
                     onDeleteSpace={deleteSpace}
+                    onConvertSpace={handleOpenConvertSpaceModal}
                     onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
                     onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
                     onEditFolder={(f) => {
@@ -1236,6 +1248,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 setIsSpaceModalOpen(true);
               }}
               onDeleteSpace={deleteSpace}
+              onConvertSpace={handleOpenConvertSpaceModal}
               onAddTab={(folderId, pinned) => handleOpenNewTabModal(activeSpace.id, folderId, pinned)}
               onAddFolder={(pFolderId) => handleOpenNewFolderModal(activeSpace.id, pFolderId)}
               onEditFolder={(f) => {
@@ -1276,6 +1289,20 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           } else {
             createSpace(spaceData);
           }
+        }}
+      />
+
+      <ConvertSpaceModal
+        isOpen={isConvertSpaceModalOpen}
+        onClose={() => {
+          setIsConvertSpaceModalOpen(false);
+          setConvertingSpace(null);
+        }}
+        space={convertingSpace}
+        allSpaces={data.spaces}
+        allFolders={data.folders}
+        onConvert={(sourceSpaceId, targetSpaceId, targetParentFolderId) => {
+          convertSpaceToFolder(sourceSpaceId, targetSpaceId, targetParentFolderId);
         }}
       />
 
