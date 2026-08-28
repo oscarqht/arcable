@@ -25,6 +25,7 @@ import {
   EditIcon,
   TrashIcon,
   FolderIcon,
+  FolderPlusIcon,
 } from '../Icons';
 
 export interface SpaceCardProps {
@@ -425,6 +426,32 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <PlusIcon size={16} />
+              </button>
+            )}
+
+            {/* Add Folder Button */}
+            {onAddFolder && (
+              <button
+                type="button"
+                onClick={() => onAddFolder()}
+                title="Add folder to this space"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.85,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <FolderPlusIcon size={16} />
               </button>
             )}
 

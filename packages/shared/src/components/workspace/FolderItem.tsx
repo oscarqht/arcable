@@ -13,6 +13,7 @@ import {
   PlusIcon,
   FolderIcon,
   FolderOpenIcon,
+  FolderPlusIcon,
   EditIcon,
   TrashIcon,
   DragHandleIcon,
@@ -407,7 +408,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <FolderIcon size={13} />
+            <FolderPlusIcon size={14} />
           </button>
 
           {/* Edit folder */}

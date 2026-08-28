@@ -301,28 +301,28 @@ export function useWorkspace() {
 
   // ================= Space CRUD =================
   const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; colors?: string }) => {
-    let createdSpace: Space | null = null;
+    const sorted = getSortedSpaces(data.spaces);
+    const lastSpace = sorted[sorted.length - 1];
+    const highestOrder = lastSpace
+      ? (lastSpace.order !== undefined ? lastSpace.order : (lastSpace.createdAt || 0))
+      : 0;
+
+    const newSpace: Space = {
+      id: generateId('space'),
+      name: spaceInput.name.trim() || 'New Space',
+      emojiIcon: spaceInput.emojiIcon || '📁',
+      colors: spaceInput.colors || '#6366f1',
+      order: highestOrder + 1000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    savePendingOperation(createWorkspaceOperation('SPACE_CREATE', newSpace.id, newSpace));
 
     saveWorkspaceData((prev) => {
-      const sorted = getSortedSpaces(prev.spaces);
-      const lastSpace = sorted[sorted.length - 1];
-      const highestOrder = lastSpace
-        ? (lastSpace.order !== undefined ? lastSpace.order : (lastSpace.createdAt || 0))
-        : 0;
-
-      const newSpace: Space = {
-        id: generateId('space'),
-        name: spaceInput.name.trim() || 'New Space',
-        emojiIcon: spaceInput.emojiIcon || '📁',
-        colors: spaceInput.colors || '#6366f1',
-        order: highestOrder + 1000,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      createdSpace = newSpace;
-      savePendingOperation(createWorkspaceOperation('SPACE_CREATE', newSpace.id, newSpace));
-
+      if (prev.spaces.some((s) => s.id === newSpace.id)) {
+        return prev;
+      }
       return {
         ...prev,
         spaces: [...prev.spaces, newSpace],
@@ -330,16 +330,8 @@ export function useWorkspace() {
       };
     });
 
-    return createdSpace || {
-      id: generateId('space'),
-      name: spaceInput.name.trim() || 'New Space',
-      emojiIcon: spaceInput.emojiIcon || '📁',
-      colors: spaceInput.colors || '#6366f1',
-      order: 1000,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-  }, [saveWorkspaceData]);
+    return newSpace;
+  }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
     const opPayload: Record<string, any> = { ...updates };
@@ -359,12 +351,26 @@ export function useWorkspace() {
   const deleteSpace = useCallback((id: string) => {
     savePendingOperation(createWorkspaceOperation('SPACE_DELETE', id));
 
+    const remainingSpaces = data.spaces.filter((s) => s.id !== id);
+    let fallbackSpace: Space | null = null;
+    if (remainingSpaces.length === 0) {
+      fallbackSpace = {
+        id: generateId('space'),
+        name: 'General',
+        emojiIcon: '🌐',
+        colors: '#6366f1',
+        order: 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      savePendingOperation(createWorkspaceOperation('SPACE_CREATE', fallbackSpace.id, fallbackSpace));
+    }
+
     saveWorkspaceData((prev) => {
-      const remainingSpaces = prev.spaces.filter((s) => s.id !== id);
-      if (remainingSpaces.length === 0) {
-        // Always keep at least one space
-        const fallbackSpace: Space = {
-          id: generateId('space'),
+      const remaining = prev.spaces.filter((s) => s.id !== id);
+      if (remaining.length === 0) {
+        const fb = fallbackSpace || {
+          id: 'space_default',
           name: 'General',
           emojiIcon: '🌐',
           colors: '#6366f1',
@@ -374,25 +380,25 @@ export function useWorkspace() {
         };
         return {
           ...prev,
-          spaces: [fallbackSpace],
+          spaces: [fb],
           folders: prev.folders.filter((f) => f.parentSpaceId !== id),
           tabs: prev.tabs.filter((t) => t.parentSpaceId !== id),
-          activeSpaceId: fallbackSpace.id,
+          activeSpaceId: fb.id,
         };
       }
 
       const nextActiveSpaceId =
-        prev.activeSpaceId === id ? remainingSpaces[0].id : prev.activeSpaceId;
+        prev.activeSpaceId === id ? remaining[0].id : prev.activeSpaceId;
 
       return {
         ...prev,
-        spaces: remainingSpaces,
+        spaces: remaining,
         folders: prev.folders.filter((f) => f.parentSpaceId !== id),
         tabs: prev.tabs.filter((t) => t.parentSpaceId !== id),
         activeSpaceId: nextActiveSpaceId,
       };
     });
-  }, [saveWorkspaceData]);
+  }, [data.spaces, saveWorkspaceData]);
 
   // ================= Folder CRUD =================
   const createFolder = useCallback((folderInput: {
@@ -667,75 +673,71 @@ export function useWorkspace() {
     (sourceSpaceId: string, targetSpaceId: string, position: 'before' | 'after') => {
       if (sourceSpaceId === targetSpaceId) return;
 
-      saveWorkspaceData((prev) => {
-        const sorted = getSortedSpaces(prev.spaces);
-        const sourceIdx = sorted.findIndex((s) => s.id === sourceSpaceId);
-        const targetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
-        if (sourceIdx < 0 || targetIdx < 0) return prev;
+      const sorted = getSortedSpaces(data.spaces);
+      const sourceIdx = sorted.findIndex((s) => s.id === sourceSpaceId);
+      const targetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
+      if (sourceIdx < 0 || targetIdx < 0) return;
 
-        const [moved] = sorted.splice(sourceIdx, 1);
-        const newTargetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
-        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
-        sorted.splice(insertIdx, 0, moved);
+      const [moved] = sorted.splice(sourceIdx, 1);
+      const newTargetIdx = sorted.findIndex((s) => s.id === targetSpaceId);
+      const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+      sorted.splice(insertIdx, 0, moved);
 
-        const reindexed = sorted.map((s, idx) => ({
-          ...s,
-          order: (idx + 1) * 1000,
-          updatedAt: s.id === sourceSpaceId ? Date.now() : s.updatedAt,
-        }));
+      const reindexed = sorted.map((s, idx) => ({
+        ...s,
+        order: (idx + 1) * 1000,
+        updatedAt: s.id === sourceSpaceId ? Date.now() : s.updatedAt,
+      }));
 
-        reindexed.forEach((s) => {
-          const oldSpace = prev.spaces.find((orig) => orig.id === s.id);
-          if (oldSpace && oldSpace.order !== s.order) {
-            savePendingOperation(
-              createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
-            );
-          }
-        });
-
-        return {
-          ...prev,
-          spaces: reindexed,
-        };
+      reindexed.forEach((s) => {
+        const oldSpace = data.spaces.find((orig) => orig.id === s.id);
+        if (oldSpace && oldSpace.order !== s.order) {
+          savePendingOperation(
+            createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
+          );
+        }
       });
+
+      saveWorkspaceData((prev) => ({
+        ...prev,
+        spaces: reindexed,
+      }));
     },
-    [saveWorkspaceData]
+    [data.spaces, saveWorkspaceData]
   );
 
   const moveSpace = useCallback(
     (spaceId: string, direction: 'left' | 'right') => {
-      saveWorkspaceData((prev) => {
-        const sorted = getSortedSpaces(prev.spaces);
-        const idx = sorted.findIndex((s) => s.id === spaceId);
-        if (idx < 0) return prev;
-        const targetIdx = direction === 'left' ? idx - 1 : idx + 1;
-        if (targetIdx < 0 || targetIdx >= sorted.length) return prev;
+      const sorted = getSortedSpaces(data.spaces);
+      const idx = sorted.findIndex((s) => s.id === spaceId);
+      if (idx < 0) return;
+      const targetIdx = direction === 'left' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= sorted.length) return;
 
-        const [moved] = sorted.splice(idx, 1);
-        sorted.splice(targetIdx, 0, moved);
+      const [moved] = sorted.splice(idx, 1);
+      sorted.splice(targetIdx, 0, moved);
 
-        const reindexed = sorted.map((s, i) => ({
-          ...s,
-          order: (i + 1) * 1000,
-          updatedAt: s.id === spaceId ? Date.now() : s.updatedAt,
-        }));
+      const reindexed = sorted.map((s, i) => ({
+        ...s,
+        order: (i + 1) * 1000,
+        updatedAt: s.id === spaceId ? Date.now() : s.updatedAt,
+      }));
 
-        reindexed.forEach((s) => {
-          const oldSpace = prev.spaces.find((orig) => orig.id === s.id);
-          if (oldSpace && oldSpace.order !== s.order) {
-            savePendingOperation(
-              createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
-            );
-          }
-        });
-
-        return {
-          ...prev,
-          spaces: reindexed,
-        };
+      reindexed.forEach((s) => {
+        const oldSpace = data.spaces.find((orig) => orig.id === s.id);
+        if (oldSpace && oldSpace.order !== s.order) {
+          savePendingOperation(
+            createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
+          );
+        }
       });
+
+      saveWorkspaceData((prev) => ({
+        ...prev,
+        spaces: reindexed,
+      }));
     },
-    [saveWorkspaceData]
+    [data.spaces, saveWorkspaceData]
   );
 
   const reorderSiblingItem = useCallback(
@@ -749,350 +751,344 @@ export function useWorkspace() {
       const { sourceId, sourceType, targetId, targetType, position } = params;
       if (sourceId === targetId) return;
 
-      saveWorkspaceData((prev) => {
-        const sourceFolder = sourceType === 'folder' ? prev.folders.find((f) => f.id === sourceId) : undefined;
-        const sourceTab = sourceType === 'tab' ? prev.tabs.find((t) => t.id === sourceId) : undefined;
-        if (!sourceFolder && !sourceTab) return prev;
+      const sourceFolder = sourceType === 'folder' ? data.folders.find((f) => f.id === sourceId) : undefined;
+      const sourceTab = sourceType === 'tab' ? data.tabs.find((t) => t.id === sourceId) : undefined;
+      if (!sourceFolder && !sourceTab) return;
 
-        const targetFolder = targetType === 'folder' ? prev.folders.find((f) => f.id === targetId) : undefined;
-        const targetTab = targetType === 'tab' ? prev.tabs.find((t) => t.id === targetId) : undefined;
-        if (!targetFolder && !targetTab) return prev;
+      const targetFolder = targetType === 'folder' ? data.folders.find((f) => f.id === targetId) : undefined;
+      const targetTab = targetType === 'tab' ? data.tabs.find((t) => t.id === targetId) : undefined;
+      if (!targetFolder && !targetTab) return;
 
-        // Case 1: Drop inside a folder
-        if (position === 'inside' && targetFolder) {
-          if (sourceType === 'folder') {
-            if (sourceFolder?.id === targetFolder.id) return prev;
-            let currParent: string | undefined = targetFolder.parentFolderId;
-            while (currParent) {
-              if (currParent === sourceFolder?.id) return prev;
-              const p = prev.folders.find((f) => f.id === currParent);
-              currParent = p?.parentFolderId;
-            }
-          }
-
-          const childSiblings = getSortedSiblings(
-            prev.folders,
-            prev.tabs,
-            targetFolder.parentSpaceId,
-            targetFolder.id
-          ).filter((s) => s.id !== sourceId);
-          const maxOrder = childSiblings.reduce((max, s) => Math.max(max, s.order), 0);
-          const newOrder = maxOrder + 1000;
-
-          if (sourceType === 'tab') {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', sourceId, {
-                parentSpaceId: targetFolder.parentSpaceId,
-                parentFolderId: targetFolder.id,
-                pinned: false,
-                favourite: false,
-                order: newOrder,
-              })
-            );
-
-            return {
-              ...prev,
-              tabs: prev.tabs.map((t) =>
-                t.id === sourceId
-                  ? {
-                      ...t,
-                      parentSpaceId: targetFolder.parentSpaceId,
-                      parentFolderId: targetFolder.id,
-                      pinned: false,
-                      favourite: false,
-                      order: newOrder,
-                      updatedAt: Date.now(),
-                    }
-                  : t
-              ),
-            };
-          } else {
-            savePendingOperation(
-              createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
-                parentSpaceId: targetFolder.parentSpaceId,
-                parentFolderId: targetFolder.id,
-                order: newOrder,
-              })
-            );
-
-            return {
-              ...prev,
-              folders: prev.folders.map((f) =>
-                f.id === sourceId
-                  ? {
-                      ...f,
-                      parentSpaceId: targetFolder.parentSpaceId,
-                      parentFolderId: targetFolder.id,
-                      order: newOrder,
-                      updatedAt: Date.now(),
-                    }
-                  : f
-              ),
-            };
-          }
-        }
-
-        // Case 2: Drop before or after target item
-        const parentSpaceId = targetFolder
-          ? targetFolder.parentSpaceId
-          : targetTab?.parentSpaceId || prev.activeSpaceId;
-        const parentFolderId = targetFolder ? targetFolder.parentFolderId : targetTab?.parentFolderId;
-
+      // Case 1: Drop inside a folder
+      if (position === 'inside' && targetFolder) {
         if (sourceType === 'folder') {
-          if (sourceFolder?.id === parentFolderId) return prev;
-          let currParent: string | undefined = parentFolderId;
+          if (sourceFolder?.id === targetFolder.id) return;
+          let currParent: string | undefined = targetFolder.parentFolderId;
           while (currParent) {
-            if (currParent === sourceFolder?.id) return prev;
-            const p = prev.folders.find((f) => f.id === currParent);
+            if (currParent === sourceFolder?.id) return;
+            const p = data.folders.find((f) => f.id === currParent);
             currParent = p?.parentFolderId;
           }
         }
 
-        const siblings = getSortedSiblings(prev.folders, prev.tabs, parentSpaceId, parentFolderId).filter(
-          (s) => s.id !== sourceId
-        );
+        const childSiblings = getSortedSiblings(
+          data.folders,
+          data.tabs,
+          targetFolder.parentSpaceId,
+          targetFolder.id
+        ).filter((s) => s.id !== sourceId);
+        const maxOrder = childSiblings.reduce((max, s) => Math.max(max, s.order), 0);
+        const newOrder = maxOrder + 1000;
 
-        const targetIdx = siblings.findIndex((s) => s.id === targetId);
-        if (targetIdx < 0) return prev;
-
-        const sourceItem: WorkspaceSiblingItem =
-          sourceType === 'folder'
-            ? { type: 'folder', data: sourceFolder!, id: sourceId, order: 0 }
-            : { type: 'tab', data: sourceTab!, id: sourceId, order: 0 };
-
-        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
-        siblings.splice(insertIdx, 0, sourceItem);
-
-        const updatedOrderMap = new Map<string, number>();
-        siblings.forEach((s, idx) => {
-          updatedOrderMap.set(s.id, (idx + 1) * 1000);
-        });
-
-        const updatedFolders = prev.folders.map((f) => {
-          if (f.id === sourceId) {
-            return {
-              ...f,
-              parentSpaceId,
-              parentFolderId: parentFolderId || undefined,
-              order: updatedOrderMap.get(f.id) ?? f.order ?? 1000,
-              updatedAt: Date.now(),
-            };
-          }
-          if (updatedOrderMap.has(f.id)) {
-            return { ...f, order: updatedOrderMap.get(f.id)! };
-          }
-          return f;
-        });
-
-        const updatedTabs = prev.tabs.map((t) => {
-          if (t.id === sourceId) {
-            return {
-              ...t,
-              parentSpaceId,
-              parentFolderId: parentFolderId || undefined,
+        if (sourceType === 'tab') {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', sourceId, {
+              parentSpaceId: targetFolder.parentSpaceId,
+              parentFolderId: targetFolder.id,
               pinned: false,
               favourite: false,
-              order: updatedOrderMap.get(t.id) ?? t.order ?? 1000,
-              updatedAt: Date.now(),
-            };
-          }
-          if (updatedOrderMap.has(t.id)) {
-            return { ...t, order: updatedOrderMap.get(t.id)! };
-          }
-          return t;
-        });
+              order: newOrder,
+            })
+          );
 
-        updatedFolders.forEach((f) => {
-          const oldFolder = prev.folders.find((orig) => orig.id === f.id);
-          if (
-            oldFolder &&
-            (oldFolder.order !== f.order ||
-              oldFolder.parentSpaceId !== f.parentSpaceId ||
-              oldFolder.parentFolderId !== f.parentFolderId)
-          ) {
-            savePendingOperation(
-              createWorkspaceOperation('FOLDER_UPDATE', f.id, {
-                parentSpaceId: f.parentSpaceId,
-                parentFolderId: f.parentFolderId ?? null,
-                order: f.order,
-              })
-            );
-          }
-        });
+          saveWorkspaceData((prev) => ({
+            ...prev,
+            tabs: prev.tabs.map((t) =>
+              t.id === sourceId
+                ? {
+                    ...t,
+                    parentSpaceId: targetFolder.parentSpaceId,
+                    parentFolderId: targetFolder.id,
+                    pinned: false,
+                    favourite: false,
+                    order: newOrder,
+                    updatedAt: Date.now(),
+                  }
+                : t
+            ),
+          }));
+          return;
+        } else {
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
+              parentSpaceId: targetFolder.parentSpaceId,
+              parentFolderId: targetFolder.id,
+              order: newOrder,
+            })
+          );
 
-        updatedTabs.forEach((t) => {
-          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
-          if (
-            oldTab &&
-            (oldTab.order !== t.order ||
-              oldTab.parentSpaceId !== t.parentSpaceId ||
-              oldTab.parentFolderId !== t.parentFolderId ||
-              oldTab.pinned !== t.pinned ||
-              oldTab.favourite !== t.favourite)
-          ) {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', t.id, {
-                parentSpaceId: t.parentSpaceId ?? null,
-                parentFolderId: t.parentFolderId ?? null,
-                pinned: t.pinned,
-                favourite: t.favourite,
-                order: t.order,
-              })
-            );
-          }
-        });
+          saveWorkspaceData((prev) => ({
+            ...prev,
+            folders: prev.folders.map((f) =>
+              f.id === sourceId
+                ? {
+                    ...f,
+                    parentSpaceId: targetFolder.parentSpaceId,
+                    parentFolderId: targetFolder.id,
+                    order: newOrder,
+                    updatedAt: Date.now(),
+                  }
+                : f
+            ),
+          }));
+          return;
+        }
+      }
 
-        return {
-          ...prev,
-          folders: updatedFolders,
-          tabs: updatedTabs,
-        };
+      // Case 2: Drop before or after target item
+      const parentSpaceId = targetFolder
+        ? targetFolder.parentSpaceId
+        : targetTab?.parentSpaceId || data.activeSpaceId;
+      const parentFolderId = targetFolder ? targetFolder.parentFolderId : targetTab?.parentFolderId;
+
+      if (sourceType === 'folder') {
+        if (sourceFolder?.id === parentFolderId) return;
+        let currParent: string | undefined = parentFolderId;
+        while (currParent) {
+          if (currParent === sourceFolder?.id) return;
+          const p = data.folders.find((f) => f.id === currParent);
+          currParent = p?.parentFolderId;
+        }
+      }
+
+      const siblings = getSortedSiblings(data.folders, data.tabs, parentSpaceId, parentFolderId).filter(
+        (s) => s.id !== sourceId
+      );
+
+      const targetIdx = siblings.findIndex((s) => s.id === targetId);
+      if (targetIdx < 0) return;
+
+      const sourceItem: WorkspaceSiblingItem =
+        sourceType === 'folder'
+          ? { type: 'folder', data: sourceFolder!, id: sourceId, order: 0 }
+          : { type: 'tab', data: sourceTab!, id: sourceId, order: 0 };
+
+      const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+      siblings.splice(insertIdx, 0, sourceItem);
+
+      const updatedOrderMap = new Map<string, number>();
+      siblings.forEach((s, idx) => {
+        updatedOrderMap.set(s.id, (idx + 1) * 1000);
       });
+
+      const updatedFolders = data.folders.map((f) => {
+        if (f.id === sourceId) {
+          return {
+            ...f,
+            parentSpaceId,
+            parentFolderId: parentFolderId || undefined,
+            order: updatedOrderMap.get(f.id) ?? f.order ?? 1000,
+            updatedAt: Date.now(),
+          };
+        }
+        if (updatedOrderMap.has(f.id)) {
+          return { ...f, order: updatedOrderMap.get(f.id)! };
+        }
+        return f;
+      });
+
+      const updatedTabs = data.tabs.map((t) => {
+        if (t.id === sourceId) {
+          return {
+            ...t,
+            parentSpaceId,
+            parentFolderId: parentFolderId || undefined,
+            pinned: false,
+            favourite: false,
+            order: updatedOrderMap.get(t.id) ?? t.order ?? 1000,
+            updatedAt: Date.now(),
+          };
+        }
+        if (updatedOrderMap.has(t.id)) {
+          return { ...t, order: updatedOrderMap.get(t.id)! };
+        }
+        return t;
+      });
+
+      updatedFolders.forEach((f) => {
+        const oldFolder = data.folders.find((orig) => orig.id === f.id);
+        if (
+          oldFolder &&
+          (oldFolder.order !== f.order ||
+            oldFolder.parentSpaceId !== f.parentSpaceId ||
+            oldFolder.parentFolderId !== f.parentFolderId)
+        ) {
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', f.id, {
+              parentSpaceId: f.parentSpaceId,
+              parentFolderId: f.parentFolderId ?? null,
+              order: f.order,
+            })
+          );
+        }
+      });
+
+      updatedTabs.forEach((t) => {
+        const oldTab = data.tabs.find((orig) => orig.id === t.id);
+        if (
+          oldTab &&
+          (oldTab.order !== t.order ||
+            oldTab.parentSpaceId !== t.parentSpaceId ||
+            oldTab.parentFolderId !== t.parentFolderId ||
+            oldTab.pinned !== t.pinned ||
+            oldTab.favourite !== t.favourite)
+        ) {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, {
+              parentSpaceId: t.parentSpaceId ?? null,
+              parentFolderId: t.parentFolderId ?? null,
+              pinned: t.pinned,
+              favourite: t.favourite,
+              order: t.order,
+            })
+          );
+        }
+      });
+
+      saveWorkspaceData((prev) => ({
+        ...prev,
+        folders: updatedFolders,
+        tabs: updatedTabs,
+      }));
     },
-    [saveWorkspaceData]
+    [data.activeSpaceId, data.folders, data.tabs, saveWorkspaceData]
   );
 
   const moveSiblingItem = useCallback(
     (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => {
-      saveWorkspaceData((prev) => {
-        const folder = itemType === 'folder' ? prev.folders.find((f) => f.id === itemId) : undefined;
-        const tab = itemType === 'tab' ? prev.tabs.find((t) => t.id === itemId) : undefined;
-        if (!folder && !tab) return prev;
+      const folder = itemType === 'folder' ? data.folders.find((f) => f.id === itemId) : undefined;
+      const tab = itemType === 'tab' ? data.tabs.find((t) => t.id === itemId) : undefined;
+      if (!folder && !tab) return;
 
-        const parentSpaceId = folder ? folder.parentSpaceId : tab?.parentSpaceId || prev.activeSpaceId;
-        const parentFolderId = folder ? folder.parentFolderId : tab?.parentFolderId;
+      const parentSpaceId = folder ? folder.parentSpaceId : tab?.parentSpaceId || data.activeSpaceId;
+      const parentFolderId = folder ? folder.parentFolderId : tab?.parentFolderId;
 
-        const siblings = getSortedSiblings(prev.folders, prev.tabs, parentSpaceId, parentFolderId);
-        const idx = siblings.findIndex((s) => s.id === itemId);
-        if (idx < 0) return prev;
+      const siblings = getSortedSiblings(data.folders, data.tabs, parentSpaceId, parentFolderId);
+      const idx = siblings.findIndex((s) => s.id === itemId);
+      if (idx < 0) return;
 
-        const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-        if (targetIdx < 0 || targetIdx >= siblings.length) return prev;
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= siblings.length) return;
 
-        const [moved] = siblings.splice(idx, 1);
-        siblings.splice(targetIdx, 0, moved);
+      const [moved] = siblings.splice(idx, 1);
+      siblings.splice(targetIdx, 0, moved);
 
-        const updatedOrderMap = new Map<string, number>();
-        siblings.forEach((s, i) => {
-          updatedOrderMap.set(s.id, (i + 1) * 1000);
-        });
-
-        const updatedFolders = prev.folders.map((f) =>
-          updatedOrderMap.has(f.id)
-            ? { ...f, order: updatedOrderMap.get(f.id)!, updatedAt: f.id === itemId ? Date.now() : f.updatedAt }
-            : f
-        );
-        const updatedTabs = prev.tabs.map((t) =>
-          updatedOrderMap.has(t.id)
-            ? { ...t, order: updatedOrderMap.get(t.id)!, updatedAt: t.id === itemId ? Date.now() : t.updatedAt }
-            : t
-        );
-
-        updatedFolders.forEach((f) => {
-          const oldFolder = prev.folders.find((orig) => orig.id === f.id);
-          if (oldFolder && oldFolder.order !== f.order) {
-            savePendingOperation(
-              createWorkspaceOperation('FOLDER_UPDATE', f.id, { order: f.order })
-            );
-          }
-        });
-
-        updatedTabs.forEach((t) => {
-          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
-          if (oldTab && oldTab.order !== t.order) {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
-            );
-          }
-        });
-
-        return {
-          ...prev,
-          folders: updatedFolders,
-          tabs: updatedTabs,
-        };
+      const updatedOrderMap = new Map<string, number>();
+      siblings.forEach((s, i) => {
+        updatedOrderMap.set(s.id, (i + 1) * 1000);
       });
+
+      const updatedFolders = data.folders.map((f) =>
+        updatedOrderMap.has(f.id)
+          ? { ...f, order: updatedOrderMap.get(f.id)!, updatedAt: f.id === itemId ? Date.now() : f.updatedAt }
+          : f
+      );
+      const updatedTabs = data.tabs.map((t) =>
+        updatedOrderMap.has(t.id)
+          ? { ...t, order: updatedOrderMap.get(t.id)!, updatedAt: t.id === itemId ? Date.now() : t.updatedAt }
+          : t
+      );
+
+      updatedFolders.forEach((f) => {
+        const oldFolder = data.folders.find((orig) => orig.id === f.id);
+        if (oldFolder && oldFolder.order !== f.order) {
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', f.id, { order: f.order })
+          );
+        }
+      });
+
+      updatedTabs.forEach((t) => {
+        const oldTab = data.tabs.find((orig) => orig.id === t.id);
+        if (oldTab && oldTab.order !== t.order) {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+          );
+        }
+      });
+
+      saveWorkspaceData((prev) => ({
+        ...prev,
+        folders: updatedFolders,
+        tabs: updatedTabs,
+      }));
     },
-    [saveWorkspaceData]
+    [data.activeSpaceId, data.folders, data.tabs, saveWorkspaceData]
   );
 
   const reorderPinnedTabs = useCallback(
     (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
       if (sourceTabId === targetTabId) return;
-      saveWorkspaceData((prev) => {
-        const currentSpace = prev.activeSpaceId;
-        const pinned = getSortedTabs(
-          prev.tabs.filter((t) => !t.favourite && t.pinned && t.parentSpaceId === currentSpace)
-        );
-        const sourceIdx = pinned.findIndex((t) => t.id === sourceTabId);
-        const targetIdx = pinned.findIndex((t) => t.id === targetTabId);
-        if (sourceIdx < 0 || targetIdx < 0) return prev;
+      const currentSpace = activeSpace?.id || data.activeSpaceId;
+      const pinned = getSortedTabs(
+        data.tabs.filter((t) => !t.favourite && t.pinned && t.parentSpaceId === currentSpace)
+      );
+      const sourceIdx = pinned.findIndex((t) => t.id === sourceTabId);
+      const targetIdx = pinned.findIndex((t) => t.id === targetTabId);
+      if (sourceIdx < 0 || targetIdx < 0) return;
 
-        const [moved] = pinned.splice(sourceIdx, 1);
-        const newTargetIdx = pinned.findIndex((t) => t.id === targetTabId);
-        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
-        pinned.splice(insertIdx, 0, moved);
+      const [moved] = pinned.splice(sourceIdx, 1);
+      const newTargetIdx = pinned.findIndex((t) => t.id === targetTabId);
+      const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+      pinned.splice(insertIdx, 0, moved);
 
-        const orderMap = new Map<string, number>();
-        pinned.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+      const orderMap = new Map<string, number>();
+      pinned.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
 
-        const updatedTabs = prev.tabs.map((t) =>
-          orderMap.has(t.id)
-            ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
-            : t
-        );
+      const updatedTabs = data.tabs.map((t) =>
+        orderMap.has(t.id)
+          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
+          : t
+      );
 
-        updatedTabs.forEach((t) => {
-          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
-          if (oldTab && oldTab.order !== t.order) {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
-            );
-          }
-        });
-
-        return { ...prev, tabs: updatedTabs };
+      updatedTabs.forEach((t) => {
+        const oldTab = data.tabs.find((orig) => orig.id === t.id);
+        if (oldTab && oldTab.order !== t.order) {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+          );
+        }
       });
+
+      saveWorkspaceData((prev) => ({ ...prev, tabs: updatedTabs }));
     },
-    [saveWorkspaceData]
+    [activeSpace, data.activeSpaceId, data.tabs, saveWorkspaceData]
   );
 
   const reorderFavouriteTabs = useCallback(
     (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
       if (sourceTabId === targetTabId) return;
-      saveWorkspaceData((prev) => {
-        const favs = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite)));
-        const sourceIdx = favs.findIndex((t) => t.id === sourceTabId);
-        const targetIdx = favs.findIndex((t) => t.id === targetTabId);
-        if (sourceIdx < 0 || targetIdx < 0) return prev;
+      const favs = getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite)));
+      const sourceIdx = favs.findIndex((t) => t.id === sourceTabId);
+      const targetIdx = favs.findIndex((t) => t.id === targetTabId);
+      if (sourceIdx < 0 || targetIdx < 0) return;
 
-        const [moved] = favs.splice(sourceIdx, 1);
-        const newTargetIdx = favs.findIndex((t) => t.id === targetTabId);
-        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
-        favs.splice(insertIdx, 0, moved);
+      const [moved] = favs.splice(sourceIdx, 1);
+      const newTargetIdx = favs.findIndex((t) => t.id === targetTabId);
+      const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+      favs.splice(insertIdx, 0, moved);
 
-        const orderMap = new Map<string, number>();
-        favs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+      const orderMap = new Map<string, number>();
+      favs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
 
-        const updatedTabs = prev.tabs.map((t) =>
-          orderMap.has(t.id)
-            ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
-            : t
-        );
+      const updatedTabs = data.tabs.map((t) =>
+        orderMap.has(t.id)
+          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
+          : t
+      );
 
-        updatedTabs.forEach((t) => {
-          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
-          if (oldTab && oldTab.order !== t.order) {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
-            );
-          }
-        });
-
-        return { ...prev, tabs: updatedTabs };
+      updatedTabs.forEach((t) => {
+        const oldTab = data.tabs.find((orig) => orig.id === t.id);
+        if (oldTab && oldTab.order !== t.order) {
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+          );
+        }
       });
+
+      saveWorkspaceData((prev) => ({ ...prev, tabs: updatedTabs }));
     },
-    [saveWorkspaceData]
+    [data.tabs, saveWorkspaceData]
   );
 
   const resetToDefault = useCallback(() => {
