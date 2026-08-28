@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Header, Button, WorkspaceManager } from '@arcable/shared/components';
+import { getLocalFolderExpanded } from '@arcable/shared/hooks';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
@@ -16,7 +17,15 @@ export const App: React.FC = () => {
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         const local = window.localStorage.getItem('arcable_workspace_data');
         if (!local) {
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.arcable_workspace_snapshot));
+          const snapshot = res.arcable_workspace_snapshot;
+          const merged = {
+            ...snapshot,
+            folders: (snapshot.folders || []).map((f: any) => ({
+              ...f,
+              isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
+            })),
+          };
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
         }
       }
     });
@@ -42,15 +51,26 @@ export const App: React.FC = () => {
             const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
             const merged = {
               ...snapshot,
+              folders: (snapshot.folders || []).map((f: any) => ({
+                ...f,
+                isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
+              })),
               activeSpaceId: activeSpaceStillExists
                 ? currentActive
                 : (snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal'),
             };
             window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           } catch {
+            const merged = {
+              ...snapshot,
+              folders: (snapshot.folders || []).map((f: any) => ({
+                ...f,
+                isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
+              })),
+            };
             window.localStorage.setItem(
               'arcable_workspace_data',
-              JSON.stringify(snapshot)
+              JSON.stringify(merged)
             );
           }
         }

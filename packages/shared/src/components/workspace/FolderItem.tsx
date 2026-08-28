@@ -211,37 +211,47 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           boxSizing: 'border-box',
         }}
       >
-        {/* Left section: drag handle, chevron, folder icon, folder title, color badge */}
+        {/* Left section: expand state / drag handle, folder icon, folder title, color badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-          {/* Drag Handle on hover */}
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              opacity: isHovered ? 0.6 : 0,
-              cursor: 'grab',
-              flexShrink: 0,
-              transition: 'opacity 0.12s ease',
-              color: 'inherit',
-            }}
-            title="Drag to reorder folder"
-          >
-            <DragHandleIcon size={12} />
-          </span>
-
-          {/* Rotating Chevron */}
+          {/* Folder expand state icon normally, Drag Handle on hover */}
           <div
             style={{
-              display: 'inline-flex',
+              width: '16px',
+              height: '16px',
+              display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-              transition: 'transform 0.15s ease',
-              opacity: 0.7,
               flexShrink: 0,
             }}
           >
-            <ChevronRightIcon size={14} />
+            {isHovered ? (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.6,
+                  cursor: 'grab',
+                  color: 'inherit',
+                }}
+                title="Drag to reorder folder"
+              >
+                <DragHandleIcon size={13} />
+              </span>
+            ) : (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s ease',
+                  opacity: 0.7,
+                }}
+              >
+                <ChevronRightIcon size={14} />
+              </div>
+            )}
           </div>
 
           {/* Folder Icon / Custom Emoji */}

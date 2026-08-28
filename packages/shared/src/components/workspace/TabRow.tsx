@@ -182,26 +182,9 @@ export const TabRow: React.FC<TabRowProps> = ({
         position: 'relative',
       }}
     >
-      {/* Left side: Drag handle (on hover), Favicon/Emoji, Title (Full Width) */}
+      {/* Left side: Favicon/Emoji or Drag handle on hover, Title (Full Width) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-        {/* Drag Handle on hover */}
-        {isHovered && (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              opacity: 0.6,
-              cursor: 'grab',
-              flexShrink: 0,
-              color: 'inherit',
-            }}
-            title="Drag to reorder"
-          >
-            <DragHandleIcon size={12} />
-          </span>
-        )}
-
-        {/* Favicon or Custom Emoji */}
+        {/* Favicon or Custom Emoji normally, Drag Handle on hover */}
         <div
           style={{
             width: '20px',
@@ -214,15 +197,31 @@ export const TabRow: React.FC<TabRowProps> = ({
             overflow: 'hidden',
           }}
         >
-          <TabFavicon
-            url={tab.url}
-            customEmojiIcon={tab.customEmojiIcon}
-            size={16}
-            emojiSize={14}
-            isDarkTheme={isDarkTheme}
-            showDomainFallback={true}
-            globeIconSize={14}
-          />
+          {isHovered ? (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0.6,
+                cursor: 'grab',
+                color: 'inherit',
+              }}
+              title="Drag to reorder"
+            >
+              <DragHandleIcon size={14} />
+            </span>
+          ) : (
+            <TabFavicon
+              url={tab.url}
+              customEmojiIcon={tab.customEmojiIcon}
+              size={16}
+              emojiSize={14}
+              isDarkTheme={isDarkTheme}
+              showDomainFallback={true}
+              globeIconSize={14}
+            />
+          )}
         </div>
 
         {/* Title taking 100% available width */}
