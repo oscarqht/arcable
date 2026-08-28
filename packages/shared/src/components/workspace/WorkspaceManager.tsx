@@ -127,17 +127,23 @@ export function WorkspaceManager({
   // Load persistent space collapse state
   useEffect(() => {
     setSpacesMounted(true);
-    const initialMap: Record<string, boolean> = {};
-    for (const sp of sortedSpaces) {
-      const key = `arcable_collapse_space_${sp.id}`;
-      try {
-        const stored = localStorage.getItem(key);
-        if (stored !== null) {
-          initialMap[sp.id] = stored === 'true';
+    setSpaceCollapseMap((prev) => {
+      let changed = false;
+      const nextMap: Record<string, boolean> = { ...prev };
+      for (const sp of sortedSpaces) {
+        if (nextMap[sp.id] === undefined) {
+          const key = `arcable_collapse_space_${sp.id}`;
+          try {
+            const stored = localStorage.getItem(key);
+            if (stored !== null) {
+              nextMap[sp.id] = stored === 'true';
+              changed = true;
+            }
+          } catch {}
         }
-      } catch {}
-    }
-    setSpaceCollapseMap(initialMap);
+      }
+      return changed ? nextMap : prev;
+    });
   }, [sortedSpaces]);
 
   const toggleSpaceCollapse = (spaceId: string) => {
@@ -970,6 +976,7 @@ export function WorkspaceManager({
         allSpaces={data.spaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultParentFolderId={defaultFolderParentId}
+        onDelete={(fId) => deleteFolder(fId, true)}
         onSave={(folderData) => {
           if (editingFolder) {
             updateFolder(editingFolder.id, folderData);

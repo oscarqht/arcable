@@ -13,4 +13,5 @@ export * from './workspace/PinnedTabsShelf';
 export * from './workspace/FavouriteTabsShelf';
 export * from './workspace/SpaceCard';
 export * from './workspace/WorkspaceManager';
+export * from './EmojiPicker';
 

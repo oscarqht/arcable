@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData, WorkspaceSiblingItem } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
@@ -285,8 +285,11 @@ export function useWorkspace() {
   }, []);
 
   // Active space
-  const sortedSpaces = getSortedSpaces(data.spaces);
-  const activeSpace = sortedSpaces.find((s) => s.id === data.activeSpaceId) || sortedSpaces[0];
+  const sortedSpaces = useMemo(() => getSortedSpaces(data.spaces), [data.spaces]);
+  const activeSpace = useMemo(
+    () => sortedSpaces.find((s) => s.id === data.activeSpaceId) || sortedSpaces[0],
+    [sortedSpaces, data.activeSpaceId]
+  );
 
   const setActiveSpace = useCallback((spaceId: string) => {
     savePendingOperation(createWorkspaceOperation('WORKSPACE_SET_ACTIVE_SPACE', spaceId));
@@ -321,7 +324,11 @@ export function useWorkspace() {
   }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
-    savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, updates));
+    const opPayload: Record<string, any> = { ...updates };
+    if ('emojiIcon' in updates) opPayload.emojiIcon = updates.emojiIcon ?? null;
+    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+
+    savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, opPayload));
 
     saveWorkspaceData((prev) => ({
       ...prev,
@@ -406,7 +413,12 @@ export function useWorkspace() {
   }, [data.folders, data.tabs, saveWorkspaceData]);
 
   const updateFolder = useCallback((id: string, updates: Partial<Omit<Folder, 'id'>>) => {
-    savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, updates));
+    const opPayload: Record<string, any> = { ...updates };
+    if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updates.customEmojiIcon ?? null;
+    if ('parentFolderId' in updates) opPayload.parentFolderId = updates.parentFolderId ?? null;
+    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+
+    savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, opPayload));
 
     saveWorkspaceData((prev) => ({
       ...prev,
@@ -522,7 +534,15 @@ export function useWorkspace() {
   }, [activeSpace, data.folders, data.tabs, saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
-    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
+    const opPayload: Record<string, any> = { ...updates };
+    if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updates.customEmojiIcon ?? null;
+    if ('customTitle' in updates) opPayload.customTitle = updates.customTitle ?? null;
+    if ('parentFolderId' in updates) opPayload.parentFolderId = updates.parentFolderId ?? null;
+    if ('parentSpaceId' in updates) opPayload.parentSpaceId = updates.parentSpaceId ?? null;
+    if ('favourite' in updates) opPayload.favourite = Boolean(updates.favourite);
+    if ('pinned' in updates) opPayload.pinned = Boolean(updates.pinned);
+
+    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, opPayload));
 
     saveWorkspaceData((prev) => ({
       ...prev,
@@ -566,7 +586,7 @@ export function useWorkspace() {
     savePendingOperation(
       createWorkspaceOperation('TAB_UPDATE', id, {
         pinned: nextPinned,
-        parentFolderId: undefined,
+        parentFolderId: null,
         favourite: false,
       })
     );
@@ -603,7 +623,20 @@ export function useWorkspace() {
           parentFolderId: undefined,
         };
 
-    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
+    const opUpdates: Record<string, any> = nextFavourite
+      ? {
+          favourite: true,
+          pinned: false,
+          parentSpaceId: null,
+          parentFolderId: null,
+        }
+      : {
+          favourite: false,
+          parentSpaceId: activeSpace?.id || data.spaces[0]?.id,
+          parentFolderId: null,
+        };
+
+    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, opUpdates));
 
     saveWorkspaceData((prev) => ({
       ...prev,
@@ -862,7 +895,7 @@ export function useWorkspace() {
             savePendingOperation(
               createWorkspaceOperation('FOLDER_UPDATE', f.id, {
                 parentSpaceId: f.parentSpaceId,
-                parentFolderId: f.parentFolderId || undefined,
+                parentFolderId: f.parentFolderId ?? null,
                 order: f.order,
               })
             );
@@ -881,8 +914,8 @@ export function useWorkspace() {
           ) {
             savePendingOperation(
               createWorkspaceOperation('TAB_UPDATE', t.id, {
-                parentSpaceId: t.parentSpaceId,
-                parentFolderId: t.parentFolderId || undefined,
+                parentSpaceId: t.parentSpaceId ?? null,
+                parentFolderId: t.parentFolderId ?? null,
                 pinned: t.pinned,
                 favourite: t.favourite,
                 order: t.order,
@@ -1102,17 +1135,36 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   // Global favourites (visible across all spaces, sorted)
-  const favouriteTabs = getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite)));
+  const favouriteTabs = useMemo(
+    () => getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite))),
+    [data.tabs]
+  );
 
   // Helpers for filtering items by active space
   const currentSpaceId = activeSpace?.id || '';
-  const pinnedTabs = getSortedTabs(
-    data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && t.pinned)
+  const pinnedTabs = useMemo(
+    () =>
+      getSortedTabs(
+        data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && t.pinned)
+      ),
+    [data.tabs, currentSpaceId]
   );
-  const rootTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && !t.pinned && !t.parentFolderId);
-  const rootFolders = data.folders.filter((f) => f.parentSpaceId === currentSpaceId && !f.parentFolderId);
+  const rootTabs = useMemo(
+    () =>
+      data.tabs.filter(
+        (t) => !t.favourite && t.parentSpaceId === currentSpaceId && !t.pinned && !t.parentFolderId
+      ),
+    [data.tabs, currentSpaceId]
+  );
+  const rootFolders = useMemo(
+    () => data.folders.filter((f) => f.parentSpaceId === currentSpaceId && !f.parentFolderId),
+    [data.folders, currentSpaceId]
+  );
 
-  const rootSiblings = getSortedSiblings(data.folders, data.tabs, currentSpaceId, undefined);
+  const rootSiblings = useMemo(
+    () => getSortedSiblings(data.folders, data.tabs, currentSpaceId, undefined),
+    [data.folders, data.tabs, currentSpaceId]
+  );
 
   const getChildFolders = useCallback((folderId: string) => {
     return data.folders.filter((f) => f.parentFolderId === folderId);

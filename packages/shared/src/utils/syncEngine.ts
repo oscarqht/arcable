@@ -159,11 +159,19 @@ export function applyOperation(
     case 'SPACE_UPDATE': {
       const existingIdx = cloned.spaces.findIndex((s) => s.id === op.entityId);
       if (existingIdx >= 0) {
-        cloned.spaces[existingIdx] = {
-          ...cloned.spaces[existingIdx],
+        const current = cloned.spaces[existingIdx];
+        const updated: Space = {
+          ...current,
           ...op.payload,
           updatedAt: op.timestamp,
         };
+
+        if (op.payload) {
+          if ('emojiIcon' in op.payload) updated.emojiIcon = op.payload.emojiIcon || undefined;
+          if ('colors' in op.payload) updated.colors = op.payload.colors || undefined;
+        }
+
+        cloned.spaces[existingIdx] = updated;
       }
       break;
     }
@@ -212,11 +220,20 @@ export function applyOperation(
     case 'FOLDER_UPDATE': {
       const existingIdx = cloned.folders.findIndex((f) => f.id === op.entityId);
       if (existingIdx >= 0) {
-        cloned.folders[existingIdx] = {
-          ...cloned.folders[existingIdx],
+        const current = cloned.folders[existingIdx];
+        const updated: Folder = {
+          ...current,
           ...op.payload,
           updatedAt: op.timestamp,
         };
+
+        if (op.payload) {
+          if ('customEmojiIcon' in op.payload) updated.customEmojiIcon = op.payload.customEmojiIcon || undefined;
+          if ('parentFolderId' in op.payload) updated.parentFolderId = op.payload.parentFolderId || undefined;
+          if ('colors' in op.payload) updated.colors = op.payload.colors || undefined;
+        }
+
+        cloned.folders[existingIdx] = updated;
       }
       break;
     }
@@ -267,11 +284,27 @@ export function applyOperation(
     case 'TAB_UPDATE': {
       const existingIdx = cloned.tabs.findIndex((t) => t.id === op.entityId);
       if (existingIdx >= 0) {
+        const current = cloned.tabs[existingIdx];
         const updated: Tab = {
-          ...cloned.tabs[existingIdx],
+          ...current,
           ...op.payload,
           updatedAt: op.timestamp,
         };
+
+        if (op.payload) {
+          if ('customEmojiIcon' in op.payload) {
+            updated.customEmojiIcon = op.payload.customEmojiIcon || undefined;
+          }
+          if ('customTitle' in op.payload) {
+            updated.customTitle = op.payload.customTitle || undefined;
+          }
+          if ('parentFolderId' in op.payload) {
+            updated.parentFolderId = op.payload.parentFolderId || undefined;
+          }
+          if ('parentSpaceId' in op.payload) {
+            updated.parentSpaceId = op.payload.parentSpaceId || undefined;
+          }
+        }
 
         if (updated.favourite) {
           updated.parentSpaceId = undefined;

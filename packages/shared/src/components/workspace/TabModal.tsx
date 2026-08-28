@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
+import { EmojiPicker } from '../EmojiPicker';
 
 interface TabModalProps {
   isOpen: boolean;
@@ -286,44 +287,15 @@ export const TabModal: React.FC<TabModalProps> = ({
             </label>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Custom Emoji Icon (Optional)
-            </label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-              {PRESET_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setCustomEmojiIcon(emoji)}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: customEmojiIcon === emoji ? '2px solid #0284c7' : '1px solid #e2e8f0',
-                    backgroundColor: customEmojiIcon === emoji ? '#f0f9ff' : '#ffffff',
-                    fontSize: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              placeholder="Or type custom emoji"
-              value={customEmojiIcon}
-              onChange={(e) => setCustomEmojiIcon(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
+          <EmojiPicker
+            value={customEmojiIcon}
+            onChange={setCustomEmojiIcon}
+            presets={PRESET_EMOJIS}
+            label="Custom Emoji Icon"
+            placeholder="Or type custom emoji"
+            allowClear
+          />
+
 
           <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
             {tab && onDelete && (

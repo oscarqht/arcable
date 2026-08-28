@@ -431,33 +431,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           >
             <EditIcon size={13} />
           </button>
-
-          {/* Delete folder */}
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm(`Delete folder "${folder.name}" and all its contents?`)) {
-                onDeleteFolder(folder.id);
-              }
-            }}
-            title="Delete folder"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: '#ef4444',
-              padding: '3px 4px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <TrashIcon size={13} />
-          </button>
         </div>
       )}
       </div>

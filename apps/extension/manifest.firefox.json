@@ -19,7 +19,8 @@
     "https://raindrop.io/*",
     "https://oh-auth.vercel.app/*",
     "http://localhost:3000/*",
-    "https://*.arcable.dev/*"
+    "https://*.arcable.dev/*",
+    "https://cdn.jsdelivr.net/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

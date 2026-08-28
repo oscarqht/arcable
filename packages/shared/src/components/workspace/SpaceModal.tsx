@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Space } from '../../types/workspace';
 import { Button } from '../Button';
+import { EmojiPicker } from '../EmojiPicker';
 
 interface SpaceModalProps {
   isOpen: boolean;
@@ -134,44 +135,14 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Emoji Icon (Optional)
-            </label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-              {PRESET_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setEmojiIcon(emoji)}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: emojiIcon === emoji ? '2px solid #0284c7' : '1px solid #e2e8f0',
-                    backgroundColor: emojiIcon === emoji ? '#f0f9ff' : '#ffffff',
-                    fontSize: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              placeholder="Or type custom emoji / text"
-              value={emojiIcon}
-              onChange={(e) => setEmojiIcon(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
+          <EmojiPicker
+            value={emojiIcon}
+            onChange={setEmojiIcon}
+            presets={PRESET_EMOJIS}
+            label="Emoji Icon"
+            placeholder="Or type custom emoji / text"
+          />
+
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>

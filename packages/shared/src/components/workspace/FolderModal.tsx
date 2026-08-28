@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
+import { EmojiPicker } from '../EmojiPicker';
 
 interface FolderModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface FolderModalProps {
   allSpaces: Space[];
   defaultSpaceId?: string;
   defaultParentFolderId?: string;
+  onDelete?: (folderId: string) => void;
   onSave: (folderData: {
     name: string;
     parentSpaceId: string;
@@ -32,6 +34,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   allSpaces,
   defaultSpaceId,
   defaultParentFolderId,
+  onDelete,
   onSave,
 }) => {
   const [name, setName] = useState('');
@@ -225,44 +228,14 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Emoji Icon (Optional)
-            </label>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-              {PRESET_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setCustomEmojiIcon(emoji)}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: customEmojiIcon === emoji ? '2px solid #0284c7' : '1px solid #e2e8f0',
-                    backgroundColor: customEmojiIcon === emoji ? '#f0f9ff' : '#ffffff',
-                    fontSize: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              placeholder="Or type custom emoji"
-              value={customEmojiIcon}
-              onChange={(e) => setCustomEmojiIcon(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
+          <EmojiPicker
+            value={customEmojiIcon}
+            onChange={setCustomEmojiIcon}
+            presets={PRESET_EMOJIS}
+            label="Emoji Icon"
+            placeholder="Or type custom emoji"
+          />
+
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
@@ -303,13 +276,41 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
-            <Button type="button" variant="secondary" size="md" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" size="md">
-              {folder ? 'Save Changes' : 'Create Folder'}
-            </Button>
+          <div style={{ display: 'flex', justifyContent: folder && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
+            {folder && onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Delete folder "${name || folder.name}" and all its contents?`)) {
+                    onDelete(folder.id);
+                    onClose();
+                  }
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#ef4444',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                🗑️ Delete Folder
+              </button>
+            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Button type="button" variant="secondary" size="md" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" size="md">
+                {folder ? 'Save Changes' : 'Create Folder'}
+              </Button>
+            </div>
           </div>
         </form>
       </div>
