@@ -113,6 +113,26 @@ export function clearStoredPendingOperations(): void {
 }
 
 /**
+ * Removes specific synced operations by their IDs from the local pending operations queue,
+ * preserving any newly added operations that arrived while sync was in-flight.
+ */
+export function removeStoredPendingOperations(syncedOpIds: string[]): void {
+  if (typeof window === 'undefined' || !syncedOpIds || syncedOpIds.length === 0) return;
+  try {
+    const existing = getStoredPendingOperations();
+    const syncedSet = new Set(syncedOpIds);
+    const remaining = existing.filter((op) => !syncedSet.has(op.id));
+    if (remaining.length === 0) {
+      window.localStorage.removeItem(PENDING_OPS_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(remaining));
+    }
+  } catch (err) {
+    console.error('Failed to remove synced pending operations:', err);
+  }
+}
+
+/**
  * Applies a single operation to a mutable/cloned workspace state.
  */
 export function applyOperation(
@@ -128,12 +148,6 @@ export function applyOperation(
   };
 
   switch (op.type) {
-    case 'WORKSPACE_SET_ACTIVE_SPACE': {
-      if (cloned.spaces.some((s) => s.id === op.entityId)) {
-        cloned.activeSpaceId = op.entityId;
-      }
-      break;
-    }
 
     // ================= Space Operations =================
     case 'SPACE_CREATE': {

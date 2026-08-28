@@ -7,6 +7,7 @@ import {
   getOrCreateDeviceId,
   getStoredPendingOperations,
   clearStoredPendingOperations,
+  removeStoredPendingOperations,
 } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
 import { browser, getActiveTab } from '../utils/browser';
@@ -187,6 +188,7 @@ export const App: React.FC = () => {
 
       const deviceId = getOrCreateDeviceId();
       const pendingOps = getStoredPendingOperations();
+      const syncedOpIds = pendingOps.map((op) => op.id);
 
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
@@ -200,12 +202,27 @@ export const App: React.FC = () => {
       const response = rawRes as ExtensionResponse<SyncResult>;
 
       if (response && response.success) {
-        clearStoredPendingOperations();
+        removeStoredPendingOperations(syncedOpIds);
         if (response.data?.latestSnapshot && typeof window !== 'undefined') {
-          window.localStorage.setItem(
-            'arcable_workspace_data',
-            JSON.stringify(response.data.latestSnapshot)
-          );
+          const snapshot = response.data.latestSnapshot;
+          try {
+            const raw = window.localStorage.getItem('arcable_workspace_data');
+            const current = raw ? JSON.parse(raw) : null;
+            const currentActive = current?.activeSpaceId;
+            const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
+            const merged = {
+              ...snapshot,
+              activeSpaceId: activeSpaceStillExists
+                ? currentActive
+                : (snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal'),
+            };
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
+          } catch {
+            window.localStorage.setItem(
+              'arcable_workspace_data',
+              JSON.stringify(snapshot)
+            );
+          }
         }
       }
     } catch {
@@ -231,6 +248,7 @@ export const App: React.FC = () => {
 
       const deviceId = getOrCreateDeviceId();
       const pendingOps = getStoredPendingOperations();
+      const syncedOpIds = pendingOps.map((op) => op.id);
 
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
@@ -244,12 +262,27 @@ export const App: React.FC = () => {
       const response = rawRes as ExtensionResponse<SyncResult>;
 
       if (response && response.success) {
-        clearStoredPendingOperations();
+        removeStoredPendingOperations(syncedOpIds);
         if (response.data?.latestSnapshot && typeof window !== 'undefined') {
-          window.localStorage.setItem(
-            'arcable_workspace_data',
-            JSON.stringify(response.data.latestSnapshot)
-          );
+          const snapshot = response.data.latestSnapshot;
+          try {
+            const raw = window.localStorage.getItem('arcable_workspace_data');
+            const current = raw ? JSON.parse(raw) : null;
+            const currentActive = current?.activeSpaceId;
+            const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
+            const merged = {
+              ...snapshot,
+              activeSpaceId: activeSpaceStillExists
+                ? currentActive
+                : (snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal'),
+            };
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
+          } catch {
+            window.localStorage.setItem(
+              'arcable_workspace_data',
+              JSON.stringify(snapshot)
+            );
+          }
         }
         setWorkspaceSyncSuccess(true);
         setTimeout(() => setWorkspaceSyncSuccess(false), 3000);

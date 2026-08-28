@@ -23,7 +23,6 @@ interface FolderModalProps {
   }) => void;
 }
 
-const PRESET_EMOJIS = ['📁', '📂', '💻', '📚', '🚀', '🎨', '💼', '📰', '🛠️', '✨', '🔥', '📌'];
 const PRESET_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#64748b'];
 
 export const FolderModal: React.FC<FolderModalProps> = ({
@@ -40,7 +39,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [name, setName] = useState('');
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
-  const [customEmojiIcon, setCustomEmojiIcon] = useState('📁');
+  const [customEmojiIcon, setCustomEmojiIcon] = useState('');
   const [colors, setColors] = useState('');
 
   useEffect(() => {
@@ -49,13 +48,13 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         setName(folder.name || '');
         setParentSpaceId(folder.parentSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
-        setCustomEmojiIcon(folder.customEmojiIcon || '📁');
+        setCustomEmojiIcon(folder.customEmojiIcon || '');
         setColors(folder.colors || '');
       } else {
         setName('');
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultParentFolderId || '');
-        setCustomEmojiIcon('📁');
+        setCustomEmojiIcon('');
         setColors('');
       }
     }
@@ -231,9 +230,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
           <EmojiPicker
             value={customEmojiIcon}
             onChange={setCustomEmojiIcon}
-            presets={PRESET_EMOJIS}
             label="Emoji Icon"
-            placeholder="Or type custom emoji"
+            allowClear
           />
 
 

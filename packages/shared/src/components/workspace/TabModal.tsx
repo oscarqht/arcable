@@ -29,8 +29,6 @@ interface TabModalProps {
   }) => void;
 }
 
-const PRESET_EMOJIS = ['🌐', '🔗', '✨', '⚡', '🐙', '📖', '📝', '📐', '📰', '🔍', '💬', '🎥'];
-
 export const TabModal: React.FC<TabModalProps> = ({
   isOpen,
   onClose,
@@ -290,9 +288,7 @@ export const TabModal: React.FC<TabModalProps> = ({
           <EmojiPicker
             value={customEmojiIcon}
             onChange={setCustomEmojiIcon}
-            presets={PRESET_EMOJIS}
             label="Custom Emoji Icon"
-            placeholder="Or type custom emoji"
             allowClear
           />
 

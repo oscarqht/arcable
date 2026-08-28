@@ -292,7 +292,6 @@ export function useWorkspace() {
   );
 
   const setActiveSpace = useCallback((spaceId: string) => {
-    savePendingOperation(createWorkspaceOperation('WORKSPACE_SET_ACTIVE_SPACE', spaceId));
     saveWorkspaceData((prev) => ({
       ...prev,
       activeSpaceId: spaceId,
@@ -1098,12 +1097,18 @@ export function useWorkspace() {
 
   const applyLatestSnapshot = useCallback((snapshot: ArcableWorkspaceData) => {
     if (snapshot && Array.isArray(snapshot.spaces) && snapshot.spaces.length > 0) {
-      saveWorkspaceData({
-        spaces: snapshot.spaces,
-        folders: snapshot.folders || [],
-        tabs: snapshot.tabs || [],
-        activeSpaceId: snapshot.activeSpaceId || snapshot.spaces[0]?.id || 'space_personal',
-        version: snapshot.version || 1,
+      saveWorkspaceData((prev) => {
+        const currentActive = prev.activeSpaceId;
+        const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
+        return {
+          spaces: snapshot.spaces,
+          folders: snapshot.folders || [],
+          tabs: snapshot.tabs || [],
+          activeSpaceId: activeSpaceStillExists
+            ? currentActive
+            : snapshot.spaces[0]?.id || 'space_personal',
+          version: snapshot.version || 1,
+        };
       });
       return true;
     }
@@ -1136,12 +1141,18 @@ export function useWorkspace() {
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
-      saveWorkspaceData({
-        spaces: imported.spaces,
-        folders: imported.folders || [],
-        tabs: imported.tabs || [],
-        activeSpaceId: imported.activeSpaceId || imported.spaces[0].id,
-        version: imported.version || 1,
+      saveWorkspaceData((prev) => {
+        const currentActive = prev.activeSpaceId;
+        const activeSpaceStillExists = imported.spaces.some((s) => s.id === currentActive);
+        return {
+          spaces: imported.spaces,
+          folders: imported.folders || [],
+          tabs: imported.tabs || [],
+          activeSpaceId: activeSpaceStillExists
+            ? currentActive
+            : imported.spaces[0].id,
+          version: imported.version || 1,
+        };
       });
       return true;
     }

@@ -16,10 +16,8 @@ export interface EmojiPickerProps {
 export const EmojiPicker: React.FC<EmojiPickerProps> = ({
   value,
   onChange,
-  presets = [],
   label = 'Emoji Icon',
-  placeholder = 'Or type custom emoji',
-  allowClear = false,
+  allowClear = true,
   required = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -70,56 +68,38 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
         </label>
       )}
 
-      {/* Preset and Trigger Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+      {/* Trigger & Action Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {/* Main Trigger / Current Preview Button */}
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          title="Open full emoji picker"
+          title={value ? 'Change emoji' : 'Select emoji'}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '5px 10px',
+            gap: '8px',
+            padding: '6px 12px',
             borderRadius: '6px',
             border: isOpen ? '2px solid #0284c7' : '1px solid #cbd5e1',
             backgroundColor: isOpen ? '#f0f9ff' : '#f8fafc',
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: 500,
             color: '#1e293b',
             cursor: 'pointer',
             transition: 'all 0.15s ease',
           }}
         >
-          <span style={{ fontSize: '18px', lineHeight: 1 }}>{value || '😀'}</span>
-          <span style={{ fontSize: '12px', color: '#475569' }}>Browse All</span>
-          <span style={{ fontSize: '10px', color: '#94a3b8' }}>{isOpen ? '▲' : '▼'}</span>
+          {value ? (
+            <>
+              <span style={{ fontSize: '18px', lineHeight: 1 }}>{value}</span>
+              <span style={{ fontSize: '12px', color: '#475569' }}>Change</span>
+            </>
+          ) : (
+            <span style={{ fontSize: '13px', color: '#64748b' }}>Select emoji</span>
+          )}
+          <span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '2px' }}>{isOpen ? '▲' : '▼'}</span>
         </button>
-
-        {/* Quick Presets */}
-        {presets.map((emoji) => {
-          const isSelected = value === emoji;
-          return (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => onChange(emoji)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: '6px',
-                border: isSelected ? '2px solid #0284c7' : '1px solid #e2e8f0',
-                backgroundColor: isSelected ? '#f0f9ff' : '#ffffff',
-                fontSize: '16px',
-                lineHeight: 1,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {emoji}
-            </button>
-          );
-        })}
 
         {/* Optional Clear Button */}
         {allowClear && value && (
@@ -128,7 +108,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
             onClick={() => onChange('')}
             title="Clear emoji icon"
             style={{
-              padding: '5px 8px',
+              padding: '6px 10px',
               borderRadius: '6px',
               border: '1px solid #e2e8f0',
               backgroundColor: '#ffffff',
@@ -137,7 +117,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
               cursor: 'pointer',
             }}
           >
-            ✕ Clear
+            ✕ Remove
           </button>
         )}
       </div>
@@ -147,7 +127,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
         <div
           style={{
             position: 'absolute',
-            top: 'calc(100% - 2px)',
+            top: 'calc(100% + 4px)',
             left: 0,
             zIndex: 10000,
             width: '320px',
@@ -362,22 +342,6 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
           </FrimousseEmojiPicker.Root>
         </div>
       )}
-
-      {/* Direct text input for typing or pasting custom emojis/characters */}
-      <input
-        type="text"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: '100%',
-          padding: '6px 10px',
-          borderRadius: '6px',
-          border: '1px solid #cbd5e1',
-          fontSize: '13px',
-          boxSizing: 'border-box',
-        }}
-      />
     </div>
   );
 };

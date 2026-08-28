@@ -8,6 +8,7 @@ import {
   getOrCreateDeviceId,
   getStoredPendingOperations,
   clearStoredPendingOperations,
+  removeStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
@@ -176,7 +177,20 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   };
 
+  // Concurrency & sequence guards for sync
+  const syncInProgressRef = React.useRef(false);
+  const syncQueuedRef = React.useRef(false);
+  const syncSeqRef = React.useRef(0);
+
   const performSync = async (silent: boolean = false) => {
+    if (syncInProgressRef.current) {
+      syncQueuedRef.current = true;
+      return;
+    }
+
+    syncInProgressRef.current = true;
+    const currentSeq = ++syncSeqRef.current;
+
     if (!silent) {
       setSyncFeedback(null);
       setSyncLoading(true);
@@ -188,18 +202,21 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (onSyncRaindrop) {
         const deviceId = getOrCreateDeviceId();
         const pendingOps = getStoredPendingOperations();
+        const syncedOpIds = pendingOps.map((op) => op.id);
         const res = await onSyncRaindrop({
           localState: data,
           deviceId,
           pendingOps,
         });
 
-        if (res && typeof res === 'object') {
-          result = res as SyncResult;
-          if (res.success) {
-            clearStoredPendingOperations();
-            if (res.latestSnapshot) {
-              applyLatestSnapshot(res.latestSnapshot);
+        if (currentSeq === syncSeqRef.current) {
+          if (res && typeof res === 'object') {
+            result = res as SyncResult;
+            if (res.success) {
+              removeStoredPendingOperations(syncedOpIds);
+              if (res.latestSnapshot) {
+                applyLatestSnapshot(res.latestSnapshot);
+              }
             }
           }
         }
@@ -212,34 +229,44 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         return;
       }
 
-      if (result) {
-        if (result.success) {
-          if (!silent) {
-            setSyncFeedback({
-              message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
-            });
+      if (currentSeq === syncSeqRef.current) {
+        if (result) {
+          if (result.success) {
+            if (!silent) {
+              setSyncFeedback({
+                message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
+              });
+            }
+          } else {
+            if (!silent) {
+              setSyncFeedback({
+                message: result.error || 'Failed to sync with Raindrop.',
+                isError: true,
+              });
+            }
           }
-        } else {
-          if (!silent) {
-            setSyncFeedback({
-              message: result.error || 'Failed to sync with Raindrop.',
-              isError: true,
-            });
-          }
+        } else if (onSyncRaindrop && !silent) {
+          setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
         }
-      } else if (onSyncRaindrop && !silent) {
-        setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
       }
     } catch (err: any) {
-      if (!silent) {
+      if (currentSeq === syncSeqRef.current && !silent) {
         setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
       }
     } finally {
-      if (!silent) {
+      syncInProgressRef.current = false;
+      if (currentSeq === syncSeqRef.current && !silent) {
         setSyncLoading(false);
         setTimeout(() => {
           setSyncFeedback((prev) => (prev?.isError ? prev : null));
         }, 4000);
+      }
+      if (syncQueuedRef.current) {
+        syncQueuedRef.current = false;
+        const pending = getStoredPendingOperations();
+        if (pending.length > 0) {
+          void performSync(true);
+        }
       }
     }
   };

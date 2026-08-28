@@ -34,10 +34,25 @@ export const App: React.FC = () => {
           setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
-          window.localStorage.setItem(
-            'arcable_workspace_data',
-            JSON.stringify(changes.arcable_workspace_snapshot.newValue)
-          );
+          const snapshot = changes.arcable_workspace_snapshot.newValue;
+          try {
+            const raw = window.localStorage.getItem('arcable_workspace_data');
+            const current = raw ? JSON.parse(raw) : null;
+            const currentActive = current?.activeSpaceId;
+            const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
+            const merged = {
+              ...snapshot,
+              activeSpaceId: activeSpaceStillExists
+                ? currentActive
+                : (snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal'),
+            };
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
+          } catch {
+            window.localStorage.setItem(
+              'arcable_workspace_data',
+              JSON.stringify(snapshot)
+            );
+          }
         }
       }
     };

@@ -12,7 +12,6 @@ interface SpaceModalProps {
   onSave: (spaceData: { name: string; emojiIcon?: string; colors?: string }) => void;
 }
 
-const PRESET_EMOJIS = ['🏠', '💼', '🚀', '🎨', '🔬', '📚', '⚡', '🌟', '🎮', '💡', '🌐', '🛡️'];
 const PRESET_COLORS = [
   '#6366f1', // Indigo
   '#ec4899', // Pink
@@ -33,18 +32,18 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
   onSave,
 }) => {
   const [name, setName] = useState('');
-  const [emojiIcon, setEmojiIcon] = useState('🏠');
+  const [emojiIcon, setEmojiIcon] = useState('');
   const [colors, setColors] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       if (space) {
         setName(space.name || '');
-        setEmojiIcon(space.emojiIcon || '🏠');
+        setEmojiIcon(space.emojiIcon || '');
         setColors(space.colors || '');
       } else {
         setName('');
-        setEmojiIcon('🏠');
+        setEmojiIcon('');
         setColors('');
       }
     }
@@ -71,13 +70,12 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.6)',
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 9999,
+        zIndex: 99999,
         padding: '16px',
-        backdropFilter: 'blur(4px)',
       }}
       onClick={onClose}
     >
@@ -89,22 +87,24 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
           width: '100%',
           maxWidth: '440px',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: '1px solid #e2e8f0',
+          position: 'relative',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
-            {space ? 'Edit Space' : 'Create New Space'}
-          </h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>
+            {space ? 'Edit Space' : 'New Space'}
+          </h2>
           <button
+            type="button"
             onClick={onClose}
             style={{
               border: 'none',
-              background: 'none',
-              fontSize: '18px',
+              background: 'transparent',
+              fontSize: '20px',
               cursor: 'pointer',
-              color: '#94a3b8',
+              color: '#64748b',
+              padding: '4px',
             }}
           >
             ✕
@@ -118,7 +118,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
             </label>
             <input
               type="text"
-              placeholder="e.g. Work, Personal, Side Projects"
+              placeholder="e.g. Work, Personal, Research"
               value={name}
               onChange={(e) => setName(e.target.value)}
               style={{
@@ -138,11 +138,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
           <EmojiPicker
             value={emojiIcon}
             onChange={setEmojiIcon}
-            presets={PRESET_EMOJIS}
             label="Emoji Icon"
-            placeholder="Or type custom emoji / text"
+            allowClear
           />
-
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
