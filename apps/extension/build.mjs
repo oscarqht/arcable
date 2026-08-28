@@ -37,6 +37,7 @@ async function buildTarget(browserName) {
         input: {
           popup: resolve(__dirname, 'src/popup/index.html'),
           options: resolve(__dirname, 'src/options/index.html'),
+          sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
         },
         output: {
           entryFileNames: 'assets/[name].js',
@@ -152,6 +153,12 @@ async function buildTarget(browserName) {
     let optionsHtml = fs.readFileSync(resolve(outDir, 'src/options/index.html'), 'utf-8');
     optionsHtml = optionsHtml.replace(/\.\.\/\.\.\//g, '../');
     fs.writeFileSync(resolve(outDir, 'options/index.html'), optionsHtml);
+  }
+  if (fs.existsSync(resolve(outDir, 'src/sidepanel/index.html'))) {
+    fs.mkdirSync(resolve(outDir, 'sidepanel'), { recursive: true });
+    let sidepanelHtml = fs.readFileSync(resolve(outDir, 'src/sidepanel/index.html'), 'utf-8');
+    sidepanelHtml = sidepanelHtml.replace(/\.\.\/\.\.\//g, '../');
+    fs.writeFileSync(resolve(outDir, 'sidepanel/index.html'), sidepanelHtml);
   }
 
   // Clean up temporary src directory in dist

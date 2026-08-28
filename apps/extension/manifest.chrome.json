@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "tabs",
-    "identity"
+    "identity",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://api.raindrop.io/*",
@@ -22,6 +23,9 @@
       "http://localhost:3000/*",
       "https://*.arcable.dev/*"
     ]
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
   },
   "action": {
     "default_popup": "popup/index.html",

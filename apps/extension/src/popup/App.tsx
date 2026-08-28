@@ -100,9 +100,29 @@ export const App: React.FC = () => {
         badgeText="Extension"
         badgeVariant="info"
         actions={
-          <Button size="sm" variant="ghost" onClick={() => browser.runtime.openOptionsPage()}>
-            ⚙️
-          </Button>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.open) {
+                  chrome.windows.getCurrent((win) => {
+                    if (win.id) chrome.sidePanel.open({ windowId: win.id });
+                  });
+                } else {
+                  // Fallback: open sidepanel page in a tab or window
+                  browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+                }
+              }}
+              title="Open Arcable Sidepanel"
+              style={{ fontSize: '11px', padding: '2px 6px', height: '24px' }}
+            >
+              📑 Sidepanel
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => browser.runtime.openOptionsPage()} title="Settings">
+              ⚙️
+            </Button>
+          </div>
         }
       />
 

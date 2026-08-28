@@ -3,3 +3,11 @@ export * from './Card';
 export * from './Header';
 export * from './Badge';
 export * from './RaindropAuthCard';
+export * from './workspace/SpaceModal';
+export * from './workspace/FolderModal';
+export * from './workspace/TabModal';
+export * from './workspace/TabRow';
+export * from './workspace/FolderItem';
+export * from './workspace/PinnedTabsShelf';
+export * from './workspace/WorkspaceManager';
+

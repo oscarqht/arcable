@@ -46,3 +46,4 @@ export interface ExtensionResponse<T = unknown> {
 }
 
 export * from './raindrop';
+export * from './workspace';

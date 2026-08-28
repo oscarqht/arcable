@@ -24,6 +24,11 @@
     "default_popup": "popup/index.html",
     "default_title": "Arcable"
   },
+  "sidebar_action": {
+    "default_panel": "sidepanel/index.html",
+    "default_title": "Arcable Sidepanel",
+    "open_at_install": true
+  },
   "options_ui": {
     "page": "options/index.html",
     "open_in_tab": true

@@ -1,19 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Header, Card, Button, Badge, RaindropAuthCard } from '@arcable/shared/components';
+import { Header, Card, Button, Badge, RaindropAuthCard, WorkspaceManager } from '@arcable/shared/components';
 import { formatDate, generateId } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState } from '@arcable/shared/types';
 import { useLocalStorage } from '@arcable/shared/hooks';
 
 export default function HomePage() {
+  const [activeTab, setActiveTab] = useState<'workspace' | 'raindrop' | 'info'>('workspace');
+
+  // Legacy Arcable quick items state for Raindrop sync test
   const [items, setItems] = useLocalStorage<ArcableItem[]>('arcable_web_items', [
     {
       id: 'demo_1',
-      title: 'Welcome to Arcable Monorepo',
+      title: 'Welcome to Arcable Workspace',
       url: 'https://arcable.dev',
-      description: 'Unified Next.js web application and cross-browser extension workspace.',
-      tags: ['Getting Started', 'Monorepo'],
+      description: 'Unified browser workspace and Next.js web application with Spaces, Folders, and Tabs.',
+      tags: ['Getting Started', 'Workspace'],
       createdAt: Date.now() - 3600000,
       updatedAt: Date.now() - 3600000,
       starred: true,
@@ -63,7 +66,7 @@ export default function HomePage() {
             isAuthenticated: true,
             user: data.user,
             accessToken: data.token,
-            authType: 'oauth', // Or personal token
+            authType: 'oauth',
           });
         } else {
           setAuthState({ isAuthenticated: false });
@@ -189,7 +192,7 @@ export default function HomePage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafc' }}>
       <Header
         title="Arcable"
         badgeText="Web App"
@@ -208,199 +211,278 @@ export default function HomePage() {
         }
       />
 
-      <main style={{ maxWidth: '960px', width: '100%', margin: '32px auto', padding: '0 16px', boxSizing: 'border-box' }}>
-        <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-          <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', marginBottom: '8px' }}>
-            Arcable Monorepo Hub
+      <main style={{ maxWidth: '1040px', width: '100%', margin: '28px auto', padding: '0 16px', boxSizing: 'border-box' }}>
+        {/* Hero Header */}
+        <div style={{ marginBottom: '24px', textAlign: 'center' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.03em', marginBottom: '6px' }}>
+            Arcable Workspace Hub
           </h1>
-          <p style={{ fontSize: '16px', color: '#64748b' }}>
-            Unified workspace with dual Raindrop OAuth & API Token integration.
+          <p style={{ fontSize: '15px', color: '#64748b', margin: 0 }}>
+            Unified hierarchy with Spaces, Folders & Tabs stored locally in a single JSON structure.
           </p>
         </div>
 
-        {/* Raindrop Authentication Card */}
-        <div style={{ marginBottom: '24px' }}>
-          <RaindropAuthCard
-            authState={authState}
-            isLoading={authLoading}
-            errorMessage={authError}
-            onLoginWithToken={handleLoginWithToken}
-            onLoginWithOAuth={handleLoginWithOAuth}
-            onLogout={handleLogout}
-            onClearError={() => setAuthError(null)}
-          />
+        {/* View Switcher Tabs */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
+          <button
+            onClick={() => setActiveTab('workspace')}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: activeTab === 'workspace' ? '1px solid #0284c7' : '1px solid #e2e8f0',
+              backgroundColor: activeTab === 'workspace' ? '#0284c7' : '#ffffff',
+              color: activeTab === 'workspace' ? '#ffffff' : '#475569',
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'workspace' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            🗂️ Workspace (Spaces & Folders)
+          </button>
+          <button
+            onClick={() => setActiveTab('raindrop')}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: activeTab === 'raindrop' ? '1px solid #0284c7' : '1px solid #e2e8f0',
+              backgroundColor: activeTab === 'raindrop' ? '#0284c7' : '#ffffff',
+              color: activeTab === 'raindrop' ? '#ffffff' : '#475569',
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'raindrop' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            💧 Raindrop.io Sync
+          </button>
+          <button
+            onClick={() => setActiveTab('info')}
+            style={{
+              padding: '8px 18px',
+              borderRadius: '8px',
+              border: activeTab === 'info' ? '1px solid #0284c7' : '1px solid #e2e8f0',
+              backgroundColor: activeTab === 'info' ? '#0284c7' : '#ffffff',
+              color: activeTab === 'info' ? '#ffffff' : '#475569',
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'info' ? '0 2px 6px rgba(2,132,199,0.25)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            📦 Architecture
+          </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
-          {/* New Item Form */}
-          <Card title="Add New Item" subtitle="Create an item using shared logic">
-            <form onSubmit={handleAddItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
-                  Title
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Research Arcable Features"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '14px',
-                    boxSizing: 'border-box',
-                  }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
-                  URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '14px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
-                  Tag
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Design, Productivity"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '14px',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-
-              {authState.isAuthenticated && url.trim() && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="checkbox"
-                    id="saveToRaindrop"
-                    checked={saveToRaindrop}
-                    onChange={(e) => setSaveToRaindrop(e.target.checked)}
-                  />
-                  <label htmlFor="saveToRaindrop" style={{ fontSize: '13px', color: '#334155' }}>
-                    Sync directly to Raindrop.io
-                  </label>
-                </div>
-              )}
-
-              <Button type="submit" variant="primary" style={{ marginTop: '8px' }}>
-                Add Item
-              </Button>
-            </form>
-          </Card>
-
-          {/* Architecture Status */}
-          <Card title="Monorepo Packages" subtitle="Active workspace modules">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, fontSize: '14px' }}>apps/web</span>
-                  <Badge variant="success">Next.js 15</Badge>
-                </div>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                  Web client and management dashboard with Raindrop OAuth & Token API routes.
-                </p>
-              </div>
-
-              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, fontSize: '14px' }}>apps/extension</span>
-                  <Badge variant="info">Chrome + Firefox</Badge>
-                </div>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                  MV3 browser extension with popup, background service, and dual Raindrop authentication.
-                </p>
-              </div>
-
-              <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontWeight: 600, fontSize: '14px' }}>packages/shared</span>
-                  <Badge variant="default">React + TS</Badge>
-                </div>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                  Shared Raindrop client, AuthCard UI, hooks, utilities, and TypeScript types.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Item List */}
-        <div style={{ marginTop: '32px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
-              Items ({items.length})
-            </h2>
+        {/* Tab 1: Workspace Management (Spaces, Folders, Tabs CRUD) */}
+        {activeTab === 'workspace' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <WorkspaceManager showJsonInspector={true} />
           </div>
+        )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {items.map((item: ArcableItem) => (
-              <Card
-                key={item.id}
-                title={item.title}
-                subtitle={item.url}
-                extra={
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {authState.isAuthenticated && item.url && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        isLoading={savingRaindropId === item.id}
-                        onClick={() => handleSyncToRaindrop(item)}
-                      >
-                        ☁️ Save to Raindrop
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="sm" onClick={() => handleDeleteItem(item.id)} style={{ color: '#ef4444' }}>
-                      Delete
-                    </Button>
+        {/* Tab 2: Raindrop Sync */}
+        {activeTab === 'raindrop' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <RaindropAuthCard
+              authState={authState}
+              isLoading={authLoading}
+              errorMessage={authError}
+              onLoginWithToken={handleLoginWithToken}
+              onLoginWithOAuth={handleLoginWithOAuth}
+              onLogout={handleLogout}
+              onClearError={() => setAuthError(null)}
+            />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+              <Card title="Quick Sync Bookmark" subtitle="Create bookmark and sync to Raindrop">
+                <form onSubmit={handleAddItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Research Arcable Features"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        boxSizing: 'border-box',
+                      }}
+                      required
+                    />
                   </div>
-                }
-              >
-                {item.description && (
-                  <p style={{ fontSize: '14px', color: '#475569', marginBottom: '12px' }}>{item.description}</p>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {item.tags.map((t: string) => (
-                      <Badge key={t} variant="info">
-                        {t}
-                      </Badge>
-                    ))}
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
+                      URL (Optional)
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://..."
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        boxSizing: 'border-box',
+                      }}
+                    />
                   </div>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>{formatDate(item.createdAt)}</span>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '4px' }}>
+                      Tag
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Design, Productivity"
+                      value={tag}
+                      onChange={(e) => setTag(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '14px',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {authState.isAuthenticated && url.trim() && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="checkbox"
+                        id="saveToRaindrop"
+                        checked={saveToRaindrop}
+                        onChange={(e) => setSaveToRaindrop(e.target.checked)}
+                      />
+                      <label htmlFor="saveToRaindrop" style={{ fontSize: '13px', color: '#334155' }}>
+                        Sync directly to Raindrop.io
+                      </label>
+                    </div>
+                  )}
+
+                  <Button type="submit" variant="primary" style={{ marginTop: '8px' }}>
+                    Add Bookmark
+                  </Button>
+                </form>
+              </Card>
+
+              <Card title="Raindrop Quick Bookmarks" subtitle={`Saved items (${items.length})`}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '340px', overflowY: 'auto' }}>
+                  {items.map((item: ArcableItem) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #e2e8f0',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: '13px', color: '#0f172a' }}>{item.title}</strong>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {authState.isAuthenticated && item.url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              isLoading={savingRaindropId === item.id}
+                              onClick={() => handleSyncToRaindrop(item)}
+                              style={{ fontSize: '11px', padding: '2px 6px', height: '22px' }}
+                            >
+                              ☁️ Sync
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteItem(item.id)}
+                            style={{ color: '#ef4444', fontSize: '11px', padding: '2px 6px', height: '22px' }}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      </div>
+                      {item.url && (
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{item.url}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </Card>
-            ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Tab 3: Architecture Info */}
+        {activeTab === 'info' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            <Card title="Monorepo Packages" subtitle="Active workspace modules">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 600, fontSize: '14px' }}>apps/web</span>
+                    <Badge variant="success">Next.js 15</Badge>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                    Web client and management dashboard with interactive Spaces, Folders, and Tabs hierarchy.
+                  </p>
+                </div>
+
+                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 600, fontSize: '14px' }}>apps/extension</span>
+                    <Badge variant="info">Sidepanel + Popup</Badge>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                    MV3 browser extension with Sidepanel view, active tab capture, and unified local storage persistence.
+                  </p>
+                </div>
+
+                <div style={{ padding: '12px', borderRadius: '6px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 600, fontSize: '14px' }}>packages/shared</span>
+                    <Badge variant="default">React + TS</Badge>
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                    Shared types, Workspace CRUD hooks, UI components, modals, and single-JSON storage managers.
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Data Model & Schema" subtitle="Relationships & single-JSON local storage structure">
+              <div style={{ fontSize: '13px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div>
+                  <strong>Space:</strong> <code>[id, name, emojiIcon?, colors?]</code>
+                </div>
+                <div>
+                  <strong>Folder:</strong> <code>[id, name, customEmojiIcon?, colors?, parentFolderId?, parentSpaceId]</code>
+                </div>
+                <div>
+                  <strong>Tab:</strong> <code>[id, url, pinned, customTitle?, customEmojiIcon?, parentFolderId?, parentSpaceId]</code>
+                </div>
+                <div style={{ backgroundColor: '#f1f5f9', padding: '8px', borderRadius: '6px', fontSize: '12px', color: '#475569' }}>
+                  Stored in <code>localStorage</code> under <code>&apos;arcable_workspace_data&apos;</code> as a single JSON object containing <code>{'{ spaces, folders, tabs, activeSpaceId }'}</code>.
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
       </main>
     </div>
   );
