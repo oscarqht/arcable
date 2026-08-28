@@ -233,6 +233,130 @@ export async function fetchRaindropItems(
 }
 
 /**
+ * Creates a collection in Raindrop.io.
+ */
+export async function createRaindropCollection(
+  token: string,
+  title: string,
+  parentId?: number
+): Promise<RaindropCollectionItem> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken) {
+    throw new Error('Missing Raindrop authorization token.');
+  }
+
+  const payload: Record<string, any> = {
+    title: title.trim() || 'Arcable',
+    view: 'list',
+  };
+
+  if (parentId !== undefined && parentId !== null) {
+    payload.parent = { $id: parentId };
+  }
+
+  const res = await fetch(`${RAINDROP_API_BASE}/collection`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`Failed to create Raindrop collection (${res.status}): ${errorText}`);
+  }
+
+  const data = (await res.json()) as { item: RaindropCollectionItem };
+  return data.item;
+}
+
+/**
+ * Deletes a raindrop item (bookmark/file) in Raindrop.io.
+ */
+export async function deleteRaindropBookmark(token: string, raindropId: number): Promise<boolean> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken) {
+    throw new Error('Missing Raindrop authorization token.');
+  }
+
+  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      Accept: 'application/json',
+    },
+  });
+
+  return res.ok;
+}
+
+/**
+ * Uploads a file (e.g. data.json) to a Raindrop collection using multipart/form-data.
+ */
+export async function uploadRaindropFile(
+  token: string,
+  collectionId: number,
+  fileName: string,
+  content: string
+): Promise<any> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken) {
+    throw new Error('Missing Raindrop authorization token.');
+  }
+
+  const formData = new FormData();
+  const blob = new Blob([content], { type: 'application/json' });
+  formData.append('file', blob, fileName);
+  formData.append('collectionId', String(collectionId));
+
+  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/file`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      // Note: do not set Content-Type header so browser/fetch automatically supplies multipart boundary
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`Failed to upload file to Raindrop (${res.status}): ${errorText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Fetches text content from a file URL in Raindrop.
+ */
+export async function fetchRaindropFileContent(token: string, fileUrl: string): Promise<string> {
+  const cleanToken = cleanRaindropToken(token);
+  try {
+    // Try fetching with auth header first
+    const res = await fetch(fileUrl, {
+      method: 'GET',
+      headers: cleanToken ? { Authorization: `Bearer ${cleanToken}` } : {},
+    });
+
+    if (res.ok) {
+      return await res.text();
+    }
+
+    // Fallback: retry without auth header if 403/cors
+    const fallbackRes = await fetch(fileUrl);
+    if (fallbackRes.ok) {
+      return await fallbackRes.text();
+    }
+  } catch (err) {
+    console.warn('[RaindropClient] Error fetching file content:', err);
+  }
+  return '';
+}
+
+/**
  * Constructs the Raindrop OAuth authorization URL.
  */
 export function getRaindropOAuthUrl(clientId: string, redirectUri: string, state: string): string {

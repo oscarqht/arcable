@@ -4,8 +4,16 @@ import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
+  const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
 
   useEffect(() => {
+    // Check Raindrop auth
+    browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((res: any) => {
+      if (res && res.success && res.data?.isAuthenticated) {
+        setHasRaindropAuth(true);
+      }
+    });
+
     // Refresh active tab info on focus or mount
     const updateActiveTab = async () => {
       try {
@@ -33,6 +41,17 @@ export const App: React.FC = () => {
       };
     }
   }, []);
+
+  const handleSyncRaindrop = async () => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_SYNC_WORKSPACE',
+      payload: { deviceName: 'Sidepanel' },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to sync with Raindrop');
+    }
+    return res.data;
+  };
 
   const handleOpenTab = async (url: string) => {
     try {
@@ -85,6 +104,7 @@ export const App: React.FC = () => {
           headerTitle="Sidepanel Workspace"
           onOpenTab={handleOpenTab}
           onCaptureCurrentTab={handleCaptureCurrentTab}
+          onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
         />
       </div>
     </div>

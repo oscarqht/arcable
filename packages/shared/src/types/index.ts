@@ -31,7 +31,8 @@ export type ExtensionMessageType =
   | 'RAINDROP_START_OAUTH'
   | 'RAINDROP_LOGOUT'
   | 'RAINDROP_SAVE_BOOKMARK'
-  | 'RAINDROP_GET_COLLECTIONS';
+  | 'RAINDROP_GET_COLLECTIONS'
+  | 'RAINDROP_SYNC_WORKSPACE';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType;
@@ -47,3 +48,4 @@ export interface ExtensionResponse<T = unknown> {
 
 export * from './raindrop';
 export * from './workspace';
+export * from './sync';

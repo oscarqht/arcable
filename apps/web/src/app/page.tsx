@@ -187,6 +187,28 @@ export default function HomePage() {
     }
   };
 
+  const handleSyncWorkspace = async () => {
+    try {
+      const res = await fetch('/api/raindrop/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: authState.accessToken,
+          deviceName: 'Arcable Web App',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to sync with Raindrop');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Workspace sync error:', err);
+      throw err;
+    }
+  };
+
   const handleDeleteItem = (id: string) => {
     setItems(items.filter((item: ArcableItem) => item.id !== id));
   };
@@ -280,7 +302,11 @@ export default function HomePage() {
         {/* Tab 1: Workspace Management (Spaces, Folders, Tabs CRUD) */}
         {activeTab === 'workspace' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <WorkspaceManager showJsonInspector={true} />
+            <WorkspaceManager
+              showJsonInspector={true}
+              raindropToken={authState.accessToken}
+              onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
+            />
           </div>
         )}
 

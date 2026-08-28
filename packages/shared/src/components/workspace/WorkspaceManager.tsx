@@ -17,6 +17,8 @@ export interface WorkspaceManagerProps {
   compact?: boolean;
   headerTitle?: string;
   showJsonInspector?: boolean;
+  raindropToken?: string;
+  onSyncRaindrop?: () => Promise<void | any>;
 }
 
 export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
@@ -25,6 +27,8 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   compact = false,
   headerTitle = 'Arcable Workspace',
   showJsonInspector = true,
+  raindropToken,
+  onSyncRaindrop,
 }) => {
   const {
     data,
@@ -48,6 +52,9 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     rootFolders,
     getChildFolders,
     getChildTabs,
+    syncWithRaindropToken,
+    isSyncing: hookIsSyncing,
+    lastSyncResult,
   } = useWorkspace();
 
   // Search/Filter query
@@ -71,6 +78,40 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   // JSON viewer modal
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+
+  // Sync state & notifications
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
+
+  const isCurrentlySyncing = syncLoading || hookIsSyncing;
+
+  const handleTriggerSync = async () => {
+    setSyncFeedback(null);
+    setSyncLoading(true);
+
+    try {
+      if (onSyncRaindrop) {
+        await onSyncRaindrop();
+        setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+      } else if (raindropToken) {
+        const res = await syncWithRaindropToken(raindropToken);
+        if (res.success) {
+          setSyncFeedback({ message: `✓ Synced with Raindrop! (${res.opsAppliedCount || 0} ops uploaded)` });
+        } else {
+          setSyncFeedback({ message: res.error || 'Failed to sync with Raindrop.', isError: true });
+        }
+      } else {
+        setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
+      }
+    } catch (err: any) {
+      setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
+    } finally {
+      setSyncLoading(false);
+      setTimeout(() => {
+        setSyncFeedback((prev) => (prev?.isError ? prev : null));
+      }, 4000);
+    }
+  };
 
   if (!isLoaded) {
     return (
@@ -159,11 +200,35 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Spaces ({data.spaces.length})
           </span>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            {(onSyncRaindrop || raindropToken) && (
+              <button
+                onClick={handleTriggerSync}
+                disabled={isCurrentlySyncing}
+                title="Sync spaces, folders and tabs with Raindrop.io"
+                style={{
+                  border: '1px solid #bae6fd',
+                  background: isCurrentlySyncing ? '#f0f9ff' : '#e0f2fe',
+                  color: '#0284c7',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  cursor: isCurrentlySyncing ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>{isCurrentlySyncing ? '⏳' : '💧'}</span>
+                <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setEditingSpace(null);
@@ -201,6 +266,39 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
             )}
           </div>
         </div>
+
+        {/* Sync Feedback Toast Banner */}
+        {syncFeedback && (
+          <div
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: syncFeedback.isError ? '#fef2f2' : '#f0fdf4',
+              color: syncFeedback.isError ? '#b91c1c' : '#15803d',
+              border: `1px solid ${syncFeedback.isError ? '#fecaca' : '#bbf7d0'}`,
+            }}
+          >
+            <span>{syncFeedback.message}</span>
+            <button
+              onClick={() => setSyncFeedback(null)}
+              style={{
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontSize: '12px',
+                color: 'inherit',
+                opacity: 0.7,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Space Horizontal Pills */}
         <div

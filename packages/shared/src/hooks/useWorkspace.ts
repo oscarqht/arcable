@@ -2,7 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../types/workspace';
+import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
+import {
+  createWorkspaceOperation,
+  savePendingOperation,
+  getStoredPendingOperations,
+  clearStoredPendingOperations,
+} from '../utils/syncEngine';
+import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
 
@@ -208,6 +216,7 @@ export function useWorkspace() {
   const activeSpace = data.spaces.find((s) => s.id === data.activeSpaceId) || data.spaces[0];
 
   const setActiveSpace = useCallback((spaceId: string) => {
+    savePendingOperation(createWorkspaceOperation('WORKSPACE_SET_ACTIVE_SPACE', spaceId));
     saveWorkspaceData((prev) => ({
       ...prev,
       activeSpaceId: spaceId,
@@ -225,6 +234,8 @@ export function useWorkspace() {
       updatedAt: Date.now(),
     };
 
+    savePendingOperation(createWorkspaceOperation('SPACE_CREATE', newSpace.id, newSpace));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       spaces: [...prev.spaces, newSpace],
@@ -235,6 +246,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
+    savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, updates));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       spaces: prev.spaces.map((s) =>
@@ -244,6 +257,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteSpace = useCallback((id: string) => {
+    savePendingOperation(createWorkspaceOperation('SPACE_DELETE', id));
+
     saveWorkspaceData((prev) => {
       const remainingSpaces = prev.spaces.filter((s) => s.id !== id);
       if (remainingSpaces.length === 0) {
@@ -298,6 +313,8 @@ export function useWorkspace() {
       updatedAt: Date.now(),
     };
 
+    savePendingOperation(createWorkspaceOperation('FOLDER_CREATE', newFolder.id, newFolder));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       folders: [...prev.folders, newFolder],
@@ -307,6 +324,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const updateFolder = useCallback((id: string, updates: Partial<Omit<Folder, 'id'>>) => {
+    savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, updates));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       folders: prev.folders.map((f) =>
@@ -325,6 +344,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteFolder = useCallback((id: string, recursive: boolean = true) => {
+    savePendingOperation(createWorkspaceOperation('FOLDER_DELETE', id));
+
     saveWorkspaceData((prev) => {
       // Find all descendant folder IDs if recursive
       const folderIdsToDelete = new Set<string>([id]);
@@ -388,6 +409,8 @@ export function useWorkspace() {
       updatedAt: Date.now(),
     };
 
+    savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTab.id, newTab));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       tabs: [...prev.tabs, newTab],
@@ -397,6 +420,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
+    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       tabs: prev.tabs.map((t) => {
@@ -412,6 +437,8 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteTab = useCallback((id: string) => {
+    savePendingOperation(createWorkspaceOperation('TAB_DELETE', id));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       tabs: prev.tabs.filter((t) => t.id !== id),
@@ -419,17 +446,60 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const togglePinTab = useCallback((id: string) => {
+    const existing = data.tabs.find((t) => t.id === id);
+    const nextPinned = !existing?.pinned;
+    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, { pinned: nextPinned, parentFolderId: undefined }));
+
     saveWorkspaceData((prev) => ({
       ...prev,
       tabs: prev.tabs.map((t) =>
         t.id === id ? { ...t, pinned: !t.pinned, parentFolderId: !t.pinned ? undefined : t.parentFolderId } : t
       ),
     }));
-  }, [saveWorkspaceData]);
+  }, [data.tabs, saveWorkspaceData]);
 
   const resetToDefault = useCallback(() => {
+    clearStoredPendingOperations();
     saveWorkspaceData(DEFAULT_WORKSPACE);
   }, [saveWorkspaceData]);
+
+  const applyLatestSnapshot = useCallback((snapshot: ArcableWorkspaceData) => {
+    if (snapshot && Array.isArray(snapshot.spaces) && snapshot.spaces.length > 0) {
+      saveWorkspaceData({
+        spaces: snapshot.spaces,
+        folders: snapshot.folders || [],
+        tabs: snapshot.tabs || [],
+        activeSpaceId: snapshot.activeSpaceId || snapshot.spaces[0]?.id || 'space_personal',
+        version: snapshot.version || 1,
+      });
+      return true;
+    }
+    return false;
+  }, [saveWorkspaceData]);
+
+  // Raindrop Sync Trigger
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+
+  const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
+    setIsSyncing(true);
+    try {
+      const result = await syncWorkspaceWithRaindrop(token, {
+        localState: data,
+        deviceName,
+      });
+
+      setLastSyncResult(result);
+
+      if (result.success && result.latestSnapshot) {
+        applyLatestSnapshot(result.latestSnapshot);
+      }
+
+      return result;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [data, applyLatestSnapshot]);
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
@@ -482,6 +552,11 @@ export function useWorkspace() {
     resetToDefault,
     importWorkspaceData,
     saveWorkspaceData,
+    applyLatestSnapshot,
+    // Raindrop sync
+    syncWithRaindropToken,
+    isSyncing,
+    lastSyncResult,
     // Hierarchy queries
     pinnedTabs,
     rootTabs,

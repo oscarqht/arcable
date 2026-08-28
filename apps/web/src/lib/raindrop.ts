@@ -1,10 +1,15 @@
 import {
   fetchRaindropUser,
   fetchRaindropCollections,
+  createRaindropCollection,
   createRaindropBookmark,
+  deleteRaindropBookmark,
+  uploadRaindropFile,
+  fetchRaindropFileContent,
   fetchRaindropItems,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
+  syncWorkspaceWithRaindrop,
 } from '@arcable/shared/utils';
 
 import type {
@@ -62,10 +67,15 @@ export function getRaindropConfig() {
 export {
   fetchRaindropUser,
   fetchRaindropCollections,
+  createRaindropCollection,
   createRaindropBookmark,
+  deleteRaindropBookmark,
+  uploadRaindropFile,
+  fetchRaindropFileContent,
   fetchRaindropItems,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
+  syncWorkspaceWithRaindrop,
 };
 
 export type {
