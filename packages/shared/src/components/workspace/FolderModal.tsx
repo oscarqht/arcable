@@ -41,7 +41,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
   const [customEmojiIcon, setCustomEmojiIcon] = useState('📁');
-  const [colors, setColors] = useState('#3b82f6');
+  const [colors, setColors] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -50,13 +50,13 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         setParentSpaceId(folder.parentSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
         setCustomEmojiIcon(folder.customEmojiIcon || '📁');
-        setColors(folder.colors || '#3b82f6');
+        setColors(folder.colors || '');
       } else {
         setName('');
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultParentFolderId || '');
         setCustomEmojiIcon('📁');
-        setColors('#3b82f6');
+        setColors('');
       }
     }
   }, [isOpen, folder, defaultSpaceId, defaultParentFolderId, allSpaces]);
@@ -242,6 +242,31 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               Color Accent (Optional)
             </label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setColors('')}
+                title="No color"
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '50%',
+                  backgroundColor: '#f8fafc',
+                  border: !colors ? '2.5px solid #0f172a' : '1.5px solid #cbd5e1',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  boxSizing: 'border-box',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="8" cy="8" r="6" stroke="#94a3b8" strokeWidth="1.5" />
+                  <line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#ef4444" strokeWidth="1.5" />
+                </svg>
+              </button>
               {PRESET_COLORS.map((c) => (
                 <button
                   key={c}
@@ -252,9 +277,10 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                     height: '26px',
                     borderRadius: '50%',
                     backgroundColor: c,
-                    border: colors === c ? '3px solid #0f172a' : '2px solid transparent',
+                    border: colors === c ? '2.5px solid #0f172a' : '2px solid transparent',
                     cursor: 'pointer',
                     outline: 'none',
+                    boxSizing: 'border-box',
                   }}
                 />
               ))}
