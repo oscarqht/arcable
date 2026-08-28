@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "npm run dev --workspace=@arcable/web",
     "dev:web": "npm run dev --workspace=@arcable/web",
     "dev:extension": "npm run dev --workspace=@arcable/extension",
     "build": "npm run build --workspaces --if-present",
