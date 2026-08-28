@@ -315,9 +315,13 @@ export async function uploadRaindropFile(
   }
 
   const formData = new FormData();
+  // IMPORTANT: Raindrop's streaming multipart parser requires collection metadata BEFORE the file field
+  if (collectionId !== undefined && collectionId !== null) {
+    formData.append('collectionId', String(collectionId));
+    formData.append('collection', JSON.stringify({ $id: Number(collectionId) }));
+  }
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   formData.append('file', blob, safeFileName);
-  formData.append('collectionId', String(collectionId));
 
   const res = await fetch(`${RAINDROP_API_BASE}/raindrop/file`, {
     method: 'PUT',
