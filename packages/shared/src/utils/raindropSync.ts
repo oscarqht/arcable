@@ -5,10 +5,12 @@ import {
   fetchRaindropCollections,
   createRaindropCollection,
   fetchRaindropItems,
+  fetchRaindropItem,
   deleteRaindropBookmark,
   uploadRaindropFile,
   fetchRaindropFileContent,
   cleanRaindropToken,
+  RAINDROP_API_BASE,
 } from './raindropClient';
 import {
   getOrCreateDeviceId,
@@ -31,13 +33,10 @@ export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
   const link = (item.link || '').toLowerCase();
 
   return (
-    title === 'data.json' ||
-    title === 'data.json.txt' ||
-    title === 'data.txt' ||
-    fileName === 'data.json' ||
-    fileName === 'data.json.txt' ||
-    fileName === 'data.txt' ||
-    link.includes('data.json.txt') ||
+    title.includes('data.json') ||
+    title.includes('data.txt') ||
+    fileName.includes('data.json') ||
+    fileName.includes('data.txt') ||
     link.includes('data.json') ||
     link.includes('data.txt')
   );
@@ -66,7 +65,9 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
 }
 
 /**
- * Finds all existing "data.json" / "data.json.txt" raindrop items under the specified collection.
+ * Finds all existing "data.json" / "data.json.txt" raindrop items under the specified collection,
+ * sorted so that the most recently updated item is always first.
+ * Never relies on cached IDs, always queries Raindrop live.
  */
 export async function findAllRaindropDataJsonItems(
   token: string,
@@ -74,11 +75,12 @@ export async function findAllRaindropDataJsonItems(
 ): Promise<RaindropBookmarkItem[]> {
   const items: RaindropBookmarkItem[] = [];
 
-  // 1. Search by term 'data'
+  // 1. Search by term 'data' with newest first
   try {
     const searchRes = await fetchRaindropItems(token, collectionId, {
       search: 'data',
       perpage: 50,
+      sort: '-lastUpdate',
     });
     for (const item of searchRes.items) {
       if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
@@ -89,9 +91,12 @@ export async function findAllRaindropDataJsonItems(
     console.warn('[RaindropSync] Search for data file failed, falling back to full list:', err);
   }
 
-  // 2. Fallback: list items in the collection
+  // 2. Fallback: list items in the collection with newest first
   try {
-    const listRes = await fetchRaindropItems(token, collectionId, { perpage: 50 });
+    const listRes = await fetchRaindropItems(token, collectionId, {
+      perpage: 50,
+      sort: '-lastUpdate',
+    });
     for (const item of listRes.items) {
       if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
         items.push(item);
@@ -101,11 +106,18 @@ export async function findAllRaindropDataJsonItems(
     console.error('[RaindropSync] Error listing items in collection:', err);
   }
 
+  // Guarantee descending sort by lastUpdate / created timestamp
+  items.sort((a, b) => {
+    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
+    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
+    return timeB - timeA;
+  });
+
   return items;
 }
 
 /**
- * Searches for an existing "data.json" / "data.json.txt" raindrop item under the specified collection.
+ * Searches for the latest "data.json" / "data.json.txt" raindrop item under the specified collection.
  */
 export async function findRaindropDataJsonItem(
   token: string,
@@ -116,8 +128,9 @@ export async function findRaindropDataJsonItem(
 }
 
 /**
- * Fetches and parses the ArcableSyncFile from Raindrop.
- * If data.json does not exist or contains legacy/empty placeholder data, bootstraps a valid ArcableSyncFile from local state.
+ * Fetches and parses the ArcableSyncFile from Raindrop file content.
+ * If data.json does not exist, bootstraps a valid ArcableSyncFile from local state.
+ * If data.json exists but cannot be downloaded/parsed, aborts with an error to prevent overwriting remote data.
  */
 export async function fetchRaindropSyncFile(
   token: string,
@@ -127,6 +140,7 @@ export async function fetchRaindropSyncFile(
 ): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
   const existingItems = await findAllRaindropDataJsonItems(token, collectionId);
 
+  // If no data item exists in Raindrop, bootstrap initial sync file from local state
   if (existingItems.length === 0) {
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
@@ -134,105 +148,94 @@ export async function fetchRaindropSyncFile(
     };
   }
 
-  // Use the first (or most recently updated) data item
+  // Use the most recently updated data item
   const latestItem = existingItems[0];
-  const fileUrl = latestItem.file?.path || latestItem.link;
 
-  try {
-    let rawContent = fileUrl ? await fetchRaindropFileContent(token, fileUrl) : '';
+  // Gather candidate URLs for downloading the attached data file
+  const urlCandidates: string[] = [];
 
-    // Fallback: check item note or excerpt if remote file download was empty or not plain text
-    if (!rawContent || !rawContent.trim()) {
-      if (latestItem.note && latestItem.note.trim().startsWith('{')) {
-        rawContent = latestItem.note;
-      } else if (latestItem.excerpt && latestItem.excerpt.trim().startsWith('{')) {
-        rawContent = latestItem.excerpt;
-      }
-    }
-
-    if (!rawContent || !rawContent.trim()) {
-      return {
-        syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItems,
-      };
-    }
-
-    const trimmed = rawContent.trim();
-    if (trimmed.startsWith('<')) {
-      console.warn('[RaindropSync] Remote data item returned HTML/XML error instead of JSON, bootstrapping from local state.');
-      return {
-        syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItems,
-      };
-    }
-
-    let parsed: any;
+  // Candidate 1: Query single item detail (GET /raindrop/{id}) which contains exact file.path
+  if (latestItem._id) {
     try {
-      parsed = JSON.parse(trimmed);
-    } catch (parseErr) {
-      console.warn('[RaindropSync] Failed to parse remote data.json, bootstrapping from local state:', parseErr);
-      return {
-        syncFile: createInitialSyncFile(localFallback, deviceId),
-        existingItems,
-      };
-    }
-
-    // Case 1: Already an ArcableSyncFile format
-    if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
-      // If remote snapshot is just an empty placeholder (e.g. space_default with 0 operations)
-      // and localFallback has actual user data, adopt localFallback to restore the real workspace state.
-      if (
-        isPlaceholderSnapshot(parsed.baselineSnapshot) &&
-        parsed.operations.length === 0 &&
-        !isPlaceholderSnapshot(localFallback)
-      ) {
-        return {
-          syncFile: createInitialSyncFile(localFallback, deviceId),
-          existingItems,
-        };
+      const fullItem = await fetchRaindropItem(token, latestItem._id);
+      if (fullItem?.file?.path) {
+        urlCandidates.push(fullItem.file.path);
       }
-
-      return {
-        syncFile: {
-          version: parsed.version || 1,
-          devices: parsed.devices || {},
-          baselineSnapshot: parsed.baselineSnapshot,
-          operations: parsed.operations,
-        },
-        existingItems,
-      };
-    }
-
-    // Case 2: Legacy single ArcableWorkspaceData snapshot ({ spaces, folders, tabs })
-    if (parsed && Array.isArray(parsed.spaces)) {
-      if (
-        isPlaceholderSnapshot(parsed as ArcableWorkspaceData) &&
-        !isPlaceholderSnapshot(localFallback)
-      ) {
-        return {
-          syncFile: createInitialSyncFile(localFallback, deviceId),
-          existingItems,
-        };
+      if (fullItem?.link && !urlCandidates.includes(fullItem.link)) {
+        urlCandidates.push(fullItem.link);
       }
-
-      return {
-        syncFile: createInitialSyncFile(parsed as ArcableWorkspaceData, deviceId),
-        existingItems,
-      };
+    } catch {
+      // Non-blocking detail lookup
     }
+  }
 
-    // Case 3: Empty object or unrecognized structure
+  if (latestItem.file?.path && !urlCandidates.includes(latestItem.file.path)) {
+    urlCandidates.push(latestItem.file.path);
+  }
+  if (latestItem.link && !urlCandidates.includes(latestItem.link)) {
+    urlCandidates.push(latestItem.link);
+  }
+  if (latestItem._id) {
+    urlCandidates.push(`${RAINDROP_API_BASE}/raindrop/${latestItem._id}/file`);
+    urlCandidates.push(`${RAINDROP_API_BASE}/file/${latestItem._id}`);
+  }
+
+  let rawContent = '';
+  for (const url of urlCandidates) {
+    if (url && typeof url === 'string') {
+      try {
+        const content = await fetchRaindropFileContent(token, url);
+        if (content && content.trim() && !content.trim().startsWith('<')) {
+          rawContent = content.trim();
+          break;
+        }
+      } catch {
+        // Try next candidate
+      }
+    }
+  }
+
+  // CRITICAL SAFETY PROTECTION:
+  // An existing sync file was found in Raindrop. If download failed, DO NOT silently wipe remote data with localFallback!
+  if (!rawContent || !rawContent.trim()) {
+    throw new Error(
+      `Found existing workspace sync file in Raindrop (Item ID ${latestItem._id}), but failed to download its content. Aborting sync to prevent overwriting remote changes.`
+    );
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch (parseErr) {
+    throw new Error(
+      `Found existing workspace sync file in Raindrop (Item ID ${latestItem._id}), but content is not valid JSON. Aborting sync to prevent data loss.`
+    );
+  }
+
+  // Case 1: Standard ArcableSyncFile format
+  if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
     return {
-      syncFile: createInitialSyncFile(localFallback, deviceId),
-      existingItems,
-    };
-  } catch (err) {
-    console.warn('[RaindropSync] Unexpected error reading remote data.json, using local state:', err);
-    return {
-      syncFile: createInitialSyncFile(localFallback, deviceId),
+      syncFile: {
+        version: parsed.version || 1,
+        devices: parsed.devices || {},
+        baselineSnapshot: parsed.baselineSnapshot,
+        operations: parsed.operations,
+      },
       existingItems,
     };
   }
+
+  // Case 2: Legacy single ArcableWorkspaceData snapshot ({ spaces, folders, tabs })
+  if (parsed && Array.isArray(parsed.spaces)) {
+    return {
+      syncFile: createInitialSyncFile(parsed as ArcableWorkspaceData, deviceId),
+      existingItems,
+    };
+  }
+
+  throw new Error(
+    `Remote sync file structure in Raindrop is unrecognized. Aborting sync to prevent data loss.`
+  );
 }
 
 /**

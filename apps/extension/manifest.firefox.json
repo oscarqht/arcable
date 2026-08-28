@@ -14,6 +14,7 @@
     "activeTab",
     "tabs",
     "identity",
+    "alarms",
     "https://api.raindrop.io/*",
     "https://raindrop.io/*",
     "https://oh-auth.vercel.app/*",

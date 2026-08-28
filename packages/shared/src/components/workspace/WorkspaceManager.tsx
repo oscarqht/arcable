@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -25,6 +25,7 @@ export interface WorkspaceManagerProps {
   headerTitle?: string;
   showJsonInspector?: boolean;
   raindropToken?: string;
+  autoSync?: boolean;
   onSyncRaindrop?: (params: {
     localState: ArcableWorkspaceData;
     deviceId: string;
@@ -39,6 +40,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   headerTitle = 'Arcable Workspace',
   showJsonInspector = true,
   raindropToken,
+  autoSync = true,
   onSyncRaindrop,
 }) => {
   const {
@@ -112,9 +114,11 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
 
   const isCurrentlySyncing = syncLoading || hookIsSyncing;
 
-  const handleTriggerSync = async () => {
-    setSyncFeedback(null);
-    setSyncLoading(true);
+  const performSync = async (silent: boolean = false) => {
+    if (!silent) {
+      setSyncFeedback(null);
+      setSyncLoading(true);
+    }
 
     try {
       let result: SyncResult | null = null;
@@ -140,33 +144,66 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
       } else if (raindropToken) {
         result = await syncWithRaindropToken(raindropToken);
       } else {
-        setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
+        if (!silent) {
+          setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
+        }
         return;
       }
 
       if (result) {
         if (result.success) {
-          setSyncFeedback({
-            message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} ops applied)`,
-          });
+          if (!silent) {
+            setSyncFeedback({
+              message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} ops applied)`,
+            });
+          }
         } else {
-          setSyncFeedback({
-            message: result.error || 'Failed to sync with Raindrop.',
-            isError: true,
-          });
+          if (!silent) {
+            setSyncFeedback({
+              message: result.error || 'Failed to sync with Raindrop.',
+              isError: true,
+            });
+          }
         }
-      } else if (onSyncRaindrop) {
+      } else if (onSyncRaindrop && !silent) {
         setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
       }
     } catch (err: any) {
-      setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
+      if (!silent) {
+        setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
+      }
     } finally {
-      setSyncLoading(false);
-      setTimeout(() => {
-        setSyncFeedback((prev) => (prev?.isError ? prev : null));
-      }, 4000);
+      if (!silent) {
+        setSyncLoading(false);
+        setTimeout(() => {
+          setSyncFeedback((prev) => (prev?.isError ? prev : null));
+        }, 4000);
+      }
     }
   };
+
+  const handleTriggerSync = () => performSync(false);
+
+  // Auto-sync on mount if authenticated
+  useEffect(() => {
+    if (autoSync && (onSyncRaindrop || raindropToken)) {
+      performSync(true);
+    }
+  }, [autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
+
+  // Debounced auto-sync when local changes occur
+  useEffect(() => {
+    if (!autoSync || (!onSyncRaindrop && !raindropToken)) return;
+
+    const pending = getStoredPendingOperations();
+    if (pending.length === 0) return;
+
+    const timer = setTimeout(() => {
+      performSync(true);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [data, autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
 
   // Space DnD Handlers
   const handleSpaceDragStart = (e: React.DragEvent, spaceId: string) => {

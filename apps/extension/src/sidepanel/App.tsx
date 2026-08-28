@@ -7,12 +7,42 @@ export const App: React.FC = () => {
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
 
   useEffect(() => {
-    // Check Raindrop auth
+    // Check initial Raindrop auth & cached snapshot
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot']).then((res: any) => {
+      const auth = res.arcable_raindrop_auth;
+      if (auth && auth.isAuthenticated) {
+        setHasRaindropAuth(true);
+      }
+      if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+        const local = window.localStorage.getItem('arcable_workspace_data');
+        if (!local) {
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.arcable_workspace_snapshot));
+        }
+      }
+    });
+
     browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((res: any) => {
       if (res && res.success && res.data?.isAuthenticated) {
         setHasRaindropAuth(true);
       }
     });
+
+    // Listen for storage changes (e.g. login/logout in options or background sync updates)
+    const handleStorageChange = (changes: Record<string, any>, area: string) => {
+      if (area === 'local') {
+        if (changes.arcable_raindrop_auth) {
+          setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
+        }
+        if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
+          window.localStorage.setItem(
+            'arcable_workspace_data',
+            JSON.stringify(changes.arcable_workspace_snapshot.newValue)
+          );
+        }
+      }
+    };
+
+    browser.storage.onChanged.addListener(handleStorageChange);
 
     // Refresh active tab info on focus or mount
     const updateActiveTab = async () => {
@@ -38,8 +68,13 @@ export const App: React.FC = () => {
       chrome.tabs.onActivated.addListener(listener);
       return () => {
         chrome.tabs.onActivated.removeListener(listener);
+        browser.storage.onChanged.removeListener(handleStorageChange);
       };
     }
+
+    return () => {
+      browser.storage.onChanged.removeListener(handleStorageChange);
+    };
   }, []);
 
   const handleSyncRaindrop = async (syncParams?: {

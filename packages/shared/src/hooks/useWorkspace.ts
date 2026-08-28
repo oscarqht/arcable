@@ -633,12 +633,14 @@ export function useWorkspace() {
           updatedAt: s.id === sourceSpaceId ? Date.now() : s.updatedAt,
         }));
 
-        const updatedSource = reindexed.find((s) => s.id === sourceSpaceId);
-        if (updatedSource) {
-          savePendingOperation(
-            createWorkspaceOperation('SPACE_UPDATE', sourceSpaceId, { order: updatedSource.order })
-          );
-        }
+        reindexed.forEach((s) => {
+          const oldSpace = prev.spaces.find((orig) => orig.id === s.id);
+          if (oldSpace && oldSpace.order !== s.order) {
+            savePendingOperation(
+              createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
+            );
+          }
+        });
 
         return {
           ...prev,
@@ -667,10 +669,14 @@ export function useWorkspace() {
           updatedAt: s.id === spaceId ? Date.now() : s.updatedAt,
         }));
 
-        const updated = reindexed.find((s) => s.id === spaceId);
-        if (updated) {
-          savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', spaceId, { order: updated.order }));
-        }
+        reindexed.forEach((s) => {
+          const oldSpace = prev.spaces.find((orig) => orig.id === s.id);
+          if (oldSpace && oldSpace.order !== s.order) {
+            savePendingOperation(
+              createWorkspaceOperation('SPACE_UPDATE', s.id, { order: s.order })
+            );
+          }
+        });
 
         return {
           ...prev,
@@ -845,25 +851,45 @@ export function useWorkspace() {
           return t;
         });
 
-        if (sourceType === 'tab') {
-          savePendingOperation(
-            createWorkspaceOperation('TAB_UPDATE', sourceId, {
-              parentSpaceId,
-              parentFolderId: parentFolderId || undefined,
-              pinned: false,
-              favourite: false,
-              order: updatedOrderMap.get(sourceId),
-            })
-          );
-        } else {
-          savePendingOperation(
-            createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
-              parentSpaceId,
-              parentFolderId: parentFolderId || undefined,
-              order: updatedOrderMap.get(sourceId),
-            })
-          );
-        }
+        updatedFolders.forEach((f) => {
+          const oldFolder = prev.folders.find((orig) => orig.id === f.id);
+          if (
+            oldFolder &&
+            (oldFolder.order !== f.order ||
+              oldFolder.parentSpaceId !== f.parentSpaceId ||
+              oldFolder.parentFolderId !== f.parentFolderId)
+          ) {
+            savePendingOperation(
+              createWorkspaceOperation('FOLDER_UPDATE', f.id, {
+                parentSpaceId: f.parentSpaceId,
+                parentFolderId: f.parentFolderId || undefined,
+                order: f.order,
+              })
+            );
+          }
+        });
+
+        updatedTabs.forEach((t) => {
+          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+          if (
+            oldTab &&
+            (oldTab.order !== t.order ||
+              oldTab.parentSpaceId !== t.parentSpaceId ||
+              oldTab.parentFolderId !== t.parentFolderId ||
+              oldTab.pinned !== t.pinned ||
+              oldTab.favourite !== t.favourite)
+          ) {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', t.id, {
+                parentSpaceId: t.parentSpaceId,
+                parentFolderId: t.parentFolderId || undefined,
+                pinned: t.pinned,
+                favourite: t.favourite,
+                order: t.order,
+              })
+            );
+          }
+        });
 
         return {
           ...prev,
@@ -911,12 +937,23 @@ export function useWorkspace() {
             : t
         );
 
-        const newOrder = updatedOrderMap.get(itemId);
-        if (itemType === 'tab') {
-          savePendingOperation(createWorkspaceOperation('TAB_UPDATE', itemId, { order: newOrder }));
-        } else {
-          savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', itemId, { order: newOrder }));
-        }
+        updatedFolders.forEach((f) => {
+          const oldFolder = prev.folders.find((orig) => orig.id === f.id);
+          if (oldFolder && oldFolder.order !== f.order) {
+            savePendingOperation(
+              createWorkspaceOperation('FOLDER_UPDATE', f.id, { order: f.order })
+            );
+          }
+        });
+
+        updatedTabs.forEach((t) => {
+          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+          if (oldTab && oldTab.order !== t.order) {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+            );
+          }
+        });
 
         return {
           ...prev,
@@ -954,9 +991,14 @@ export function useWorkspace() {
             : t
         );
 
-        savePendingOperation(
-          createWorkspaceOperation('TAB_UPDATE', sourceTabId, { order: orderMap.get(sourceTabId) })
-        );
+        updatedTabs.forEach((t) => {
+          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+          if (oldTab && oldTab.order !== t.order) {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+            );
+          }
+        });
 
         return { ...prev, tabs: updatedTabs };
       });
@@ -987,9 +1029,14 @@ export function useWorkspace() {
             : t
         );
 
-        savePendingOperation(
-          createWorkspaceOperation('TAB_UPDATE', sourceTabId, { order: orderMap.get(sourceTabId) })
-        );
+        updatedTabs.forEach((t) => {
+          const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+          if (oldTab && oldTab.order !== t.order) {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order })
+            );
+          }
+        });
 
         return { ...prev, tabs: updatedTabs };
       });

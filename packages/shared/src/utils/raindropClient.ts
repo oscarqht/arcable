@@ -187,7 +187,7 @@ export async function createRaindropBookmark(
 export async function fetchRaindropItems(
   token: string,
   collectionId: number = 0,
-  options?: { page?: number; perpage?: number; search?: string }
+  options?: { page?: number; perpage?: number; search?: string; sort?: string }
 ): Promise<{ items: RaindropBookmarkItem[]; count: number }> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) {
@@ -196,9 +196,10 @@ export async function fetchRaindropItems(
 
   const perpage = options?.perpage || 25;
   const page = options?.page || 0;
+  const sort = options?.sort || '-lastUpdate';
   const searchParam = options?.search ? `&search=${encodeURIComponent(options.search)}` : '';
 
-  const url = `${RAINDROP_API_BASE}/raindrops/${collectionId}?perpage=${perpage}&page=${page}&sort=-lastUpdate${searchParam}`;
+  const url = `${RAINDROP_API_BASE}/raindrops/${collectionId}?perpage=${perpage}&page=${page}&sort=${encodeURIComponent(sort)}${searchParam}`;
 
   const res = await fetch(url, {
     method: 'GET',
@@ -358,6 +359,63 @@ export async function deleteRaindropBookmark(token: string, raindropId: number):
 }
 
 /**
+ * Updates an existing Raindrop item's metadata (e.g. note, title, tags, excerpt).
+ */
+export async function updateRaindropItem(
+  token: string,
+  itemId: number,
+  updates: Record<string, any>
+): Promise<RaindropBookmarkItem | null> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !itemId) return null;
+
+  try {
+    const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${itemId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = (await res.json()) as { item?: any };
+    const item = data.item;
+    if (!item) return null;
+
+    return {
+      _id: item._id,
+      title: item.title || '',
+      excerpt: item.excerpt,
+      note: item.note,
+      link: item.link || '',
+      type: item.type,
+      file: item.file
+        ? {
+            name: item.file.name,
+            size: item.file.size,
+            type: item.file.type,
+            path: item.file.path,
+          }
+        : undefined,
+      cover: item.cover,
+      tags: item.tags,
+      collectionId: item.collection?.$id,
+      created: item.created,
+      lastUpdate: item.lastUpdate,
+    };
+  } catch (err) {
+    console.warn(`[RaindropClient] Failed to update raindrop item ${itemId}:`, err);
+    return null;
+  }
+}
+
+/**
  * Uploads a file (e.g. data.json.txt) to a Raindrop collection using multipart/form-data.
  * Raindrop supports .txt, .md, .pdf document formats.
  */
@@ -412,8 +470,18 @@ export async function uploadRaindropFile(
 export async function fetchRaindropFileContent(token: string, fileUrl: string): Promise<string> {
   if (!fileUrl || !fileUrl.trim()) return '';
 
+  let normalizedUrl = fileUrl.trim();
+  if (normalizedUrl.startsWith('/')) {
+    normalizedUrl = `https://api.raindrop.io${normalizedUrl}`;
+  }
+
   const cleanToken = cleanRaindropToken(token);
-  const isApiEndpoint = fileUrl.includes('api.raindrop.io');
+  const isPresignedOrCdn =
+    normalizedUrl.includes('up.raindrop.io') ||
+    normalizedUrl.includes('s3.amazonaws.com') ||
+    normalizedUrl.includes('X-Amz-') ||
+    normalizedUrl.includes('signature=') ||
+    normalizedUrl.includes('Expires=');
 
   // Helper to validate whether response text is valid payload rather than an HTML/XML error page
   const isValidContent = (text: string, contentType: string | null): boolean => {
@@ -434,45 +502,92 @@ export async function fetchRaindropFileContent(token: string, fileUrl: string): 
     return true;
   };
 
-  // Attempt 1: For CDN URLs (up.raindrop.io), fetch directly without Bearer header first
-  // (sending Bearer auth to Cloudflare/S3 CDN causes 400 Invalid Argument error).
-  // For api.raindrop.io endpoints, send Authorization header.
+  // Case 1: Direct CDN / S3 Presigned URL (DO NOT send Authorization header)
+  if (isPresignedOrCdn) {
+    try {
+      const res = await fetch(normalizedUrl, {
+        method: 'GET',
+        headers: { Accept: 'text/plain, application/json, */*' },
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (isValidContent(text, res.headers.get('content-type'))) {
+          return text;
+        }
+      }
+    } catch (err) {
+      console.warn('[RaindropClient] Error fetching CDN URL:', err);
+    }
+    return '';
+  }
+
+  // Case 2: Raindrop API URL (e.g. https://api.raindrop.io/v1/file/...)
+  // We use redirect: 'manual' to intercept 301/302/307 redirects to S3 / Cloudflare CDN
+  // so that the Authorization header is NOT leaked to S3 (which triggers S3 400 InvalidArgument).
   try {
-    const headers: Record<string, string> = {
+    const authHeaders: Record<string, string> = {
       Accept: 'text/plain, application/json, */*',
     };
-    if (isApiEndpoint && cleanToken) {
-      headers['Authorization'] = `Bearer ${cleanToken}`;
+    if (cleanToken) {
+      authHeaders['Authorization'] = `Bearer ${cleanToken}`;
     }
 
-    const res = await fetch(fileUrl, {
+    const res = await fetch(normalizedUrl, {
       method: 'GET',
-      headers,
+      headers: authHeaders,
+      redirect: 'manual',
     });
 
-    if (res.ok) {
-      const contentType = res.headers.get('content-type');
+    // Check for redirect location
+    const location = res.headers.get('location');
+    if (location && [301, 302, 303, 307, 308].includes(res.status)) {
+      let redirectTarget = location.trim();
+      if (redirectTarget.startsWith('/')) {
+        redirectTarget = `https://api.raindrop.io${redirectTarget}`;
+      }
+
+      const targetIsCdn =
+        redirectTarget.includes('up.raindrop.io') ||
+        redirectTarget.includes('s3.amazonaws.com') ||
+        redirectTarget.includes('X-Amz-') ||
+        redirectTarget.includes('signature=') ||
+        redirectTarget.includes('Expires=');
+
+      const redirectHeaders: Record<string, string> = {
+        Accept: 'text/plain, application/json, */*',
+      };
+      if (!targetIsCdn && cleanToken) {
+        redirectHeaders['Authorization'] = `Bearer ${cleanToken}`;
+      }
+
+      const redirectRes = await fetch(redirectTarget, {
+        method: 'GET',
+        headers: redirectHeaders,
+      });
+
+      if (redirectRes.ok) {
+        const text = await redirectRes.text();
+        if (isValidContent(text, redirectRes.headers.get('content-type'))) {
+          return text;
+        }
+      }
+    } else if (res.ok) {
       const text = await res.text();
-      if (isValidContent(text, contentType)) {
+      if (isValidContent(text, res.headers.get('content-type'))) {
         return text;
       }
     }
   } catch (err) {
-    // Continue to fallback
+    console.warn('[RaindropClient] Error fetching API file URL with manual redirect:', err);
   }
 
-  // Attempt 2 (Fallback): Try with opposite auth configuration
+  // Fallback: Try fetching with redirect: 'follow' without Authorization
   try {
-    const fallbackHeaders: Record<string, string> = {
-      Accept: 'text/plain, application/json, */*',
-    };
-    if (!isApiEndpoint && cleanToken) {
-      fallbackHeaders['Authorization'] = `Bearer ${cleanToken}`;
-    }
-
-    const fallbackRes = await fetch(fileUrl, {
+    const fallbackRes = await fetch(normalizedUrl, {
       method: 'GET',
-      headers: fallbackHeaders,
+      headers: {
+        Accept: 'text/plain, application/json, */*',
+      },
     });
 
     if (fallbackRes.ok) {

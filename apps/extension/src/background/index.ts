@@ -5,6 +5,7 @@ import {
   ArcableItem,
   RaindropAuthState,
   RaindropCreateItemInput,
+  ArcableWorkspaceData,
 } from '@arcable/shared/types';
 import {
   fetchRaindropUser,
@@ -251,6 +252,15 @@ browser.runtime.onMessage.addListener(
             deviceName: payload?.deviceName || 'Arcable Extension',
             pendingOps: payload?.pendingOps,
           });
+
+          if (result.success && result.latestSnapshot) {
+            // Cache latest snapshot in extension storage for instant access across popup and sidepanel
+            await browser.storage.local.set({
+              arcable_workspace_snapshot: result.latestSnapshot,
+              arcable_last_synced_at: result.syncedAt,
+            });
+          }
+
           return { success: result.success, data: result, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to sync workspace' };
@@ -262,6 +272,43 @@ browser.runtime.onMessage.addListener(
     }
   }
 );
+
+// Helper for periodic background sync
+async function triggerBackgroundSync(): Promise<void> {
+  try {
+    const auth = await getStoredAuthState();
+    if (!auth.isAuthenticated || !auth.accessToken) return;
+
+    const storedSnapshotRes = await browser.storage.local.get('arcable_workspace_snapshot');
+    const localState = storedSnapshotRes.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+
+    const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
+      localState,
+      deviceName: 'Arcable Background Sync',
+    });
+
+    if (result.success && result.latestSnapshot) {
+      await browser.storage.local.set({
+        arcable_workspace_snapshot: result.latestSnapshot,
+        arcable_last_synced_at: result.syncedAt,
+      });
+      console.log('[Arcable Background] Periodic workspace sync completed successfully.');
+    }
+  } catch (err) {
+    console.warn('[Arcable Background] Periodic sync error:', err);
+  }
+}
+
+// Set up periodic sync alarm (every 5 minutes)
+const SYNC_ALARM_NAME = 'arcable_sync_alarm';
+if (typeof chrome !== 'undefined' && chrome.alarms) {
+  chrome.alarms.create(SYNC_ALARM_NAME, { periodInMinutes: 5 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === SYNC_ALARM_NAME) {
+      void triggerBackgroundSync();
+    }
+  });
+}
 
 // Listen for external messages (e.g. from web app OAuth redirect)
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
@@ -280,4 +327,5 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageE
 
 browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
+  void triggerBackgroundSync();
 });

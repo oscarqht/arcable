@@ -30,9 +30,15 @@ export const App: React.FC = () => {
     });
 
     // Load saved items from extension storage
-    browser.storage.local.get('arcable_items').then((res) => {
+    browser.storage.local.get(['arcable_items', 'arcable_workspace_snapshot']).then((res) => {
       if (res.arcable_items && Array.isArray(res.arcable_items)) {
         setItems(res.arcable_items);
+      }
+      if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+        const local = window.localStorage.getItem('arcable_workspace_data');
+        if (!local) {
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.arcable_workspace_snapshot));
+        }
       }
     });
 
@@ -41,6 +47,10 @@ export const App: React.FC = () => {
       const res = rawRes as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
+        // If authenticated, perform initial background sync to pull latest changes from other devices
+        if (res.data.isAuthenticated) {
+          void handleSyncWorkspaceSilent();
+        }
       }
     });
   }, []);
@@ -49,19 +59,84 @@ export const App: React.FC = () => {
     if (!currentTab.url) return;
     setSaving(true);
 
+    const now = Date.now();
+    const tabId = generateId('tab');
+
+    // 1. Update quick items list
     const newItem: ArcableItem = {
-      id: generateId('tab'),
+      id: tabId,
       title: currentTab.title || 'Untitled Page',
       url: currentTab.url,
       tags: ['Extension', 'Bookmark'],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     const updated = [newItem, ...items];
     await browser.storage.local.set({ arcable_items: updated });
     setItems(updated);
+
+    // 2. Add tab to active workspace & record TAB_CREATE operation
+    if (typeof window !== 'undefined') {
+      try {
+        let workspace: any = null;
+        const rawWorkspace = window.localStorage.getItem('arcable_workspace_data');
+        if (rawWorkspace) {
+          workspace = JSON.parse(rawWorkspace);
+        }
+        if (!workspace || !Array.isArray(workspace.spaces) || workspace.spaces.length === 0) {
+          workspace = {
+            activeSpaceId: 'space_personal',
+            version: 1,
+            spaces: [{ id: 'space_personal', name: 'Personal', emojiIcon: '🏠', colors: '#6366f1', createdAt: now, updatedAt: now }],
+            folders: [],
+            tabs: [],
+          };
+        }
+
+        const activeSpaceId = workspace.activeSpaceId || workspace.spaces[0]?.id || 'space_personal';
+        const spaceTabs = (workspace.tabs || []).filter((t: any) => !t.favourite && t.parentSpaceId === activeSpaceId);
+        const maxOrder = spaceTabs.reduce((max: number, t: any) => Math.max(max, t.order ?? 0), 0);
+
+        const newWorkspaceTab = {
+          id: tabId,
+          url: currentTab.url,
+          customTitle: currentTab.title || undefined,
+          parentSpaceId: activeSpaceId,
+          pinned: false,
+          favourite: false,
+          order: maxOrder + 1000,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        workspace.tabs = [...(workspace.tabs || []), newWorkspaceTab];
+        workspace.version = (workspace.version || 1) + 1;
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(workspace));
+
+        // Queue operation
+        const pendingOps = getStoredPendingOperations();
+        pendingOps.push({
+          id: `op_${now}_${generateId('op')}`,
+          type: 'TAB_CREATE' as const,
+          entityId: tabId,
+          payload: newWorkspaceTab,
+          deviceId: getOrCreateDeviceId(),
+          timestamp: now,
+          lamportSeq: Date.now(),
+        });
+        window.localStorage.setItem('arcable_pending_ops', JSON.stringify(pendingOps));
+      } catch (err) {
+        console.warn('Failed to update local workspace storage in popup:', err);
+      }
+    }
+
     setSaving(false);
+
+    // 3. Auto-sync to Raindrop if authenticated
+    if (authState.isAuthenticated) {
+      void handleSyncWorkspaceSilent();
+    }
   };
 
   const handleSaveToRaindrop = async () => {
@@ -82,8 +157,8 @@ export const App: React.FC = () => {
 
       if (response && response.success) {
         setRaindropSuccess(true);
-        // Also save locally
-        handleSaveCurrentTab();
+        // Also save to workspace and sync
+        await handleSaveCurrentTab();
         setTimeout(() => setRaindropSuccess(false), 3000);
       } else {
         alert(`Raindrop save error: ${response?.error || 'Failed'}`);
@@ -97,6 +172,46 @@ export const App: React.FC = () => {
 
   const [syncingWorkspace, setSyncingWorkspace] = useState(false);
   const [workspaceSyncSuccess, setWorkspaceSyncSuccess] = useState(false);
+
+  const handleSyncWorkspaceSilent = async () => {
+    try {
+      let localState: any = undefined;
+      if (typeof window !== 'undefined') {
+        const storedWorkspaceRaw = window.localStorage.getItem('arcable_workspace_data');
+        if (storedWorkspaceRaw) {
+          try {
+            localState = JSON.parse(storedWorkspaceRaw);
+          } catch {}
+        }
+      }
+
+      const deviceId = getOrCreateDeviceId();
+      const pendingOps = getStoredPendingOperations();
+
+      const rawRes = await browser.runtime.sendMessage({
+        type: 'RAINDROP_SYNC_WORKSPACE',
+        payload: {
+          deviceName: 'Arcable Extension Popup',
+          localState,
+          deviceId,
+          pendingOps,
+        },
+      });
+      const response = rawRes as ExtensionResponse<SyncResult>;
+
+      if (response && response.success) {
+        clearStoredPendingOperations();
+        if (response.data?.latestSnapshot && typeof window !== 'undefined') {
+          window.localStorage.setItem(
+            'arcable_workspace_data',
+            JSON.stringify(response.data.latestSnapshot)
+          );
+        }
+      }
+    } catch {
+      // Non-blocking silent sync
+    }
+  };
 
   const handleSyncWorkspace = async () => {
     if (!authState.isAuthenticated) return;
@@ -120,7 +235,7 @@ export const App: React.FC = () => {
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: {
-          deviceName: 'Arcable Extension',
+          deviceName: 'Arcable Extension Popup',
           localState,
           deviceId,
           pendingOps,
