@@ -19,7 +19,27 @@ import {
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
-export const DATA_JSON_FILE_NAME = 'data.json';
+export const DATA_JSON_FILE_NAME = 'data.json.txt';
+
+/**
+ * Checks if a Raindrop item corresponds to the Arcable data json file.
+ */
+export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
+  const title = (item.title || '').trim().toLowerCase();
+  const fileName = ((item as any).file?.name || '').trim().toLowerCase();
+  const link = (item.link || '').toLowerCase();
+
+  return (
+    title === 'data.json' ||
+    title === 'data.json.txt' ||
+    title === 'data.txt' ||
+    fileName === 'data.json' ||
+    fileName === 'data.json.txt' ||
+    fileName === 'data.txt' ||
+    link.includes('data.json') ||
+    link.includes('data.txt')
+  );
+}
 
 /**
  * Finds the root collection named "Arcable", or creates one if it does not exist.
@@ -44,43 +64,31 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
 }
 
 /**
- * Searches for an existing "data.json" raindrop item under the specified collection.
+ * Searches for an existing "data.json" / "data.json.txt" raindrop item under the specified collection.
  */
 export async function findRaindropDataJsonItem(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem | null> {
-  // First search by term
+  // First search by term 'data'
   try {
     const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: DATA_JSON_FILE_NAME,
+      search: 'data',
       perpage: 20,
     });
 
-    const foundInSearch = searchRes.items.find(
-      (item) =>
-        item.title?.toLowerCase() === DATA_JSON_FILE_NAME.toLowerCase() ||
-        (item as any).file?.name?.toLowerCase() === DATA_JSON_FILE_NAME.toLowerCase() ||
-        item.link?.toLowerCase().endsWith(DATA_JSON_FILE_NAME.toLowerCase())
-    );
-
+    const foundInSearch = searchRes.items.find(isDataJsonItem);
     if (foundInSearch) {
       return foundInSearch;
     }
   } catch (err) {
-    console.warn('[RaindropSync] Search for data.json failed, falling back to full list:', err);
+    console.warn('[RaindropSync] Search for data file failed, falling back to full list:', err);
   }
 
   // Fallback: list items in the collection
   try {
     const listRes = await fetchRaindropItems(token, collectionId, { perpage: 50 });
-    const foundInList = listRes.items.find(
-      (item) =>
-        item.title?.toLowerCase() === DATA_JSON_FILE_NAME.toLowerCase() ||
-        (item as any).file?.name?.toLowerCase() === DATA_JSON_FILE_NAME.toLowerCase() ||
-        item.link?.toLowerCase().endsWith(DATA_JSON_FILE_NAME.toLowerCase())
-    );
-
+    const foundInList = listRes.items.find(isDataJsonItem);
     return foundInList || null;
   } catch (err) {
     console.error('[RaindropSync] Error listing items in collection:', err);

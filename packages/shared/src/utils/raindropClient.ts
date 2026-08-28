@@ -294,12 +294,13 @@ export async function deleteRaindropBookmark(token: string, raindropId: number):
 }
 
 /**
- * Uploads a file (e.g. data.json) to a Raindrop collection using multipart/form-data.
+ * Uploads a file (e.g. data.json.txt) to a Raindrop collection using multipart/form-data.
+ * Raindrop supports .txt, .md, .pdf document formats.
  */
 export async function uploadRaindropFile(
   token: string,
   collectionId: number,
-  fileName: string,
+  fileName: string = 'data.json.txt',
   content: string
 ): Promise<any> {
   const cleanToken = cleanRaindropToken(token);
@@ -307,9 +308,15 @@ export async function uploadRaindropFile(
     throw new Error('Missing Raindrop authorization token.');
   }
 
+  // Ensure filename has a supported document extension (.txt) for Raindrop upload
+  let safeFileName = fileName;
+  if (!safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md')) {
+    safeFileName = `${safeFileName}.txt`;
+  }
+
   const formData = new FormData();
-  const blob = new Blob([content], { type: 'application/json' });
-  formData.append('file', blob, fileName);
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  formData.append('file', blob, safeFileName);
   formData.append('collectionId', String(collectionId));
 
   const res = await fetch(`${RAINDROP_API_BASE}/raindrop/file`, {
