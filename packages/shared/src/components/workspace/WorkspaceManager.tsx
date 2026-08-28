@@ -650,41 +650,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
-      {/* Sync Feedback Toast Banner (shown when control bar is hidden) */}
-      {hideControlBar && syncFeedback && (
-        <div
-          style={{
-            padding: '8px 14px',
-            borderRadius: '10px',
-            fontSize: '13px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: syncFeedback.isError ? '#fef2f2' : '#f0fdf4',
-            color: syncFeedback.isError ? '#b91c1c' : '#15803d',
-            border: `1px solid ${syncFeedback.isError ? '#fecaca' : '#bbf7d0'}`,
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-          }}
-        >
-          <span>{syncFeedback.message}</span>
-          <button
-            type="button"
-            onClick={() => setSyncFeedback(null)}
-            style={{
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontSize: '13px',
-              color: 'inherit',
-              opacity: 0.7,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Main Dashboard Control Bar */}
       {!hideControlBar && (
         <div
@@ -879,39 +844,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             )}
           </div>
         </div>
-
-        {/* Sync Feedback Toast Banner */}
-        {syncFeedback && (
-          <div
-            style={{
-              padding: '6px 12px',
-              borderRadius: '8px',
-              fontSize: '12px',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              backgroundColor: syncFeedback.isError ? '#fef2f2' : '#f0fdf4',
-              color: syncFeedback.isError ? '#b91c1c' : '#15803d',
-              border: `1px solid ${syncFeedback.isError ? '#fecaca' : '#bbf7d0'}`,
-            }}
-          >
-            <span>{syncFeedback.message}</span>
-            <button
-              onClick={() => setSyncFeedback(null)}
-              style={{
-                border: 'none',
-                background: 'none',
-                cursor: 'pointer',
-                fontSize: '12px',
-                color: 'inherit',
-                opacity: 0.7,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {/* Horizontal Space Pills (Used in Focused Mode or compact extension) */}
         {(viewMode === 'focused' || compact) && (
@@ -1471,6 +1403,117 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Bottom Fixed Black Toast Alert */}
+      {syncFeedback && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 99999,
+            backgroundColor: '#0f172a',
+            color: '#ffffff',
+            padding: '10px 16px',
+            borderRadius: '12px',
+            boxShadow: '0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4)',
+            border: '1px solid rgba(255, 255, 255, 0.14)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            fontSize: '13px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            maxWidth: 'calc(100vw - 32px)',
+            boxSizing: 'border-box',
+            pointerEvents: 'auto',
+            userSelect: 'none',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          {syncFeedback.isError ? (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                backgroundColor: '#ef4444',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              !
+            </span>
+          ) : (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                fontSize: '11px',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              ✓
+            </span>
+          )}
+          <span
+            style={{
+              color: '#f8fafc',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              letterSpacing: '-0.01em',
+            }}
+          >
+            {syncFeedback.message.replace(/^[✓✕!]\s*/, '')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSyncFeedback(null)}
+            aria-label="Dismiss notification"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontSize: '13px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '2px 4px',
+              borderRadius: '4px',
+              marginLeft: '4px',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#ffffff';
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.12)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.6)';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>
