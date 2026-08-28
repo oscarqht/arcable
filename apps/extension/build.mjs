@@ -140,6 +140,13 @@ async function buildTarget(browserName) {
   const manifestDest = resolve(outDir, 'manifest.json');
   fs.copyFileSync(manifestSrc, manifestDest);
 
+  // 4.5. Copy icons directory
+  const iconsSrc = resolve(__dirname, 'icons');
+  const iconsDest = resolve(outDir, 'icons');
+  if (fs.existsSync(iconsSrc)) {
+    fs.cpSync(iconsSrc, iconsDest, { recursive: true });
+  }
+
   // If Vite outputs src/popup/index.html, ensure it matches manifest path (popup/index.html)
   if (fs.existsSync(resolve(outDir, 'src/popup/index.html'))) {
     fs.mkdirSync(resolve(outDir, 'popup'), { recursive: true });

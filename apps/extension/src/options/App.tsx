@@ -122,7 +122,12 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '640px', margin: '40px auto', padding: '0 16px' }}>
-      <Header title="Arcable" badgeText="Settings" badgeVariant="default" />
+      <Header
+        title="Arcable"
+        logoSrc={browser.runtime.getURL('icons/icon32.png')}
+        badgeText="Settings"
+        badgeVariant="default"
+      />
 
       {/* Raindrop Integration Card */}
       <div style={{ marginTop: '24px' }}>

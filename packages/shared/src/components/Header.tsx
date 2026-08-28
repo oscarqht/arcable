@@ -1,8 +1,10 @@
 import React from 'react';
 import { Badge } from './Badge';
+import { ARCABLE_LOGO_DATA_URL } from '../assets/logo';
 
 export interface HeaderProps {
   title?: string;
+  logoSrc?: string;
   badgeText?: string;
   badgeVariant?: 'info' | 'success' | 'warning' | 'default';
   actions?: React.ReactNode;
@@ -11,6 +13,7 @@ export interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   title = 'Arcable',
+  logoSrc = ARCABLE_LOGO_DATA_URL,
   badgeText,
   badgeVariant = 'info',
   actions,
@@ -29,22 +32,17 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div
+        <img
+          src={logoSrc}
+          alt={title}
           style={{
             width: '24px',
             height: '24px',
             borderRadius: '6px',
-            background: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#ffffff',
-            fontWeight: 'bold',
-            fontSize: '14px',
+            objectFit: 'contain',
+            display: 'block',
           }}
-        >
-          A
-        </div>
+        />
         <span style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>
           {title}
         </span>

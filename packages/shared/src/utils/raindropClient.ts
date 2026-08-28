@@ -216,9 +216,19 @@ export async function fetchRaindropItems(
   const data = (await res.json()) as { items?: any[]; count?: number };
   const items: RaindropBookmarkItem[] = (data.items || []).map((item) => ({
     _id: item._id,
-    title: item.title,
+    title: item.title || '',
     excerpt: item.excerpt,
-    link: item.link,
+    note: item.note,
+    link: item.link || '',
+    type: item.type,
+    file: item.file
+      ? {
+          name: item.file.name,
+          size: item.file.size,
+          type: item.file.type,
+          path: item.file.path,
+        }
+      : undefined,
     cover: item.cover,
     tags: item.tags,
     collectionId: item.collection?.$id,
@@ -230,6 +240,60 @@ export async function fetchRaindropItems(
     items,
     count: data.count || items.length,
   };
+}
+
+/**
+ * Fetches a single raindrop bookmark/file item by ID.
+ */
+export async function fetchRaindropItem(
+  token: string,
+  raindropId: number
+): Promise<RaindropBookmarkItem | null> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !raindropId) return null;
+
+  try {
+    const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = (await res.json()) as { item?: any };
+    const item = data.item;
+    if (!item) return null;
+
+    return {
+      _id: item._id,
+      title: item.title || '',
+      excerpt: item.excerpt,
+      note: item.note,
+      link: item.link || '',
+      type: item.type,
+      file: item.file
+        ? {
+            name: item.file.name,
+            size: item.file.size,
+            type: item.file.type,
+            path: item.file.path,
+          }
+        : undefined,
+      cover: item.cover,
+      tags: item.tags,
+      collectionId: item.collection?.$id,
+      created: item.created,
+      lastUpdate: item.lastUpdate,
+    };
+  } catch (err) {
+    console.warn(`[RaindropClient] Error fetching raindrop item ${raindropId}:`, err);
+    return null;
+  }
 }
 
 /**
@@ -342,28 +406,86 @@ export async function uploadRaindropFile(
 
 /**
  * Fetches text content from a file URL in Raindrop.
+ * Correctly distinguishes between Raindrop API endpoints and CDN storage (up.raindrop.io / S3)
+ * to avoid 400 Bad Request or HTML error pages.
  */
 export async function fetchRaindropFileContent(token: string, fileUrl: string): Promise<string> {
+  if (!fileUrl || !fileUrl.trim()) return '';
+
   const cleanToken = cleanRaindropToken(token);
+  const isApiEndpoint = fileUrl.includes('api.raindrop.io');
+
+  // Helper to validate whether response text is valid payload rather than an HTML/XML error page
+  const isValidContent = (text: string, contentType: string | null): boolean => {
+    if (!text || !text.trim()) return false;
+    const trimmed = text.trim();
+    if (contentType && contentType.toLowerCase().includes('text/html')) {
+      return false;
+    }
+    if (
+      trimmed.startsWith('<!doctype') ||
+      trimmed.startsWith('<!DOCTYPE') ||
+      trimmed.startsWith('<html') ||
+      trimmed.startsWith('<?xml') ||
+      trimmed.startsWith('<Error')
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  // Attempt 1: For CDN URLs (up.raindrop.io), fetch directly without Bearer header first
+  // (sending Bearer auth to Cloudflare/S3 CDN causes 400 Invalid Argument error).
+  // For api.raindrop.io endpoints, send Authorization header.
   try {
-    // Try fetching with auth header first
+    const headers: Record<string, string> = {
+      Accept: 'text/plain, application/json, */*',
+    };
+    if (isApiEndpoint && cleanToken) {
+      headers['Authorization'] = `Bearer ${cleanToken}`;
+    }
+
     const res = await fetch(fileUrl, {
       method: 'GET',
-      headers: cleanToken ? { Authorization: `Bearer ${cleanToken}` } : {},
+      headers,
     });
 
     if (res.ok) {
-      return await res.text();
-    }
-
-    // Fallback: retry without auth header if 403/cors
-    const fallbackRes = await fetch(fileUrl);
-    if (fallbackRes.ok) {
-      return await fallbackRes.text();
+      const contentType = res.headers.get('content-type');
+      const text = await res.text();
+      if (isValidContent(text, contentType)) {
+        return text;
+      }
     }
   } catch (err) {
-    console.warn('[RaindropClient] Error fetching file content:', err);
+    // Continue to fallback
   }
+
+  // Attempt 2 (Fallback): Try with opposite auth configuration
+  try {
+    const fallbackHeaders: Record<string, string> = {
+      Accept: 'text/plain, application/json, */*',
+    };
+    if (!isApiEndpoint && cleanToken) {
+      fallbackHeaders['Authorization'] = `Bearer ${cleanToken}`;
+    }
+
+    const fallbackRes = await fetch(fileUrl, {
+      method: 'GET',
+      headers: fallbackHeaders,
+    });
+
+    if (fallbackRes.ok) {
+      const contentType = fallbackRes.headers.get('content-type');
+      const text = await fallbackRes.text();
+      if (isValidContent(text, contentType)) {
+        return text;
+      }
+    }
+  } catch (err) {
+    console.warn('[RaindropClient] Error fetching file content fallback:', err);
+  }
+
   return '';
 }
 

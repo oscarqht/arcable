@@ -46,14 +46,24 @@ export interface RaindropCollectionItem {
   parent?: { $id: number };
 }
 
+export interface RaindropFileItem {
+  name?: string;
+  size?: number;
+  type?: string;
+  path?: string;
+}
+
 export interface RaindropBookmarkItem {
   _id: number;
   title: string;
   excerpt?: string;
+  note?: string;
   link: string;
+  type?: string;
   cover?: string;
   tags?: string[];
   collectionId?: number;
+  file?: RaindropFileItem;
   created?: string;
   lastUpdate?: string;
 }

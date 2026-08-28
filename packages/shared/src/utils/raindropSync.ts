@@ -26,7 +26,7 @@ export const DATA_JSON_FILE_NAME = 'data.json.txt';
  */
 export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
   const title = (item.title || '').trim().toLowerCase();
-  const fileName = ((item as any).file?.name || '').trim().toLowerCase();
+  const fileName = (item.file?.name || '').trim().toLowerCase();
   const link = (item.link || '').toLowerCase();
 
   return (
@@ -36,6 +36,7 @@ export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
     fileName === 'data.json' ||
     fileName === 'data.json.txt' ||
     fileName === 'data.txt' ||
+    link.includes('data.json.txt') ||
     link.includes('data.json') ||
     link.includes('data.txt')
   );
@@ -108,15 +109,28 @@ export async function fetchRaindropSyncFile(
 ): Promise<{ syncFile: ArcableSyncFile; existingItem: RaindropBookmarkItem | null }> {
   const existingItem = await findRaindropDataJsonItem(token, collectionId);
 
-  if (!existingItem || !existingItem.link) {
+  if (!existingItem) {
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
       existingItem: null,
     };
   }
 
+  // Resolve best download URL (file.path or link)
+  const fileUrl = existingItem.file?.path || existingItem.link;
+
   try {
-    const rawContent = await fetchRaindropFileContent(token, existingItem.link);
+    let rawContent = fileUrl ? await fetchRaindropFileContent(token, fileUrl) : '';
+
+    // Fallback: check item note or excerpt if remote file download was empty or not plain text
+    if (!rawContent || !rawContent.trim()) {
+      if (existingItem.note && existingItem.note.trim().startsWith('{')) {
+        rawContent = existingItem.note;
+      } else if (existingItem.excerpt && existingItem.excerpt.trim().startsWith('{')) {
+        rawContent = existingItem.excerpt;
+      }
+    }
+
     if (!rawContent || !rawContent.trim()) {
       return {
         syncFile: createInitialSyncFile(localFallback, deviceId),
@@ -124,7 +138,25 @@ export async function fetchRaindropSyncFile(
       };
     }
 
-    const parsed = JSON.parse(rawContent);
+    const trimmed = rawContent.trim();
+    if (trimmed.startsWith('<')) {
+      console.warn('[RaindropSync] Remote data item returned HTML/XML error instead of JSON, bootstrapping from local state.');
+      return {
+        syncFile: createInitialSyncFile(localFallback, deviceId),
+        existingItem,
+      };
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (parseErr) {
+      console.warn('[RaindropSync] Failed to parse remote data.json, bootstrapping from local state:', parseErr);
+      return {
+        syncFile: createInitialSyncFile(localFallback, deviceId),
+        existingItem,
+      };
+    }
 
     // Case 1: Already an ArcableSyncFile format
     if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
@@ -153,7 +185,7 @@ export async function fetchRaindropSyncFile(
       existingItem,
     };
   } catch (err) {
-    console.warn('[RaindropSync] Failed to parse remote data.json, using local state:', err);
+    console.warn('[RaindropSync] Unexpected error reading remote data.json, using local state:', err);
     return {
       syncFile: createInitialSyncFile(localFallback, deviceId),
       existingItem,

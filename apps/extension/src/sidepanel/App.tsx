@@ -82,6 +82,7 @@ export const App: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       <Header
         title="Arcable"
+        logoSrc={browser.runtime.getURL('icons/icon32.png')}
         badgeText="Sidepanel"
         badgeVariant="info"
         actions={

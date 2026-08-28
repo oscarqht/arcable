@@ -7,6 +7,7 @@ import {
   uploadRaindropFile,
   fetchRaindropFileContent,
   fetchRaindropItems,
+  fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
   syncWorkspaceWithRaindrop,
@@ -17,6 +18,7 @@ import type {
   RaindropTokenResponse,
   RaindropCollectionItem,
   RaindropBookmarkItem,
+  RaindropFileItem,
   RaindropCreateItemInput,
 } from '@arcable/shared/types';
 
@@ -73,6 +75,7 @@ export {
   uploadRaindropFile,
   fetchRaindropFileContent,
   fetchRaindropItems,
+  fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
   syncWorkspaceWithRaindrop,
@@ -83,5 +86,6 @@ export type {
   RaindropTokenResponse,
   RaindropCollectionItem,
   RaindropBookmarkItem,
+  RaindropFileItem,
   RaindropCreateItemInput,
 };
