@@ -124,7 +124,11 @@ export default function HomePage() {
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
-              onClick={() => workspaceRef.current?.triggerSync()}
+              onClick={async () => {
+                if (workspaceRef.current) {
+                  await workspaceRef.current.triggerSync();
+                }
+              }}
               disabled={isSyncing}
               title="Sync spaces, folders and tabs with Raindrop.io"
               style={{
@@ -142,7 +146,16 @@ export default function HomePage() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <DropletIcon size={13} color="#0284c7" />
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  animation: isSyncing ? 'spin 1s linear infinite' : 'none',
+                }}
+              >
+                <DropletIcon size={13} color="#0284c7" />
+              </span>
               <span>{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
             </button>
 

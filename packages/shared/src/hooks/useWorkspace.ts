@@ -260,10 +260,14 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
     if (!raw) {
       const initial = {
         ...DEFAULT_WORKSPACE,
-        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => ({
-          ...f,
-          isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
-        })),
+        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => {
+          const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
+          setLocalFolderExpanded(f.id, isExp);
+          return {
+            ...f,
+            isExpanded: isExp,
+          };
+        }),
       };
       window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
       return initial;
@@ -272,20 +276,28 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
     if (!parsed || !Array.isArray(parsed.spaces) || parsed.spaces.length === 0) {
       const initial = {
         ...DEFAULT_WORKSPACE,
-        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => ({
-          ...f,
-          isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
-        })),
+        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => {
+          const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
+          setLocalFolderExpanded(f.id, isExp);
+          return {
+            ...f,
+            isExpanded: isExp,
+          };
+        }),
       };
       window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
       return initial;
     }
     return {
       spaces: parsed.spaces || [],
-      folders: (parsed.folders || []).map((f) => ({
-        ...f,
-        isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
-      })),
+      folders: (parsed.folders || []).map((f) => {
+        const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
+        setLocalFolderExpanded(f.id, isExp);
+        return {
+          ...f,
+          isExpanded: isExp,
+        };
+      }),
       tabs: parsed.tabs || [],
       activeSpaceId: parsed.activeSpaceId || parsed.spaces[0]?.id || 'space_personal',
       version: parsed.version || 1,
@@ -632,6 +644,12 @@ export function useWorkspace() {
     if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updates.customEmojiIcon ?? null;
     if ('parentFolderId' in updates) opPayload.parentFolderId = updates.parentFolderId ?? null;
     if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+    if ('isExpanded' in updates) {
+      opPayload.isExpanded = updates.isExpanded;
+      if (typeof updates.isExpanded === 'boolean') {
+        setLocalFolderExpanded(id, updates.isExpanded);
+      }
+    }
 
     savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, opPayload));
 
@@ -644,15 +662,23 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const toggleFolderExpand = useCallback((id: string) => {
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      folders: prev.folders.map((f) => {
-        if (f.id !== id) return f;
-        const nextExpanded = f.isExpanded === false ? true : false;
-        setLocalFolderExpanded(f.id, nextExpanded);
-        return { ...f, isExpanded: nextExpanded };
-      }),
-    }));
+    saveWorkspaceData((prev) => {
+      const target = prev.folders.find((f) => f.id === id);
+      const nextExpanded = target ? (target.isExpanded === false ? true : false) : true;
+      setLocalFolderExpanded(id, nextExpanded);
+
+      savePendingOperation(
+        createWorkspaceOperation('FOLDER_UPDATE', id, { isExpanded: nextExpanded })
+      );
+
+      return {
+        ...prev,
+        folders: prev.folders.map((f) => {
+          if (f.id !== id) return f;
+          return { ...f, isExpanded: nextExpanded, updatedAt: Date.now() };
+        }),
+      };
+    });
   }, [saveWorkspaceData]);
 
   const deleteFolder = useCallback((id: string, recursive: boolean = true) => {
@@ -1307,12 +1333,15 @@ export function useWorkspace() {
         });
 
         const mergedFolders = (snapshot.folders || []).map((f) => {
-          const defaultExpand = prevExpandMap.has(f.id)
-            ? prevExpandMap.get(f.id)!
-            : f.isExpanded !== false;
+          const explicitExpand = f.isExpanded !== undefined
+            ? f.isExpanded
+            : (prevExpandMap.has(f.id)
+                ? prevExpandMap.get(f.id)!
+                : getLocalFolderExpanded(f.id, true));
+          setLocalFolderExpanded(f.id, explicitExpand);
           return {
             ...f,
-            isExpanded: getLocalFolderExpanded(f.id, defaultExpand),
+            isExpanded: explicitExpand,
           };
         });
 
@@ -1360,10 +1389,14 @@ export function useWorkspace() {
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
         const activeSpaceStillExists = imported.spaces.some((s) => s.id === currentActive);
-        const mergedFolders = (imported.folders || []).map((f) => ({
-          ...f,
-          isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
-        }));
+        const mergedFolders = (imported.folders || []).map((f) => {
+          const explicitExpand = f.isExpanded !== undefined ? f.isExpanded : true;
+          setLocalFolderExpanded(f.id, explicitExpand);
+          return {
+            ...f,
+            isExpanded: explicitExpand,
+          };
+        });
         return {
           spaces: imported.spaces,
           folders: mergedFolders,

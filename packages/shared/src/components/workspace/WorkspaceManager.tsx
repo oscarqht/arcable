@@ -10,6 +10,7 @@ import {
   clearStoredPendingOperations,
   removeStoredPendingOperations,
 } from '../../utils/syncEngine';
+import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
@@ -357,40 +358,58 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     isTabModalOpen,
     isJsonModalOpen,
   ]);
-  const syncInProgressRef = React.useRef(false);
-  const syncQueuedRef = React.useRef(false);
-  const syncSeqRef = React.useRef(0);
+  const syncLoadingRef = useRef(false);
+  const activeSyncPromiseRef = useRef<Promise<SyncResult | void> | null>(null);
+  const isCurrentSyncSilentRef = useRef<boolean>(true);
+  const queuedManualSyncRef = useRef<boolean>(false);
+  const syncSeqRef = useRef<number>(0);
 
-  const performSync = async (silent: boolean = false) => {
-    if (syncInProgressRef.current) {
-      syncQueuedRef.current = true;
-      return;
-    }
-
-    syncInProgressRef.current = true;
-    const currentSeq = ++syncSeqRef.current;
-
+  const executeSyncCycle = async (silent: boolean): Promise<SyncResult | void> => {
+    isCurrentSyncSilentRef.current = silent;
+    setSyncLoading(true);
+    syncLoadingRef.current = true;
     if (!silent) {
       setSyncFeedback(null);
-      setSyncLoading(true);
     }
+    onSyncStateChange?.(true);
 
-    try {
+    const currentSeq = ++syncSeqRef.current;
+
+    const syncPromise = (async () => {
       let result: SyncResult | null = null;
 
-      if (onSyncRaindrop) {
+      try {
         const deviceId = getOrCreateDeviceId();
         const pendingOps = getStoredPendingOperations();
         const syncedOpIds = pendingOps.map((op) => op.id);
-        const res = await onSyncRaindrop({
-          localState: data,
-          deviceId,
-          pendingOps,
-        });
 
-        if (currentSeq === syncSeqRef.current) {
-          if (res && typeof res === 'object') {
-            result = res as SyncResult;
+        if (onSyncRaindrop) {
+          const res = await onSyncRaindrop({
+            localState: data,
+            deviceId,
+            pendingOps,
+          });
+
+          if (currentSeq === syncSeqRef.current) {
+            if (res && typeof res === 'object') {
+              result = res as SyncResult;
+              if (res.success) {
+                removeStoredPendingOperations(syncedOpIds);
+                if (res.latestSnapshot) {
+                  applyLatestSnapshot(res.latestSnapshot);
+                }
+              }
+            }
+          }
+        } else if (raindropToken) {
+          const res = await syncWorkspaceWithRaindrop(raindropToken, {
+            localState: data,
+            deviceId,
+            pendingOps,
+          });
+
+          if (currentSeq === syncSeqRef.current) {
+            result = res;
             if (res.success) {
               removeStoredPendingOperations(syncedOpIds);
               if (res.latestSnapshot) {
@@ -398,59 +417,101 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               }
             }
           }
+        } else {
+          if (!isCurrentSyncSilentRef.current) {
+            setSyncFeedback({
+              message: 'Please connect a Raindrop account or API token first.',
+              isError: true,
+            });
+          }
+          return;
         }
-      } else if (raindropToken) {
-        // Token sync fallback handled via API or parent
-      } else {
-        if (!silent) {
-          setSyncFeedback({ message: 'Please connect a Raindrop account or token first.', isError: true });
-        }
-        return;
-      }
 
-      if (currentSeq === syncSeqRef.current) {
-        if (result) {
-          if (result.success) {
-            if (!silent) {
+        if (currentSeq === syncSeqRef.current && !isCurrentSyncSilentRef.current) {
+          if (result) {
+            if (result.success) {
               setSyncFeedback({
                 message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
               });
-            }
-          } else {
-            if (!silent) {
+            } else {
               setSyncFeedback({
                 message: result.error || 'Failed to sync with Raindrop.',
                 isError: true,
               });
             }
+          } else if (!result && onSyncRaindrop) {
+            setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
           }
-        } else if (onSyncRaindrop && !silent) {
-          setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+        }
+        return result ?? undefined;
+      } catch (err: any) {
+        if (currentSeq === syncSeqRef.current && !isCurrentSyncSilentRef.current) {
+          setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
+        }
+      } finally {
+        if (currentSeq === syncSeqRef.current) {
+          if (!isCurrentSyncSilentRef.current) {
+            setSyncLoading(false);
+            syncLoadingRef.current = false;
+            onSyncStateChange?.(false);
+            setTimeout(() => {
+              setSyncFeedback((prev) => (prev?.isError ? prev : null));
+            }, 4000);
+          } else {
+            setSyncLoading(false);
+            syncLoadingRef.current = false;
+            onSyncStateChange?.(false);
+          }
         }
       }
-    } catch (err: any) {
-      if (currentSeq === syncSeqRef.current && !silent) {
-        setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
-      }
+    })();
+
+    activeSyncPromiseRef.current = syncPromise;
+
+    try {
+      return await syncPromise;
     } finally {
-      syncInProgressRef.current = false;
-      if (currentSeq === syncSeqRef.current && !silent) {
-        setSyncLoading(false);
-        setTimeout(() => {
-          setSyncFeedback((prev) => (prev?.isError ? prev : null));
-        }, 4000);
-      }
-      if (syncQueuedRef.current) {
-        syncQueuedRef.current = false;
-        const pending = getStoredPendingOperations();
-        if (pending.length > 0) {
-          void performSync(true);
-        }
+      activeSyncPromiseRef.current = null;
+      if (queuedManualSyncRef.current) {
+        queuedManualSyncRef.current = false;
+        return executeSyncCycle(false);
       }
     }
   };
 
-  const handleTriggerSync = () => performSync(false);
+  const performSync = async (silent: boolean = false): Promise<SyncResult | void> => {
+    // If user clicked manually, show loading immediately
+    if (!silent) {
+      setSyncFeedback(null);
+      setSyncLoading(true);
+      syncLoadingRef.current = true;
+      onSyncStateChange?.(true);
+    }
+
+    // If an in-flight sync is active
+    if (activeSyncPromiseRef.current) {
+      if (!silent) {
+        // Upgrade running sync to non-silent to display completion feedback
+        isCurrentSyncSilentRef.current = false;
+        queuedManualSyncRef.current = true;
+      }
+      try {
+        await activeSyncPromiseRef.current;
+      } catch {}
+
+      if (queuedManualSyncRef.current) {
+        queuedManualSyncRef.current = false;
+        return executeSyncCycle(false);
+      }
+      return;
+    }
+
+    return executeSyncCycle(silent);
+  };
+
+  const handleTriggerSync = () => {
+    void performSync(false);
+  };
 
   // Auto-sync on mount if authenticated
   useEffect(() => {
@@ -795,7 +856,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   transition: 'all 0.15s ease',
                 }}
               >
-                <DropletIcon size={13} color="#0284c7" />
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    animation: isCurrentlySyncing ? 'spin 1s linear infinite' : 'none',
+                  }}
+                >
+                  <DropletIcon size={13} color="#0284c7" />
+                </span>
                 <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
               </button>
             )}
