@@ -105,6 +105,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
+    e.stopPropagation();
     e.dataTransfer.setData(
       'application/json',
       JSON.stringify({

@@ -3,13 +3,13 @@
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
-import { getDomain, getFaviconUrl } from '../../utils/treeUtils';
+import { getDomain } from '../../utils/treeUtils';
+import { TabFavicon } from './TabFavicon';
 import {
   StarIcon,
   PlusIcon,
   EditIcon,
   TrashIcon,
-  GlobeIcon,
 } from '../Icons';
 
 export interface FavouriteTabsShelfProps {
@@ -168,7 +168,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isHovered = hoveredTabId === tab.id;
             const isDragTarget = dragOverTabId === tab.id;
             const domain = getDomain(tab.url);
-            const favicon = getFaviconUrl(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
 
             return (
@@ -229,20 +228,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       overflow: 'hidden',
                     }}
                   >
-                    {tab.customEmojiIcon ? (
-                      <span style={{ fontSize: '13px', lineHeight: 1 }}>{tab.customEmojiIcon}</span>
-                    ) : favicon ? (
-                      <img
-                        src={favicon}
-                        alt=""
-                        style={{ width: '14px', height: '14px', objectFit: 'contain' }}
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <GlobeIcon size={12} color="#64748b" />
-                    )}
+                    <TabFavicon
+                      url={tab.url}
+                      customEmojiIcon={tab.customEmojiIcon}
+                      size={14}
+                      emojiSize={13}
+                      globeIconSize={12}
+                      globeIconColor="#64748b"
+                    />
                   </div>
                   <span
                     style={{

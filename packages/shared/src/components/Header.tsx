@@ -7,6 +7,7 @@ export interface HeaderProps {
   logoSrc?: string;
   badgeText?: string;
   badgeVariant?: 'info' | 'success' | 'warning' | 'default';
+  leftContent?: React.ReactNode;
   actions?: React.ReactNode;
   style?: React.CSSProperties;
 }
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   logoSrc = ARCABLE_LOGO_DATA_URL,
   badgeText,
   badgeVariant = 'info',
+  leftContent,
   actions,
   style,
 }) => {
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
           {title}
         </span>
         {badgeText && <Badge variant={badgeVariant}>{badgeText}</Badge>}
+        {leftContent}
       </div>
       {actions && <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>{actions}</div>}
     </header>

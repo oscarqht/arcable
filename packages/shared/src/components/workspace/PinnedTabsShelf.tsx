@@ -3,14 +3,14 @@
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
-import { getDomain, getFaviconUrl } from '../../utils/treeUtils';
+import { getDomain } from '../../utils/treeUtils';
+import { TabFavicon } from './TabFavicon';
 import {
   PinIcon,
   PlusIcon,
   StarIcon,
   EditIcon,
   TrashIcon,
-  GlobeIcon,
 } from '../Icons';
 
 export interface PinnedTabsShelfProps {
@@ -151,7 +151,6 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
           const isHovered = hoveredTabId === tab.id;
           const isDragTarget = dragOverTabId === tab.id;
           const domain = getDomain(tab.url);
-          const favicon = getFaviconUrl(tab.url);
           const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Pinned Tab';
 
           return (
@@ -200,22 +199,13 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
               title={`${displayTitle}\n${tab.url}`}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                {tab.customEmojiIcon ? (
-                  <span style={{ fontSize: '13px', lineHeight: 1, flexShrink: 0 }}>
-                    {tab.customEmojiIcon}
-                  </span>
-                ) : favicon ? (
-                  <img
-                    src={favicon}
-                    alt=""
-                    style={{ width: '14px', height: '14px', objectFit: 'contain', borderRadius: '3px', flexShrink: 0 }}
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <GlobeIcon size={13} />
-                )}
+                <TabFavicon
+                  url={tab.url}
+                  customEmojiIcon={tab.customEmojiIcon}
+                  size={14}
+                  emojiSize={13}
+                  globeIconSize={13}
+                />
 
                 <span
                   style={{

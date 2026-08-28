@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
-import { getDomain, getFaviconUrl } from '../../utils/treeUtils';
+import { getDomain } from '../../utils/treeUtils';
+import { TabFavicon } from './TabFavicon';
 import {
   CopyIcon,
   CheckIcon,
@@ -12,7 +13,6 @@ import {
   StarIcon,
   EditIcon,
   TrashIcon,
-  GlobeIcon,
   DragHandleIcon,
 } from '../Icons';
 
@@ -55,11 +55,9 @@ export const TabRow: React.FC<TabRowProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [imgError, setImgError] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
 
   const domain = getDomain(tab.url);
-  const favicon = getFaviconUrl(tab.url);
   const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled Tab';
 
   const handleClick = (e: React.MouseEvent) => {
@@ -94,6 +92,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
+    e.stopPropagation();
     e.dataTransfer.setData(
       'application/json',
       JSON.stringify({
@@ -215,36 +214,15 @@ export const TabRow: React.FC<TabRowProps> = ({
             overflow: 'hidden',
           }}
         >
-          {tab.customEmojiIcon ? (
-            <span style={{ fontSize: '14px', lineHeight: 1 }}>{tab.customEmojiIcon}</span>
-          ) : favicon && !imgError ? (
-            <img
-              src={favicon}
-              alt=""
-              onError={() => setImgError(true)}
-              style={{ width: '16px', height: '16px', objectFit: 'contain', borderRadius: '3px' }}
-            />
-          ) : domain ? (
-            <span
-              style={{
-                width: '18px',
-                height: '18px',
-                borderRadius: '4px',
-                backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.08)',
-                color: 'inherit',
-                fontSize: '10px',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                textTransform: 'uppercase',
-              }}
-            >
-              {domain.charAt(0)}
-            </span>
-          ) : (
-            <GlobeIcon size={14} color="inherit" style={{ opacity: 0.6 }} />
-          )}
+          <TabFavicon
+            url={tab.url}
+            customEmojiIcon={tab.customEmojiIcon}
+            size={16}
+            emojiSize={14}
+            isDarkTheme={isDarkTheme}
+            showDomainFallback={true}
+            globeIconSize={14}
+          />
         </div>
 
         {/* Title taking 100% available width */}

@@ -93,6 +93,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   const [internalSearch, setInternalSearch] = useState('');
   const [copied, setCopied] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const [isCardHovered, setIsCardHovered] = useState(false);
 
   const isControlled = controlledIsCollapsed !== undefined;
   const isCollapsed = isControlled ? controlledIsCollapsed : internalCollapsed;
@@ -259,6 +260,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   return (
     <div
+      onMouseEnter={() => setIsCardHovered(true)}
+      onMouseLeave={() => setIsCardHovered(false)}
       style={{
         backgroundColor: themeStyles.containerBg,
         color: themeStyles.textColor,
@@ -331,87 +334,31 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
               whiteSpace: 'nowrap',
               letterSpacing: '-0.01em',
               color: 'inherit',
+              flex: 1,
+              minWidth: 0,
             }}
             title={space.name}
           >
             {space.name}
           </h3>
-
-          {/* Tab Count Badge */}
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: '12px',
-              backgroundColor: themeStyles.badgeBg,
-              color: themeStyles.badgeText,
-              flexShrink: 0,
-            }}
-          >
-            {totalTabsCount} {totalTabsCount === 1 ? 'tab' : 'tabs'}
-          </span>
         </div>
 
-        {/* Header Action Buttons */}
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Copy All URLs Button */}
-          <button
-            type="button"
-            onClick={handleCopyAllUrls}
-            title="Copy all URLs in space"
+        {/* Header Action Buttons (rendered only on hover / alwaysShowActions to give title full width) */}
+        {(isCardHovered || alwaysShowActions) && (
+          <div
             style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
+              display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-              transition: 'all 0.15s ease',
+              gap: '4px',
+              flexShrink: 0,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            onClick={(e) => e.stopPropagation()}
           >
-            {copied ? <CheckIcon size={16} color="#10b981" /> : <CopyIcon size={16} />}
-          </button>
-
-          {/* Open All Tabs Button */}
-          <button
-            type="button"
-            onClick={handleOpenAllTabs}
-            title="Open all tabs in browser"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-              transition: 'all 0.15s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <ExternalLinkIcon size={16} />
-          </button>
-
-          {/* Add Tab Button */}
-          {onAddTab && (
+            {/* Copy All URLs Button */}
             <button
               type="button"
-              onClick={() => onAddTab()}
-              title="Add tab to this space"
+              onClick={handleCopyAllUrls}
+              title="Copy all URLs in space"
               style={{
                 border: 'none',
                 background: 'transparent',
@@ -428,16 +375,14 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
-              <PlusIcon size={16} />
+              {copied ? <CheckIcon size={16} color="#10b981" /> : <CopyIcon size={16} />}
             </button>
-          )}
 
-          {/* Edit Space Button */}
-          {onEditSpace && (
+            {/* Open All Tabs Button */}
             <button
               type="button"
-              onClick={() => onEditSpace(space)}
-              title="Edit space name, icon and color"
+              onClick={handleOpenAllTabs}
+              title="Open all tabs in browser"
               style={{
                 border: 'none',
                 background: 'transparent',
@@ -448,46 +393,98 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: 0.75,
+                opacity: 0.85,
                 transition: 'all 0.15s ease',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
-              <EditIcon size={14} />
+              <ExternalLinkIcon size={16} />
             </button>
-          )}
 
-          {/* Delete Space Button */}
-          {onDeleteSpace && allSpaces.length > 1 && (
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm(`Delete space "${space.name}" and all its folders & tabs?`)) {
-                  onDeleteSpace(space.id);
-                }
-              }}
-              title="Delete space"
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: 'inherit',
-                padding: '5px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.75,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              <TrashIcon size={14} />
-            </button>
-          )}
-        </div>
+            {/* Add Tab Button */}
+            {onAddTab && (
+              <button
+                type="button"
+                onClick={() => onAddTab()}
+                title="Add tab to this space"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.85,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <PlusIcon size={16} />
+              </button>
+            )}
+
+            {/* Edit Space Button */}
+            {onEditSpace && (
+              <button
+                type="button"
+                onClick={() => onEditSpace(space)}
+                title="Edit space name, icon and color"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.75,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <EditIcon size={14} />
+              </button>
+            )}
+
+            {/* Delete Space Button */}
+            {onDeleteSpace && allSpaces.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Delete space "${space.name}" and all its folders & tabs?`)) {
+                    onDeleteSpace(space.id);
+                  }
+                }}
+                title="Delete space"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'inherit',
+                  padding: '5px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.75,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <TrashIcon size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Expanded Card Body */}

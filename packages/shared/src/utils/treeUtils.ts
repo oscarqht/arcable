@@ -23,16 +23,68 @@ export function getDomain(urlStr: string | null | undefined): string {
 }
 
 /**
- * Generates Google S2 Favicon URL for a domain
+ * Checks if a hostname or URL belongs to a local development domain
+ * (e.g. localhost, 127.0.0.1, 0.0.0.0, [::1], *.localhost, *.local, private IP ranges)
  */
-export function getFaviconUrl(urlStr: string | null | undefined): string {
-  if (!urlStr || !isValidHttpUrl(urlStr)) return '';
+export function isLocalDevUrl(urlStr: string | null | undefined): boolean {
+  if (!urlStr || !isValidHttpUrl(urlStr)) return false;
   try {
     const url = new URL(urlStr);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
+    const host = url.hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '[::1]' ||
+      host === '::1' ||
+      host.endsWith('.local') ||
+      host.endsWith('.test') ||
+      host.endsWith('.example') ||
+      host.endsWith('.invalid') ||
+      host.endsWith('.internal') ||
+      /^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/.test(host) ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)
+    );
   } catch {
-    return '';
+    return false;
   }
+}
+
+/**
+ * Returns prioritized list of candidate favicon URLs for a tab URL.
+ * For local dev domains (localhost, 127.0.0.1, etc), returns:
+ * 1) <origin>/favicon.ico
+ * 2) <origin>/favicon.png
+ * 3) <origin>/favicon.svg
+ * For public domains, returns faviconapi.com/<hostname>
+ */
+export function getFaviconCandidates(urlStr: string | null | undefined): string[] {
+  if (!urlStr || !isValidHttpUrl(urlStr)) return [];
+  try {
+    const url = new URL(urlStr);
+    if (isLocalDevUrl(urlStr)) {
+      const origin = url.origin;
+      return [
+        `${origin}/favicon.ico`,
+        `${origin}/favicon.png`,
+        `${origin}/favicon.svg`,
+      ];
+    }
+    return [`https://faviconapi.com/${url.hostname}`];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Generates primary Favicon URL for a domain
+ */
+export function getFaviconUrl(urlStr: string | null | undefined): string {
+  const candidates = getFaviconCandidates(urlStr);
+  return candidates[0] || '';
 }
 
 /**

@@ -301,27 +301,45 @@ export function useWorkspace() {
 
   // ================= Space CRUD =================
   const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; colors?: string }) => {
-    const maxOrder = data.spaces.reduce((max, s) => Math.max(max, s.order ?? 0), 0);
-    const newSpace: Space = {
+    let createdSpace: Space | null = null;
+
+    saveWorkspaceData((prev) => {
+      const sorted = getSortedSpaces(prev.spaces);
+      const lastSpace = sorted[sorted.length - 1];
+      const highestOrder = lastSpace
+        ? (lastSpace.order !== undefined ? lastSpace.order : (lastSpace.createdAt || 0))
+        : 0;
+
+      const newSpace: Space = {
+        id: generateId('space'),
+        name: spaceInput.name.trim() || 'New Space',
+        emojiIcon: spaceInput.emojiIcon || '📁',
+        colors: spaceInput.colors || '#6366f1',
+        order: highestOrder + 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      createdSpace = newSpace;
+      savePendingOperation(createWorkspaceOperation('SPACE_CREATE', newSpace.id, newSpace));
+
+      return {
+        ...prev,
+        spaces: [...prev.spaces, newSpace],
+        activeSpaceId: newSpace.id,
+      };
+    });
+
+    return createdSpace || {
       id: generateId('space'),
       name: spaceInput.name.trim() || 'New Space',
       emojiIcon: spaceInput.emojiIcon || '📁',
       colors: spaceInput.colors || '#6366f1',
-      order: maxOrder + 1000,
+      order: 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-
-    savePendingOperation(createWorkspaceOperation('SPACE_CREATE', newSpace.id, newSpace));
-
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      spaces: [...prev.spaces, newSpace],
-      activeSpaceId: newSpace.id,
-    }));
-
-    return newSpace;
-  }, [data.spaces, saveWorkspaceData]);
+  }, [saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
     const opPayload: Record<string, any> = { ...updates };
