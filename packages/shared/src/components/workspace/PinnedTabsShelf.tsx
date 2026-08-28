@@ -10,6 +10,7 @@ interface PinnedTabsShelfProps {
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
+  onToggleFavouriteTab?: (tabId: string) => void;
   onAddPinnedTab: () => void;
 }
 
@@ -19,6 +20,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onEditTab,
   onDeleteTab,
   onTogglePinTab,
+  onToggleFavouriteTab,
   onAddPinnedTab,
 }) => {
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
@@ -130,6 +132,21 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
+                  {onToggleFavouriteTab && (
+                    <button
+                      title="Add to favourites (global)"
+                      onClick={() => onToggleFavouriteTab(tab.id)}
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        padding: '1px 2px',
+                      }}
+                    >
+                      ⭐
+                    </button>
+                  )}
                   <button
                     title="Unpin"
                     onClick={() => onTogglePinTab(tab.id)}

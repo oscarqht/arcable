@@ -2,10 +2,11 @@ export interface Tab {
   id: string;
   url: string;
   pinned: boolean;
+  favourite?: boolean;     // Optional: if true, tab is a global favourite and does not belong to any space or folder
   customTitle?: string;
   customEmojiIcon?: string;
-  parentFolderId?: string; // Optional: if undefined/null, tab belongs to the root of the space
-  parentSpaceId: string;   // Required: parent space id
+  parentFolderId?: string; // Optional: if undefined/null, tab belongs to the root of the space (not applicable if favourite)
+  parentSpaceId?: string;  // Optional: required when tab is not a favourite, undefined when favourite
   createdAt?: number;
   updatedAt?: number;
 }

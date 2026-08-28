@@ -13,6 +13,7 @@ import { Button } from '../Button';
 import { TabRow } from './TabRow';
 import { FolderItem } from './FolderItem';
 import { PinnedTabsShelf } from './PinnedTabsShelf';
+import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { SpaceModal } from './SpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
@@ -56,8 +57,10 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
     updateTab,
     deleteTab,
     togglePinTab,
+    toggleFavouriteTab,
     resetToDefault,
     applyLatestSnapshot,
+    favouriteTabs,
     pinnedTabs,
     rootTabs,
     rootFolders,
@@ -83,6 +86,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   const [editingTab, setEditingTab] = useState<Tab | null>(null);
   const [defaultTabFolderId, setDefaultTabFolderId] = useState<string | undefined>();
   const [defaultTabPinned, setDefaultTabPinned] = useState(false);
+  const [defaultTabFavourite, setDefaultTabFavourite] = useState(false);
   const [initialTabUrl, setInitialTabUrl] = useState('');
   const [initialTabTitle, setInitialTabTitle] = useState('');
 
@@ -164,10 +168,11 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   const spaceAccentColor = activeSpace?.colors || '#6366f1';
 
   // Handler for "+ Tab"
-  const handleOpenNewTabModal = (folderId?: string, pinned: boolean = false) => {
+  const handleOpenNewTabModal = (folderId?: string, pinned: boolean = false, favourite: boolean = false) => {
     setEditingTab(null);
     setDefaultTabFolderId(folderId);
     setDefaultTabPinned(pinned);
+    setDefaultTabFavourite(favourite);
     setInitialTabUrl('');
     setInitialTabTitle('');
     setIsTabModalOpen(true);
@@ -190,6 +195,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         setEditingTab(null);
         setDefaultTabFolderId(undefined);
         setDefaultTabPinned(false);
+        setDefaultTabFavourite(false);
         setInitialTabUrl(activeTabInfo.url);
         setInitialTabTitle(activeTabInfo.title || '');
         setIsTabModalOpen(true);
@@ -207,13 +213,13 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
   const filteredTabs = isSearching
     ? data.tabs.filter(
         (t) =>
-          t.parentSpaceId === activeSpace?.id &&
+          (t.favourite || t.parentSpaceId === activeSpace?.id) &&
           ((t.customTitle && t.customTitle.toLowerCase().includes(query)) ||
             t.url.toLowerCase().includes(query))
       )
     : [];
 
-  const totalSpaceTabs = data.tabs.filter((t) => t.parentSpaceId === activeSpace?.id).length;
+  const totalSpaceTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === activeSpace?.id).length;
   const totalSpaceFolders = data.folders.filter((f) => f.parentSpaceId === activeSpace?.id).length;
 
   return (
@@ -226,6 +232,19 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         boxSizing: 'border-box',
       }}
     >
+      {/* Global Favourite Tabs Shelf (Visible across all spaces) */}
+      <FavouriteTabsShelf
+        tabs={favouriteTabs}
+        onOpenTab={onOpenTab}
+        onEditTab={(tab) => {
+          setEditingTab(tab);
+          setIsTabModalOpen(true);
+        }}
+        onDeleteTab={deleteTab}
+        onToggleFavouriteTab={toggleFavouriteTab}
+        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, false, true)}
+      />
+
       {/* Top Space Switcher Bar */}
       <div
         style={{
@@ -505,6 +524,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                 }}
                 onDelete={deleteTab}
                 onTogglePin={togglePinTab}
+                onToggleFavourite={toggleFavouriteTab}
               />
             ))
           )}
@@ -521,6 +541,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
             }}
             onDeleteTab={deleteTab}
             onTogglePinTab={togglePinTab}
+            onToggleFavouriteTab={toggleFavouriteTab}
             onAddPinnedTab={() => handleOpenNewTabModal(undefined, true)}
           />
 
@@ -565,6 +586,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                 }}
                 onDeleteTab={deleteTab}
                 onTogglePinTab={togglePinTab}
+                onToggleFavouriteTab={toggleFavouriteTab}
               />
             ))}
 
@@ -580,6 +602,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
                 }}
                 onDelete={deleteTab}
                 onTogglePin={togglePinTab}
+                onToggleFavourite={toggleFavouriteTab}
               />
             ))}
 
@@ -668,6 +691,7 @@ export const WorkspaceManager: React.FC<WorkspaceManagerProps> = ({
         initialUrl={initialTabUrl}
         initialTitle={initialTabTitle}
         initialPinned={defaultTabPinned}
+        initialFavourite={defaultTabFavourite}
         onSave={(tabData) => {
           if (editingTab) {
             updateTab(editingTab.id, tabData);

@@ -15,13 +15,15 @@ interface TabModalProps {
   initialUrl?: string;
   initialTitle?: string;
   initialPinned?: boolean;
+  initialFavourite?: boolean;
   onSave: (tabData: {
     url: string;
-    parentSpaceId: string;
+    parentSpaceId?: string;
     parentFolderId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
     pinned?: boolean;
+    favourite?: boolean;
   }) => void;
 }
 
@@ -38,11 +40,13 @@ export const TabModal: React.FC<TabModalProps> = ({
   initialUrl,
   initialTitle,
   initialPinned,
+  initialFavourite,
   onSave,
 }) => {
   const [url, setUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
   const [customEmojiIcon, setCustomEmojiIcon] = useState('');
+  const [favourite, setFavourite] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
@@ -53,6 +57,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
         setCustomEmojiIcon(tab.customEmojiIcon || '');
+        setFavourite(Boolean(tab.favourite));
         setPinned(Boolean(tab.pinned));
         setParentSpaceId(tab.parentSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
@@ -60,12 +65,13 @@ export const TabModal: React.FC<TabModalProps> = ({
         setUrl(initialUrl || '');
         setCustomTitle(initialTitle || '');
         setCustomEmojiIcon('');
+        setFavourite(Boolean(initialFavourite));
         setPinned(Boolean(initialPinned));
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
       }
     }
-  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialPinned, allSpaces]);
+  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialPinned, initialFavourite, allSpaces]);
 
   // Available folders in selected space
   const spaceFolders = useMemo(() => {
@@ -76,14 +82,17 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || !parentSpaceId) return;
+    if (!url.trim()) return;
+    if (!favourite && !parentSpaceId) return;
+
     onSave({
       url: url.trim(),
-      parentSpaceId,
-      parentFolderId: pinned ? undefined : (parentFolderId || undefined),
+      parentSpaceId: favourite ? undefined : parentSpaceId,
+      parentFolderId: (favourite || pinned) ? undefined : (parentFolderId || undefined),
       customTitle: customTitle.trim() || undefined,
       customEmojiIcon: customEmojiIcon.trim() || undefined,
-      pinned,
+      pinned: favourite ? false : pinned,
+      favourite,
     });
     onClose();
   };
@@ -181,13 +190,34 @@ export const TabModal: React.FC<TabModalProps> = ({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          {/* Favourite checkbox */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: favourite ? '#f0fdf4' : '#f8fafc', borderRadius: '6px', border: favourite ? '1px solid #86efac' : '1px solid #e2e8f0', transition: 'all 0.15s ease' }}>
+            <input
+              type="checkbox"
+              id="favouriteTabCheckbox"
+              checked={favourite}
+              onChange={(e) => {
+                const isFav = e.target.checked;
+                setFavourite(isFav);
+                if (isFav) {
+                  setPinned(false);
+                }
+              }}
+              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+            />
+            <label htmlFor="favouriteTabCheckbox" style={{ fontSize: '13px', fontWeight: 600, color: favourite ? '#166534' : '#334155', cursor: 'pointer' }}>
+              ⭐ Mark as Favourite (Visible across all spaces)
+            </label>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: favourite ? 0.5 : 1 }}>
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                Space <span style={{ color: '#ef4444' }}>*</span>
+                Space {favourite ? '(N/A for Favourite)' : <span style={{ color: '#ef4444' }}>*</span>}
               </label>
               <select
                 value={parentSpaceId}
+                disabled={favourite}
                 onChange={(e) => {
                   setParentSpaceId(e.target.value);
                   setParentFolderId('');
@@ -198,7 +228,8 @@ export const TabModal: React.FC<TabModalProps> = ({
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   fontSize: '13px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: favourite ? '#f1f5f9' : '#ffffff',
+                  cursor: favourite ? 'not-allowed' : 'default',
                   boxSizing: 'border-box',
                 }}
               >
@@ -212,11 +243,11 @@ export const TabModal: React.FC<TabModalProps> = ({
 
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                Folder (Optional)
+                Folder {favourite ? '(N/A for Favourite)' : '(Optional)'}
               </label>
               <select
                 value={parentFolderId}
-                disabled={pinned}
+                disabled={favourite || pinned}
                 onChange={(e) => setParentFolderId(e.target.value)}
                 style={{
                   width: '100%',
@@ -224,8 +255,8 @@ export const TabModal: React.FC<TabModalProps> = ({
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   fontSize: '13px',
-                  backgroundColor: pinned ? '#f1f5f9' : '#ffffff',
-                  cursor: pinned ? 'not-allowed' : 'default',
+                  backgroundColor: (favourite || pinned) ? '#f1f5f9' : '#ffffff',
+                  cursor: (favourite || pinned) ? 'not-allowed' : 'default',
                   boxSizing: 'border-box',
                 }}
               >
@@ -239,15 +270,16 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', opacity: favourite ? 0.5 : 1 }}>
             <input
               type="checkbox"
               id="pinnedTabCheckbox"
+              disabled={favourite}
               checked={pinned}
               onChange={(e) => setPinned(e.target.checked)}
-              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              style={{ width: '16px', height: '16px', cursor: favourite ? 'not-allowed' : 'pointer' }}
             />
-            <label htmlFor="pinnedTabCheckbox" style={{ fontSize: '13px', fontWeight: 500, color: '#334155', cursor: 'pointer' }}>
+            <label htmlFor="pinnedTabCheckbox" style={{ fontSize: '13px', fontWeight: 500, color: favourite ? '#94a3b8' : '#334155', cursor: favourite ? 'not-allowed' : 'pointer' }}>
               📌 Pin this tab to the top shelf of the space
             </label>
           </div>

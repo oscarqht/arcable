@@ -237,14 +237,18 @@ export function applyOperation(
     // ================= Tab Operations =================
     case 'TAB_CREATE': {
       const existingIdx = cloned.tabs.findIndex((t) => t.id === op.entityId);
+      const isFav = Boolean(op.payload?.favourite);
+      const isPinned = !isFav && Boolean(op.payload?.pinned);
+
       const tabData: Tab = {
         id: op.entityId,
         url: op.payload?.url || 'https://arcable.dev',
-        pinned: Boolean(op.payload?.pinned),
+        pinned: isPinned,
+        favourite: isFav || undefined,
         customTitle: op.payload?.customTitle,
         customEmojiIcon: op.payload?.customEmojiIcon,
-        parentSpaceId: op.payload?.parentSpaceId || cloned.activeSpaceId,
-        parentFolderId: op.payload?.pinned ? undefined : (op.payload?.parentFolderId || undefined),
+        parentSpaceId: isFav ? undefined : (op.payload?.parentSpaceId || cloned.activeSpaceId),
+        parentFolderId: (isFav || isPinned) ? undefined : (op.payload?.parentFolderId || undefined),
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };
@@ -260,14 +264,25 @@ export function applyOperation(
     case 'TAB_UPDATE': {
       const existingIdx = cloned.tabs.findIndex((t) => t.id === op.entityId);
       if (existingIdx >= 0) {
-        const updated = {
+        const updated: Tab = {
           ...cloned.tabs[existingIdx],
           ...op.payload,
           updatedAt: op.timestamp,
         };
+
+        if (updated.favourite) {
+          updated.parentSpaceId = undefined;
+          updated.parentFolderId = undefined;
+          updated.pinned = false;
+        } else if (op.payload?.favourite === false && !updated.parentSpaceId) {
+          updated.parentSpaceId = cloned.activeSpaceId || cloned.spaces[0]?.id;
+        }
+
         if (updated.pinned) {
           updated.parentFolderId = undefined;
+          updated.favourite = false;
         }
+
         cloned.tabs[existingIdx] = updated;
       }
       break;
@@ -358,12 +373,22 @@ export function replayOperations(
 
   // Repair tabs
   state.tabs = state.tabs.map((t) => {
-    const validSpace = spaceIds.has(t.parentSpaceId) ? t.parentSpaceId : state.activeSpaceId;
+    if (t.favourite) {
+      return {
+        ...t,
+        favourite: true,
+        pinned: false,
+        parentSpaceId: undefined,
+        parentFolderId: undefined,
+      };
+    }
+    const validSpace = spaceIds.has(t.parentSpaceId || '') ? t.parentSpaceId : state.activeSpaceId;
     const validParentFolder = !t.pinned && t.parentFolderId && folderIds.has(t.parentFolderId)
       ? t.parentFolderId
       : undefined;
     return {
       ...t,
+      favourite: false,
       parentSpaceId: validSpace,
       parentFolderId: validParentFolder,
     };

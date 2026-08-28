@@ -82,10 +82,10 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
     {
       id: 'tab_arcable',
       url: 'https://arcable.dev',
-      pinned: true,
+      pinned: false,
+      favourite: true,
       customTitle: 'Arcable Hub',
       customEmojiIcon: '✨',
-      parentSpaceId: 'space_personal',
       createdAt: 1700000006000,
       updatedAt: 1700000006000,
     },
@@ -386,10 +386,11 @@ export function useWorkspace() {
   // ================= Tab CRUD =================
   const createTab = useCallback((tabInput: {
     url: string;
-    parentSpaceId: string;
+    parentSpaceId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
     pinned?: boolean;
+    favourite?: boolean;
     parentFolderId?: string;
   }) => {
     let cleanUrl = tabInput.url.trim();
@@ -397,14 +398,18 @@ export function useWorkspace() {
       cleanUrl = `https://${cleanUrl}`;
     }
 
+    const isFav = Boolean(tabInput.favourite);
+    const isPinned = !isFav && Boolean(tabInput.pinned);
+
     const newTab: Tab = {
       id: generateId('tab'),
       url: cleanUrl || 'https://arcable.dev',
-      pinned: Boolean(tabInput.pinned),
+      pinned: isPinned,
+      favourite: isFav || undefined,
       customTitle: tabInput.customTitle?.trim() || undefined,
       customEmojiIcon: tabInput.customEmojiIcon?.trim() || undefined,
-      parentSpaceId: tabInput.parentSpaceId,
-      parentFolderId: tabInput.pinned ? undefined : (tabInput.parentFolderId || undefined),
+      parentSpaceId: isFav ? undefined : (tabInput.parentSpaceId || activeSpace?.id || 'space_personal'),
+      parentFolderId: (isFav || isPinned) ? undefined : (tabInput.parentFolderId || undefined),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -417,7 +422,7 @@ export function useWorkspace() {
     }));
 
     return newTab;
-  }, [saveWorkspaceData]);
+  }, [activeSpace, saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
     savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
@@ -427,10 +432,23 @@ export function useWorkspace() {
       tabs: prev.tabs.map((t) => {
         if (t.id !== id) return t;
         const updated = { ...t, ...updates, updatedAt: Date.now() };
-        // If pinned is true, tab shouldn't have parentFolderId
+
+        // If favourite is true, tab stops belonging to any space or folder and cannot be pinned
+        if (updated.favourite) {
+          updated.parentSpaceId = undefined;
+          updated.parentFolderId = undefined;
+          updated.pinned = false;
+        } else if (updates.favourite === false && !updated.parentSpaceId) {
+          // If un-favourited, attach back to current active space
+          updated.parentSpaceId = prev.activeSpaceId || prev.spaces[0]?.id;
+        }
+
+        // If pinned is true, tab shouldn't have parentFolderId and cannot be favourite
         if (updated.pinned) {
           updated.parentFolderId = undefined;
+          updated.favourite = false;
         }
+
         return updated;
       }),
     }));
@@ -448,15 +466,53 @@ export function useWorkspace() {
   const togglePinTab = useCallback((id: string) => {
     const existing = data.tabs.find((t) => t.id === id);
     const nextPinned = !existing?.pinned;
-    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, { pinned: nextPinned, parentFolderId: undefined }));
+    savePendingOperation(
+      createWorkspaceOperation('TAB_UPDATE', id, {
+        pinned: nextPinned,
+        parentFolderId: undefined,
+        favourite: false,
+      })
+    );
 
     saveWorkspaceData((prev) => ({
       ...prev,
       tabs: prev.tabs.map((t) =>
-        t.id === id ? { ...t, pinned: !t.pinned, parentFolderId: !t.pinned ? undefined : t.parentFolderId } : t
+        t.id === id
+          ? {
+              ...t,
+              pinned: !t.pinned,
+              favourite: false,
+              parentFolderId: !t.pinned ? undefined : t.parentFolderId,
+            }
+          : t
       ),
     }));
   }, [data.tabs, saveWorkspaceData]);
+
+  const toggleFavouriteTab = useCallback((id: string) => {
+    const existing = data.tabs.find((t) => t.id === id);
+    const nextFavourite = !existing?.favourite;
+
+    const updates: Partial<Tab> = nextFavourite
+      ? {
+          favourite: true,
+          pinned: false,
+          parentSpaceId: undefined,
+          parentFolderId: undefined,
+        }
+      : {
+          favourite: false,
+          parentSpaceId: activeSpace?.id || data.spaces[0]?.id,
+          parentFolderId: undefined,
+        };
+
+    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, updates));
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      tabs: prev.tabs.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t)),
+    }));
+  }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
 
   const resetToDefault = useCallback(() => {
     clearStoredPendingOperations();
@@ -515,10 +571,13 @@ export function useWorkspace() {
     return false;
   }, [saveWorkspaceData]);
 
+  // Global favourites (visible across all spaces)
+  const favouriteTabs = data.tabs.filter((t) => Boolean(t.favourite));
+
   // Helpers for filtering items by active space
   const currentSpaceId = activeSpace?.id || '';
-  const pinnedTabs = data.tabs.filter((t) => t.parentSpaceId === currentSpaceId && t.pinned);
-  const rootTabs = data.tabs.filter((t) => t.parentSpaceId === currentSpaceId && !t.pinned && !t.parentFolderId);
+  const pinnedTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && t.pinned);
+  const rootTabs = data.tabs.filter((t) => !t.favourite && t.parentSpaceId === currentSpaceId && !t.pinned && !t.parentFolderId);
   const rootFolders = data.folders.filter((f) => f.parentSpaceId === currentSpaceId && !f.parentFolderId);
 
   const getChildFolders = useCallback((folderId: string) => {
@@ -526,7 +585,7 @@ export function useWorkspace() {
   }, [data.folders]);
 
   const getChildTabs = useCallback((folderId: string) => {
-    return data.tabs.filter((t) => t.parentFolderId === folderId && !t.pinned);
+    return data.tabs.filter((t) => !t.favourite && t.parentFolderId === folderId && !t.pinned);
   }, [data.tabs]);
 
   return {
@@ -548,6 +607,7 @@ export function useWorkspace() {
     updateTab,
     deleteTab,
     togglePinTab,
+    toggleFavouriteTab,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,
@@ -558,6 +618,7 @@ export function useWorkspace() {
     isSyncing,
     lastSyncResult,
     // Hierarchy queries
+    favouriteTabs,
     pinnedTabs,
     rootTabs,
     rootFolders,

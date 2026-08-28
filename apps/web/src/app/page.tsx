@@ -507,7 +507,7 @@ export default function HomePage() {
                   <strong>Folder:</strong> <code>[id, name, customEmojiIcon?, colors?, parentFolderId?, parentSpaceId]</code>
                 </div>
                 <div>
-                  <strong>Tab:</strong> <code>[id, url, pinned, customTitle?, customEmojiIcon?, parentFolderId?, parentSpaceId]</code>
+                  <strong>Tab:</strong> <code>[id, url, pinned, favourite?, customTitle?, customEmojiIcon?, parentFolderId?, parentSpaceId?]</code>
                 </div>
                 <div style={{ backgroundColor: '#f1f5f9', padding: '8px', borderRadius: '6px', fontSize: '12px', color: '#475569' }}>
                   Stored in <code>localStorage</code> under <code>&apos;arcable_workspace_data&apos;</code> as a single JSON object containing <code>{'{ spaces, folders, tabs, activeSpaceId }'}</code>.

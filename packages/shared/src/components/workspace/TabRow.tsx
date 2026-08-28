@@ -9,7 +9,8 @@ interface TabRowProps {
   onOpen?: (url: string) => void;
   onEdit: (tab: Tab) => void;
   onDelete: (id: string) => void;
-  onTogglePin: (id: string) => void;
+  onTogglePin?: (id: string) => void;
+  onToggleFavourite?: (id: string) => void;
   compact?: boolean;
 }
 
@@ -19,6 +20,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onEdit,
   onDelete,
   onTogglePin,
+  onToggleFavourite,
   compact = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -114,22 +116,43 @@ export const TabRow: React.FC<TabRowProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Favourite toggle */}
+        {onToggleFavourite && (
+          <button
+            title={tab.favourite ? 'Remove from favourites' : 'Add to favourites (global)'}
+            onClick={() => onToggleFavourite(tab.id)}
+            style={{
+              border: 'none',
+              background: tab.favourite ? '#fef3c7' : 'transparent',
+              borderRadius: '4px',
+              padding: '4px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              color: tab.favourite ? '#eab308' : '#64748b',
+            }}
+          >
+            ⭐
+          </button>
+        )}
+
         {/* Pin toggle */}
-        <button
-          title={tab.pinned ? 'Unpin tab' : 'Pin to top shelf'}
-          onClick={() => onTogglePin(tab.id)}
-          style={{
-            border: 'none',
-            background: tab.pinned ? '#fef3c7' : 'transparent',
-            borderRadius: '4px',
-            padding: '4px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            color: tab.pinned ? '#d97706' : '#64748b',
-          }}
-        >
-          📌
-        </button>
+        {onTogglePin && !tab.favourite && (
+          <button
+            title={tab.pinned ? 'Unpin tab' : 'Pin to top shelf'}
+            onClick={() => onTogglePin(tab.id)}
+            style={{
+              border: 'none',
+              background: tab.pinned ? '#fef3c7' : 'transparent',
+              borderRadius: '4px',
+              padding: '4px',
+              fontSize: '12px',
+              cursor: 'pointer',
+              color: tab.pinned ? '#d97706' : '#64748b',
+            }}
+          >
+            📌
+          </button>
+        )}
 
         {/* Edit */}
         <button

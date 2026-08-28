@@ -18,6 +18,7 @@ interface FolderItemProps {
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
+  onToggleFavouriteTab?: (tabId: string) => void;
 }
 
 export const FolderItem: React.FC<FolderItemProps> = ({
@@ -34,6 +35,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onEditTab,
   onDeleteTab,
   onTogglePinTab,
+  onToggleFavouriteTab,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -218,6 +220,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               onEditTab={onEditTab}
               onDeleteTab={onDeleteTab}
               onTogglePinTab={onTogglePinTab}
+              onToggleFavouriteTab={onToggleFavouriteTab}
             />
           ))}
 
@@ -230,6 +233,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               onEdit={onEditTab}
               onDelete={onDeleteTab}
               onTogglePin={onTogglePinTab}
+              onToggleFavourite={onToggleFavouriteTab}
             />
           ))}
 

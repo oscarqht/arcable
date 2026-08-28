@@ -9,5 +9,6 @@ export * from './workspace/TabModal';
 export * from './workspace/TabRow';
 export * from './workspace/FolderItem';
 export * from './workspace/PinnedTabsShelf';
+export * from './workspace/FavouriteTabsShelf';
 export * from './workspace/WorkspaceManager';
 
