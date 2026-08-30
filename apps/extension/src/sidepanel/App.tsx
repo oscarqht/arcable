@@ -247,8 +247,7 @@ export const App: React.FC = () => {
         flexDirection: 'column',
         height: '100vh',
         width: '100%',
-        overflowX: 'hidden',
-        overflowY: 'auto',
+        overflow: 'hidden',
         overscrollBehavior: 'none',
         backgroundColor: '#f8fafc',
       }}
@@ -436,12 +435,14 @@ export const App: React.FC = () => {
 
       <div
         style={{
-          padding: '12px',
+          padding: '12px 12px 0 12px',
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
           overflowX: 'hidden',
+          overflowY: 'auto',
           overscrollBehavior: 'none',
         }}
       >

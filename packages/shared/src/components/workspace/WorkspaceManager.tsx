@@ -188,7 +188,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   };
 
-  const activePillRef = useRef<HTMLDivElement | null>(null);
+  const activePillRef = useRef<HTMLElement | null>(null);
 
   // Auto-scroll active space pill into view when active space changes
   useEffect(() => {
@@ -699,8 +699,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px',
+        gap: compact ? '12px' : '16px',
         width: '100%',
+        flex: compact ? 1 : undefined,
+        minHeight: compact ? '100%' : undefined,
         boxSizing: 'border-box',
       }}
     >
@@ -719,8 +721,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
-      {/* Main Dashboard Control Bar */}
-      {!hideControlBar && (
+      {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
+      {!hideControlBar && !compact && (
         <div
           style={{
             display: 'flex',
@@ -944,7 +946,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               return (
                 <div
                   key={space.id}
-                  ref={isActive ? activePillRef : null}
+                  ref={isActive ? (el) => { activePillRef.current = el; } : null}
                   draggable
                   onDragStart={(e) => handleSpaceDragStart(e, space.id)}
                   onDragOver={(e) => handleSpaceDragOver(e, space.id)}
@@ -1243,48 +1245,190 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           )}
         </div>
       ) : (
-        /* Focused Space View / Sidepanel View */
-        activeSpace && (
-          <div style={{ width: '100%' }}>
-            <SpaceCard
-              space={activeSpace}
-              allSpaces={sortedSpaces}
-              allFolders={data.folders}
-              allTabs={data.tabs}
-              isSingleColumn={compact}
-              alwaysShowActions={alwaysShowActions}
-              isCollapsed={false}
-              onOpenTab={onOpenTab}
-              onEditSpace={(sp) => {
-                setEditingSpace(sp);
-                setIsSpaceModalOpen(true);
+        /* Focused Space View / Sidepanel View with Horizontal Sliding Carousel */
+        sortedSpaces.length > 0 && (
+          <div
+            style={{
+              width: '100%',
+              flex: compact ? 1 : undefined,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                width: '100%',
+                gap: '20px',
+                transform: `translateX(calc(-${(sortedSpaces.findIndex((s) => s.id === activeSpace?.id) === -1 ? 0 : sortedSpaces.findIndex((s) => s.id === activeSpace?.id)) * 100}% - ${(sortedSpaces.findIndex((s) => s.id === activeSpace?.id) === -1 ? 0 : sortedSpaces.findIndex((s) => s.id === activeSpace?.id)) * 20}px))`,
+                transition: 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+                willChange: 'transform',
+                alignItems: 'flex-start',
               }}
-              onDeleteSpace={deleteSpace}
-              onConvertSpace={handleOpenConvertSpaceModal}
-              onAddTab={(folderId, pinned) => handleOpenNewTabModal(activeSpace.id, folderId, pinned)}
-              onAddFolder={(pFolderId) => handleOpenNewFolderModal(activeSpace.id, pFolderId)}
-              onEditFolder={(f) => {
-                setEditingFolder(f);
-                setTargetSpaceIdForModal(activeSpace.id);
-                setIsFolderModalOpen(true);
-              }}
-              onDeleteFolder={(fId) => deleteFolder(fId, true)}
-              onToggleFolderExpand={toggleFolderExpand}
-              onEditTab={(t) => {
-                setEditingTab(t);
-                setTargetSpaceIdForModal(activeSpace.id);
-                setIsTabModalOpen(true);
-              }}
-              onDeleteTab={deleteTab}
-              onTogglePinTab={togglePinTab}
-              onToggleFavouriteTab={toggleFavouriteTab}
-              onMoveSiblingItem={moveSiblingItem}
-              onReorderSiblingItem={reorderSiblingItem}
-              onReorderPinnedTabs={reorderPinnedTabs}
-              onMoveSpace={moveSpace}
-            />
+            >
+              {sortedSpaces.map((space) => (
+                <div
+                  key={space.id}
+                  style={{
+                    width: '100%',
+                    minWidth: '100%',
+                    maxWidth: '100%',
+                    flexShrink: 0,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <SpaceCard
+                    space={space}
+                    allSpaces={sortedSpaces}
+                    allFolders={data.folders}
+                    allTabs={data.tabs}
+                    isSingleColumn={compact}
+                    alwaysShowActions={alwaysShowActions}
+                    isCollapsed={false}
+                    onOpenTab={onOpenTab}
+                    onEditSpace={(sp) => {
+                      setEditingSpace(sp);
+                      setIsSpaceModalOpen(true);
+                    }}
+                    onDeleteSpace={deleteSpace}
+                    onConvertSpace={handleOpenConvertSpaceModal}
+                    onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
+                    onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
+                    onEditFolder={(f) => {
+                      setEditingFolder(f);
+                      setTargetSpaceIdForModal(space.id);
+                      setIsFolderModalOpen(true);
+                    }}
+                    onDeleteFolder={(fId) => deleteFolder(fId, true)}
+                    onToggleFolderExpand={toggleFolderExpand}
+                    onEditTab={(t) => {
+                      setEditingTab(t);
+                      setTargetSpaceIdForModal(space.id);
+                      setIsTabModalOpen(true);
+                    }}
+                    onDeleteTab={deleteTab}
+                    onTogglePinTab={togglePinTab}
+                    onToggleFavouriteTab={toggleFavouriteTab}
+                    onMoveSiblingItem={moveSiblingItem}
+                    onReorderSiblingItem={reorderSiblingItem}
+                    onReorderPinnedTabs={reorderPinnedTabs}
+                    onMoveSpace={moveSpace}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )
+      )}
+
+      {/* Fixed Bottom Spaces Selector (Sidepanel / Compact mode: semi-transparent, 100% rounded corner, margins) */}
+      {compact && sortedSpaces.length > 0 && (
+        <div
+          style={{
+            position: 'sticky',
+            bottom: '8px',
+            left: 0,
+            right: 0,
+            marginTop: 'auto',
+            zIndex: 30,
+            backgroundColor: 'rgba(255, 255, 255, 0.78)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(226, 232, 240, 0.85)',
+            borderRadius: '9999px',
+            padding: '5px 10px',
+            margin: '8px 4px 6px 4px',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-around',
+            boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)',
+            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          {sortedSpaces.map((space) => {
+            const isActive = space.id === activeSpace?.id;
+            const spaceColor = space.colors || '#3b82f6';
+            const isDragTarget = dragOverSpaceId === space.id;
+
+            let boxShadow = 'none';
+            if (isDragTarget) {
+              if (spaceDropPos === 'before') {
+                boxShadow = '-2px 0 0 0 #0284c7';
+              } else if (spaceDropPos === 'after') {
+                boxShadow = '2px 0 0 0 #0284c7';
+              }
+            } else if (isActive) {
+              boxShadow = `0 0 0 1.5px ${spaceColor}, 0 2px 6px ${spaceColor}35`;
+            }
+
+            return (
+              <button
+                key={space.id}
+                ref={isActive ? (el) => { activePillRef.current = el; } : null}
+                type="button"
+                draggable
+                onDragStart={(e) => handleSpaceDragStart(e, space.id)}
+                onDragOver={(e) => handleSpaceDragOver(e, space.id)}
+                onDragLeave={() => {
+                  if (dragOverSpaceId === space.id) {
+                    setDragOverSpaceId(null);
+                    setSpaceDropPos(null);
+                  }
+                }}
+                onDrop={(e) => handleSpaceDrop(e, space.id)}
+                onDragEnd={handleSpaceDragEnd}
+                onClick={() => setActiveSpace(space.id)}
+                title={`${space.name} (Click to select, drag to reorder)`}
+                aria-label={space.name}
+                style={{
+                  WebkitAppearance: 'none',
+                  appearance: 'none',
+                  border: 'none',
+                  outline: 'none',
+                  background: isActive ? `${spaceColor}18` : 'transparent',
+                  borderRadius: '9999px',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  lineHeight: 1,
+                  position: 'relative',
+                  opacity: draggingSpaceId === space.id ? 0.4 : 1,
+                  boxShadow,
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  transform: isActive ? 'scale(1.08)' : 'scale(1)',
+                  userSelect: 'none',
+                  padding: 0,
+                  boxSizing: 'border-box',
+                }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1 }}>
+                  {space.emojiIcon || '📁'}
+                </span>
+                {isActive && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      bottom: '2px',
+                      width: '6px',
+                      height: '2px',
+                      borderRadius: '2px',
+                      backgroundColor: spaceColor,
+                      transition: 'all 0.25s ease',
+                    }}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {/* Modals */}
