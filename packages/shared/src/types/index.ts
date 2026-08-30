@@ -32,7 +32,11 @@ export type ExtensionMessageType =
   | 'RAINDROP_LOGOUT'
   | 'RAINDROP_SAVE_BOOKMARK'
   | 'RAINDROP_GET_COLLECTIONS'
-  | 'RAINDROP_SYNC_WORKSPACE';
+  | 'RAINDROP_SYNC_WORKSPACE'
+  | 'RAINDROP_GET_DEVICES'
+  | 'RAINDROP_RENAME_DEVICE'
+  | 'RAINDROP_DELETE_DEVICE'
+  | 'RAINDROP_DELETE_OTHER_DEVICES';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType;

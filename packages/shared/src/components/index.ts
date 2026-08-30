@@ -16,3 +16,4 @@ export * from './workspace/SpaceCard';
 export * from './workspace/WorkspaceManager';
 export * from './EmojiPicker';
 export * from './workspace/TabFavicon';
+export * from './workspace/DeviceModal';

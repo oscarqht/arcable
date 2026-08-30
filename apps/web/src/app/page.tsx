@@ -7,12 +7,16 @@ import {
   WorkspaceManagerHandle,
   DropletIcon,
   PlusIcon,
+  DevicesIcon,
+  DeviceModal,
 } from '@arcable/shared/components';
+import { getStoredDeviceName } from '@arcable/shared/utils';
 import { RaindropAuthState } from '@arcable/shared/types';
 
 export default function HomePage() {
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -91,7 +95,7 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: authState.accessToken,
-          deviceName: 'Arcable Web App',
+          deviceName: getStoredDeviceName('Arcable Web App'),
           localState: syncParams?.localState,
           deviceId: syncParams?.deviceId,
           pendingOps: syncParams?.pendingOps,
@@ -105,6 +109,82 @@ export default function HomePage() {
       return data;
     } catch (err: any) {
       console.error('Workspace sync error:', err);
+      throw err;
+    }
+  };
+
+  const handleFetchDevices = async () => {
+    try {
+      const res = await fetch('/api/raindrop/devices');
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch devices');
+      }
+      return data.devices || [];
+    } catch (err: any) {
+      console.error('Fetch devices error:', err);
+      throw err;
+    }
+  };
+
+  const handleRenameDevice = async (deviceId: string, newName: string) => {
+    try {
+      const res = await fetch('/api/raindrop/devices', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+          newName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to rename device');
+      }
+      return data.devices || [];
+    } catch (err: any) {
+      console.error('Rename device error:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteDevice = async (deviceId: string) => {
+    try {
+      const res = await fetch('/api/raindrop/devices', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete device');
+      }
+      return data.devices || [];
+    } catch (err: any) {
+      console.error('Delete device error:', err);
+      throw err;
+    }
+  };
+
+  const handleDeleteOtherDevices = async (keepDeviceId: string) => {
+    try {
+      const res = await fetch('/api/raindrop/devices', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: keepDeviceId,
+          allOther: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete other devices');
+      }
+      return data.devices || [];
+    } catch (err: any) {
+      console.error('Delete other devices error:', err);
       throw err;
     }
   };
@@ -179,6 +259,30 @@ export default function HomePage() {
             >
               <PlusIcon size={13} />
               <span>Space</span>
+            </button>
+
+            {/* Devices Management Button */}
+            <button
+              type="button"
+              onClick={() => setIsDeviceModalOpen(true)}
+              title="Manage connected sync devices"
+              style={{
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                color: '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <DevicesIcon size={14} color="#64748b" />
+              <span>Devices</span>
             </button>
 
             <button
@@ -258,6 +362,16 @@ export default function HomePage() {
           onSyncStateChange={setIsSyncing}
         />
       </main>
+
+      <DeviceModal
+        isOpen={isDeviceModalOpen}
+        onClose={() => setIsDeviceModalOpen(false)}
+        raindropToken={authState.accessToken}
+        onFetchDevices={authState.isAuthenticated ? handleFetchDevices : undefined}
+        onRenameDevice={authState.isAuthenticated ? handleRenameDevice : undefined}
+        onDeleteDevice={authState.isAuthenticated ? handleDeleteDevice : undefined}
+        onDeleteOtherDevices={authState.isAuthenticated ? handleDeleteOtherDevices : undefined}
+      />
     </div>
   );
 }

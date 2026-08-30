@@ -12,6 +12,10 @@ import {
   fetchRaindropCollections,
   createRaindropBookmark,
   syncWorkspaceWithRaindrop,
+  fetchRaindropDevices,
+  renameRaindropDevice,
+  deleteRaindropDevice,
+  deleteAllOtherRaindropDevices,
 } from '@arcable/shared/utils';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -333,6 +337,92 @@ browser.runtime.onMessage.addListener(
           return { success: result.success, data: result, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to sync workspace' };
+        }
+      }
+
+      // Raindrop: Fetch Devices
+      case 'RAINDROP_GET_DEVICES': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { currentDeviceId?: string } | undefined;
+        try {
+          const result = await fetchRaindropDevices(auth.accessToken, payload?.currentDeviceId);
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch devices' };
+        }
+      }
+
+      // Raindrop: Rename Device
+      case 'RAINDROP_RENAME_DEVICE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { deviceId: string; newName: string } | undefined;
+        if (!payload?.deviceId || !payload?.newName) {
+          return { success: false, error: 'deviceId and newName are required' };
+        }
+
+        try {
+          const result = await renameRaindropDevice(auth.accessToken, payload.deviceId, payload.newName);
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to rename device' };
+        }
+      }
+
+      // Raindrop: Delete Device
+      case 'RAINDROP_DELETE_DEVICE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { deviceId: string } | undefined;
+        if (!payload?.deviceId) {
+          return { success: false, error: 'deviceId is required' };
+        }
+
+        try {
+          const result = await deleteRaindropDevice(auth.accessToken, payload.deviceId);
+          if (result.success && result.latestSnapshot) {
+            await browser.storage.local.set({
+              arcable_workspace_snapshot: result.latestSnapshot,
+            });
+          }
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to delete device' };
+        }
+      }
+
+      // Raindrop: Delete All Other Devices
+      case 'RAINDROP_DELETE_OTHER_DEVICES': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { keepDeviceId: string } | undefined;
+        if (!payload?.keepDeviceId) {
+          return { success: false, error: 'keepDeviceId is required' };
+        }
+
+        try {
+          const result = await deleteAllOtherRaindropDevices(auth.accessToken, payload.keepDeviceId);
+          if (result.success && result.latestSnapshot) {
+            await browser.storage.local.set({
+              arcable_workspace_snapshot: result.latestSnapshot,
+            });
+          }
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to delete other devices' };
         }
       }
 

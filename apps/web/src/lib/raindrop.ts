@@ -11,6 +11,10 @@ import {
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
   syncWorkspaceWithRaindrop,
+  fetchRaindropDevices,
+  renameRaindropDevice,
+  deleteRaindropDevice,
+  deleteAllOtherRaindropDevices,
 } from '@arcable/shared/utils';
 
 import type {
@@ -79,6 +83,10 @@ export {
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
   syncWorkspaceWithRaindrop,
+  fetchRaindropDevices,
+  renameRaindropDevice,
+  deleteRaindropDevice,
+  deleteAllOtherRaindropDevices,
 };
 
 export type {

@@ -1,5 +1,5 @@
 import { ArcableWorkspaceData } from '../types/workspace';
-import { ArcableSyncFile, SyncResult, WorkspaceOperation } from '../types/sync';
+import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem } from '../types/raindrop';
 import {
   fetchRaindropCollections,
@@ -19,6 +19,9 @@ import {
   compactSyncFile,
   createInitialSyncFile,
   isPlaceholderSnapshot,
+  recomputeSyncFileOnDeviceRemoval,
+  recomputeSyncFileOnDeleteOtherDevices,
+  setStoredDeviceName,
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
@@ -292,10 +295,23 @@ export async function syncWorkspaceWithRaindrop(
       deviceId
     );
 
-    // 3. Read local pending operations (prefer passed-in options.pendingOps if provided)
-    const pendingOps = options?.pendingOps !== undefined
+    // 3. Check if this device is recognized in remote syncFile.
+    // If remote syncFile exists with registered devices, but this deviceId is NOT among them,
+    // this device was previously deleted (or is a reconnecting device).
+    // Discard all local pending records and recreate latest state directly from remote baselineSnapshot + operations.
+    const hasExistingDevices = remoteSyncFile.devices && Object.keys(remoteSyncFile.devices).length > 0;
+    const isDeletedOrReconnectingDevice = hasExistingDevices && !remoteSyncFile.devices[deviceId];
+
+    let pendingOps = options?.pendingOps !== undefined
       ? options.pendingOps
       : getStoredPendingOperations();
+
+    if (isDeletedOrReconnectingDevice) {
+      pendingOps = [];
+      if (typeof window !== 'undefined') {
+        clearStoredPendingOperations();
+      }
+    }
 
     // 4. Compact sync file & compute latest snapshot
     const compacted = compactSyncFile(
@@ -350,3 +366,265 @@ export async function syncWorkspaceWithRaindrop(
     };
   }
 }
+
+/**
+ * Fetches all registered devices from the Raindrop data.json sync file.
+ */
+export async function fetchRaindropDevices(
+  token: string,
+  currentDeviceId?: string
+): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, devices: [], error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection.');
+    }
+
+    const currId = currentDeviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : 'device_curr');
+    const { syncFile } = await fetchRaindropSyncFile(
+      clean,
+      collection._id,
+      { activeSpaceId: 'space_personal', version: 1, spaces: [], folders: [], tabs: [] },
+      currId
+    );
+
+    const devicesMap = syncFile.devices || {};
+    const deviceList = Object.values(devicesMap);
+
+    // Sort: current device first (if any), then newest lastSyncAt first
+    deviceList.sort((a, b) => {
+      if (currId && a.deviceId === currId) return -1;
+      if (currId && b.deviceId === currId) return 1;
+      return (b.lastSyncAt || 0) - (a.lastSyncAt || 0);
+    });
+
+    return { success: true, devices: deviceList };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error fetching devices:', err);
+    return { success: false, devices: [], error: err?.message || 'Failed to fetch devices from Raindrop.' };
+  }
+}
+
+/**
+ * Renames a device in the Raindrop data.json sync file.
+ */
+export async function renameRaindropDevice(
+  token: string,
+  deviceId: string,
+  newDeviceName: string,
+  localFallback?: ArcableWorkspaceData
+): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, devices: [], error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  const trimmedName = (newDeviceName || '').trim();
+  if (!trimmedName) {
+    return { success: false, devices: [], error: 'Device name cannot be empty.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection.');
+    }
+
+    const localState: ArcableWorkspaceData = localFallback || {
+      activeSpaceId: 'space_personal',
+      version: 1,
+      spaces: [],
+      folders: [],
+      tabs: [],
+    };
+
+    const { syncFile, existingItems } = await fetchRaindropSyncFile(
+      clean,
+      collection._id,
+      localState,
+      deviceId
+    );
+
+    const devices = { ...(syncFile.devices || {}) };
+    if (devices[deviceId]) {
+      devices[deviceId] = {
+        ...devices[deviceId],
+        deviceName: trimmedName,
+      };
+    } else {
+      devices[deviceId] = {
+        deviceId,
+        deviceName: trimmedName,
+        lastSyncAt: Date.now(),
+      };
+    }
+
+    const updatedSyncFile: ArcableSyncFile = {
+      ...syncFile,
+      version: (syncFile.version || 1) + 1,
+      devices,
+    };
+
+    // Delete existing data.json bookmarks
+    for (const item of existingItems) {
+      if (item._id) {
+        try {
+          await deleteRaindropBookmark(clean, item._id);
+        } catch (delErr) {
+          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+        }
+      }
+    }
+
+    // Upload updated syncFile
+    const fileContent = JSON.stringify(updatedSyncFile, null, 2);
+    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+
+    // If this is the current device, update local storage
+    if (typeof window !== 'undefined' && deviceId === getOrCreateDeviceId()) {
+      setStoredDeviceName(trimmedName);
+    }
+
+    const deviceList = Object.values(updatedSyncFile.devices);
+    return { success: true, devices: deviceList };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error renaming device:', err);
+    return { success: false, devices: [], error: err?.message || 'Failed to rename device.' };
+  }
+}
+
+/**
+ * Deletes a device from the Raindrop data.json sync file and re-compacts
+ * baselineSnapshot + operations based on the remaining devices list.
+ */
+export async function deleteRaindropDevice(
+  token: string,
+  deviceId: string,
+  localFallback?: ArcableWorkspaceData
+): Promise<{ success: boolean; devices: DeviceSyncRecord[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, devices: [], error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection.');
+    }
+
+    const localState: ArcableWorkspaceData = localFallback || {
+      activeSpaceId: 'space_personal',
+      version: 1,
+      spaces: [],
+      folders: [],
+      tabs: [],
+    };
+
+    const { syncFile, existingItems } = await fetchRaindropSyncFile(
+      clean,
+      collection._id,
+      localState,
+      deviceId
+    );
+
+    // Recompute sync file and re-compact baselineSnapshot + operations based on updated devices list
+    const { syncFile: updatedSyncFile, latestSnapshot } = recomputeSyncFileOnDeviceRemoval(
+      syncFile,
+      deviceId,
+      Date.now()
+    );
+
+    // Delete existing data.json bookmarks
+    for (const item of existingItems) {
+      if (item._id) {
+        try {
+          await deleteRaindropBookmark(clean, item._id);
+        } catch (delErr) {
+          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+        }
+      }
+    }
+
+    // Upload updated syncFile
+    const fileContent = JSON.stringify(updatedSyncFile, null, 2);
+    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+
+    const deviceList = Object.values(updatedSyncFile.devices);
+    return { success: true, devices: deviceList, latestSnapshot };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error deleting device:', err);
+    return { success: false, devices: [], error: err?.message || 'Failed to delete device.' };
+  }
+}
+
+/**
+ * Deletes all registered devices from the Raindrop data.json sync file except `keepDeviceId`,
+ * and re-compacts baselineSnapshot + operations.
+ */
+export async function deleteAllOtherRaindropDevices(
+  token: string,
+  keepDeviceId: string,
+  localFallback?: ArcableWorkspaceData
+): Promise<{ success: boolean; devices: DeviceSyncRecord[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, devices: [], error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection.');
+    }
+
+    const localState: ArcableWorkspaceData = localFallback || {
+      activeSpaceId: 'space_personal',
+      version: 1,
+      spaces: [],
+      folders: [],
+      tabs: [],
+    };
+
+    const { syncFile, existingItems } = await fetchRaindropSyncFile(
+      clean,
+      collection._id,
+      localState,
+      keepDeviceId
+    );
+
+    // Recompute sync file and re-compact baselineSnapshot + operations retaining only keepDeviceId
+    const { syncFile: updatedSyncFile, latestSnapshot } = recomputeSyncFileOnDeleteOtherDevices(
+      syncFile,
+      keepDeviceId,
+      Date.now()
+    );
+
+    // Delete existing data.json bookmarks
+    for (const item of existingItems) {
+      if (item._id) {
+        try {
+          await deleteRaindropBookmark(clean, item._id);
+        } catch (delErr) {
+          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+        }
+      }
+    }
+
+    // Upload updated syncFile
+    const fileContent = JSON.stringify(updatedSyncFile, null, 2);
+    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+
+    const deviceList = Object.values(updatedSyncFile.devices);
+    return { success: true, devices: deviceList, latestSnapshot };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error deleting other devices:', err);
+    return { success: false, devices: [], error: err?.message || 'Failed to delete other devices.' };
+  }
+}
+

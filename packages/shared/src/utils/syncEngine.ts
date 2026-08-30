@@ -5,6 +5,7 @@ import { generateId } from './format';
 export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const PENDING_OPS_STORAGE_KEY = 'arcable_pending_ops';
 export const DEVICE_ID_STORAGE_KEY = 'arcable_device_id';
+export const DEVICE_NAME_STORAGE_KEY = 'arcable_device_name';
 export const LAMPORT_SEQ_STORAGE_KEY = 'arcable_lamport_seq';
 
 /**
@@ -24,6 +25,39 @@ export function getOrCreateDeviceId(): string {
     return deviceId;
   } catch {
     return 'device_fallback_' + generateId('dev');
+  }
+}
+
+/**
+ * Gets the stored custom device name, or a default fallback.
+ */
+export function getStoredDeviceName(defaultName: string = 'Browser Device'): string {
+  if (typeof window === 'undefined') {
+    return defaultName;
+  }
+
+  try {
+    const name = window.localStorage.getItem(DEVICE_NAME_STORAGE_KEY);
+    return name && name.trim() ? name.trim() : defaultName;
+  } catch {
+    return defaultName;
+  }
+}
+
+/**
+ * Updates the stored local device name.
+ */
+export function setStoredDeviceName(name: string): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (name && name.trim()) {
+      window.localStorage.setItem(DEVICE_NAME_STORAGE_KEY, name.trim());
+    } else {
+      window.localStorage.removeItem(DEVICE_NAME_STORAGE_KEY);
+    }
+  } catch (err) {
+    console.warn('Failed to save device name to localStorage:', err);
   }
 }
 
@@ -520,6 +554,132 @@ export function compactSyncFile(
   const updatedSyncFile: ArcableSyncFile = {
     version: (syncFile.version || 1) + 1,
     devices: prunedDevices,
+    baselineSnapshot: newBaseline,
+    operations: sortOperations(remainingOps),
+  };
+
+  return {
+    syncFile: updatedSyncFile,
+    latestSnapshot,
+  };
+}
+
+/**
+ * Re-compacts and updates ArcableSyncFile when a device is deleted/removed.
+ * - Removes the specified device from `syncFile.devices`.
+ * - Determines the new compaction cutoff:
+ *   If other active devices remain, cutoff is min(lastSyncAt) of remaining devices.
+ *   If no devices remain, cutoff is `now`.
+ * - Folds all operations <= cutoff into baselineSnapshot and prunes them from operations.
+ * - Returns the updated syncFile and resolved latestSnapshot.
+ */
+export function recomputeSyncFileOnDeviceRemoval(
+  syncFile: ArcableSyncFile,
+  removedDeviceId: string,
+  now: number = Date.now()
+): { syncFile: ArcableSyncFile; latestSnapshot: ArcableWorkspaceData } {
+  const devices: Record<string, DeviceSyncRecord> = { ...(syncFile.devices || {}) };
+  delete devices[removedDeviceId];
+
+  // Prune any remaining inactive devices older than 7 days
+  const remainingActiveDevices: DeviceSyncRecord[] = [];
+  const validDevices: Record<string, DeviceSyncRecord> = {};
+
+  for (const [id, dev] of Object.entries(devices)) {
+    if (now - dev.lastSyncAt <= DEVICE_INACTIVITY_TTL_MS) {
+      validDevices[id] = dev;
+      remainingActiveDevices.push(dev);
+    }
+  }
+
+  // Calculate new cutoff
+  const cutoffTimestamp = remainingActiveDevices.length > 0
+    ? Math.min(...remainingActiveDevices.map((d) => d.lastSyncAt))
+    : now;
+
+  // Deduplicate and partition operations
+  const existingOpMap = new Map<string, WorkspaceOperation>();
+  for (const op of syncFile.operations || []) {
+    existingOpMap.set(op.id, op);
+  }
+
+  const allOps = Array.from(existingOpMap.values());
+  const opsToFold: WorkspaceOperation[] = [];
+  const remainingOps: WorkspaceOperation[] = [];
+
+  for (const op of allOps) {
+    if (op.timestamp <= cutoffTimestamp) {
+      opsToFold.push(op);
+    } else {
+      remainingOps.push(op);
+    }
+  }
+
+  // Fold into baseline
+  const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
+  const latestSnapshot = replayOperations(newBaseline, remainingOps);
+
+  const updatedSyncFile: ArcableSyncFile = {
+    version: (syncFile.version || 1) + 1,
+    devices: validDevices,
+    baselineSnapshot: newBaseline,
+    operations: sortOperations(remainingOps),
+  };
+
+  return {
+    syncFile: updatedSyncFile,
+    latestSnapshot,
+  };
+}
+
+/**
+ * Re-compacts and updates ArcableSyncFile when deleting all other devices except keepDeviceId.
+ * - Retains ONLY keepDeviceId in `syncFile.devices`.
+ * - Determines cutoff = devices[keepDeviceId].lastSyncAt (or now).
+ * - Folds all operations <= cutoff into baselineSnapshot and prunes them from operations.
+ * - Returns the updated syncFile and resolved latestSnapshot.
+ */
+export function recomputeSyncFileOnDeleteOtherDevices(
+  syncFile: ArcableSyncFile,
+  keepDeviceId: string,
+  now: number = Date.now()
+): { syncFile: ArcableSyncFile; latestSnapshot: ArcableWorkspaceData } {
+  const currentRecord = syncFile.devices?.[keepDeviceId];
+  const validDevices: Record<string, DeviceSyncRecord> = {
+    [keepDeviceId]: currentRecord || {
+      deviceId: keepDeviceId,
+      deviceName: 'Current Device',
+      lastSyncAt: now,
+    },
+  };
+
+  const cutoffTimestamp = validDevices[keepDeviceId].lastSyncAt || now;
+
+  // Deduplicate and partition operations
+  const existingOpMap = new Map<string, WorkspaceOperation>();
+  for (const op of syncFile.operations || []) {
+    existingOpMap.set(op.id, op);
+  }
+
+  const allOps = Array.from(existingOpMap.values());
+  const opsToFold: WorkspaceOperation[] = [];
+  const remainingOps: WorkspaceOperation[] = [];
+
+  for (const op of allOps) {
+    if (op.timestamp <= cutoffTimestamp) {
+      opsToFold.push(op);
+    } else {
+      remainingOps.push(op);
+    }
+  }
+
+  // Fold into baseline
+  const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
+  const latestSnapshot = replayOperations(newBaseline, remainingOps);
+
+  const updatedSyncFile: ArcableSyncFile = {
+    version: (syncFile.version || 1) + 1,
+    devices: validDevices,
     baselineSnapshot: newBaseline,
     operations: sortOperations(remainingOps),
   };

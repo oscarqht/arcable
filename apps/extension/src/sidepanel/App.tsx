@@ -7,8 +7,11 @@ import {
   ZapIcon,
   PlusIcon,
   BracesIcon,
+  DevicesIcon,
+  DeviceModal,
 } from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded } from '@arcable/shared/hooks';
+import { getStoredDeviceName } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
@@ -17,6 +20,7 @@ export const App: React.FC = () => {
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
 
   useEffect(() => {
     // Check initial Raindrop auth & cached snapshot
@@ -143,7 +147,7 @@ export const App: React.FC = () => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SYNC_WORKSPACE',
       payload: {
-        deviceName: 'Sidepanel',
+        deviceName: getStoredDeviceName('Sidepanel'),
         localState: syncParams?.localState,
         deviceId: syncParams?.deviceId,
         pendingOps: syncParams?.pendingOps,
@@ -153,6 +157,49 @@ export const App: React.FC = () => {
       throw new Error(res?.error || 'Failed to sync with Raindrop');
     }
     return res.data;
+  };
+
+  const handleFetchDevices = async () => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_GET_DEVICES',
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to fetch devices');
+    }
+    return res.data || [];
+  };
+
+  const handleRenameDevice = async (deviceId: string, newName: string) => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_RENAME_DEVICE',
+      payload: { deviceId, newName },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to rename device');
+    }
+    return res.data || [];
+  };
+
+  const handleDeleteDevice = async (deviceId: string) => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_DELETE_DEVICE',
+      payload: { deviceId },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to delete device');
+    }
+    return res.data || [];
+  };
+
+  const handleDeleteOtherDevices = async (keepDeviceId: string) => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_DELETE_OTHER_DEVICES',
+      payload: { keepDeviceId },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to delete other devices');
+    }
+    return res.data || [];
   };
 
   const handleOpenTab = async (url: string) => {
@@ -310,7 +357,31 @@ export const App: React.FC = () => {
               <PlusIcon size={15} color="#0284c7" />
             </button>
 
-            {/* 4. JSON */}
+            {/* 4. Devices management */}
+            <button
+              type="button"
+              onClick={() => setIsDeviceModalOpen(true)}
+              title="Manage Connected Devices"
+              aria-label="Manage Connected Devices"
+              style={{
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <DevicesIcon size={15} color="#64748b" />
+            </button>
+
+            {/* 5. JSON */}
             <button
               type="button"
               onClick={() => workspaceRef.current?.openJsonModal()}
@@ -385,6 +456,15 @@ export const App: React.FC = () => {
           onSyncStateChange={setIsSyncing}
         />
       </div>
+
+      <DeviceModal
+        isOpen={isDeviceModalOpen}
+        onClose={() => setIsDeviceModalOpen(false)}
+        onFetchDevices={handleFetchDevices}
+        onRenameDevice={handleRenameDevice}
+        onDeleteDevice={handleDeleteDevice}
+        onDeleteOtherDevices={handleDeleteOtherDevices}
+      />
     </div>
   );
 };
