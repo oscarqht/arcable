@@ -319,10 +319,19 @@ browser.runtime.onMessage.addListener(
 
         const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string; pendingOps?: any[] } | undefined;
         try {
+          const effectiveDeviceId = payload?.deviceId || await getOrCreateExtensionDeviceId();
+          const effectiveDeviceName = payload?.deviceName || await getExtensionDeviceName();
+
+          // Keep background worker synchronized with the UI device ID & name
+          await browser.storage.local.set({
+            arcable_device_id: effectiveDeviceId,
+            arcable_device_name: effectiveDeviceName,
+          });
+
           const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
             localState: payload?.localState,
-            deviceId: payload?.deviceId,
-            deviceName: payload?.deviceName || 'Arcable Extension',
+            deviceId: effectiveDeviceId,
+            deviceName: effectiveDeviceName,
             pendingOps: payload?.pendingOps,
           });
 
@@ -349,7 +358,8 @@ browser.runtime.onMessage.addListener(
 
         const payload = message.payload as { currentDeviceId?: string } | undefined;
         try {
-          const result = await fetchRaindropDevices(auth.accessToken, payload?.currentDeviceId);
+          const effectiveCurrentDeviceId = payload?.currentDeviceId || await getOrCreateExtensionDeviceId();
+          const result = await fetchRaindropDevices(auth.accessToken, effectiveCurrentDeviceId);
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to fetch devices' };
@@ -370,6 +380,10 @@ browser.runtime.onMessage.addListener(
 
         try {
           const result = await renameRaindropDevice(auth.accessToken, payload.deviceId, payload.newName);
+          const currentExtDeviceId = await getOrCreateExtensionDeviceId();
+          if (payload.deviceId === currentExtDeviceId) {
+            await browser.storage.local.set({ arcable_device_name: payload.newName });
+          }
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to rename device' };
@@ -432,6 +446,22 @@ browser.runtime.onMessage.addListener(
   }
 );
 
+// Persistent device ID and device name helpers for extension service worker
+async function getOrCreateExtensionDeviceId(): Promise<string> {
+  const res = await browser.storage.local.get('arcable_device_id');
+  let deviceId = res.arcable_device_id as string | undefined;
+  if (!deviceId) {
+    deviceId = 'device_ext_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36).substring(4);
+    await browser.storage.local.set({ arcable_device_id: deviceId });
+  }
+  return deviceId;
+}
+
+async function getExtensionDeviceName(): Promise<string> {
+  const res = await browser.storage.local.get('arcable_device_name');
+  return (res.arcable_device_name as string) || 'Arcable Extension';
+}
+
 // Helper for periodic background sync
 async function triggerBackgroundSync(): Promise<void> {
   try {
@@ -441,9 +471,13 @@ async function triggerBackgroundSync(): Promise<void> {
     const storedSnapshotRes = await browser.storage.local.get('arcable_workspace_snapshot');
     const localState = storedSnapshotRes.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
 
+    const deviceId = await getOrCreateExtensionDeviceId();
+    const deviceName = await getExtensionDeviceName();
+
     const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
       localState,
-      deviceName: 'Arcable Background Sync',
+      deviceId,
+      deviceName,
     });
 
     if (result.success && result.latestSnapshot) {
