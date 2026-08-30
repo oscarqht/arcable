@@ -103,10 +103,10 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.85 }}>
-          <PinIcon size={13} filled={true} />
+          <PinIcon size={14} filled={true} />
           <span
             style={{
-              fontSize: '11px',
+              fontSize: '11.5px',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
@@ -123,7 +123,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
             border: 'none',
             background: 'transparent',
             color: 'inherit',
-            fontSize: '11px',
+            fontSize: '11.5px',
             fontWeight: 600,
             cursor: 'pointer',
             padding: '3px 7px',
@@ -134,7 +134,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
             gap: '3px',
           }}
         >
-          <PlusIcon size={12} />
+          <PlusIcon size={13} />
           <span>Pin Tab</span>
         </button>
       </div>
@@ -143,7 +143,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(138px, 1fr))',
           gap: '7px',
         }}
       >
@@ -182,13 +182,13 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '8px 10px',
+                padding: '8px 9px',
                 backgroundColor: isHovered ? itemHoverBg : itemBg,
                 color: textColor,
                 border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}`,
                 borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : undefined,
                 borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : undefined,
-                borderRadius: '12px',
+                borderRadius: '11px',
                 cursor: 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
@@ -202,14 +202,14 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 <TabFavicon
                   url={tab.url}
                   customEmojiIcon={tab.customEmojiIcon}
-                  size={16}
-                  emojiSize={14}
-                  globeIconSize={14}
+                  size={20}
+                  emojiSize={18}
+                  globeIconSize={18}
                 />
 
                 <span
                   style={{
-                    fontSize: '12.5px',
+                    fontSize: '13px',
                     fontWeight: 500,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -247,7 +247,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                         display: 'flex',
                       }}
                     >
-                      <StarIcon size={12} filled={Boolean(tab.favourite)} />
+                      <StarIcon size={13} filled={Boolean(tab.favourite)} />
                     </button>
                   )}
                   <button
@@ -263,7 +263,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       display: 'flex',
                     }}
                   >
-                    <PinIcon size={12} />
+                    <PinIcon size={13} />
                   </button>
                   <button
                     type="button"
@@ -278,7 +278,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       display: 'flex',
                     }}
                   >
-                    <EditIcon size={11} />
+                    <EditIcon size={12} />
                   </button>
                   <button
                     type="button"
@@ -293,7 +293,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       display: 'flex',
                     }}
                   >
-                    <TrashIcon size={11} />
+                    <TrashIcon size={12} />
                   </button>
                 </div>
               )}

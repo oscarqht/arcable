@@ -165,10 +165,10 @@ export const TabRow: React.FC<TabRowProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        height: '40px',
-        minHeight: '40px',
-        padding: '0 8px 0 8px',
-        borderRadius: '12px',
+        height: '38px',
+        minHeight: '38px',
+        padding: '0 8px',
+        borderRadius: '10px',
         backgroundColor: isHovered ? hoverBg : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
@@ -188,8 +188,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         {/* Spacer normally (aligns with folder chevron), Drag Handle on hover */}
         <div
           style={{
-            width: '18px',
-            height: '18px',
+            width: '20px',
+            height: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -208,7 +208,7 @@ export const TabRow: React.FC<TabRowProps> = ({
               }}
               title="Drag to reorder"
             >
-              <DragHandleIcon size={14} />
+              <DragHandleIcon size={15} />
             </span>
           )}
         </div>
@@ -216,8 +216,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         {/* Favicon or Custom Emoji (Always visible, matching FolderIcon position) */}
         <div
           style={{
-            width: '18px',
-            height: '18px',
+            width: '20px',
+            height: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -229,18 +229,18 @@ export const TabRow: React.FC<TabRowProps> = ({
           <TabFavicon
             url={tab.url}
             customEmojiIcon={tab.customEmojiIcon}
-            size={16}
-            emojiSize={15}
+            size={20}
+            emojiSize={18}
             isDarkTheme={isDarkTheme}
             showDomainFallback={true}
-            globeIconSize={15}
+            globeIconSize={18}
           />
         </div>
 
         {/* Title taking 100% available width */}
         <span
           style={{
-            fontSize: '13.5px',
+            fontSize: '14px',
             fontWeight: 500,
             color: 'inherit',
             overflow: 'hidden',
@@ -288,7 +288,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            {copied ? <CheckIcon size={14} color="#10b981" /> : <CopyIcon size={14} />}
+            {copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />}
           </button>
 
           {/* Open in new tab */}
@@ -312,7 +312,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <ExternalLinkIcon size={14} />
+            <ExternalLinkIcon size={15} />
           </button>
 
           {/* Edit */}
@@ -336,7 +336,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <EditIcon size={13} />
+            <EditIcon size={14} />
           </button>
         </div>
       )}

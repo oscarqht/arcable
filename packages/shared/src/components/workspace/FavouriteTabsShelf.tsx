@@ -160,8 +160,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(48px, 1fr))',
             gap: '8px',
+            width: '100%',
           }}
         >
           {tabs.map((tab) => {
@@ -169,6 +170,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isDragTarget = dragOverTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
+            const tooltipText = tab.url ? `${displayTitle}\n${tab.url}` : displayTitle;
 
             return (
               <div
@@ -198,8 +200,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 12px',
+                  justifyContent: 'center',
+                  width: '100%',
+                  minWidth: 0,
+                  height: '48px',
                   backgroundColor: isHovered ? '#f0fdf4' : '#f8fafc',
                   border: isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
                   borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
@@ -208,74 +212,72 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
-                  overflow: 'hidden',
                   userSelect: 'none',
-                  boxShadow: isHovered ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+                  boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                  boxSizing: 'border-box',
                 }}
-                title={`${displayTitle}\n${tab.url} (Favourite - Drag to reorder)`}
+                title={tooltipText}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      width: '26px',
-                      height: '26px',
-                      borderRadius: '7px',
-                      backgroundColor: isHovered ? '#ffffff' : '#f1f5f9',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <TabFavicon
-                      url={tab.url}
-                      customEmojiIcon={tab.customEmojiIcon}
-                      size={16}
-                      emojiSize={14}
-                      globeIconSize={14}
-                      globeIconColor="#64748b"
-                    />
-                  </div>
-                  <span
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: '#0f172a',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      flex: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    {displayTitle}
-                  </span>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: isHovered ? '#ffffff' : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <TabFavicon
+                    url={tab.url}
+                    customEmojiIcon={tab.customEmojiIcon}
+                    size={32}
+                    emojiSize={26}
+                    globeIconSize={24}
+                    globeIconColor="#64748b"
+                    showDomainFallback={true}
+                  />
                 </div>
 
                 {/* Action buttons on hover */}
                 {isHovered && (
                   <div
                     style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '16px',
+                      padding: '2px 4px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '2px',
-                      paddingLeft: '4px',
-                      flexShrink: 0,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                      zIndex: 10,
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
                       type="button"
                       title="Remove from favourites"
-                      onClick={() => onToggleFavouriteTab(tab.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavouriteTab(tab.id);
+                      }}
                       style={{
                         border: 'none',
                         background: 'none',
                         color: '#eab308',
                         cursor: 'pointer',
-                        padding: '1px 2px',
+                        padding: '2px',
                         display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
                       }}
                     >
                       <StarIcon size={12} filled={true} />
@@ -283,14 +285,20 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     <button
                       type="button"
                       title="Edit tab"
-                      onClick={() => onEditTab(tab)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditTab(tab);
+                      }}
                       style={{
                         border: 'none',
                         background: 'none',
                         color: '#64748b',
                         cursor: 'pointer',
-                        padding: '1px 2px',
+                        padding: '2px',
                         display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
                       }}
                     >
                       <EditIcon size={11} />
@@ -298,14 +306,20 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     <button
                       type="button"
                       title="Delete tab"
-                      onClick={() => onDeleteTab(tab.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteTab(tab.id);
+                      }}
                       style={{
                         border: 'none',
                         background: 'none',
                         color: '#ef4444',
                         cursor: 'pointer',
-                        padding: '1px 2px',
+                        padding: '2px',
                         display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
                       }}
                     >
                       <TrashIcon size={11} />

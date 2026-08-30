@@ -61,7 +61,7 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
           width: `${size}px`,
           height: `${size}px`,
           objectFit: 'contain',
-          borderRadius: '3px',
+          borderRadius: size >= 32 ? '8px' : '3px',
           flexShrink: 0,
           ...style,
         }}
@@ -73,15 +73,16 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
   }
 
   if (showDomainFallback && domain) {
+    const fallbackFontSize = Math.max(10, Math.round(size * 0.5));
     return (
       <span
         style={{
-          width: `${size + 2}px`,
-          height: `${size + 2}px`,
-          borderRadius: '4px',
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: size >= 32 ? '8px' : size >= 20 ? '6px' : '4px',
           backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.08)',
           color: 'inherit',
-          fontSize: '10px',
+          fontSize: `${fallbackFontSize}px`,
           fontWeight: 700,
           display: 'flex',
           alignItems: 'center',

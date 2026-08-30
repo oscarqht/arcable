@@ -41,6 +41,7 @@ export interface WorkspaceManagerProps {
   onOpenTab?: (url: string) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
   compact?: boolean;
+  alwaysShowActions?: boolean;
   headerTitle?: string;
   showJsonInspector?: boolean;
   hideControlBar?: boolean;
@@ -62,6 +63,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onOpenTab,
       onCaptureCurrentTab,
       compact = false,
+      alwaysShowActions = false,
       headerTitle = 'Arcable Workspace',
       showJsonInspector = true,
       hideControlBar = false,
@@ -1250,7 +1252,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               allFolders={data.folders}
               allTabs={data.tabs}
               isSingleColumn={compact}
-              alwaysShowActions={compact}
+              alwaysShowActions={alwaysShowActions}
               isCollapsed={false}
               onOpenTab={onOpenTab}
               onEditSpace={(sp) => {

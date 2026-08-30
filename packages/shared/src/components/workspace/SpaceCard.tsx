@@ -421,14 +421,14 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           {/* Emoji / Icon Container */}
           <div
             style={{
-              width: '34px',
-              height: '34px',
+              width: '36px',
+              height: '36px',
               borderRadius: '12px',
               backgroundColor: themeStyles.badgeBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '18px',
+              fontSize: '19px',
               flexShrink: 0,
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             }}
