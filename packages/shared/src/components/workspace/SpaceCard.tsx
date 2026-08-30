@@ -11,6 +11,7 @@ import {
   isValidHttpUrl,
 } from '../../utils/treeUtils';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { TabRow } from './TabRow';
 import { FolderItem } from './FolderItem';
 import { PinnedTabsShelf } from './PinnedTabsShelf';
@@ -94,6 +95,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onReorderPinnedTabs,
   onMoveSpace,
 }) => {
+  const { isDark: isSystemDark } = useSystemTheme();
   const [internalSearch, setInternalSearch] = useState('');
   const [copied, setCopied] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
@@ -318,6 +320,22 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     }
 
     // Default neutral slate surface
+    if (isSystemDark) {
+      return {
+        containerBg: '#151e2e',
+        isDark: true,
+        textColor: '#f8fafc',
+        subtextColor: '#94a3b8',
+        badgeBg: 'rgba(255, 255, 255, 0.1)',
+        badgeText: '#e2e8f0',
+        inputBg: '#0b0f19',
+        inputPlaceholder: '#64748b',
+        actionHoverBg: 'rgba(255, 255, 255, 0.08)',
+        borderColor: '#243247',
+        shelfBg: '#0b0f19',
+      };
+    }
+
     return {
       containerBg: '#ffffff',
       isDark: false,
@@ -331,7 +349,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       borderColor: '#e2e8f0',
       shelfBg: '#f8fafc',
     };
-  }, [hasExplicitColor, space.colors, isDark, archetype]);
+  }, [hasExplicitColor, space.colors, isDark, archetype, isSystemDark]);
 
   // Copy all tab URLs in this space
   const handleCopyAllUrls = (e: React.MouseEvent) => {

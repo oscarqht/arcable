@@ -11,6 +11,7 @@ import {
 } from '../../utils/raindropSync';
 import { Button } from '../Button';
 import { Badge } from '../Badge';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   DevicesIcon,
   LaptopIcon,
@@ -69,6 +70,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
   onDeleteDevice,
   onDeleteOtherDevices,
 }) => {
+  const { isDark } = useSystemTheme();
   const [devices, setDevices] = useState<DeviceSyncRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -265,7 +267,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '16px',
           padding: '24px',
           width: '100%',
@@ -273,8 +275,10 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           maxHeight: '85vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-          border: '1px solid #e2e8f0',
+          boxShadow: isDark
+            ? '0 25px 50px -12px rgba(0, 0, 0, 0.6)'
+            : '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
           position: 'relative',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -286,7 +290,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             justifyContent: 'space-between',
             alignItems: 'flex-start',
             marginBottom: '16px',
-            borderBottom: '1px solid #f1f5f9',
+            borderBottom: `1px solid ${isDark ? '#334155' : '#f1f5f9'}`,
             paddingBottom: '14px',
           }}
         >
@@ -296,22 +300,22 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 width: '36px',
                 height: '36px',
                 borderRadius: '10px',
-                backgroundColor: '#e0f2fe',
-                color: '#0284c7',
+                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#e0f2fe',
+                color: isDark ? '#38bdf8' : '#0284c7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}
             >
-              <DevicesIcon size={20} color="#0284c7" />
+              <DevicesIcon size={20} color={isDark ? '#38bdf8' : '#0284c7'} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
                 Device Management
               </h2>
-              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
-                Synced clients in Raindrop <code style={{ fontSize: '11px', color: '#0284c7' }}>data.json</code>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                Synced clients in Raindrop <code style={{ fontSize: '11px', color: isDark ? '#38bdf8' : '#0284c7' }}>data.json</code>
               </p>
             </div>
           </div>
@@ -323,9 +327,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
               disabled={loading}
               title="Refresh devices list"
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#64748b',
+                border: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                background: isDark ? '#0f172a' : '#f8fafc',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -345,7 +349,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                   animation: loading ? 'spin 1s linear infinite' : 'none',
                 }}
               >
-                <RefreshIcon size={14} color="#64748b" />
+                <RefreshIcon size={14} color={isDark ? '#94a3b8' : '#64748b'} />
               </span>
             </button>
 
@@ -357,7 +361,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 background: 'transparent',
                 fontSize: '18px',
                 cursor: 'pointer',
-                color: '#94a3b8',
+                color: isDark ? '#94a3b8' : '#94a3b8',
                 padding: '4px',
                 display: 'flex',
                 alignItems: 'center',
@@ -374,10 +378,10 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           <div
             style={{
               padding: '10px 14px',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#fef2f2',
+              border: `1px solid ${isDark ? '#b91c1c' : '#fecaca'}`,
               borderRadius: '8px',
-              color: '#b91c1c',
+              color: isDark ? '#fca5a5' : '#b91c1c',
               fontSize: '13px',
               marginBottom: '14px',
               display: 'flex',
@@ -389,7 +393,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             <button
               type="button"
               onClick={() => setErrorMessage(null)}
-              style={{ border: 'none', background: 'none', color: '#b91c1c', cursor: 'pointer' }}
+              style={{ border: 'none', background: 'none', color: isDark ? '#fca5a5' : '#b91c1c', cursor: 'pointer' }}
             >
               ✕
             </button>
@@ -400,10 +404,10 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           <div
             style={{
               padding: '10px 14px',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
+              backgroundColor: isDark ? 'rgba(34, 197, 94, 0.2)' : '#f0fdf4',
+              border: `1px solid ${isDark ? '#15803d' : '#bbf7d0'}`,
               borderRadius: '8px',
-              color: '#15803d',
+              color: isDark ? '#86efac' : '#15803d',
               fontSize: '13px',
               marginBottom: '14px',
             }}
@@ -417,16 +421,16 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           <div
             style={{
               padding: '14px',
-              backgroundColor: '#fff1f2',
-              border: '1px solid #fecdd3',
+              backgroundColor: isDark ? 'rgba(225, 29, 72, 0.15)' : '#fff1f2',
+              border: `1px solid ${isDark ? '#9f1239' : '#fecdd3'}`,
               borderRadius: '10px',
               marginBottom: '14px',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#9f1239', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#fecdd3' : '#9f1239', marginBottom: '4px' }}>
               Confirm Device Removal
             </div>
-            <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#be123c', lineHeight: 1.4 }}>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', color: isDark ? '#fda4af' : '#be123c', lineHeight: 1.4 }}>
               Are you sure you want to delete <strong>{confirmDeleteDevice.deviceName || confirmDeleteDevice.deviceId}</strong>?
               The sync file will re-compact its baseline snapshot. If this device connects again later, its local cache will be overwritten with the latest remote state.
             </p>
@@ -457,16 +461,16 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           <div
             style={{
               padding: '14px',
-              backgroundColor: '#fff1f2',
-              border: '1px solid #fecdd3',
+              backgroundColor: isDark ? 'rgba(225, 29, 72, 0.15)' : '#fff1f2',
+              border: `1px solid ${isDark ? '#9f1239' : '#fecdd3'}`,
               borderRadius: '10px',
               marginBottom: '14px',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#9f1239', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#fecdd3' : '#9f1239', marginBottom: '4px' }}>
               Confirm Remove All Other Devices
             </div>
-            <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#be123c', lineHeight: 1.4 }}>
+            <p style={{ margin: '0 0 12px', fontSize: '12px', color: isDark ? '#fda4af' : '#be123c', lineHeight: 1.4 }}>
               Are you sure you want to delete all other devices except this current device?
               Only this current device will remain registered. The sync file will be re-compacted immediately.
             </p>
@@ -495,12 +499,12 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
         {/* Device List Area */}
         <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px', minHeight: '180px' }}>
           {loading && devices.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b', fontSize: '13px' }}>
+            <div style={{ textAlign: 'center', padding: '40px 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: '13px' }}>
               <div
                 style={{
                   width: '24px',
                   height: '24px',
-                  border: '2px solid #e2e8f0',
+                  border: `2px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                   borderTopColor: '#0284c7',
                   borderRadius: '50%',
                   animation: 'spin 0.8s linear infinite',
@@ -514,15 +518,15 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
               style={{
                 textAlign: 'center',
                 padding: '36px 16px',
-                backgroundColor: '#f8fafc',
+                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
                 borderRadius: '12px',
-                border: '1px dashed #cbd5e1',
-                color: '#64748b',
+                border: `1px dashed ${isDark ? '#334155' : '#cbd5e1'}`,
+                color: isDark ? '#94a3b8' : '#64748b',
               }}
             >
               <div style={{ fontSize: '28px', marginBottom: '8px' }}>💻</div>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>No Devices Found</div>
-              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>No Devices Found</div>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8' }}>
                 Run a Raindrop sync to register this device into the workspace.
               </p>
             </div>
@@ -538,8 +542,12 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                     key={device.deviceId}
                     style={{
                       padding: '12px 14px',
-                      backgroundColor: isCurrent ? '#f0fdf4' : '#ffffff',
-                      border: isCurrent ? '1.5px solid #86efac' : '1px solid #e2e8f0',
+                      backgroundColor: isCurrent
+                        ? (isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0fdf4')
+                        : (isDark ? '#0f172a' : '#ffffff'),
+                      border: isCurrent
+                        ? `1.5px solid ${isDark ? '#16a34a' : '#86efac'}`
+                        : `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                       borderRadius: '12px',
                       display: 'flex',
                       alignItems: 'center',
@@ -556,15 +564,17 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                           width: '34px',
                           height: '34px',
                           borderRadius: '8px',
-                          backgroundColor: isCurrent ? '#dcfce7' : '#f1f5f9',
-                          color: isCurrent ? '#16a34a' : '#64748b',
+                          backgroundColor: isCurrent
+                            ? (isDark ? 'rgba(34, 197, 94, 0.25)' : '#dcfce7')
+                            : (isDark ? '#1e293b' : '#f1f5f9'),
+                          color: isCurrent ? (isDark ? '#4ade80' : '#16a34a') : (isDark ? '#94a3b8' : '#64748b'),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
                         }}
                       >
-                        <LaptopIcon size={18} color={isCurrent ? '#16a34a' : '#64748b'} />
+                        <LaptopIcon size={18} color={isCurrent ? (isDark ? '#4ade80' : '#16a34a') : (isDark ? '#94a3b8' : '#64748b')} />
                       </div>
 
                       <div style={{ minWidth: 0, flex: 1 }}>
@@ -586,6 +596,8 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 fontSize: '13px',
                                 borderRadius: '6px',
                                 border: '1.5px solid #0284c7',
+                                backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                                color: isDark ? '#f8fafc' : '#0f172a',
                                 outline: 'none',
                               }}
                             />
@@ -616,9 +628,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                               disabled={isBusy}
                               title="Cancel"
                               style={{
-                                border: '1px solid #cbd5e1',
-                                background: '#f8fafc',
-                                color: '#64748b',
+                                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                                background: isDark ? '#1e293b' : '#f8fafc',
+                                color: isDark ? '#94a3b8' : '#64748b',
                                 width: '26px',
                                 height: '26px',
                                 borderRadius: '6px',
@@ -639,7 +651,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 style={{
                                   fontSize: '13px',
                                   fontWeight: 600,
-                                  color: '#0f172a',
+                                  color: isDark ? '#f8fafc' : '#0f172a',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
@@ -662,7 +674,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 style={{
                                   fontFamily: 'monospace',
                                   fontSize: '11px',
-                                  color: '#94a3b8',
+                                  color: isDark ? '#64748b' : '#94a3b8',
                                 }}
                                 title={device.deviceId}
                               >
@@ -670,8 +682,8 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                   ? `${device.deviceId.substring(0, 16)}...`
                                   : device.deviceId}
                               </span>
-                              <span style={{ fontSize: '11px', color: '#cbd5e1' }}>•</span>
-                              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                              <span style={{ fontSize: '11px', color: isDark ? '#475569' : '#cbd5e1' }}>•</span>
+                              <span style={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#64748b' }}>
                                 {formatSyncTime(device.lastSyncAt)}
                               </span>
                             </div>
@@ -691,9 +703,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                             disabled={isBusy}
                             title="Rename Current Device"
                             style={{
-                              border: '1px solid #e2e8f0',
-                              background: '#f8fafc',
-                              color: '#475569',
+                              border: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                              background: isDark ? '#1e293b' : '#f8fafc',
+                              color: isDark ? '#cbd5e1' : '#475569',
                               width: '28px',
                               height: '28px',
                               borderRadius: '6px',
@@ -705,7 +717,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                               transition: 'all 0.15s ease',
                             }}
                           >
-                            <EditIcon size={14} color="#475569" />
+                            <EditIcon size={14} color={isDark ? '#cbd5e1' : '#475569'} />
                           </button>
                         )}
 
@@ -715,8 +727,8 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                           disabled={isBusy}
                           title="Delete Device"
                           style={{
-                            border: '1px solid #fee2e2',
-                            background: '#fef2f2',
+                            border: `1px solid ${isDark ? '#7f1d1d' : '#fee2e2'}`,
+                            background: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2',
                             color: '#ef4444',
                             width: '28px',
                             height: '28px',
@@ -747,14 +759,14 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             justifyContent: 'space-between',
             alignItems: 'center',
             marginTop: '18px',
-            borderTop: '1px solid #f1f5f9',
+            borderTop: `1px solid ${isDark ? '#334155' : '#f1f5f9'}`,
             paddingTop: '14px',
             gap: '8px',
             flexWrap: 'wrap',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+            <span style={{ fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8' }}>
               {devices.length} registered device{devices.length === 1 ? '' : 's'}
             </span>
 

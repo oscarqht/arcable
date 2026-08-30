@@ -10,11 +10,12 @@ import {
   DevicesIcon,
   DeviceModal,
 } from '@arcable/shared/components';
-import { getLocalFolderExpanded, setLocalFolderExpanded } from '@arcable/shared/hooks';
+import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
+  const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
@@ -249,7 +250,8 @@ export const App: React.FC = () => {
         width: '100%',
         overflow: 'hidden',
         overscrollBehavior: 'none',
-        backgroundColor: '#f8fafc',
+        backgroundColor: isDark ? '#0b0f19' : '#f8fafc',
+        color: isDark ? '#f8fafc' : '#0f172a',
       }}
     >
       <Header
@@ -281,9 +283,9 @@ export const App: React.FC = () => {
               }
               aria-label="Raindrop Sync"
               style={{
-                border: '1px solid #bae6fd',
-                background: isSyncing ? '#f0f9ff' : '#e0f2fe',
-                color: '#0284c7',
+                border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+                background: isDark ? 'rgba(56, 189, 248, 0.15)' : (isSyncing ? '#f0f9ff' : '#e0f2fe'),
+                color: isDark ? '#38bdf8' : '#0284c7',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -303,7 +305,7 @@ export const App: React.FC = () => {
                   animation: isSyncing ? 'spin 1s linear infinite' : 'none',
                 }}
               >
-                <DropletIcon size={15} color="#0284c7" />
+                <DropletIcon size={15} color={isDark ? '#38bdf8' : '#0284c7'} />
               </span>
             </button>
 
@@ -340,9 +342,9 @@ export const App: React.FC = () => {
               title="Add Space"
               aria-label="Add Space"
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#f1f5f9',
-                color: '#0284c7',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                background: isDark ? '#1e293b' : '#f1f5f9',
+                color: isDark ? '#38bdf8' : '#0284c7',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -354,7 +356,7 @@ export const App: React.FC = () => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <PlusIcon size={15} color="#0284c7" />
+              <PlusIcon size={15} color={isDark ? '#38bdf8' : '#0284c7'} />
             </button>
 
             {/* 4. Devices management */}
@@ -364,9 +366,9 @@ export const App: React.FC = () => {
               title="Manage Connected Devices"
               aria-label="Manage Connected Devices"
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#64748b',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                background: isDark ? '#151e2e' : '#f8fafc',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -378,7 +380,7 @@ export const App: React.FC = () => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <DevicesIcon size={15} color="#64748b" />
+              <DevicesIcon size={15} color={isDark ? '#94a3b8' : '#64748b'} />
             </button>
 
             {/* 5. JSON */}
@@ -388,9 +390,9 @@ export const App: React.FC = () => {
               title="Inspect Workspace JSON"
               aria-label="Inspect Workspace JSON"
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#f8fafc',
-                color: '#64748b',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                background: isDark ? '#151e2e' : '#f8fafc',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -402,7 +404,7 @@ export const App: React.FC = () => {
                 transition: 'all 0.15s ease',
               }}
             >
-              <BracesIcon size={15} color="#64748b" />
+              <BracesIcon size={15} color={isDark ? '#94a3b8' : '#64748b'} />
             </button>
 
             {/* Settings */}
@@ -414,7 +416,7 @@ export const App: React.FC = () => {
               style={{
                 border: '1px solid transparent',
                 background: 'transparent',
-                color: '#64748b',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',

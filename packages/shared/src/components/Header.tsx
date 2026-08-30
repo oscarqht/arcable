@@ -1,6 +1,7 @@
 import React from 'react';
 import { Badge } from './Badge';
 import { ARCABLE_LOGO_DATA_URL } from '../assets/logo';
+import { useSystemTheme } from '../hooks/useSystemTheme';
 
 export interface HeaderProps {
   title?: string;
@@ -21,6 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   actions,
   style,
 }) => {
+  const { isDark } = useSystemTheme();
+
   return (
     <header
       style={{
@@ -28,8 +31,9 @@ export const Header: React.FC<HeaderProps> = ({
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '12px 16px',
-        backgroundColor: '#ffffff',
-        borderBottom: '1px solid #e2e8f0',
+        backgroundColor: isDark ? '#151e2e' : '#ffffff',
+        borderBottom: isDark ? '1px solid #243247' : '1px solid #e2e8f0',
+        transition: 'background-color 0.2s ease, border-color 0.2s ease',
         ...style,
       }}
     >
@@ -45,7 +49,14 @@ export const Header: React.FC<HeaderProps> = ({
             display: 'block',
           }}
         />
-        <span style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.02em' }}>
+        <span
+          style={{
+            fontSize: '16px',
+            fontWeight: 700,
+            color: isDark ? '#f8fafc' : '#0f172a',
+            letterSpacing: '-0.02em',
+          }}
+        >
           {title}
         </span>
         {badgeText && <Badge variant={badgeVariant}>{badgeText}</Badge>}

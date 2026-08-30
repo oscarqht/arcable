@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Folder, Tab } from '../../types/workspace';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls } from '../../utils/treeUtils';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { TabRow } from './TabRow';
 import {
   ChevronRightIcon,
@@ -54,7 +55,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   allFolders,
   allTabs,
   depth = 0,
-  isDarkTheme = false,
+  isDarkTheme,
   compact = false,
   alwaysShowActions = false,
   onToggleExpand,
@@ -72,6 +73,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onMoveSiblingItem,
   onReorderSiblingItem,
 }) => {
+  const { isDark: isSystemDark } = useSystemTheme();
+  const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
@@ -161,11 +164,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     } catch {}
   };
 
-  const hoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
-  const activeIconHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
-  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
-  const subtextColor = isDarkTheme ? 'rgba(255, 255, 255, 0.65)' : 'rgba(25, 28, 27, 0.6)';
-  const guideLineColor = isDarkTheme ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.1)';
+  const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
+  const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
+  const textColor = effectiveDark ? '#ffffff' : '#191c1b';
+  const subtextColor = effectiveDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(25, 28, 27, 0.6)';
+  const guideLineColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.1)';
 
   return (
     <div
@@ -197,7 +200,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           borderRadius: '10px',
           backgroundColor:
             dropIndicator === 'inside'
-              ? isDarkTheme ? 'rgba(255, 255, 255, 0.25)' : '#e0f2fe'
+              ? effectiveDark ? 'rgba(255, 255, 255, 0.25)' : '#e0f2fe'
               : isHovered
               ? hoverBg
               : 'transparent',
@@ -480,7 +483,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   allFolders={allFolders}
                   allTabs={allTabs}
                   depth={depth + 1}
-                  isDarkTheme={isDarkTheme}
+                  isDarkTheme={effectiveDark}
                   compact={compact}
                   alwaysShowActions={alwaysShowActions}
                   onToggleExpand={onToggleExpand}
@@ -513,7 +516,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <TabRow
                 key={item.id}
                 tab={item.data}
-                isDarkTheme={isDarkTheme}
+                isDarkTheme={effectiveDark}
                 compact={compact}
                 alwaysShowActions={alwaysShowActions}
                 onOpen={onOpenTab}

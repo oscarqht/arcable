@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 interface SpaceModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
   space,
   onSave,
 }) => {
+  const { isDark } = useSystemTheme();
   const [name, setName] = useState('');
   const [emojiIcon, setEmojiIcon] = useState('');
   const [colors, setColors] = useState('');
@@ -68,29 +70,33 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 99999,
         padding: '16px',
+        backdropFilter: 'blur(4px)',
       }}
       onClick={onClose}
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '12px',
           padding: '24px',
           width: '100%',
           maxWidth: '440px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          boxShadow: isDark
+            ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
+            : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
           position: 'relative',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
             {space ? 'Edit Space' : 'New Space'}
           </h2>
           <button
@@ -101,7 +107,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
               background: 'transparent',
               fontSize: '20px',
               cursor: 'pointer',
-              color: '#64748b',
+              color: isDark ? '#94a3b8' : '#64748b',
               padding: '4px',
             }}
           >
@@ -111,7 +117,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               Space Name <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <input
@@ -123,7 +129,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '14px',
                 boxSizing: 'border-box',
                 outline: 'none',
@@ -141,7 +149,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
           />
 
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               Color Theme (Optional)
             </label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -153,8 +161,8 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                   width: '30px',
                   height: '30px',
                   borderRadius: '50%',
-                  backgroundColor: '#f8fafc',
-                  border: !colors ? '2.5px solid #0f172a' : '1.5px solid #cbd5e1',
+                  backgroundColor: isDark ? '#334155' : '#f8fafc',
+                  border: !colors ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : (isDark ? '1.5px solid #475569' : '1.5px solid #cbd5e1'),
                   cursor: 'pointer',
                   outline: 'none',
                   position: 'relative',
@@ -168,7 +176,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="8" cy="8" r="6" stroke="#94a3b8" strokeWidth="1.5" />
+                  <circle cx="8" cy="8" r="6" stroke={isDark ? '#94a3b8' : '#94a3b8'} strokeWidth="1.5" />
                   <line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#ef4444" strokeWidth="1.5" />
                 </svg>
               </button>
@@ -182,7 +190,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                     height: '30px',
                     borderRadius: '50%',
                     backgroundColor: c,
-                    border: colors === c ? '2.5px solid #0f172a' : '1.5px solid rgba(0,0,0,0.08)',
+                    border: colors === c ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : '1.5px solid rgba(0,0,0,0.15)',
                     cursor: 'pointer',
                     outline: 'none',
                     boxSizing: 'border-box',

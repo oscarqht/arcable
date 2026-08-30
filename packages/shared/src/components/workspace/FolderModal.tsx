@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 interface FolderModalProps {
   isOpen: boolean;
@@ -45,6 +46,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   onDelete,
   onSave,
 }) => {
+  const { isDark } = useSystemTheme();
   const [name, setName] = useState('');
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
@@ -128,18 +130,20 @@ export const FolderModal: React.FC<FolderModalProps> = ({
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '12px',
           padding: '24px',
           width: '100%',
           maxWidth: '460px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: '1px solid #e2e8f0',
+          boxShadow: isDark
+            ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
+            : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
             {folder ? 'Edit Folder' : 'Create New Folder'}
           </h3>
           <button
@@ -149,7 +153,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               background: 'none',
               fontSize: '18px',
               cursor: 'pointer',
-              color: '#94a3b8',
+              color: isDark ? '#94a3b8' : '#94a3b8',
             }}
           >
             ✕
@@ -158,7 +162,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               Folder Name <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <input
@@ -170,7 +174,9 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '14px',
                 boxSizing: 'border-box',
                 outline: 'none',
@@ -182,7 +188,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
                 Parent Space <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <select
@@ -195,9 +201,10 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   width: '100%',
                   padding: '9px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                   fontSize: '13px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   boxSizing: 'border-box',
                 }}
               >
@@ -210,7 +217,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
                 Parent Folder (Optional)
               </label>
               <select
@@ -220,9 +227,10 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   width: '100%',
                   padding: '9px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                   fontSize: '13px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   boxSizing: 'border-box',
                 }}
               >
@@ -245,7 +253,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
 
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               Color Accent (Optional)
             </label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -257,8 +265,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   width: '30px',
                   height: '30px',
                   borderRadius: '50%',
-                  backgroundColor: '#f8fafc',
-                  border: !colors ? '2.5px solid #0f172a' : '1.5px solid #cbd5e1',
+                  backgroundColor: isDark ? '#334155' : '#f8fafc',
+                  border: !colors ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : (isDark ? '1.5px solid #475569' : '1.5px solid #cbd5e1'),
                   cursor: 'pointer',
                   outline: 'none',
                   position: 'relative',
@@ -286,7 +294,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                     height: '30px',
                     borderRadius: '50%',
                     backgroundColor: c,
-                    border: colors === c ? '2.5px solid #0f172a' : '1.5px solid rgba(0,0,0,0.08)',
+                    border: colors === c ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : '1.5px solid rgba(0,0,0,0.15)',
                     cursor: 'pointer',
                     outline: 'none',
                     boxSizing: 'border-box',
@@ -321,7 +329,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   borderRadius: '6px',
                   transition: 'background-color 0.15s ease',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2')}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 🗑️ Delete Folder

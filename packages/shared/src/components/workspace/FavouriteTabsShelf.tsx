@@ -5,6 +5,7 @@ import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   StarIcon,
   PlusIcon,
@@ -31,6 +32,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onAddFavouriteTab,
   onReorderFavouriteTabs,
 }) => {
+  const { isDark } = useSystemTheme();
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
@@ -79,10 +81,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         flexDirection: 'column',
         gap: '10px',
         padding: '14px 16px',
-        backgroundColor: '#ffffff',
+        backgroundColor: isDark ? '#1e293b' : '#ffffff',
         borderRadius: '20px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
+        border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+        boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.03)',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -101,14 +103,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             style={{
               fontSize: '11px',
               fontWeight: 700,
-              color: '#475569',
+              color: isDark ? '#94a3b8' : '#475569',
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
             }}
           >
             Favourites ({tabs.length})
           </span>
-          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400 }}>
+          <span style={{ fontSize: '11px', color: isDark ? '#64748b' : '#94a3b8', fontWeight: 400 }}>
             • Global bookmarks
           </span>
         </div>
@@ -119,7 +121,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           style={{
             border: 'none',
             background: 'transparent',
-            color: '#0284c7',
+            color: isDark ? '#38bdf8' : '#0284c7',
             fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer',
@@ -144,9 +146,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             justifyContent: 'center',
             padding: '14px',
             borderRadius: '12px',
-            border: '1px dashed #cbd5e1',
-            backgroundColor: '#f8fafc',
-            color: '#64748b',
+            border: `1px dashed ${isDark ? '#334155' : '#cbd5e1'}`,
+            backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+            color: isDark ? '#94a3b8' : '#64748b',
             fontSize: '13px',
             cursor: 'pointer',
             gap: '6px',
@@ -204,16 +206,28 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   width: '100%',
                   minWidth: 0,
                   height: '48px',
-                  backgroundColor: isHovered ? '#f0fdf4' : '#f8fafc',
-                  border: isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
-                  borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
-                  borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
+                  backgroundColor: isHovered
+                    ? isDark ? 'rgba(255,255,255,0.1)' : '#f0fdf4'
+                    : isDark ? '#0f172a' : '#f8fafc',
+                  border: isHovered
+                    ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
+                    : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  borderLeft: isDragTarget && dropPosition === 'before'
+                    ? `3px solid ${isDark ? '#38bdf8' : '#0284c7'}`
+                    : isHovered
+                    ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
+                    : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  borderRight: isDragTarget && dropPosition === 'after'
+                    ? `3px solid ${isDark ? '#38bdf8' : '#0284c7'}`
+                    : isHovered
+                    ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
+                    : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
                   borderRadius: '12px',
                   cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
                   userSelect: 'none',
-                  boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                  boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
                   boxSizing: 'border-box',
                 }}
                 title={tooltipText}
@@ -223,7 +237,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     width: '32px',
                     height: '32px',
                     borderRadius: '8px',
-                    backgroundColor: isHovered ? '#ffffff' : 'transparent',
+                    backgroundColor: isHovered ? (isDark ? 'rgba(255,255,255,0.08)' : '#ffffff') : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -237,7 +251,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     size={32}
                     emojiSize={26}
                     globeIconSize={24}
-                    globeIconColor="#64748b"
+                    globeIconColor={isDark ? '#94a3b8' : '#64748b'}
                     showDomainFallback={true}
                   />
                 </div>
@@ -249,14 +263,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       position: 'absolute',
                       top: '-6px',
                       right: '-6px',
-                      backgroundColor: '#ffffff',
-                      border: '1px solid #e2e8f0',
+                      backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                      border: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
                       borderRadius: '16px',
                       padding: '2px 4px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '2px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
                       zIndex: 10,
                     }}
                     onClick={(e) => e.stopPropagation()}
@@ -292,7 +306,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       style={{
                         border: 'none',
                         background: 'none',
-                        color: '#64748b',
+                        color: isDark ? '#94a3b8' : '#64748b',
                         cursor: 'pointer',
                         padding: '2px',
                         display: 'flex',

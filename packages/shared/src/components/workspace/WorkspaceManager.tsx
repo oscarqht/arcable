@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useImperativeHandle, useRef } from
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { useWorkspace } from '../../hooks/useWorkspace';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   getOrCreateDeviceId,
   getStoredPendingOperations,
@@ -82,6 +83,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
+  const { isDark } = useSystemTheme();
   const {
     data,
     isLoaded,
@@ -703,7 +705,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   if (!isLoaded) {
     return (
-      <div style={{ padding: '32px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+      <div style={{ padding: '32px', textAlign: 'center', color: isDark ? '#94a3b8' : '#64748b', fontSize: '14px' }}>
         Loading workspace...
       </div>
     );
@@ -744,10 +746,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             flexDirection: 'column',
             gap: '10px',
             padding: '12px 14px',
-            backgroundColor: '#ffffff',
+            backgroundColor: isDark ? '#151e2e' : '#ffffff',
             borderRadius: '14px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+            border: `1px solid ${isDark ? '#243247' : '#e2e8f0'}`,
+            boxShadow: isDark ? '0 1px 3px rgba(0, 0, 0, 0.3)' : '0 1px 3px rgba(0, 0, 0, 0.04)',
           }}
         >
         <div
@@ -765,14 +767,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               style={{
                 fontSize: '11px',
                 fontWeight: 700,
-                color: '#475569',
+                color: isDark ? '#cbd5e1' : '#475569',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
               }}
             >
               Spaces ({sortedSpaces.length})
             </span>
-            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+            <span style={{ fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8' }}>
               · {totalTabsCount} tabs · {totalFoldersCount} folders
             </span>
 
@@ -782,10 +784,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  backgroundColor: '#f1f5f9',
+                  backgroundColor: isDark ? '#0f172a' : '#f1f5f9',
                   padding: '2px',
                   borderRadius: '8px',
                   marginLeft: '4px',
+                  border: isDark ? '1px solid #1e293b' : 'none',
                 }}
               >
                 <button
@@ -794,8 +797,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   title="Grid View (All spaces rendered as Browser Cards)"
                   style={{
                     border: 'none',
-                    backgroundColor: viewMode === 'grid' ? '#ffffff' : 'transparent',
-                    color: viewMode === 'grid' ? '#0f172a' : '#64748b',
+                    backgroundColor: viewMode === 'grid' ? (isDark ? '#1e293b' : '#ffffff') : 'transparent',
+                    color: viewMode === 'grid' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
                     padding: '4px 8px',
                     borderRadius: '6px',
                     fontSize: '12px',
@@ -804,7 +807,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    boxShadow: viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                    boxShadow: viewMode === 'grid' ? (isDark ? '0 1px 2px rgba(0,0,0,0.4)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -817,8 +820,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   title="Focused Space View (Single space with switcher)"
                   style={{
                     border: 'none',
-                    backgroundColor: viewMode === 'focused' ? '#ffffff' : 'transparent',
-                    color: viewMode === 'focused' ? '#0f172a' : '#64748b',
+                    backgroundColor: viewMode === 'focused' ? (isDark ? '#1e293b' : '#ffffff') : 'transparent',
+                    color: viewMode === 'focused' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
                     padding: '4px 8px',
                     borderRadius: '6px',
                     fontSize: '12px',
@@ -827,7 +830,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    boxShadow: viewMode === 'focused' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                    boxShadow: viewMode === 'focused' ? (isDark ? '0 1px 2px rgba(0,0,0,0.4)' : '0 1px 2px rgba(0,0,0,0.06)') : 'none',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -868,9 +871,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   disabled={isCurrentlySyncing}
                   title="Sync spaces, folders and tabs with Raindrop.io"
                   style={{
-                    border: '1px solid #bae6fd',
-                    background: isCurrentlySyncing ? '#f0f9ff' : '#e0f2fe',
-                    color: '#0284c7',
+                    border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+                    background: isDark
+                      ? (isCurrentlySyncing ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.18)')
+                      : (isCurrentlySyncing ? '#f0f9ff' : '#e0f2fe'),
+                    color: isDark ? '#38bdf8' : '#0284c7',
                     fontSize: '12px',
                     fontWeight: 600,
                     padding: '4px 10px',
@@ -890,7 +895,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       animation: isCurrentlySyncing ? 'spin 1s linear infinite' : 'none',
                     }}
                   >
-                    <DropletIcon size={13} color="#0284c7" />
+                    <DropletIcon size={13} color={isDark ? '#38bdf8' : '#0284c7'} />
                   </span>
                   <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
                 </button>
@@ -903,9 +908,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   setIsSpaceModalOpen(true);
                 }}
                 style={{
-                  border: 'none',
-                  background: '#f1f5f9',
-                  color: '#0284c7',
+                  border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : 'none',
+                  background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#f1f5f9',
+                  color: isDark ? '#38bdf8' : '#0284c7',
                   fontSize: '12px',
                   fontWeight: 600,
                   padding: '5px 10px',
@@ -926,9 +931,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onClick={() => setIsJsonModalOpen(true)}
                   title="Inspect raw workspace JSON in localStorage"
                   style={{
-                    border: 'none',
-                    background: '#f8fafc',
-                    color: '#64748b',
+                    border: isDark ? '1px solid #334155' : 'none',
+                    background: isDark ? '#151e2e' : '#f8fafc',
+                    color: isDark ? '#94a3b8' : '#64748b',
                     fontSize: '12px',
                     padding: '5px 8px',
                     borderRadius: '8px',
@@ -980,9 +985,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     gap: '6px',
                     padding: '7px 14px',
                     borderRadius: '24px',
-                    backgroundColor: isActive ? spaceColor : '#f8fafc',
-                    color: isActive ? '#ffffff' : '#334155',
-                    border: `1px solid ${isActive ? spaceColor : '#e2e8f0'}`,
+                    backgroundColor: isActive ? spaceColor : (isDark ? '#1e293b' : '#f8fafc'),
+                    color: isActive ? '#ffffff' : (isDark ? '#e2e8f0' : '#334155'),
+                    border: `1px solid ${isActive ? spaceColor : (isDark ? '#334155' : '#e2e8f0')}`,
                     borderLeft: isDragTarget && spaceDropPos === 'before' ? '3px solid #0284c7' : undefined,
                     borderRight: isDragTarget && spaceDropPos === 'after' ? '3px solid #0284c7' : undefined,
                     opacity: draggingSpaceId === space.id ? 0.45 : 1,
@@ -1061,9 +1066,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 width: '100%',
                 padding: '8px 32px 8px 36px',
                 borderRadius: '20px',
-                border: '1px solid #cbd5e1',
-                backgroundColor: '#ffffff',
-                color: '#0f172a',
+                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                backgroundColor: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '13px',
                 outline: 'none',
                 boxSizing: 'border-box',
@@ -1545,7 +1550,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         >
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: isDark ? '#151e2e' : '#ffffff',
               borderRadius: '14px',
               padding: '24px',
               width: '100%',
@@ -1553,8 +1558,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               maxHeight: '85vh',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e2e8f0',
+              boxShadow: isDark ? '0 20px 25px -5px rgba(0, 0, 0, 0.5)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: `1px solid ${isDark ? '#243247' : '#e2e8f0'}`,
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1567,10 +1572,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               }}
             >
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                  Single LocalStorage JSON (<code style={{ fontSize: '13px', color: '#0284c7' }}>arcable_workspace_data</code>)
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                  Single LocalStorage JSON (<code style={{ fontSize: '13px', color: '#38bdf8' }}>arcable_workspace_data</code>)
                 </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
                   All Spaces, Folders, and Tabs are stored locally as this unified JSON structure.
                 </p>
               </div>

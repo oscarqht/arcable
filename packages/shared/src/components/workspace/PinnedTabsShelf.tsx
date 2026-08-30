@@ -5,6 +5,7 @@ import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   PinIcon,
   PlusIcon,
@@ -28,7 +29,7 @@ export interface PinnedTabsShelfProps {
 
 export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   tabs,
-  isDarkTheme = false,
+  isDarkTheme,
   shelfBg,
   onOpenTab,
   onEditTab,
@@ -38,6 +39,8 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onAddPinnedTab,
   onReorderPinnedTabs,
 }) => {
+  const { isDark: isSystemDark } = useSystemTheme();
+  const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
@@ -83,10 +86,10 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
     } catch {}
   };
 
-  const resolvedBg = shelfBg || (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.03)');
-  const itemBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.85)';
-  const itemHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.25)' : '#ffffff';
-  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
+  const resolvedBg = shelfBg || (effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.03)');
+  const itemBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.85)';
+  const itemHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.25)' : '#ffffff';
+  const textColor = effectiveDark ? '#ffffff' : '#191c1b';
 
   return (
     <div
@@ -97,7 +100,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
         padding: '10px 12px',
         backgroundColor: resolvedBg,
         borderRadius: '16px',
-        border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}`,
+        border: `1px solid ${effectiveDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}`,
       }}
     >
       {/* Header */}

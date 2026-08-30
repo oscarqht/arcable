@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Header, Card, Button, Badge } from '@arcable/shared/components';
-import { getLocalFolderExpanded, setLocalFolderExpanded } from '@arcable/shared/hooks';
+import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import {
   formatDate,
   generateId,
@@ -14,6 +14,7 @@ import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
+  const { isDark } = useSystemTheme();
   const [currentTab, setCurrentTab] = useState<{ title?: string; url?: string }>({});
   const [items, setItems] = useState<ArcableItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -353,7 +354,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', backgroundColor: isDark ? '#0b0f19' : '#f8fafc', color: isDark ? '#f8fafc' : '#0f172a' }}>
       <Header
         title="Arcable"
         logoSrc={browser.runtime.getURL('icons/icon32.png')}
@@ -391,8 +392,14 @@ export const App: React.FC = () => {
         <div
           style={{
             padding: '8px 12px',
-            backgroundColor: authState.isAuthenticated ? '#f0fdf4' : '#f8fafc',
-            border: `1px solid ${authState.isAuthenticated ? '#bbf7d0' : '#e2e8f0'}`,
+            backgroundColor: authState.isAuthenticated
+              ? (isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0fdf4')
+              : (isDark ? '#151e2e' : '#f8fafc'),
+            border: `1px solid ${
+              authState.isAuthenticated
+                ? (isDark ? 'rgba(34, 197, 94, 0.35)' : '#bbf7d0')
+                : (isDark ? '#243247' : '#e2e8f0')
+            }`,
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
@@ -401,11 +408,11 @@ export const App: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '14px' }}>💧</span>
-            <div style={{ fontSize: '12px', color: '#334155' }}>
+            <div style={{ fontSize: '12px', color: isDark ? '#e2e8f0' : '#334155' }}>
               {authState.isAuthenticated && authState.user ? (
                 <>Raindrop: <strong>{authState.user.name}</strong></>
               ) : (
-                <>Raindrop: <span style={{ color: '#94a3b8' }}>Not connected</span></>
+                <>Raindrop: <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>Not connected</span></>
               )}
             </div>
           </div>
@@ -424,7 +431,7 @@ export const App: React.FC = () => {
         </div>
 
         <Card title="Current Page" subtitle={currentTab.url ? cleanUrl(currentTab.url) : 'No tab detected'}>
-          <div style={{ fontSize: '13px', fontWeight: 500, color: '#334155', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: isDark ? '#e2e8f0' : '#334155', marginBottom: '12px' }}>
             {currentTab.title || 'Looking up active tab...'}
           </div>
 
@@ -457,7 +464,7 @@ export const App: React.FC = () => {
               <Button
                 variant="outline"
                 size="sm"
-                style={{ width: '100%', borderColor: '#bae6fd', color: '#0284c7' }}
+                style={{ width: '100%', borderColor: isDark ? 'rgba(56, 189, 248, 0.4)' : '#bae6fd', color: isDark ? '#38bdf8' : '#0284c7' }}
                 onClick={handleSyncWorkspace}
                 isLoading={syncingWorkspace}
               >
@@ -469,18 +476,18 @@ export const App: React.FC = () => {
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#475569' }}>
               Saved Items ({items.length})
             </span>
             {items.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={handleClear} style={{ color: '#ef4444' }}>
+              <Button variant="ghost" size="sm" onClick={handleClear} style={{ color: isDark ? '#f87171' : '#ef4444' }}>
                 Clear All
               </Button>
             )}
           </div>
 
           {items.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: '13px' }}>
+            <div style={{ textAlign: 'center', padding: '24px 0', color: isDark ? '#64748b' : '#94a3b8', fontSize: '13px' }}>
               No items saved yet.
             </div>
           ) : (
@@ -489,8 +496,8 @@ export const App: React.FC = () => {
                 <div
                   key={item.id}
                   style={{
-                    backgroundColor: '#ffffff',
-                    border: '1px solid #e2e8f0',
+                    backgroundColor: isDark ? '#151e2e' : '#ffffff',
+                    border: `1px solid ${isDark ? '#243247' : '#e2e8f0'}`,
                     borderRadius: '6px',
                     padding: '8px 12px',
                     display: 'flex',
@@ -498,7 +505,7 @@ export const App: React.FC = () => {
                     gap: '4px',
                   }}
                 >
-                  <div style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{item.title}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 500, color: isDark ? '#f8fafc' : '#0f172a' }}>{item.title}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '4px' }}>
                       {item.tags.map((tag: string) => (
@@ -507,7 +514,7 @@ export const App: React.FC = () => {
                         </Badge>
                       ))}
                     </div>
-                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>{formatDate(item.createdAt)}</span>
+                    <span style={{ fontSize: '11px', color: isDark ? '#64748b' : '#94a3b8' }}>{formatDate(item.createdAt)}</span>
                   </div>
                 </div>
               ))}

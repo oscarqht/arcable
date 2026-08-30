@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Header, Card, Button, RaindropAuthCard } from '@arcable/shared/components';
 import { ArcableConfig, RaindropAuthState, ExtensionResponse } from '@arcable/shared/types';
+import { useSystemTheme } from '@arcable/shared/hooks';
 import { browser } from '../utils/browser';
 
 export const App: React.FC = () => {
+  const { isDark } = useSystemTheme();
   const [config, setConfig] = useState<ArcableConfig>({
     theme: 'system',
     syncEnabled: true,
@@ -147,7 +149,7 @@ export const App: React.FC = () => {
         <Card title="Extension Preferences" subtitle="Configure synchronization and browser behavior">
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 500, color: '#334155' }}>Webapp API Endpoint</label>
+              <label style={{ fontSize: '14px', fontWeight: 500, color: isDark ? '#e2e8f0' : '#334155' }}>Webapp API Endpoint</label>
               <input
                 type="text"
                 value={config.apiEndpoint || ''}
@@ -155,7 +157,9 @@ export const App: React.FC = () => {
                 style={{
                   padding: '8px 12px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                  border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   fontSize: '14px',
                 }}
               />
@@ -168,7 +172,7 @@ export const App: React.FC = () => {
                 checked={config.syncEnabled}
                 onChange={(e) => setConfig({ ...config, syncEnabled: e.target.checked })}
               />
-              <label htmlFor="syncEnabled" style={{ fontSize: '14px', color: '#334155' }}>
+              <label htmlFor="syncEnabled" style={{ fontSize: '14px', color: isDark ? '#cbd5e1' : '#334155' }}>
                 Enable cloud sync with Arcable Webapp
               </label>
             </div>
@@ -180,7 +184,7 @@ export const App: React.FC = () => {
                 checked={config.autoCapture}
                 onChange={(e) => setConfig({ ...config, autoCapture: e.target.checked })}
               />
-              <label htmlFor="autoCapture" style={{ fontSize: '14px', color: '#334155' }}>
+              <label htmlFor="autoCapture" style={{ fontSize: '14px', color: isDark ? '#cbd5e1' : '#334155' }}>
                 Auto-capture visited pages metadata
               </label>
             </div>
@@ -189,7 +193,7 @@ export const App: React.FC = () => {
               <Button type="submit" variant="primary">
                 Save Preferences
               </Button>
-              {saved && <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: 500 }}>Saved!</span>}
+              {saved && <span style={{ color: '#22c55e', fontSize: '14px', fontWeight: 500 }}>Saved!</span>}
             </div>
           </form>
         </Card>

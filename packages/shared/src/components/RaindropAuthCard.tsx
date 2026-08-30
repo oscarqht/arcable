@@ -5,6 +5,7 @@ import { Card } from './Card';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { RaindropAuthState } from '../types/raindrop';
+import { useSystemTheme } from '../hooks/useSystemTheme';
 
 export interface RaindropAuthCardProps {
   authState: RaindropAuthState;
@@ -31,6 +32,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
   compact = false,
   onClearError,
 }) => {
+  const { isDark } = useSystemTheme();
   const [authMethod, setAuthMethod] = useState<'oauth' | 'token'>('token');
   const [tokenInput, setTokenInput] = useState('');
   const [submittingToken, setSubmittingToken] = useState(false);
@@ -78,9 +80,9 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
             justifyContent: 'space-between',
             gap: '16px',
             padding: '12px',
-            backgroundColor: '#f8fafc',
+            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
             borderRadius: '8px',
-            border: '1px solid #e2e8f0',
+            border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -93,7 +95,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
                   height: '42px',
                   borderRadius: '50%',
                   objectFit: 'cover',
-                  border: '1px solid #cbd5e1',
+                  border: isDark ? '1px solid #475569' : '1px solid #cbd5e1',
                 }}
               />
             ) : (
@@ -102,7 +104,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
                   width: '42px',
                   height: '42px',
                   borderRadius: '50%',
-                  backgroundColor: '#3b82f6',
+                  backgroundColor: '#0284c7',
                   color: '#ffffff',
                   display: 'flex',
                   alignItems: 'center',
@@ -117,7 +119,13 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: '#0f172a' }}>
+                <span
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  }}
+                >
                   {authState.user.name}
                 </span>
                 {authState.user.isPro && <Badge variant="warning">PRO</Badge>}
@@ -126,7 +134,13 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
                 </Badge>
               </div>
               {authState.user.email && (
-                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    marginTop: '2px',
+                  }}
+                >
                   {authState.user.email}
                 </div>
               )}
@@ -138,7 +152,10 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
             size="sm"
             onClick={onLogout}
             isLoading={isLoading}
-            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            style={{
+              color: isDark ? '#f87171' : '#ef4444',
+              borderColor: isDark ? '#7f1d1d' : '#fca5a5',
+            }}
           >
             Disconnect
           </Button>
@@ -154,7 +171,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
       <div
         style={{
           display: 'flex',
-          borderBottom: '1px solid #e2e8f0',
+          borderBottom: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
           marginBottom: '16px',
           gap: '8px',
         }}
@@ -169,8 +186,12 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
             padding: '8px 14px',
             fontSize: '13px',
             fontWeight: authMethod === 'token' ? 600 : 500,
-            color: authMethod === 'token' ? '#0f172a' : '#64748b',
-            borderBottom: authMethod === 'token' ? '2px solid #0f172a' : '2px solid transparent',
+            color: authMethod === 'token'
+              ? isDark ? '#f8fafc' : '#0f172a'
+              : isDark ? '#94a3b8' : '#64748b',
+            borderBottom: authMethod === 'token'
+              ? isDark ? '2px solid #38bdf8' : '2px solid #0f172a'
+              : '2px solid transparent',
             background: 'none',
             borderTop: 'none',
             borderLeft: 'none',
@@ -190,8 +211,12 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
             padding: '8px 14px',
             fontSize: '13px',
             fontWeight: authMethod === 'oauth' ? 600 : 500,
-            color: authMethod === 'oauth' ? '#0f172a' : '#64748b',
-            borderBottom: authMethod === 'oauth' ? '2px solid #0f172a' : '2px solid transparent',
+            color: authMethod === 'oauth'
+              ? isDark ? '#f8fafc' : '#0f172a'
+              : isDark ? '#94a3b8' : '#64748b',
+            borderBottom: authMethod === 'oauth'
+              ? isDark ? '2px solid #38bdf8' : '2px solid #0f172a'
+              : '2px solid transparent',
             background: 'none',
             borderTop: 'none',
             borderLeft: 'none',
@@ -207,10 +232,10 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         <div
           style={{
             padding: '10px 12px',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
+            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2',
+            border: isDark ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid #fecaca',
             borderRadius: '6px',
-            color: '#b91c1c',
+            color: isDark ? '#fca5a5' : '#b91c1c',
             fontSize: '13px',
             marginBottom: '16px',
           }}
@@ -223,14 +248,21 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         <form onSubmit={handleTokenSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <label htmlFor="raindrop-token-input" style={{ fontSize: '13px', fontWeight: 500, color: '#334155' }}>
+              <label
+                htmlFor="raindrop-token-input"
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: isDark ? '#e2e8f0' : '#334155',
+                }}
+              >
                 Personal API Token
               </label>
               <a
                 href="https://app.raindrop.io/settings/integrations"
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: '12px', color: '#2563eb', textDecoration: 'none' }}
+                style={{ fontSize: '12px', color: isDark ? '#38bdf8' : '#2563eb', textDecoration: 'none' }}
               >
                 Get Token from Raindrop ↗
               </a>
@@ -245,12 +277,21 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
                 width: '100%',
                 padding: '8px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '14px',
                 boxSizing: 'border-box',
               }}
             />
-            <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px', marginBottom: 0 }}>
+            <p
+              style={{
+                fontSize: '12px',
+                color: isDark ? '#94a3b8' : '#64748b',
+                marginTop: '6px',
+                marginBottom: 0,
+              }}
+            >
               Go to <strong>Raindrop Settings → Integrations → Create app / Test token</strong> to generate a personal token.
             </p>
           </div>
@@ -267,7 +308,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         </form>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>
+          <p style={{ fontSize: '13px', color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
             Authorize Arcable to access your Raindrop collections and bookmarks using standard Raindrop OAuth.
           </p>
           {onLoginWithOAuth ? (

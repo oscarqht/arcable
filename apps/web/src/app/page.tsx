@@ -12,10 +12,12 @@ import {
   CloseIcon,
   DeviceModal,
 } from '@arcable/shared/components';
+import { useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
 import { RaindropAuthState } from '@arcable/shared/types';
 
 export default function HomePage() {
+  const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -194,13 +196,22 @@ export default function HomePage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#f8fafc' }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: isDark ? '#0b0f19' : '#f8fafc',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        transition: 'background-color 0.2s ease, color 0.2s ease',
+      }}
+    >
       <Header
         title="Arcable"
         leftContent={
           authState.isAuthenticated && authState.user ? (
-            <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '6px' }}>
-              Signed in as <strong>{authState.user.name}</strong>
+            <span style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '6px' }}>
+              Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{authState.user.name}</strong>
             </span>
           ) : null
         }
@@ -223,7 +234,7 @@ export default function HomePage() {
                   display: 'flex',
                   alignItems: 'center',
                   pointerEvents: 'none',
-                  color: '#94a3b8',
+                  color: isDark ? '#64748b' : '#94a3b8',
                 }}
               >
                 <SearchIcon size={14} />
@@ -239,9 +250,9 @@ export default function HomePage() {
                   height: '32px',
                   padding: '5px 28px 5px 32px',
                   borderRadius: '20px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#ffffff',
-                  color: '#0f172a',
+                  border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                  backgroundColor: isDark ? '#151e2e' : '#ffffff',
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   fontSize: '12px',
                   outline: 'none',
                   boxSizing: 'border-box',
@@ -249,10 +260,12 @@ export default function HomePage() {
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.borderColor = '#0284c7';
-                  e.currentTarget.style.boxShadow = '0 0 0 2px rgba(2, 132, 199, 0.15)';
+                  e.currentTarget.style.boxShadow = isDark
+                    ? '0 0 0 2px rgba(56, 189, 248, 0.25)'
+                    : '0 0 0 2px rgba(2, 132, 199, 0.15)';
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.borderColor = isDark ? '#334155' : '#cbd5e1';
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               />
@@ -269,7 +282,7 @@ export default function HomePage() {
                     transform: 'translateY(-50%)',
                     border: 'none',
                     background: 'transparent',
-                    color: '#94a3b8',
+                    color: isDark ? '#94a3b8' : '#94a3b8',
                     cursor: 'pointer',
                     padding: '2px',
                     display: 'flex',
@@ -292,9 +305,11 @@ export default function HomePage() {
               disabled={isSyncing}
               title="Sync spaces, folders and tabs with Raindrop.io"
               style={{
-                border: '1px solid #bae6fd',
-                background: isSyncing ? '#f0f9ff' : '#e0f2fe',
-                color: '#0284c7',
+                border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+                background: isDark
+                  ? (isSyncing ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.18)')
+                  : (isSyncing ? '#f0f9ff' : '#e0f2fe'),
+                color: isDark ? '#38bdf8' : '#0284c7',
                 fontSize: '12px',
                 fontWeight: 600,
                 padding: '5px 12px',
@@ -314,7 +329,7 @@ export default function HomePage() {
                   animation: isSyncing ? 'spin 1s linear infinite' : 'none',
                 }}
               >
-                <DropletIcon size={13} color="#0284c7" />
+                <DropletIcon size={13} color={isDark ? '#38bdf8' : '#0284c7'} />
               </span>
               <span>{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
             </button>
@@ -323,9 +338,9 @@ export default function HomePage() {
               type="button"
               onClick={() => workspaceRef.current?.openNewSpace()}
               style={{
-                border: 'none',
-                background: '#e0f2fe',
-                color: '#0284c7',
+                border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : 'none',
+                background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
+                color: isDark ? '#38bdf8' : '#0284c7',
                 fontSize: '12px',
                 fontWeight: 600,
                 padding: '5px 12px',
@@ -347,9 +362,9 @@ export default function HomePage() {
               onClick={() => setIsDeviceModalOpen(true)}
               title="Manage connected sync devices"
               style={{
-                border: '1px solid #e2e8f0',
-                background: '#ffffff',
-                color: '#475569',
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
                 fontSize: '12px',
                 fontWeight: 600,
                 padding: '5px 12px',
@@ -361,7 +376,7 @@ export default function HomePage() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <DevicesIcon size={14} color="#64748b" />
+              <DevicesIcon size={14} color={isDark ? '#94a3b8' : '#64748b'} />
               <span>Devices</span>
             </button>
 
@@ -370,9 +385,9 @@ export default function HomePage() {
               onClick={() => workspaceRef.current?.openJsonModal()}
               title="Inspect raw workspace JSON in localStorage"
               style={{
-                border: 'none',
-                background: '#f1f5f9',
-                color: '#64748b',
+                border: isDark ? '1px solid #334155' : 'none',
+                background: isDark ? '#151e2e' : '#f1f5f9',
+                color: isDark ? '#94a3b8' : '#64748b',
                 fontSize: '12px',
                 padding: '5px 10px',
                 borderRadius: '8px',
@@ -390,9 +405,9 @@ export default function HomePage() {
                 onClick={handleLogout}
                 disabled={authLoading}
                 style={{
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: '#475569',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  background: isDark ? '#151e2e' : '#ffffff',
+                  color: isDark ? '#cbd5e1' : '#475569',
                   fontSize: '12px',
                   fontWeight: 600,
                   padding: '5px 12px',
@@ -411,9 +426,9 @@ export default function HomePage() {
                 onClick={handleLoginWithOAuth}
                 disabled={authLoading}
                 style={{
-                  border: '1px solid #bae6fd',
-                  background: '#e0f2fe',
-                  color: '#0284c7',
+                  border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+                  background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
+                  color: isDark ? '#38bdf8' : '#0284c7',
                   fontSize: '12px',
                   fontWeight: 600,
                   padding: '5px 12px',

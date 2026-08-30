@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 interface TabModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export const TabModal: React.FC<TabModalProps> = ({
   onDelete,
   onSave,
 }) => {
+  const { isDark } = useSystemTheme();
   const [url, setUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
   const [customEmojiIcon, setCustomEmojiIcon] = useState('');
@@ -118,18 +120,20 @@ export const TabModal: React.FC<TabModalProps> = ({
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '12px',
           padding: '24px',
           width: '100%',
           maxWidth: '480px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: '1px solid #e2e8f0',
+          boxShadow: isDark
+            ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
+            : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
             {tab ? 'Edit Tab' : 'Add New Tab'}
           </h3>
           <button
@@ -139,7 +143,7 @@ export const TabModal: React.FC<TabModalProps> = ({
               background: 'none',
               fontSize: '18px',
               cursor: 'pointer',
-              color: '#94a3b8',
+              color: isDark ? '#94a3b8' : '#94a3b8',
             }}
           >
             ✕
@@ -148,7 +152,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               URL <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <input
@@ -160,7 +164,9 @@ export const TabModal: React.FC<TabModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '14px',
                 boxSizing: 'border-box',
                 outline: 'none',
@@ -171,7 +177,7 @@ export const TabModal: React.FC<TabModalProps> = ({
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
               Custom Title (Optional)
             </label>
             <input
@@ -183,7 +189,9 @@ export const TabModal: React.FC<TabModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 fontSize: '14px',
                 boxSizing: 'border-box',
                 outline: 'none',
@@ -192,7 +200,18 @@ export const TabModal: React.FC<TabModalProps> = ({
           </div>
 
           {/* Favourite checkbox */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: favourite ? '#f0fdf4' : '#f8fafc', borderRadius: '6px', border: favourite ? '1px solid #86efac' : '1px solid #e2e8f0', transition: 'all 0.15s ease' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 12px',
+              backgroundColor: favourite ? (isDark ? 'rgba(22, 101, 52, 0.25)' : '#f0fdf4') : (isDark ? '#0f172a' : '#f8fafc'),
+              borderRadius: '6px',
+              border: favourite ? `1px solid ${isDark ? '#15803d' : '#86efac'}` : `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+              transition: 'all 0.15s ease',
+            }}
+          >
             <input
               type="checkbox"
               id="favouriteTabCheckbox"
@@ -206,14 +225,14 @@ export const TabModal: React.FC<TabModalProps> = ({
               }}
               style={{ width: '16px', height: '16px', cursor: 'pointer' }}
             />
-            <label htmlFor="favouriteTabCheckbox" style={{ fontSize: '13px', fontWeight: 600, color: favourite ? '#166534' : '#334155', cursor: 'pointer' }}>
+            <label htmlFor="favouriteTabCheckbox" style={{ fontSize: '13px', fontWeight: 600, color: favourite ? (isDark ? '#86efac' : '#166534') : (isDark ? '#cbd5e1' : '#334155'), cursor: 'pointer' }}>
               ⭐ Mark as Favourite (Visible across all spaces)
             </label>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: favourite ? 0.5 : 1 }}>
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
                 Space {favourite ? '(N/A for Favourite)' : <span style={{ color: '#ef4444' }}>*</span>}
               </label>
               <select
@@ -227,9 +246,10 @@ export const TabModal: React.FC<TabModalProps> = ({
                   width: '100%',
                   padding: '9px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                   fontSize: '13px',
-                  backgroundColor: favourite ? '#f1f5f9' : '#ffffff',
+                  backgroundColor: favourite ? (isDark ? '#334155' : '#f1f5f9') : (isDark ? '#0f172a' : '#ffffff'),
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   cursor: favourite ? 'not-allowed' : 'default',
                   boxSizing: 'border-box',
                 }}
@@ -243,7 +263,7 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
                 Folder {favourite ? '(N/A for Favourite)' : '(Optional)'}
               </label>
               <select
@@ -254,9 +274,10 @@ export const TabModal: React.FC<TabModalProps> = ({
                   width: '100%',
                   padding: '9px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                   fontSize: '13px',
-                  backgroundColor: (favourite || pinned) ? '#f1f5f9' : '#ffffff',
+                  backgroundColor: (favourite || pinned) ? (isDark ? '#334155' : '#f1f5f9') : (isDark ? '#0f172a' : '#ffffff'),
+                  color: isDark ? '#f8fafc' : '#0f172a',
                   cursor: (favourite || pinned) ? 'not-allowed' : 'default',
                   boxSizing: 'border-box',
                 }}
@@ -271,7 +292,18 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', opacity: favourite ? 0.5 : 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 12px',
+              backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+              borderRadius: '6px',
+              border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+              opacity: favourite ? 0.5 : 1,
+            }}
+          >
             <input
               type="checkbox"
               id="pinnedTabCheckbox"
@@ -280,7 +312,7 @@ export const TabModal: React.FC<TabModalProps> = ({
               onChange={(e) => setPinned(e.target.checked)}
               style={{ width: '16px', height: '16px', cursor: favourite ? 'not-allowed' : 'pointer' }}
             />
-            <label htmlFor="pinnedTabCheckbox" style={{ fontSize: '13px', fontWeight: 500, color: favourite ? '#94a3b8' : '#334155', cursor: favourite ? 'not-allowed' : 'pointer' }}>
+            <label htmlFor="pinnedTabCheckbox" style={{ fontSize: '13px', fontWeight: 500, color: favourite ? (isDark ? '#64748b' : '#94a3b8') : (isDark ? '#cbd5e1' : '#334155'), cursor: favourite ? 'not-allowed' : 'pointer' }}>
               📌 Pin this tab to the top shelf of the space
             </label>
           </div>
@@ -314,7 +346,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                   borderRadius: '6px',
                   transition: 'background-color 0.15s ease',
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2')}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 🗑️ Delete Tab

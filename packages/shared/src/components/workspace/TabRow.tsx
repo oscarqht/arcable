@@ -5,6 +5,7 @@ import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   CopyIcon,
   CheckIcon,
@@ -37,7 +38,7 @@ export interface TabRowProps {
 
 export const TabRow: React.FC<TabRowProps> = ({
   tab,
-  isDarkTheme = false,
+  isDarkTheme,
   compact = false,
   alwaysShowActions = false,
   onOpen,
@@ -53,6 +54,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   onDropItem,
   onDragEndItem,
 }) => {
+  const { isDark: isSystemDark } = useSystemTheme();
+  const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
@@ -142,9 +145,9 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   // Color tokens
-  const hoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
-  const activeIconHoverBg = isDarkTheme ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
-  const textColor = isDarkTheme ? '#ffffff' : '#191c1b';
+  const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
+  const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
+  const textColor = effectiveDark ? '#ffffff' : '#191c1b';
   const showActions = alwaysShowActions || isHovered;
 
   return (

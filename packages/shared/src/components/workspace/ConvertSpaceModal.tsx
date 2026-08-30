@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Space, Folder } from '../../types/workspace';
 import { Button } from '../Button';
 import { FolderInputIcon } from '../Icons';
+import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 export interface ConvertSpaceModalProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
   allFolders,
   onConvert,
 }) => {
+  const { isDark } = useSystemTheme();
+
   // Available destination spaces (all except the space being converted)
   const destinationSpaces = useMemo(() => {
     if (!space) return [];
@@ -74,13 +77,15 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '14px',
           padding: '24px',
           width: '100%',
           maxWidth: '460px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: '1px solid #e2e8f0',
+          boxShadow: isDark
+            ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
+            : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -98,16 +103,16 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                backgroundColor: '#f0f9ff',
-                color: '#0284c7',
+                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#f0f9ff',
+                color: isDark ? '#38bdf8' : '#0284c7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <FolderInputIcon size={18} color="#0284c7" />
+              <FolderInputIcon size={18} color={isDark ? '#38bdf8' : '#0284c7'} />
             </div>
-            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#0f172a' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
               Convert Space to Folder
             </h3>
           </div>
@@ -119,7 +124,7 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
               background: 'none',
               fontSize: '18px',
               cursor: 'pointer',
-              color: '#94a3b8',
+              color: isDark ? '#94a3b8' : '#94a3b8',
               padding: '4px',
             }}
           >
@@ -132,15 +137,15 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
           style={{
             padding: '10px 14px',
             borderRadius: '8px',
-            backgroundColor: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+            border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
             fontSize: '13px',
-            color: '#475569',
+            color: isDark ? '#cbd5e1' : '#475569',
             marginBottom: '18px',
             lineHeight: 1.5,
           }}
         >
-          Converting space <strong style={{ color: '#0f172a' }}>{space.emojiIcon ? `${space.emojiIcon} ` : ''}{space.name}</strong> will turn it into a folder inside the chosen destination space. All existing folders and tabs will be preserved.
+          Converting space <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{space.emojiIcon ? `${space.emojiIcon} ` : ''}{space.name}</strong> will turn it into a folder inside the chosen destination space. All existing folders and tabs will be preserved.
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -150,7 +155,7 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 display: 'block',
                 fontSize: '13px',
                 fontWeight: 600,
-                color: '#334155',
+                color: isDark ? '#cbd5e1' : '#334155',
                 marginBottom: '6px',
               }}
             >
@@ -166,9 +171,10 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                 fontSize: '14px',
-                backgroundColor: '#ffffff',
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 boxSizing: 'border-box',
                 outline: 'none',
               }}
@@ -188,7 +194,7 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 display: 'block',
                 fontSize: '13px',
                 fontWeight: 600,
-                color: '#334155',
+                color: isDark ? '#cbd5e1' : '#334155',
                 marginBottom: '6px',
               }}
             >
@@ -201,9 +207,10 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: '1px solid #cbd5e1',
+                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                 fontSize: '14px',
-                backgroundColor: '#ffffff',
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 boxSizing: 'border-box',
                 outline: 'none',
               }}
