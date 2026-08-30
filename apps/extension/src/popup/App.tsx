@@ -32,7 +32,7 @@ export const App: React.FC = () => {
     });
 
     // Load saved items from extension storage
-    browser.storage.local.get(['arcable_items', 'arcable_workspace_snapshot']).then((res) => {
+    browser.storage.local.get(['arcable_items', 'arcable_workspace_snapshot']).then((res: any) => {
       if (res.arcable_items && Array.isArray(res.arcable_items)) {
         setItems(res.arcable_items);
       }
@@ -102,7 +102,7 @@ export const App: React.FC = () => {
           workspace = {
             activeSpaceId: 'space_personal',
             version: 1,
-            spaces: [{ id: 'space_personal', name: 'Personal', emojiIcon: '🏠', colors: '#6366f1', createdAt: now, updatedAt: now }],
+            spaces: [{ id: 'space_personal', name: 'Personal', emojiIcon: '🏠', colors: '#5becad', createdAt: now, updatedAt: now }],
             folders: [],
             tabs: [],
           };

@@ -19,28 +19,88 @@ console.log('[Arcable Extension] Background service worker / script initialized.
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
 const STORAGE_KEY_ITEMS = 'arcable_items';
 
-// Helper to get current stored Raindrop auth state
-async function getStoredAuthState(): Promise<RaindropAuthState> {
+let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
+
+// Sync Chrome SidePanel action behavior dynamically based on auth state
+async function syncSidePanelBehavior(isLoggedIn?: boolean): Promise<void> {
   try {
-    const res = await browser.storage.local.get(STORAGE_KEY_AUTH);
+    if (typeof isLoggedIn === 'undefined') {
+      const auth = await getStoredAuthState();
+      isLoggedIn = Boolean(auth && auth.isAuthenticated && auth.accessToken);
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: isLoggedIn,
+      });
+      console.log(`[Arcable Background] SidePanel behavior updated: openPanelOnActionClick = ${isLoggedIn}`);
+    }
+  } catch (err) {
+    console.warn('[Arcable Background] Could not update sidePanel behavior:', err);
+  }
+}
+
+// Helper to get current stored Raindrop auth state (instant local storage lookup)
+async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
+  if (!forceRefresh && cachedAuthState && cachedAuthState.isAuthenticated && cachedAuthState.accessToken) {
+    return cachedAuthState;
+  }
+
+  try {
+    const res = (await browser.storage.local.get([
+      STORAGE_KEY_AUTH,
+      'arcable_token',
+      'raindrop_token',
+      'arcable_config',
+    ])) as Record<string, any>;
     const auth = res[STORAGE_KEY_AUTH] as RaindropAuthState | undefined;
-    if (auth && auth.accessToken && auth.user) {
-      return auth;
+    if (auth && (auth.accessToken || (auth as any).token) && auth.isAuthenticated !== false) {
+      cachedAuthState = {
+        ...auth,
+        accessToken: auth.accessToken || (auth as any).token,
+        isAuthenticated: true,
+      };
+      return cachedAuthState;
+    }
+
+    // Check alternate token storage keys if any
+    const altToken =
+      res.arcable_token ||
+      res.raindrop_token ||
+      res.arcable_config?.apiToken ||
+      res.arcable_config?.token;
+    if (altToken && typeof altToken === 'string' && altToken.trim()) {
+      const clean = altToken.trim();
+      const authState: RaindropAuthState = {
+        isAuthenticated: true,
+        authType: 'token',
+        accessToken: clean,
+        user: { id: 1, name: 'Raindrop User' },
+      };
+      cachedAuthState = authState;
+      await browser.storage.local.set({ [STORAGE_KEY_AUTH]: authState });
+      return authState;
     }
   } catch (err) {
     console.error('[Arcable Background] Error reading auth state:', err);
   }
-  return { isAuthenticated: false };
+
+  cachedAuthState = { isAuthenticated: false };
+  return cachedAuthState;
 }
 
 // Helper to save auth state
 async function saveAuthState(auth: RaindropAuthState): Promise<void> {
+  cachedAuthState = auth;
   await browser.storage.local.set({ [STORAGE_KEY_AUTH]: auth });
+  void syncSidePanelBehavior(Boolean(auth && auth.isAuthenticated && auth.accessToken));
 }
 
 // Helper to clear auth state
 async function clearAuthState(): Promise<void> {
+  cachedAuthState = { isAuthenticated: false };
   await browser.storage.local.remove(STORAGE_KEY_AUTH);
+  void syncSidePanelBehavior(false);
 }
 
 // Process OAuth tokens received via bridge or launchWebAuthFlow
@@ -125,7 +185,16 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Token is required' };
         }
 
-        const user = await fetchRaindropUser(token);
+        let user = await fetchRaindropUser(token);
+        if (!user) {
+          try {
+            const collections = await fetchRaindropCollections(token);
+            if (collections && Array.isArray(collections)) {
+              user = { id: 1, name: 'Raindrop User', isPro: false };
+            }
+          } catch {}
+        }
+
         if (!user) {
           return {
             success: false,
@@ -325,7 +394,85 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageE
   });
 }
 
+// Keep cached state and SidePanel behavior in sync with extension storage changes
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local') {
+    if (changes.arcable_raindrop_auth) {
+      const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
+      cachedAuthState = newAuth && newAuth.isAuthenticated && newAuth.accessToken ? newAuth : { isAuthenticated: false };
+      void syncSidePanelBehavior(Boolean(cachedAuthState.isAuthenticated && cachedAuthState.accessToken));
+    } else if (changes.arcable_token || changes.arcable_config) {
+      void getStoredAuthState(true).then((auth) => {
+        void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
+      });
+    }
+  }
+});
+
 browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
+  void getStoredAuthState(true).then((auth) => {
+    void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
+  });
   void triggerBackgroundSync();
 });
+
+// Initial side panel behavior synchronization on service worker load
+void getStoredAuthState(true).then((auth) => {
+  void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
+});
+
+// Handle extension toolbar action click:
+// - If not logged in / no API token -> open options page
+// - Otherwise -> open side panel
+async function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): Promise<void> {
+  try {
+    const auth = await getStoredAuthState();
+    const isLoggedIn = Boolean(auth && auth.isAuthenticated && auth.accessToken);
+
+    if (!isLoggedIn) {
+      // Instantly open options page with 0ms delay
+      if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.openOptionsPage === 'function') {
+        chrome.runtime.openOptionsPage();
+      } else if (browser.runtime && typeof browser.runtime.openOptionsPage === 'function') {
+        void browser.runtime.openOptionsPage();
+      } else {
+        void browser.tabs.create({ url: browser.runtime.getURL('options/index.html') });
+      }
+    } else {
+      // Logged in with API token / OAuth -> open side panel
+      try {
+        if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+          const windowId = tab?.windowId;
+          if (windowId !== undefined) {
+            await chrome.sidePanel.open({ windowId });
+          } else if (tab?.id !== undefined) {
+            await chrome.sidePanel.open({ tabId: tab.id });
+          } else {
+            const currentWin = await browser.windows.getCurrent();
+            if (currentWin?.id !== undefined) {
+              await chrome.sidePanel.open({ windowId: currentWin.id });
+            }
+          }
+        } else if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
+          await (browser as any).sidebarAction.open();
+        } else {
+          await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+        }
+      } catch (openErr) {
+        console.warn('[Arcable Background] Side panel open failed, opening sidepanel tab fallback:', openErr);
+        await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+      }
+    }
+  } catch (err) {
+    console.error('[Arcable Background] Error handling action click:', err);
+  }
+}
+
+if (browser.action && browser.action.onClicked) {
+  browser.action.onClicked.addListener(handleActionClick);
+} else if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
+  chrome.action.onClicked.addListener(handleActionClick);
+}
+
+

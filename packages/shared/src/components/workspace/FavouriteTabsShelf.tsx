@@ -77,12 +77,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
-        padding: '12px 14px',
+        gap: '10px',
+        padding: '14px 16px',
         backgroundColor: '#ffffff',
-        borderRadius: '14px',
+        borderRadius: '20px',
         border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -92,10 +92,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#eab308',
+              color: '#d4a373',
             }}
           >
-            <StarIcon size={15} filled={true} />
+            <StarIcon size={16} filled={true} />
           </div>
           <span
             style={{
@@ -123,7 +123,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer',
-            padding: '2px 8px',
+            padding: '3px 8px',
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
@@ -142,18 +142,18 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '12px',
-            borderRadius: '8px',
+            padding: '14px',
+            borderRadius: '12px',
             border: '1px dashed #cbd5e1',
             backgroundColor: '#f8fafc',
             color: '#64748b',
-            fontSize: '12px',
+            fontSize: '13px',
             cursor: 'pointer',
             gap: '6px',
             transition: 'all 0.15s ease',
           }}
         >
-          <StarIcon size={14} color="#eab308" filled={true} />
+          <StarIcon size={14} color="#d4a373" filled={true} />
           <span>No favourite tabs yet. Click to add a favourite accessible across all spaces.</span>
         </div>
       ) : (
@@ -199,27 +199,27 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '6px 8px',
+                  padding: '8px 12px',
                   backgroundColor: isHovered ? '#f0fdf4' : '#f8fafc',
                   border: isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
                   borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
                   borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : isHovered ? '1px solid #86efac' : '1px solid #e2e8f0',
-                  borderRadius: '8px',
+                  borderRadius: '12px',
                   cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
                   overflow: 'hidden',
                   userSelect: 'none',
-                  boxShadow: isHovered ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
+                  boxShadow: isHovered ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
                 }}
                 title={`${displayTitle}\n${tab.url} (Favourite - Drag to reorder)`}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
                   <div
                     style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '5px',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '7px',
                       backgroundColor: isHovered ? '#ffffff' : '#f1f5f9',
                       display: 'flex',
                       alignItems: 'center',
@@ -231,15 +231,15 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     <TabFavicon
                       url={tab.url}
                       customEmojiIcon={tab.customEmojiIcon}
-                      size={14}
-                      emojiSize={13}
-                      globeIconSize={12}
+                      size={16}
+                      emojiSize={14}
+                      globeIconSize={14}
                       globeIconColor="#64748b"
                     />
                   </div>
                   <span
                     style={{
-                      fontSize: '12px',
+                      fontSize: '13px',
                       fontWeight: 600,
                       color: '#0f172a',
                       overflow: 'hidden',

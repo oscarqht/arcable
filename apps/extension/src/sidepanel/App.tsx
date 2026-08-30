@@ -1,11 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { Header, Button, WorkspaceManager } from '@arcable/shared/components';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Header,
+  WorkspaceManager,
+  WorkspaceManagerHandle,
+  DropletIcon,
+  ZapIcon,
+  PlusIcon,
+  BracesIcon,
+} from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded } from '@arcable/shared/hooks';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
+  const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
 
   useEffect(() => {
     // Check initial Raindrop auth & cached snapshot
@@ -169,6 +180,18 @@ export const App: React.FC = () => {
     return null;
   };
 
+  const handleCaptureCurrentTabFromHeader = async () => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+    try {
+      if (workspaceRef.current) {
+        await workspaceRef.current.captureCurrentTab();
+      }
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   return (
     <div
       style={{
@@ -189,14 +212,152 @@ export const App: React.FC = () => {
         badgeVariant="info"
         actions={
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <Button
-              size="sm"
-              variant="ghost"
+            {/* 1. Raindrop sync */}
+            <button
+              type="button"
+              onClick={async () => {
+                if (!hasRaindropAuth) {
+                  browser.runtime.openOptionsPage();
+                  return;
+                }
+                if (workspaceRef.current) {
+                  await workspaceRef.current.triggerSync();
+                }
+              }}
+              disabled={isSyncing}
+              title={
+                !hasRaindropAuth
+                  ? 'Connect Raindrop.io'
+                  : isSyncing
+                  ? 'Syncing with Raindrop...'
+                  : 'Raindrop Sync'
+              }
+              aria-label="Raindrop Sync"
+              style={{
+                border: '1px solid #bae6fd',
+                background: isSyncing ? '#f0f9ff' : '#e0f2fe',
+                color: '#0284c7',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: isSyncing ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  animation: isSyncing ? 'spin 1s linear infinite' : 'none',
+                }}
+              >
+                <DropletIcon size={15} color="#0284c7" />
+              </span>
+            </button>
+
+            {/* 2. Add current tab */}
+            <button
+              type="button"
+              onClick={handleCaptureCurrentTabFromHeader}
+              disabled={isCapturing}
+              title="Add Current Tab"
+              aria-label="Add Current Tab"
+              style={{
+                border: '1px solid #5c7c6f',
+                background: '#5c7c6f',
+                color: '#ffffff',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: isCapturing ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                opacity: isCapturing ? 0.6 : 1,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <ZapIcon size={15} color="#ffffff" />
+            </button>
+
+            {/* 3. Add space */}
+            <button
+              type="button"
+              onClick={() => workspaceRef.current?.openNewSpace()}
+              title="Add Space"
+              aria-label="Add Space"
+              style={{
+                border: '1px solid #e2e8f0',
+                background: '#f1f5f9',
+                color: '#0284c7',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <PlusIcon size={15} color="#0284c7" />
+            </button>
+
+            {/* 4. JSON */}
+            <button
+              type="button"
+              onClick={() => workspaceRef.current?.openJsonModal()}
+              title="Inspect Workspace JSON"
+              aria-label="Inspect Workspace JSON"
+              style={{
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <BracesIcon size={15} color="#64748b" />
+            </button>
+
+            {/* Settings */}
+            <button
+              type="button"
               onClick={() => browser.runtime.openOptionsPage()}
               title="Extension Settings"
+              aria-label="Extension Settings"
+              style={{
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: '#64748b',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                fontSize: '15px',
+                transition: 'all 0.15s ease',
+              }}
             >
               ⚙️
-            </Button>
+            </button>
           </div>
         }
       />
@@ -213,14 +374,18 @@ export const App: React.FC = () => {
         }}
       >
         <WorkspaceManager
+          ref={workspaceRef}
           compact={true}
           defaultViewMode="focused"
           headerTitle="Sidepanel Workspace"
+          hideControlBarActions={true}
           onOpenTab={handleOpenTab}
           onCaptureCurrentTab={handleCaptureCurrentTab}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
+          onSyncStateChange={setIsSyncing}
         />
       </div>
     </div>
   );
 };
+

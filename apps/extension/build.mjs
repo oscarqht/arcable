@@ -66,11 +66,6 @@ async function buildTarget(browserName) {
         formats: ['iife'],
         fileName: () => 'background.js',
       },
-      rollupOptions: {
-        output: {
-          extend: true,
-        },
-      },
     },
     define: {
       'process.env.NODE_ENV': JSON.stringify('production'),

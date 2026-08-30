@@ -193,9 +193,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          height: '34px',
-          padding: '0 8px 0 10px',
-          borderRadius: '8px',
+          height: '40px',
+          padding: '0 10px 0 12px',
+          borderRadius: '12px',
           backgroundColor:
             dropIndicator === 'inside'
               ? isDarkTheme ? 'rgba(255, 255, 255, 0.25)' : '#e0f2fe'
@@ -212,12 +212,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         }}
       >
         {/* Left section: expand state / drag handle, folder icon, folder title, color badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
           {/* Folder expand state icon normally, Drag Handle on hover */}
           <div
             style={{
-              width: '16px',
-              height: '16px',
+              width: '18px',
+              height: '18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -230,13 +230,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  opacity: 0.6,
+                  opacity: 0.65,
                   cursor: 'grab',
                   color: 'inherit',
                 }}
                 title="Drag to reorder folder"
               >
-                <DragHandleIcon size={13} />
+                <DragHandleIcon size={14} />
               </span>
             ) : (
               <div
@@ -246,29 +246,38 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   justifyContent: 'center',
                   transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                   transition: 'transform 0.15s ease',
-                  opacity: 0.7,
+                  opacity: 0.75,
                 }}
               >
-                <ChevronRightIcon size={14} />
+                <ChevronRightIcon size={15} />
               </div>
             )}
           </div>
 
           {/* Folder Icon / Custom Emoji */}
-          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <div
+            style={{
+              width: '18px',
+              height: '18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
             {folder.customEmojiIcon ? (
-              <span style={{ fontSize: '14px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
+              <span style={{ fontSize: '15px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
             ) : isExpanded ? (
-              <FolderOpenIcon size={16} color={folderColor || (isDarkTheme ? '#9ed1bd' : '#3b82f6')} />
+              <FolderOpenIcon size={17} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
             ) : (
-              <FolderIcon size={16} color={folderColor || (isDarkTheme ? '#9ed1bd' : '#3b82f6')} />
+              <FolderIcon size={17} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
             )}
           </div>
 
           {/* Folder Title */}
           <span
             style={{
-              fontSize: '13px',
+              fontSize: '13.5px',
               fontWeight: 600,
               color: 'inherit',
               overflow: 'hidden',
@@ -284,8 +293,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           {folderColor && (
             <span
               style={{
-                width: '7px',
-                height: '7px',
+                width: '8px',
+                height: '8px',
                 borderRadius: '50%',
                 backgroundColor: folderColor,
                 flexShrink: 0,
@@ -298,12 +307,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           {/* Item Count Badge */}
           <span
             style={{
-              fontSize: '10px',
+              fontSize: '11px',
               fontWeight: 600,
               backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.08)',
               color: 'inherit',
               borderRadius: '10px',
-              padding: '1px 6px',
+              padding: '1px 7px',
               flexShrink: 0,
             }}
           >
@@ -323,7 +332,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '2px',
+              gap: '3px',
               flexShrink: 0,
               marginLeft: '4px',
             }}
@@ -338,8 +347,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -361,8 +370,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -384,8 +393,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -407,8 +416,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -430,8 +439,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -453,11 +462,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '2px',
-            paddingLeft: '12px',
+            gap: '4px',
+            paddingLeft: '14px',
             borderLeft: `1.5px solid ${guideLineColor}`,
-            marginLeft: '14px',
-            marginTop: '2px',
+            marginLeft: '16px',
+            marginTop: '4px',
           }}
         >
           {siblings.map((item, index) => {

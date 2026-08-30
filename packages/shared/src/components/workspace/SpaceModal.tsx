@@ -13,16 +13,14 @@ interface SpaceModalProps {
 }
 
 const PRESET_COLORS = [
-  '#6366f1', // Indigo
-  '#ec4899', // Pink
-  '#3b82f6', // Blue
-  '#10b981', // Emerald
-  '#f59e0b', // Amber
-  '#8b5cf6', // Purple
-  '#ef4444', // Red
-  '#06b6d4', // Cyan
-  '#14b8a6', // Teal
-  '#64748b', // Slate
+  '#f4efdf', // Cream Vanilla
+  '#f0b8cd', // Blossom Pink
+  '#e9c3e3', // Soft Lilac
+  '#da7682', // Berry Rose
+  '#eb8570', // Warm Melon
+  '#dcce7f', // Soft Honey
+  '#5becad', // Mint Green
+  '#919bb5', // Slate Periwinkle
 ];
 
 export const SpaceModal: React.FC<SpaceModalProps> = ({
@@ -146,14 +144,14 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
               Color Theme (Optional)
             </label>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
                 onClick={() => setColors('')}
-                title="No color"
+                title="No custom theme (Default)"
                 style={{
-                  width: '26px',
-                  height: '26px',
+                  width: '30px',
+                  height: '30px',
                   borderRadius: '50%',
                   backgroundColor: '#f8fafc',
                   border: !colors ? '2.5px solid #0f172a' : '1.5px solid #cbd5e1',
@@ -165,6 +163,8 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                   justifyContent: 'center',
                   padding: 0,
                   boxSizing: 'border-box',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  transition: 'transform 0.12s ease',
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -178,32 +178,21 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                   type="button"
                   onClick={() => setColors(c)}
                   style={{
-                    width: '26px',
-                    height: '26px',
+                    width: '30px',
+                    height: '30px',
                     borderRadius: '50%',
                     backgroundColor: c,
-                    border: colors === c ? '2.5px solid #0f172a' : '2px solid transparent',
+                    border: colors === c ? '2.5px solid #0f172a' : '1.5px solid rgba(0,0,0,0.08)',
                     cursor: 'pointer',
                     outline: 'none',
                     boxSizing: 'border-box',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    transform: colors === c ? 'scale(1.1)' : 'scale(1)',
+                    transition: 'transform 0.12s ease, border-color 0.12s ease',
                   }}
+                  title={c}
                 />
               ))}
-              <input
-                type="color"
-                value={colors.startsWith('#') ? colors : '#6366f1'}
-                onChange={(e) => setColors(e.target.value)}
-                style={{
-                  width: '28px',
-                  height: '28px',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  padding: 0,
-                  backgroundColor: 'transparent',
-                }}
-                title="Custom color picker"
-              />
             </div>
           </div>
 

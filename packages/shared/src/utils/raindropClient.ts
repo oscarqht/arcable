@@ -45,16 +45,23 @@ export async function fetchRaindropUser(token: string): Promise<RaindropUserProf
       item?: RaindropRawUser;
     };
 
-    const rawUser = data.user || data.item;
-    if (!rawUser) {
+    const rawUser = data.user || data.item || (data as any);
+    if (!rawUser || typeof rawUser !== 'object') {
+      if (data.result || res.ok) {
+        return {
+          id: 1,
+          name: 'Raindrop User',
+          isPro: false,
+        };
+      }
       return null;
     }
 
     const avatarUrl = rawUser.avatar || (rawUser.email_MD5 ? `https://www.gravatar.com/avatar/${rawUser.email_MD5}?d=mp` : undefined);
 
     return {
-      id: rawUser._id || 1,
-      name: rawUser.fullName || rawUser.email || 'Raindrop User',
+      id: rawUser._id || rawUser.id || 1,
+      name: rawUser.fullName || rawUser.name || rawUser.email || 'Raindrop User',
       email: rawUser.email,
       avatarUrl,
       isPro: Boolean(rawUser.pro),

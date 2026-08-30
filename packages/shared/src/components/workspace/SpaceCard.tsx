@@ -144,6 +144,115 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   // Theme styling configuration
   const themeStyles = useMemo(() => {
+    const rawColor = space.colors?.trim().toLowerCase();
+    
+    // Check known palette presets
+    const paletteMap: Record<string, any> = {
+      '#f4efdf': {
+        textColor: '#2c2923',
+        subtextColor: 'rgba(44, 41, 35, 0.72)',
+        badgeBg: 'rgba(0, 0, 0, 0.06)',
+        badgeText: '#2c2923',
+        inputBg: 'rgba(0, 0, 0, 0.04)',
+        inputPlaceholder: 'rgba(44, 41, 35, 0.55)',
+        actionHoverBg: 'rgba(0, 0, 0, 0.07)',
+        borderColor: 'rgba(44, 41, 35, 0.1)',
+        shelfBg: 'rgba(0, 0, 0, 0.04)',
+        isDark: false,
+      },
+      '#f0b8cd': {
+        textColor: '#471b2b',
+        subtextColor: 'rgba(71, 27, 43, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.45)',
+        badgeText: '#471b2b',
+        inputBg: 'rgba(255, 255, 255, 0.38)',
+        inputPlaceholder: 'rgba(71, 27, 43, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
+        borderColor: 'rgba(71, 27, 43, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.3)',
+        isDark: false,
+      },
+      '#e9c3e3': {
+        textColor: '#3f1e3c',
+        subtextColor: 'rgba(63, 30, 60, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.45)',
+        badgeText: '#3f1e3c',
+        inputBg: 'rgba(255, 255, 255, 0.38)',
+        inputPlaceholder: 'rgba(63, 30, 60, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
+        borderColor: 'rgba(63, 30, 60, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.3)',
+        isDark: false,
+      },
+      '#da7682': {
+        textColor: '#ffffff',
+        subtextColor: 'rgba(255, 255, 255, 0.85)',
+        badgeBg: 'rgba(255, 255, 255, 0.25)',
+        badgeText: '#ffffff',
+        inputBg: 'rgba(255, 255, 255, 0.2)',
+        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
+        borderColor: 'rgba(255, 255, 255, 0.18)',
+        shelfBg: 'rgba(255, 255, 255, 0.16)',
+        isDark: true,
+      },
+      '#eb8570': {
+        textColor: '#42160d',
+        subtextColor: 'rgba(66, 22, 13, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.42)',
+        badgeText: '#42160d',
+        inputBg: 'rgba(255, 255, 255, 0.35)',
+        inputPlaceholder: 'rgba(66, 22, 13, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
+        borderColor: 'rgba(66, 22, 13, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.28)',
+        isDark: false,
+      },
+      '#dcce7f': {
+        textColor: '#38310c',
+        subtextColor: 'rgba(56, 49, 12, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.45)',
+        badgeText: '#38310c',
+        inputBg: 'rgba(255, 255, 255, 0.38)',
+        inputPlaceholder: 'rgba(56, 49, 12, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
+        borderColor: 'rgba(56, 49, 12, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.3)',
+        isDark: false,
+      },
+      '#5becad': {
+        textColor: '#0c3e2c',
+        subtextColor: 'rgba(12, 62, 44, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.45)',
+        badgeText: '#0c3e2c',
+        inputBg: 'rgba(255, 255, 255, 0.38)',
+        inputPlaceholder: 'rgba(12, 62, 44, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
+        borderColor: 'rgba(12, 62, 44, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.3)',
+        isDark: false,
+      },
+      '#919bb5': {
+        textColor: '#152033',
+        subtextColor: 'rgba(21, 32, 51, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.4)',
+        badgeText: '#152033',
+        inputBg: 'rgba(255, 255, 255, 0.35)',
+        inputPlaceholder: 'rgba(21, 32, 51, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
+        borderColor: 'rgba(21, 32, 51, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.28)',
+        isDark: false,
+      },
+    };
+
+    if (rawColor && paletteMap[rawColor]) {
+      return {
+        containerBg: space.colors,
+        ...paletteMap[rawColor],
+      };
+    }
+
     if (hasExplicitColor) {
       return {
         containerBg: space.colors,
@@ -162,49 +271,49 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
     if (archetype === 'primary') {
       return {
-        containerBg: '#7daf9c',
+        containerBg: '#5becad',
         isDark: false,
-        textColor: '#0e4334',
-        subtextColor: '#1d4f40',
-        badgeBg: 'rgba(255, 255, 255, 0.35)',
-        badgeText: '#0e4334',
-        inputBg: 'rgba(255, 255, 255, 0.3)',
-        inputPlaceholder: 'rgba(14, 67, 52, 0.65)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(14, 67, 52, 0.15)',
-        shelfBg: 'rgba(255, 255, 255, 0.22)',
+        textColor: '#0c3e2c',
+        subtextColor: 'rgba(12, 62, 44, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.45)',
+        badgeText: '#0c3e2c',
+        inputBg: 'rgba(255, 255, 255, 0.38)',
+        inputPlaceholder: 'rgba(12, 62, 44, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
+        borderColor: 'rgba(12, 62, 44, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.3)',
       };
     }
 
     if (archetype === 'secondary') {
       return {
-        containerBg: '#ffca98',
+        containerBg: '#eb8570',
         isDark: false,
-        textColor: '#7a532a',
-        subtextColor: '#623f18',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#7a532a',
-        inputBg: 'rgba(255, 255, 255, 0.45)',
-        inputPlaceholder: 'rgba(122, 83, 42, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.45)',
-        borderColor: 'rgba(122, 83, 42, 0.15)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
+        textColor: '#42160d',
+        subtextColor: 'rgba(66, 22, 13, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.42)',
+        badgeText: '#42160d',
+        inputBg: 'rgba(255, 255, 255, 0.35)',
+        inputPlaceholder: 'rgba(66, 22, 13, 0.58)',
+        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
+        borderColor: 'rgba(66, 22, 13, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.28)',
       };
     }
 
     if (archetype === 'tertiary') {
       return {
-        containerBg: '#d4958e',
+        containerBg: '#919bb5',
         isDark: false,
-        textColor: '#5b2e29',
-        subtextColor: '#693a35',
-        badgeBg: 'rgba(255, 255, 255, 0.35)',
-        badgeText: '#5b2e29',
-        inputBg: 'rgba(255, 255, 255, 0.3)',
-        inputPlaceholder: 'rgba(91, 46, 41, 0.65)',
+        textColor: '#152033',
+        subtextColor: 'rgba(21, 32, 51, 0.72)',
+        badgeBg: 'rgba(255, 255, 255, 0.4)',
+        badgeText: '#152033',
+        inputBg: 'rgba(255, 255, 255, 0.35)',
+        inputPlaceholder: 'rgba(21, 32, 51, 0.58)',
         actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(91, 46, 41, 0.15)',
-        shelfBg: 'rgba(255, 255, 255, 0.22)',
+        borderColor: 'rgba(21, 32, 51, 0.12)',
+        shelfBg: 'rgba(255, 255, 255, 0.28)',
       };
     }
 
@@ -269,13 +378,13 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       style={{
         backgroundColor: themeStyles.containerBg,
         color: themeStyles.textColor,
-        borderRadius: '16px',
+        borderRadius: '24px',
         border: `1px solid ${themeStyles.borderColor}`,
-        padding: isCollapsed ? '12px 16px' : '18px 20px',
+        padding: isCollapsed ? '14px 18px' : '22px 24px',
         display: 'flex',
         flexDirection: 'column',
-        gap: isCollapsed ? '0' : '14px',
-        boxShadow: '0 1px 4px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03)',
+        gap: isCollapsed ? '0' : '16px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
         transition: 'all 0.2s ease',
         boxSizing: 'border-box',
         width: '100%',
@@ -292,7 +401,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         }}
         onClick={toggleCollapse}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
           {/* Chevron with smooth rotation */}
           <div
             style={{
@@ -312,16 +421,16 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           {/* Emoji / Icon Container */}
           <div
             style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '8px',
+              width: '34px',
+              height: '34px',
+              borderRadius: '12px',
               backgroundColor: themeStyles.badgeBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '16px',
+              fontSize: '18px',
               flexShrink: 0,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             }}
           >
             {space.emojiIcon || '📁'}
@@ -331,7 +440,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           <h3
             style={{
               margin: 0,
-              fontSize: '15px',
+              fontSize: '16px',
               fontWeight: 700,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -367,8 +476,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 border: 'none',
                 background: 'transparent',
                 color: 'inherit',
-                padding: '5px',
-                borderRadius: '6px',
+                padding: '6px 7px',
+                borderRadius: '8px',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -391,8 +500,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 border: 'none',
                 background: 'transparent',
                 color: 'inherit',
-                padding: '5px',
-                borderRadius: '6px',
+                padding: '6px 7px',
+                borderRadius: '8px',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -416,8 +525,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   border: 'none',
                   background: 'transparent',
                   color: 'inherit',
-                  padding: '5px',
-                  borderRadius: '6px',
+                  padding: '6px 7px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -442,8 +551,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   border: 'none',
                   background: 'transparent',
                   color: 'inherit',
-                  padding: '5px',
-                  borderRadius: '6px',
+                  padding: '6px 7px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -468,8 +577,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   border: 'none',
                   background: 'transparent',
                   color: 'inherit',
-                  padding: '5px',
-                  borderRadius: '6px',
+                  padding: '6px 7px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -480,7 +589,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
-                <FolderInputIcon size={14} />
+                <FolderInputIcon size={15} />
               </button>
             )}
 
@@ -494,8 +603,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   border: 'none',
                   background: 'transparent',
                   color: 'inherit',
-                  padding: '5px',
-                  borderRadius: '6px',
+                  padding: '6px 7px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -506,7 +615,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
-                <EditIcon size={14} />
+                <EditIcon size={15} />
               </button>
             )}
 
@@ -524,8 +633,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   border: 'none',
                   background: 'transparent',
                   color: 'inherit',
-                  padding: '5px',
-                  borderRadius: '6px',
+                  padding: '6px 7px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -536,7 +645,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
-                <TrashIcon size={14} />
+                <TrashIcon size={15} />
               </button>
             )}
           </div>
@@ -545,24 +654,24 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
       {/* Expanded Card Body */}
       {!isCollapsed && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {/* Card Search Bar */}
           {!externalSearch && (
             <div style={{ position: 'relative', width: '100%' }}>
               <div
                 style={{
                   position: 'absolute',
-                  left: '12px',
+                  left: '14px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   display: 'flex',
                   alignItems: 'center',
                   pointerEvents: 'none',
-                  opacity: 0.6,
+                  opacity: 0.65,
                   color: 'inherit',
                 }}
               >
-                <SearchIcon size={15} />
+                <SearchIcon size={16} />
               </div>
               <input
                 type="text"
@@ -571,12 +680,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 onChange={(e) => setInternalSearch(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '7px 32px 7px 34px',
-                  borderRadius: '20px',
+                  padding: '9px 34px 9px 38px',
+                  borderRadius: '14px',
                   border: 'none',
                   backgroundColor: themeStyles.inputBg,
                   color: themeStyles.textColor,
-                  fontSize: '13px',
+                  fontSize: '13.5px',
                   outline: 'none',
                   boxSizing: 'border-box',
                   transition: 'background-color 0.15s ease',
@@ -588,7 +697,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   onClick={() => setInternalSearch('')}
                   style={{
                     position: 'absolute',
-                    right: '10px',
+                    right: '12px',
                     top: '50%',
                     transform: 'translateY(-50%)',
                     border: 'none',
@@ -610,11 +719,11 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           {/* Search Results Filter Mode */}
           {filteredTabs !== null ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 600, opacity: 0.75 }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, opacity: 0.8 }}>
                 Found {filteredTabs.length} matching tab(s):
               </div>
               {filteredTabs.length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', fontSize: '12px', opacity: 0.6 }}>
+                <div style={{ padding: '18px', textAlign: 'center', fontSize: '13px', opacity: 0.65 }}>
                   No tabs match &ldquo;{activeSearch}&rdquo;
                 </div>
               ) : (
@@ -655,14 +764,14 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     style={{
                       height: '1px',
                       backgroundColor: themeStyles.borderColor,
-                      margin: '2px 0',
+                      margin: '3px 0',
                     }}
                   />
                 </div>
               )}
 
               {/* Folders & Tabs Hierarchy (Interleaved Siblings) */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {rootSiblings.map((item, index) => {
                   const hasPrev = index > 0;
                   const hasNext = index < rootSiblings.length - 1;
@@ -753,35 +862,35 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   <div
                     style={{
                       textAlign: 'center',
-                      padding: '24px 12px',
+                      padding: '28px 16px',
                       color: themeStyles.subtextColor,
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '8px',
+                      gap: '10px',
                     }}
                   >
                     <div
                       style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '10px',
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '14px',
                         backgroundColor: themeStyles.badgeBg,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '18px',
+                        fontSize: '20px',
                       }}
                     >
                       📁
                     </div>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'inherit' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: 'inherit' }}>
                       Space is empty
                     </span>
-                    <span style={{ fontSize: '11px', opacity: 0.8 }}>
+                    <span style={{ fontSize: '12px', opacity: 0.8 }}>
                       Add tabs or folders to organize your browsing.
                     </span>
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
                       {onAddTab && (
                         <button
                           onClick={() => onAddTab()}
@@ -789,11 +898,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                             border: 'none',
                             backgroundColor: themeStyles.badgeBg,
                             color: themeStyles.textColor,
-                            fontSize: '12px',
+                            fontSize: '13px',
                             fontWeight: 600,
-                            padding: '4px 10px',
-                            borderRadius: '8px',
+                            padding: '6px 14px',
+                            borderRadius: '10px',
                             cursor: 'pointer',
+                            transition: 'all 0.15s ease',
                           }}
                         >
                           + Tab
@@ -806,11 +916,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                             border: 'none',
                             backgroundColor: themeStyles.badgeBg,
                             color: themeStyles.textColor,
-                            fontSize: '12px',
+                            fontSize: '13px',
                             fontWeight: 600,
-                            padding: '4px 10px',
-                            borderRadius: '8px',
+                            padding: '6px 14px',
+                            borderRadius: '10px',
                             cursor: 'pointer',
+                            transition: 'all 0.15s ease',
                           }}
                         >
                           + Folder

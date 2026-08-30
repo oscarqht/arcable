@@ -33,6 +33,7 @@ export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
   openJsonModal: () => void;
   triggerSync: () => Promise<void>;
+  captureCurrentTab: () => Promise<void>;
   isSyncing: boolean;
 }
 
@@ -43,6 +44,7 @@ export interface WorkspaceManagerProps {
   headerTitle?: string;
   showJsonInspector?: boolean;
   hideControlBar?: boolean;
+  hideControlBarActions?: boolean;
   onSyncStateChange?: (isSyncing: boolean) => void;
   raindropToken?: string;
   autoSync?: boolean;
@@ -63,6 +65,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       headerTitle = 'Arcable Workspace',
       showJsonInspector = true,
       hideControlBar = false,
+      hideControlBarActions = false,
       onSyncStateChange,
       raindropToken,
       autoSync = true,
@@ -539,6 +542,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     onSyncStateChange?.(isCurrentlySyncing);
   }, [isCurrentlySyncing, onSyncStateChange]);
 
+  // Capture active browser tab
+  const handleCaptureTab = async () => {
+    if (!onCaptureCurrentTab) return;
+    setIsCapturing(true);
+    try {
+      const activeTabInfo = await onCaptureCurrentTab();
+      if (activeTabInfo && activeTabInfo.url) {
+        setEditingTab(null);
+        setTargetSpaceIdForModal(activeSpace?.id);
+        setDefaultTabFolderId(undefined);
+        setDefaultTabPinned(false);
+        setDefaultTabFavourite(false);
+        setInitialTabUrl(activeTabInfo.url);
+        setInitialTabTitle(activeTabInfo.title || '');
+        setIsTabModalOpen(true);
+      }
+    } catch (err) {
+      console.warn('Failed to capture active tab:', err);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
   // Expose imperative handle for external control (e.g. Header buttons)
   useImperativeHandle(
     ref,
@@ -553,9 +579,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       triggerSync: async () => {
         await performSync(false);
       },
+      captureCurrentTab: async () => {
+        await handleCaptureTab();
+      },
       isSyncing: isCurrentlySyncing,
     }),
-    [isCurrentlySyncing, performSync]
+    [isCurrentlySyncing, performSync, handleCaptureTab]
   );
 
   // Space DnD Handlers
@@ -633,29 +662,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleOpenConvertSpaceModal = (spaceToConvert: Space) => {
     setConvertingSpace(spaceToConvert);
     setIsConvertSpaceModalOpen(true);
-  };
-
-  // Capture active browser tab
-  const handleCaptureTab = async () => {
-    if (!onCaptureCurrentTab) return;
-    setIsCapturing(true);
-    try {
-      const activeTabInfo = await onCaptureCurrentTab();
-      if (activeTabInfo && activeTabInfo.url) {
-        setEditingTab(null);
-        setTargetSpaceIdForModal(activeSpace?.id);
-        setDefaultTabFolderId(undefined);
-        setDefaultTabPinned(false);
-        setDefaultTabFavourite(false);
-        setInitialTabUrl(activeTabInfo.url);
-        setInitialTabTitle(activeTabInfo.title || '');
-        setIsTabModalOpen(true);
-      }
-    } catch (err) {
-      console.warn('Failed to capture active tab:', err);
-    } finally {
-      setIsCapturing(false);
-    }
   };
 
   // Split expanded and collapsed spaces for Synctable grid layout
@@ -814,105 +820,107 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           </div>
 
           {/* Right: Actions, Add Space, Sync & JSON Inspector */}
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {onCaptureCurrentTab && (
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={handleCaptureTab}
-                isLoading={isCapturing}
-                style={{
-                  backgroundColor: '#376757',
-                  borderColor: '#376757',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <span>⚡ Add Current Tab</span>
-              </Button>
-            )}
+          {!hideControlBarActions && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {onCaptureCurrentTab && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={handleCaptureTab}
+                  isLoading={isCapturing}
+                  style={{
+                    backgroundColor: '#5c7c6f',
+                    borderColor: '#5c7c6f',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <span>⚡ Add Current Tab</span>
+                </Button>
+              )}
 
-            {(onSyncRaindrop || raindropToken) && (
+              {(onSyncRaindrop || raindropToken) && (
+                <button
+                  type="button"
+                  onClick={handleTriggerSync}
+                  disabled={isCurrentlySyncing}
+                  title="Sync spaces, folders and tabs with Raindrop.io"
+                  style={{
+                    border: '1px solid #bae6fd',
+                    background: isCurrentlySyncing ? '#f0f9ff' : '#e0f2fe',
+                    color: '#0284c7',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    cursor: isCurrentlySyncing ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      animation: isCurrentlySyncing ? 'spin 1s linear infinite' : 'none',
+                    }}
+                  >
+                    <DropletIcon size={13} color="#0284c7" />
+                  </span>
+                  <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={handleTriggerSync}
-                disabled={isCurrentlySyncing}
-                title="Sync spaces, folders and tabs with Raindrop.io"
+                onClick={() => {
+                  setEditingSpace(null);
+                  setIsSpaceModalOpen(true);
+                }}
                 style={{
-                  border: '1px solid #bae6fd',
-                  background: isCurrentlySyncing ? '#f0f9ff' : '#e0f2fe',
+                  border: 'none',
+                  background: '#f1f5f9',
                   color: '#0284c7',
                   fontSize: '12px',
                   fontWeight: 600,
-                  padding: '4px 10px',
-                  borderRadius: '8px',
-                  cursor: isCurrentlySyncing ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    animation: isCurrentlySyncing ? 'spin 1s linear infinite' : 'none',
-                  }}
-                >
-                  <DropletIcon size={13} color="#0284c7" />
-                </span>
-                <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                setEditingSpace(null);
-                setIsSpaceModalOpen(true);
-              }}
-              style={{
-                border: 'none',
-                background: '#f1f5f9',
-                color: '#0284c7',
-                fontSize: '12px',
-                fontWeight: 600,
-                padding: '5px 10px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '3px',
-              }}
-            >
-              <PlusIcon size={13} />
-              <span>Space</span>
-            </button>
-
-            {showJsonInspector && (
-              <button
-                type="button"
-                onClick={() => setIsJsonModalOpen(true)}
-                title="Inspect raw workspace JSON in localStorage"
-                style={{
-                  border: 'none',
-                  background: '#f8fafc',
-                  color: '#64748b',
-                  fontSize: '12px',
-                  padding: '5px 8px',
+                  padding: '5px 10px',
                   borderRadius: '8px',
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
                 }}
               >
-                {'{ }'} JSON
+                <PlusIcon size={13} />
+                <span>Space</span>
               </button>
-            )}
-          </div>
+
+              {showJsonInspector && (
+                <button
+                  type="button"
+                  onClick={() => setIsJsonModalOpen(true)}
+                  title="Inspect raw workspace JSON in localStorage"
+                  style={{
+                    border: 'none',
+                    background: '#f8fafc',
+                    color: '#64748b',
+                    fontSize: '12px',
+                    padding: '5px 8px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {'{ }'} JSON
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Horizontal Space Pills (Used in Focused Mode or compact extension) */}
@@ -928,7 +936,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           >
             {sortedSpaces.map((space) => {
               const isActive = space.id === activeSpace?.id;
-              const spaceColor = space.colors || '#376757';
+              const spaceColor = space.colors || '#919bb5';
               const isDragTarget = dragOverSpaceId === space.id;
 
               return (
@@ -951,8 +959,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    padding: '6px 12px',
-                    borderRadius: '20px',
+                    padding: '7px 14px',
+                    borderRadius: '24px',
                     backgroundColor: isActive ? spaceColor : '#f8fafc',
                     color: isActive ? '#ffffff' : '#334155',
                     border: `1px solid ${isActive ? spaceColor : '#e2e8f0'}`,
@@ -1072,8 +1080,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: '20px',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))',
+            gap: '22px',
             alignItems: 'start',
           }}
         >

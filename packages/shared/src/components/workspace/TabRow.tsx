@@ -165,15 +165,16 @@ export const TabRow: React.FC<TabRowProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        height: '36px',
-        padding: '0 8px 0 10px',
-        borderRadius: '8px',
+        height: '40px',
+        minHeight: '40px',
+        padding: '0 10px 0 12px',
+        borderRadius: '12px',
         backgroundColor: isHovered ? hoverBg : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
         color: textColor,
         cursor: 'pointer',
-        gap: '8px',
+        gap: '9px',
         transition: 'background-color 0.12s ease',
         userSelect: 'none',
         boxSizing: 'border-box',
@@ -182,13 +183,41 @@ export const TabRow: React.FC<TabRowProps> = ({
         position: 'relative',
       }}
     >
-      {/* Left side: Favicon/Emoji or Drag handle on hover, Title (Full Width) */}
+      {/* Left side: Drag handle on hover / spacer, Favicon/Emoji, Title (Full Width) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-        {/* Favicon or Custom Emoji normally, Drag Handle on hover */}
+        {/* Spacer normally (aligns with folder chevron), Drag Handle on hover */}
         <div
           style={{
-            width: '20px',
-            height: '20px',
+            width: '18px',
+            height: '18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          {isHovered && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0.65,
+                cursor: 'grab',
+                color: 'inherit',
+              }}
+              title="Drag to reorder"
+            >
+              <DragHandleIcon size={14} />
+            </span>
+          )}
+        </div>
+
+        {/* Favicon or Custom Emoji (Always visible, matching FolderIcon position) */}
+        <div
+          style={{
+            width: '18px',
+            height: '18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -197,37 +226,21 @@ export const TabRow: React.FC<TabRowProps> = ({
             overflow: 'hidden',
           }}
         >
-          {isHovered ? (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.6,
-                cursor: 'grab',
-                color: 'inherit',
-              }}
-              title="Drag to reorder"
-            >
-              <DragHandleIcon size={14} />
-            </span>
-          ) : (
-            <TabFavicon
-              url={tab.url}
-              customEmojiIcon={tab.customEmojiIcon}
-              size={16}
-              emojiSize={14}
-              isDarkTheme={isDarkTheme}
-              showDomainFallback={true}
-              globeIconSize={14}
-            />
-          )}
+          <TabFavicon
+            url={tab.url}
+            customEmojiIcon={tab.customEmojiIcon}
+            size={16}
+            emojiSize={15}
+            isDarkTheme={isDarkTheme}
+            showDomainFallback={true}
+            globeIconSize={15}
+          />
         </div>
 
         {/* Title taking 100% available width */}
         <span
           style={{
-            fontSize: '13px',
+            fontSize: '13.5px',
             fontWeight: 500,
             color: 'inherit',
             overflow: 'hidden',
@@ -248,7 +261,7 @@ export const TabRow: React.FC<TabRowProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '2px',
+            gap: '3px',
             flexShrink: 0,
             marginLeft: '4px',
           }}
@@ -263,8 +276,8 @@ export const TabRow: React.FC<TabRowProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -287,8 +300,8 @@ export const TabRow: React.FC<TabRowProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -311,8 +324,8 @@ export const TabRow: React.FC<TabRowProps> = ({
               border: 'none',
               background: 'transparent',
               color: 'inherit',
-              padding: '3px 4px',
-              borderRadius: '4px',
+              padding: '4px 5px',
+              borderRadius: '6px',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',

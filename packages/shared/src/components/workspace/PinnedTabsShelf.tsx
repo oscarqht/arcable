@@ -93,10 +93,10 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
-        padding: '8px 10px',
+        gap: '10px',
+        padding: '10px 12px',
         backgroundColor: resolvedBg,
-        borderRadius: '12px',
+        borderRadius: '16px',
         border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'}`,
       }}
     >
@@ -126,12 +126,12 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
             fontSize: '11px',
             fontWeight: 600,
             cursor: 'pointer',
-            padding: '2px 6px',
-            borderRadius: '4px',
+            padding: '3px 7px',
+            borderRadius: '6px',
             opacity: 0.85,
             display: 'flex',
             alignItems: 'center',
-            gap: '2px',
+            gap: '3px',
           }}
         >
           <PlusIcon size={12} />
@@ -143,8 +143,8 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-          gap: '6px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))',
+          gap: '7px',
         }}
       >
         {tabs.map((tab) => {
@@ -182,13 +182,13 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '6px 8px',
+                padding: '8px 10px',
                 backgroundColor: isHovered ? itemHoverBg : itemBg,
                 color: textColor,
                 border: `1px solid ${isDarkTheme ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'}`,
                 borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : undefined,
                 borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : undefined,
-                borderRadius: '8px',
+                borderRadius: '12px',
                 cursor: 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
@@ -198,18 +198,18 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
               }}
               title={`${displayTitle}\n${tab.url}`}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: 1 }}>
                 <TabFavicon
                   url={tab.url}
                   customEmojiIcon={tab.customEmojiIcon}
-                  size={14}
-                  emojiSize={13}
-                  globeIconSize={13}
+                  size={16}
+                  emojiSize={14}
+                  globeIconSize={14}
                 />
 
                 <span
                   style={{
-                    fontSize: '12px',
+                    fontSize: '12.5px',
                     fontWeight: 500,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
