@@ -55,3 +55,16 @@ a {
     transform: rotate(360deg);
   }
 }
+
+/* Header Global Search: Hidden on screens narrower than 1200px */
+@media (max-width: 1199px) {
+  .header-search-container {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1200px) {
+  .header-search-container {
+    display: flex !important;
+  }
+}

@@ -8,6 +8,8 @@ import {
   DropletIcon,
   PlusIcon,
   DevicesIcon,
+  SearchIcon,
+  CloseIcon,
   DeviceModal,
 } from '@arcable/shared/components';
 import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
@@ -17,6 +19,7 @@ export default function HomePage() {
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -203,6 +206,82 @@ export default function HomePage() {
         }
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Header Global Search (Hidden when window width < 1200px) */}
+            <div
+              className="header-search-container"
+              style={{
+                position: 'relative',
+                width: '280px',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '11px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  pointerEvents: 'none',
+                  color: '#94a3b8',
+                }}
+              >
+                <SearchIcon size={14} />
+              </div>
+              <input
+                id="header-global-search"
+                type="text"
+                placeholder="Search across all spaces..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: '32px',
+                  padding: '5px 28px 5px 32px',
+                  borderRadius: '20px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#0f172a',
+                  fontSize: '12px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  transition: 'all 0.15s ease',
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#0284c7';
+                  e.currentTarget.style.boxShadow = '0 0 0 2px rgba(2, 132, 199, 0.15)';
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              />
+              {searchQuery && (
+                <button
+                  id="header-clear-search-btn"
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  title="Clear search"
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CloseIcon size={13} />
+                </button>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={async () => {
@@ -356,6 +435,9 @@ export default function HomePage() {
         <WorkspaceManager
           ref={workspaceRef}
           hideControlBar={true}
+          hideSearchBar={true}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
           showJsonInspector={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}

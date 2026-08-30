@@ -46,6 +46,9 @@ export interface WorkspaceManagerProps {
   showJsonInspector?: boolean;
   hideControlBar?: boolean;
   hideControlBarActions?: boolean;
+  hideSearchBar?: boolean;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   raindropToken?: string;
   autoSync?: boolean;
@@ -68,6 +71,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       showJsonInspector = true,
       hideControlBar = false,
       hideControlBarActions = false,
+      hideSearchBar = false,
+      searchQuery: externalSearchQuery,
+      onSearchChange,
       onSyncStateChange,
       raindropToken,
       autoSync = true,
@@ -110,8 +116,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // View mode: 'grid' (Synctable multi-card dashboard) or 'focused' (Single active space)
   const [viewMode, setViewMode] = useState<'grid' | 'focused'>(compact ? 'focused' : defaultViewMode);
 
-  // Global search query
+  // Global search query (internal fallback when external search is not provided)
   const [globalSearch, setGlobalSearch] = useState('');
+  const isExternalSearch = externalSearchQuery !== undefined;
+  const activeSearchQuery = isExternalSearch ? externalSearchQuery : globalSearch;
+
+  const handleUpdateSearch = (value: string) => {
+    if (!isExternalSearch) {
+      setGlobalSearch(value);
+    }
+    onSearchChange?.(value);
+  };
 
   // Space collapse map
   const [spaceCollapseMap, setSpaceCollapseMap] = useState<Record<string, boolean>>({});
@@ -1020,7 +1035,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Global Search Toolbar (Grid Mode) */}
-      {viewMode === 'grid' && !compact && (
+      {viewMode === 'grid' && !compact && !hideSearchBar && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
           <div style={{ position: 'relative', width: '100%', maxWidth: '360px' }}>
             <div
@@ -1040,8 +1055,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             <input
               type="text"
               placeholder="Search across all spaces..."
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
+              value={activeSearchQuery}
+              onChange={(e) => handleUpdateSearch(e.target.value)}
               style={{
                 width: '100%',
                 padding: '8px 32px 8px 36px',
@@ -1054,10 +1069,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 boxSizing: 'border-box',
               }}
             />
-            {globalSearch && (
+            {activeSearchQuery && (
               <button
                 type="button"
-                onClick={() => setGlobalSearch('')}
+                onClick={() => handleUpdateSearch('')}
                 style={{
                   position: 'absolute',
                   right: '10px',
@@ -1130,7 +1145,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 allFolders={data.folders}
                 allTabs={data.tabs}
                 cardIndex={idx}
-                searchQuery={globalSearch}
+                searchQuery={activeSearchQuery}
                 isCollapsed={false}
                 onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                 onOpenTab={onOpenTab}
@@ -1207,7 +1222,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     allFolders={data.folders}
                     allTabs={data.tabs}
                     cardIndex={idx}
-                    searchQuery={globalSearch}
+                    searchQuery={activeSearchQuery}
                     isCollapsed={true}
                     onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                     onOpenTab={onOpenTab}
@@ -1284,6 +1299,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     allSpaces={sortedSpaces}
                     allFolders={data.folders}
                     allTabs={data.tabs}
+                    searchQuery={activeSearchQuery}
                     isSingleColumn={compact}
                     alwaysShowActions={alwaysShowActions}
                     isCollapsed={false}
