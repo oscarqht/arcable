@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { DeviceSyncRecord } from '../../types/sync';
-import { getOrCreateDeviceId, getStoredDeviceName } from '../../utils/syncEngine';
+import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName } from '../../utils/syncEngine';
 import {
   fetchRaindropDevices,
   renameRaindropDevice,
@@ -128,6 +128,8 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
   }, [isOpen, loadDevices]);
 
   const handleStartRename = (device: DeviceSyncRecord) => {
+    // Only allow renaming the current device
+    if (device.deviceId !== effectiveCurrentDeviceId) return;
     setEditingDeviceId(device.deviceId);
     setEditNameValue(device.deviceName || '');
     setConfirmDeleteDevice(null);
@@ -143,9 +145,15 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
     const trimmed = editNameValue.trim();
     if (!trimmed) return;
 
+    // Only allow renaming the current device
+    if (deviceId !== effectiveCurrentDeviceId) return;
+
     setActionInProgressId(deviceId);
     setErrorMessage(null);
     try {
+      // Remember locally for next syncs
+      setStoredDeviceName(trimmed);
+
       if (onRenameDevice) {
         const updated = await onRenameDevice(deviceId, trimmed);
         if (Array.isArray(updated)) {
@@ -671,28 +679,31 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                     {/* Action buttons (Rename & Delete) */}
                     {!isEditing && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                        <button
-                          type="button"
-                          onClick={() => handleStartRename(device)}
-                          disabled={isBusy}
-                          title="Rename Device"
-                          style={{
-                            border: '1px solid #e2e8f0',
-                            background: '#f8fafc',
-                            color: '#475569',
-                            width: '28px',
-                            height: '28px',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: 0,
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          <EditIcon size={14} color="#475569" />
-                        </button>
+                        {/* Only allow renaming the current device */}
+                        {isCurrent && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartRename(device)}
+                            disabled={isBusy}
+                            title="Rename Current Device"
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              background: '#f8fafc',
+                              color: '#475569',
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: 0,
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <EditIcon size={14} color="#475569" />
+                          </button>
+                        )}
 
                         <button
                           type="button"

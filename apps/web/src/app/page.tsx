@@ -10,7 +10,7 @@ import {
   DevicesIcon,
   DeviceModal,
 } from '@arcable/shared/components';
-import { getStoredDeviceName } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
 import { RaindropAuthState } from '@arcable/shared/types';
 
 export default function HomePage() {
@@ -128,6 +128,7 @@ export default function HomePage() {
   };
 
   const handleRenameDevice = async (deviceId: string, newName: string) => {
+    setStoredDeviceName(newName);
     try {
       const res = await fetch('/api/raindrop/devices', {
         method: 'PATCH',

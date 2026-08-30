@@ -11,7 +11,7 @@ import {
   DeviceModal,
 } from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded } from '@arcable/shared/hooks';
-import { getStoredDeviceName } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
@@ -170,6 +170,7 @@ export const App: React.FC = () => {
   };
 
   const handleRenameDevice = async (deviceId: string, newName: string) => {
+    setStoredDeviceName(newName);
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_RENAME_DEVICE',
       payload: { deviceId, newName },

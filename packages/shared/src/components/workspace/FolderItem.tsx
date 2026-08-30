@@ -173,7 +173,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         display: 'flex',
         flexDirection: 'column',
         gap: '2px',
-        marginLeft: depth > 0 ? `${depth * 12}px` : '0',
       }}
     >
       {/* Folder Header Row */}
@@ -194,7 +193,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           height: '40px',
-          padding: '0 10px 0 12px',
+          padding: '0 8px 0 8px',
           borderRadius: '12px',
           backgroundColor:
             dropIndicator === 'inside'
@@ -463,9 +462,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             display: 'flex',
             flexDirection: 'column',
             gap: '4px',
-            paddingLeft: '14px',
+            paddingLeft: '10px',
             borderLeft: `1.5px solid ${guideLineColor}`,
-            marginLeft: '16px',
+            marginLeft: '17px',
             marginTop: '4px',
           }}
         >
