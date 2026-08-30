@@ -529,7 +529,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
     const timer = setTimeout(() => {
       performSync(true);
-    }, 1500);
+    }, 5000);
 
     return () => clearTimeout(timer);
   }, [data, autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
