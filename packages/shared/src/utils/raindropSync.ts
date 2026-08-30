@@ -295,23 +295,10 @@ export async function syncWorkspaceWithRaindrop(
       deviceId
     );
 
-    // 3. Check if this device is recognized in remote syncFile.
-    // If remote syncFile exists with registered devices, but this deviceId is NOT among them,
-    // this device was previously deleted (or is a reconnecting device).
-    // Discard all local pending records and recreate latest state directly from remote baselineSnapshot + operations.
-    const hasExistingDevices = remoteSyncFile.devices && Object.keys(remoteSyncFile.devices).length > 0;
-    const isDeletedOrReconnectingDevice = hasExistingDevices && !remoteSyncFile.devices[deviceId];
-
-    let pendingOps = options?.pendingOps !== undefined
+    // 3. Load local pending operations (including offline edits) to push and reconcile
+    const pendingOps = options?.pendingOps !== undefined
       ? options.pendingOps
       : getStoredPendingOperations();
-
-    if (isDeletedOrReconnectingDevice) {
-      pendingOps = [];
-      if (typeof window !== 'undefined') {
-        clearStoredPendingOperations();
-      }
-    }
 
     // 4. Compact sync file & compute latest snapshot
     const compacted = compactSyncFile(

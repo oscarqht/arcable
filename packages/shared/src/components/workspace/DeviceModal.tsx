@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { DeviceSyncRecord } from '../../types/sync';
-import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName } from '../../utils/syncEngine';
+import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName, isDeviceOnline } from '../../utils/syncEngine';
 import {
   fetchRaindropDevices,
   renameRaindropDevice,
@@ -648,8 +648,12 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 {device.deviceName || 'Unnamed Device'}
                               </span>
 
-                              {isCurrent && (
+                              {isCurrent ? (
                                 <Badge variant="success">Current</Badge>
+                              ) : isDeviceOnline(device.lastSyncAt) ? (
+                                <Badge variant="info">Online</Badge>
+                              ) : (
+                                <Badge variant="default">Offline</Badge>
                               )}
                             </div>
 

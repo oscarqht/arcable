@@ -2,11 +2,20 @@ import { ArcableWorkspaceData, Space, Folder, Tab } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 
-export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
+export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (device registry retention)
 export const PENDING_OPS_STORAGE_KEY = 'arcable_pending_ops';
 export const DEVICE_ID_STORAGE_KEY = 'arcable_device_id';
 export const DEVICE_NAME_STORAGE_KEY = 'arcable_device_name';
 export const LAMPORT_SEQ_STORAGE_KEY = 'arcable_lamport_seq';
+
+/**
+ * Checks if a device is considered online based on its lastSyncAt timestamp (within 10 minutes).
+ */
+export function isDeviceOnline(lastSyncAt?: number, now: number = Date.now()): boolean {
+  if (!lastSyncAt || typeof lastSyncAt !== 'number') return false;
+  return now - lastSyncAt <= ONLINE_DEVICE_THRESHOLD_MS;
+}
 
 /**
  * Retrieves the persistent local device ID or generates a new one.
@@ -484,9 +493,9 @@ export function replayOperations(
 /**
  * Compacts the ArcableSyncFile by:
  * 1. Updating current device's lastSyncAt timestamp
- * 2. Pruning inactive devices older than 7 days
- * 3. Appending local pending operations
- * 4. Finding oldest active device sync time (compaction cutoff)
+ * 2. Pruning inactive devices older than 7 days (device registry retention)
+ * 3. Identifying "online" devices (lastSyncAt within last 10 minutes)
+ * 4. Finding oldest ONLINE device sync time (compaction cutoff). If only current device is online, cutoff is now.
  * 5. Rolling operations older than cutoff into baselineSnapshot
  * 6. Computing latest snapshot for local rendering
  */
@@ -507,18 +516,23 @@ export function compactSyncFile(
     lastSyncAt: now,
   };
 
-  // 2. Prune inactive devices (older than 7 days), always keeping currentDeviceId
-  const activeDevices: DeviceSyncRecord[] = [];
+  // 2. Prune inactive devices (older than 7 days), always keeping currentDeviceId in registry
+  const registeredDevices: DeviceSyncRecord[] = [];
   const prunedDevices: Record<string, DeviceSyncRecord> = {};
 
   for (const [id, dev] of Object.entries(devices)) {
     if (id === currentDeviceId || now - dev.lastSyncAt <= DEVICE_INACTIVITY_TTL_MS) {
       prunedDevices[id] = dev;
-      activeDevices.push(dev);
+      registeredDevices.push(dev);
     }
   }
 
-  // 3. Combine existing operations with new pending operations (deduplicate by op.id)
+  // 3. Filter for ONLINE devices (within 10 minutes) to compute compaction cutoff
+  const onlineDevices = registeredDevices.filter(
+    (dev) => dev.deviceId === currentDeviceId || isDeviceOnline(dev.lastSyncAt, now)
+  );
+
+  // 4. Combine existing operations with new pending operations (deduplicate by op.id)
   const existingOpMap = new Map<string, WorkspaceOperation>();
   for (const op of syncFile.operations || []) {
     existingOpMap.set(op.id, op);
@@ -529,11 +543,15 @@ export function compactSyncFile(
 
   const allOps = Array.from(existingOpMap.values());
 
-  // 4. Compute compaction cutoff
-  // Cutoff is the minimum lastSyncAt among all active devices
-  const cutoffTimestamp = Math.min(...activeDevices.map((d) => d.lastSyncAt));
+  // 5. Compute compaction cutoff
+  // Cutoff is the minimum lastSyncAt among all ONLINE devices.
+  // If only currentDeviceId is online, cutoff is currentDeviceId.lastSyncAt (= now),
+  // which immediately folds all historical operations into baselineSnapshot.
+  const cutoffTimestamp = onlineDevices.length > 0
+    ? Math.min(...onlineDevices.map((d) => d.lastSyncAt))
+    : now;
 
-  // 5. Partition operations: fold those <= cutoff into baselineSnapshot
+  // 6. Partition operations: fold those <= cutoff into baselineSnapshot
   const opsToFold: WorkspaceOperation[] = [];
   const remainingOps: WorkspaceOperation[] = [];
 
@@ -545,10 +563,10 @@ export function compactSyncFile(
     }
   }
 
-  // 6. Fold ops into baseline
+  // 7. Fold ops into baseline
   const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
 
-  // 7. Replay remaining ops on top of new baseline to get latest state
+  // 8. Replay remaining ops on top of new baseline to get latest state
   const latestSnapshot = replayOperations(newBaseline, remainingOps);
 
   const updatedSyncFile: ArcableSyncFile = {
@@ -568,8 +586,8 @@ export function compactSyncFile(
  * Re-compacts and updates ArcableSyncFile when a device is deleted/removed.
  * - Removes the specified device from `syncFile.devices`.
  * - Determines the new compaction cutoff:
- *   If other active devices remain, cutoff is min(lastSyncAt) of remaining devices.
- *   If no devices remain, cutoff is `now`.
+ *   If other active online devices remain, cutoff is min(lastSyncAt) of remaining online devices.
+ *   If no other online devices remain, cutoff is `now`.
  * - Folds all operations <= cutoff into baselineSnapshot and prunes them from operations.
  * - Returns the updated syncFile and resolved latestSnapshot.
  */
@@ -581,20 +599,25 @@ export function recomputeSyncFileOnDeviceRemoval(
   const devices: Record<string, DeviceSyncRecord> = { ...(syncFile.devices || {}) };
   delete devices[removedDeviceId];
 
-  // Prune any remaining inactive devices older than 7 days
-  const remainingActiveDevices: DeviceSyncRecord[] = [];
+  // Prune any remaining inactive devices older than 7 days from registry
+  const remainingRegisteredDevices: DeviceSyncRecord[] = [];
   const validDevices: Record<string, DeviceSyncRecord> = {};
 
   for (const [id, dev] of Object.entries(devices)) {
     if (now - dev.lastSyncAt <= DEVICE_INACTIVITY_TTL_MS) {
       validDevices[id] = dev;
-      remainingActiveDevices.push(dev);
+      remainingRegisteredDevices.push(dev);
     }
   }
 
+  // Filter for online devices (within 10 minutes)
+  const remainingOnlineDevices = remainingRegisteredDevices.filter((dev) =>
+    isDeviceOnline(dev.lastSyncAt, now)
+  );
+
   // Calculate new cutoff
-  const cutoffTimestamp = remainingActiveDevices.length > 0
-    ? Math.min(...remainingActiveDevices.map((d) => d.lastSyncAt))
+  const cutoffTimestamp = remainingOnlineDevices.length > 0
+    ? Math.min(...remainingOnlineDevices.map((d) => d.lastSyncAt))
     : now;
 
   // Deduplicate and partition operations
