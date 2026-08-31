@@ -38,13 +38,37 @@
         --text-sub: #94a3b8;
         color-scheme: dark;
       }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         padding: 0;
+        min-height: 100vh;
         font-family: var(--font-family);
         background-color: var(--bg-main);
+        background-image: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.05) 0%, transparent 60%);
         color: var(--text-main);
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      html.dark body, body.dark {
+        background-image: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 70%);
+      }
+      /* Custom cozy scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.35);
+        border-radius: 9999px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(148, 163, 184, 0.55);
       }
     </style>
     <script>
