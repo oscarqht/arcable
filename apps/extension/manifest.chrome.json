@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arcable",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Arcable - Unified browser workspace and intelligence extension with Raindrop.io sync",
   "permissions": [
     "storage",
@@ -54,8 +54,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -64,7 +68,9 @@
         "http://localhost:3000/*",
         "https://*.arcable.dev/*"
       ],
-      "js": ["oauth-bridge.js"],
+      "js": [
+        "oauth-bridge.js"
+      ],
       "run_at": "document_start"
     }
   ]
