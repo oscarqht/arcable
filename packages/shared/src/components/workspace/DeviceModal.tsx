@@ -22,6 +22,60 @@ import {
   RefreshIcon,
 } from '../Icons';
 
+// --- Icon data URIs (base64-encoded, no binary imports needed) ---
+import {
+  iconTypeExt as typeExtSrc,
+  iconTypeWeb as typeWebSrc,
+  iconBrowserChrome as browserChromeSrc,
+  iconBrowserFirefox as browserFirefoxSrc,
+  iconBrowserZen as browserZenSrc,
+  iconBrowserBrave as browserBraveSrc,
+  iconBrowserArc as browserArcSrc,
+  iconBrowserVivalid as browserVivaldiSrc,
+  iconBrowserComet as browserCometSrc,
+  iconBrowserDia as browserDiaSrc,
+  iconOsMac as osMacSrc,
+  iconOsWindows as osWindowsSrc,
+} from '../../assets/icons';
+
+// ---------------------------------------------------------------------------
+// Rename option definitions
+// ---------------------------------------------------------------------------
+
+interface RenameOption {
+  value: string;
+  label: string;
+  icon?: string; // image src
+}
+
+const TYPE_OPTIONS: RenameOption[] = [
+  { value: 'Ext', label: 'Ext', icon: typeExtSrc },
+  { value: 'Web App', label: 'Web App', icon: typeWebSrc },
+];
+
+const BROWSER_OPTIONS: RenameOption[] = [
+  { value: 'Chrome', label: 'Chrome', icon: browserChromeSrc },
+  { value: 'Firefox', label: 'Firefox', icon: browserFirefoxSrc },
+  { value: 'Zen', label: 'Zen', icon: browserZenSrc },
+  { value: 'Brave', label: 'Brave', icon: browserBraveSrc },
+  { value: 'Arc', label: 'Arc', icon: browserArcSrc },
+  { value: 'Vivaldi', label: 'Vivaldi', icon: browserVivaldiSrc },
+  { value: 'Comet', label: 'Comet', icon: browserCometSrc },
+  { value: 'Dia', label: 'Dia', icon: browserDiaSrc },
+];
+
+const OS_OPTIONS: RenameOption[] = [
+  { value: 'macOS', label: 'macOS', icon: osMacSrc },
+  { value: 'Windows', label: 'Windows', icon: osWindowsSrc },
+];
+
+const LOCATION_OPTIONS: RenameOption[] = [
+  { value: 'home', label: '🏠 Home' },
+  { value: 'office', label: '🏢 Office' },
+];
+
+// ---------------------------------------------------------------------------
+
 export interface DeviceModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -60,6 +114,73 @@ function formatSyncTime(timestamp?: number): string {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Smart-name pill selector row
+// ---------------------------------------------------------------------------
+
+interface PillRowProps {
+  options: RenameOption[];
+  selected: string;
+  onSelect: (value: string) => void;
+  isDark: boolean;
+}
+
+const PillRow: React.FC<PillRowProps> = ({ options, selected, onSelect, isDark }) => (
+  <div
+    style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '5px',
+    }}
+  >
+    {options.map((opt) => {
+      const isSelected = selected === opt.value;
+      return (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onSelect(isSelected ? '' : opt.value)}
+          title={opt.label}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 8px',
+            borderRadius: '20px',
+            border: isSelected
+              ? '1.5px solid #0284c7'
+              : `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+            background: isSelected
+              ? isDark ? 'rgba(2,132,199,0.2)' : '#e0f2fe'
+              : isDark ? '#0f172a' : '#f8fafc',
+            color: isSelected
+              ? isDark ? '#38bdf8' : '#0284c7'
+              : isDark ? '#94a3b8' : '#64748b',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: isSelected ? 600 : 400,
+            transition: 'all 0.12s ease',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {opt.icon && (
+            <img
+              src={opt.icon}
+              alt=""
+              style={{ width: '13px', height: '13px', objectFit: 'contain', flexShrink: 0 }}
+            />
+          )}
+          {opt.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export const DeviceModal: React.FC<DeviceModalProps> = ({
   isOpen,
   onClose,
@@ -81,12 +202,28 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
   const [editNameValue, setEditNameValue] = useState('');
   const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
 
+  // Rename mode
+  const [renameMode, setRenameMode] = useState<'smart' | 'custom'>('smart');
+  // Smart selector state
+  const [smartType, setSmartType] = useState('');
+  const [smartBrowser, setSmartBrowser] = useState('');
+  const [smartOs, setSmartOs] = useState('');
+  const [smartLocation, setSmartLocation] = useState('');
+
   // Confirm delete device state
   const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<DeviceSyncRecord | null>(null);
   // Confirm delete all other devices state
   const [confirmDeleteOtherDevices, setConfirmDeleteOtherDevices] = useState(false);
 
   const effectiveCurrentDeviceId = currentDeviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : '');
+
+  // Derive the generated name from smart selectors
+  const generateSmartName = useCallback((): string => {
+    const parts = [smartType, smartBrowser, smartOs].filter(Boolean);
+    if (smartLocation === 'home') parts.push('🏠 Home');
+    else if (smartLocation === 'office') parts.push('🏢 Office');
+    return parts.join(' / ');
+  }, [smartType, smartBrowser, smartOs, smartLocation]);
 
   const loadDevices = useCallback(async (silent = false) => {
     if (!silent) {
@@ -129,22 +266,58 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
     }
   }, [isOpen, loadDevices]);
 
+  const resetRenameState = () => {
+    setRenameMode('smart');
+    setSmartType('');
+    setSmartBrowser('');
+    setSmartOs('');
+    setSmartLocation('');
+    setEditNameValue('');
+  };
+
   const handleStartRename = (device: DeviceSyncRecord) => {
     // Only allow renaming the current device
     if (device.deviceId !== effectiveCurrentDeviceId) return;
+
+    // Try to parse the existing name as a smart name and pre-select matching values
+    const existingName = (device.deviceName || '').trim();
+    const parts = existingName.split(' / ').map((p) => p.trim());
+
+    const typeValues = new Set(TYPE_OPTIONS.map((o) => o.value));
+    const browserValues = new Set(BROWSER_OPTIONS.map((o) => o.value));
+    const osValues = new Set(OS_OPTIONS.map((o) => o.value));
+
+    let detectedType = '';
+    let detectedBrowser = '';
+    let detectedOs = '';
+    let detectedLocation = '';
+
+    for (const part of parts) {
+      if (!detectedType && typeValues.has(part)) { detectedType = part; continue; }
+      if (!detectedBrowser && browserValues.has(part)) { detectedBrowser = part; continue; }
+      if (!detectedOs && osValues.has(part)) { detectedOs = part; continue; }
+      if (part === '🏠 Home') { detectedLocation = 'home'; continue; }
+      if (part === '🏢 Office') { detectedLocation = 'office'; continue; }
+    }
+
+    setRenameMode('smart');
+    setSmartType(detectedType);
+    setSmartBrowser(detectedBrowser);
+    setSmartOs(detectedOs);
+    setSmartLocation(detectedLocation);
+    setEditNameValue('');
     setEditingDeviceId(device.deviceId);
-    setEditNameValue(device.deviceName || '');
     setConfirmDeleteDevice(null);
     setConfirmDeleteOtherDevices(false);
   };
 
   const handleCancelRename = () => {
     setEditingDeviceId(null);
-    setEditNameValue('');
+    resetRenameState();
   };
 
   const handleSaveRename = async (deviceId: string) => {
-    const trimmed = editNameValue.trim();
+    const trimmed = renameMode === 'smart' ? generateSmartName().trim() : editNameValue.trim();
     if (!trimmed) return;
 
     // Only allow renaming the current device
@@ -175,6 +348,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       setSuccessMessage('Device renamed successfully.');
       setTimeout(() => setSuccessMessage(null), 3000);
       setEditingDeviceId(null);
+      resetRenameState();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to rename device.');
     } finally {
@@ -537,6 +711,12 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 const isEditing = editingDeviceId === device.deviceId;
                 const isBusy = actionInProgressId === device.deviceId;
 
+                // Compute generated name for save button state
+                const smartName = isEditing ? generateSmartName() : '';
+                const canSave = isEditing
+                  ? renameMode === 'smart' ? smartName.trim().length > 0 : editNameValue.trim().length > 0
+                  : false;
+
                 return (
                   <div
                     key={device.deviceId}
@@ -550,7 +730,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                         : `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                       borderRadius: '12px',
                       display: 'flex',
-                      alignItems: 'center',
+                      alignItems: isEditing ? 'flex-start' : 'center',
                       justifyContent: 'space-between',
                       gap: '12px',
                       transition: 'all 0.15s ease',
@@ -558,7 +738,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                     }}
                   >
                     {/* Device icon & Info */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: isEditing ? 'flex-start' : 'center', gap: '12px', minWidth: 0, flex: 1 }}>
                       <div
                         style={{
                           width: '34px',
@@ -572,6 +752,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          marginTop: isEditing ? '2px' : '0',
                         }}
                       >
                         <LaptopIcon size={18} color={isCurrent ? (isDark ? '#4ade80' : '#16a34a') : (isDark ? '#94a3b8' : '#64748b')} />
@@ -579,70 +760,179 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
 
                       <div style={{ minWidth: 0, flex: 1 }}>
                         {isEditing ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <input
-                              type="text"
-                              value={editNameValue}
-                              onChange={(e) => setEditNameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') void handleSaveRename(device.deviceId);
-                                if (e.key === 'Escape') handleCancelRename();
-                              }}
-                              autoFocus
-                              disabled={isBusy}
-                              style={{
-                                width: '100%',
-                                padding: '4px 8px',
-                                fontSize: '13px',
-                                borderRadius: '6px',
-                                border: '1.5px solid #0284c7',
-                                backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                                color: isDark ? '#f8fafc' : '#0f172a',
-                                outline: 'none',
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void handleSaveRename(device.deviceId)}
-                              disabled={isBusy || !editNameValue.trim()}
-                              title="Save name"
-                              style={{
-                                border: 'none',
-                                background: '#0284c7',
-                                color: '#ffffff',
-                                width: '26px',
-                                height: '26px',
-                                borderRadius: '6px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                              }}
-                            >
-                              <CheckIcon size={14} color="#ffffff" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCancelRename}
-                              disabled={isBusy}
-                              title="Cancel"
-                              style={{
-                                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                                background: isDark ? '#1e293b' : '#f8fafc',
-                                color: isDark ? '#94a3b8' : '#64748b',
-                                width: '26px',
-                                height: '26px',
-                                borderRadius: '6px',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                              }}
-                            >
-                              <CloseIcon size={14} />
-                            </button>
+                          /* -------------------------------------------------- */
+                          /* Rename editor                                        */
+                          /* -------------------------------------------------- */
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+                            {renameMode === 'smart' ? (
+                              /* Smart mode */
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {/* Type */}
+                                <div>
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDark ? '#64748b' : '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Type
+                                  </div>
+                                  <PillRow options={TYPE_OPTIONS} selected={smartType} onSelect={setSmartType} isDark={isDark} />
+                                </div>
+
+                                {/* Browser */}
+                                <div>
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDark ? '#64748b' : '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Browser
+                                  </div>
+                                  <PillRow options={BROWSER_OPTIONS} selected={smartBrowser} onSelect={setSmartBrowser} isDark={isDark} />
+                                </div>
+
+                                {/* OS */}
+                                <div>
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDark ? '#64748b' : '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    OS
+                                  </div>
+                                  <PillRow options={OS_OPTIONS} selected={smartOs} onSelect={setSmartOs} isDark={isDark} />
+                                </div>
+
+                                {/* Location */}
+                                <div>
+                                  <div style={{ fontSize: '10px', fontWeight: 600, color: isDark ? '#64748b' : '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Location
+                                  </div>
+                                  <PillRow options={LOCATION_OPTIONS} selected={smartLocation} onSelect={setSmartLocation} isDark={isDark} />
+                                </div>
+
+                                {/* Name preview */}
+                                <div
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '8px',
+                                    backgroundColor: isDark ? '#0f172a' : '#f1f5f9',
+                                    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                                    fontSize: '12px',
+                                    color: smartName ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#475569' : '#94a3b8'),
+                                    fontWeight: smartName ? 600 : 400,
+                                    fontStyle: smartName ? 'normal' : 'italic',
+                                  }}
+                                >
+                                  {smartName || 'Select options above to generate a name…'}
+                                </div>
+                              </div>
+                            ) : (
+                              /* Custom mode */
+                              <input
+                                type="text"
+                                value={editNameValue}
+                                onChange={(e) => setEditNameValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void handleSaveRename(device.deviceId);
+                                  if (e.key === 'Escape') handleCancelRename();
+                                }}
+                                autoFocus
+                                disabled={isBusy}
+                                placeholder="Enter device name…"
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 10px',
+                                  fontSize: '13px',
+                                  borderRadius: '6px',
+                                  border: '1.5px solid #0284c7',
+                                  backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                                  color: isDark ? '#f8fafc' : '#0f172a',
+                                  outline: 'none',
+                                  boxSizing: 'border-box',
+                                }}
+                              />
+                            )}
+
+                            {/* Action row: Save / Cancel + mode toggle */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                              {/* Mode toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRenameMode(renameMode === 'smart' ? 'custom' : 'smart');
+                                  setEditNameValue('');
+                                }}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  color: isDark ? '#38bdf8' : '#0284c7',
+                                  textDecoration: 'underline',
+                                  textUnderlineOffset: '2px',
+                                }}
+                              >
+                                {renameMode === 'smart' ? 'Custom name' : 'Smart name'}
+                              </button>
+
+                              {/* Save / Cancel */}
+                              <div style={{ display: 'flex', gap: '5px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveRename(device.deviceId)}
+                                  disabled={isBusy || !canSave}
+                                  title="Save name"
+                                  style={{
+                                    border: 'none',
+                                    background: isBusy || canSave ? '#0284c7' : (isDark ? '#334155' : '#e2e8f0'),
+                                    color: '#ffffff',
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    cursor: canSave && !isBusy ? 'pointer' : 'not-allowed',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.12s ease',
+                                    opacity: isBusy ? 0.85 : 1,
+                                    minWidth: '60px',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  {isBusy ? (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        width: '11px',
+                                        height: '11px',
+                                        border: '2px solid rgba(255,255,255,0.35)',
+                                        borderTopColor: '#ffffff',
+                                        borderRadius: '50%',
+                                        animation: 'spin 0.7s linear infinite',
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  ) : (
+                                    <CheckIcon size={12} color={canSave ? '#ffffff' : (isDark ? '#475569' : '#94a3b8')} />
+                                  )}
+                                  {isBusy ? 'Saving…' : 'Save'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelRename}
+                                  disabled={isBusy}
+                                  title="Cancel"
+                                  style={{
+                                    border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                                    background: isDark ? '#1e293b' : '#f8fafc',
+                                    color: isDark ? '#94a3b8' : '#64748b',
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.12s ease',
+                                  }}
+                                >
+                                  <CloseIcon size={12} />
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         ) : (
                           <>
@@ -692,7 +982,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Action buttons (Rename & Delete) */}
+                    {/* Action buttons (Rename & Delete) — hidden while editing */}
                     {!isEditing && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                         {/* Only allow renaming the current device */}
