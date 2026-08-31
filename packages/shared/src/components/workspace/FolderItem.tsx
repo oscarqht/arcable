@@ -454,6 +454,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 alwaysShowActions={alwaysShowActions}
                 isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
                 isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
+                badge={tabAssociations?.[item.id]?.badge}
                 isHighlighted={highlightedTabId === item.id}
                 onOpen={onOpenTab}
                 onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}

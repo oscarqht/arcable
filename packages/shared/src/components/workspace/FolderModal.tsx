@@ -340,7 +340,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 Cancel
               </Button>
               <Button type="submit" variant="primary" size="md">
-                {folder ? 'Save Changes' : 'Create Folder'}
+                {folder ? 'Save' : 'Create'}
               </Button>
             </div>
           </div>

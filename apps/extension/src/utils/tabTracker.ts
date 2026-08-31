@@ -1,5 +1,5 @@
 import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab } from '@arcable/shared/types';
-import { normalizeUrl, areUrlsMatching } from '@arcable/shared/utils';
+import { areUrlsMatching, extractTabNotificationBadge } from '@arcable/shared/utils';
 import { browser } from './browser';
 
 const SESSION_KEY = 'arcable_tab_associations';
@@ -221,6 +221,7 @@ class TabTracker {
         prevTab.id !== undefined &&
         areUrlsMatching(prevTab.url || prevTab.pendingUrl, item.url)
       ) {
+        const badge = extractTabNotificationBadge(prevTab.title || prevTab.pendingTitle);
         newAssociations[item.id] = {
           tabItemId: item.id,
           browserTabId: prevTab.id,
@@ -228,6 +229,7 @@ class TabTracker {
           currentUrl: prevTab.url || prevTab.pendingUrl || item.url,
           originalUrl: item.url,
           isDiverted: false,
+          badge: badge || undefined,
         };
         continue;
       }
@@ -240,6 +242,7 @@ class TabTracker {
       );
 
       if (matchingTab && matchingTab.id !== undefined) {
+        const badge = extractTabNotificationBadge(matchingTab.title || matchingTab.pendingTitle);
         newAssociations[item.id] = {
           tabItemId: item.id,
           browserTabId: matchingTab.id,
@@ -247,6 +250,7 @@ class TabTracker {
           currentUrl: matchingTab.url || matchingTab.pendingUrl || item.url,
           originalUrl: item.url,
           isDiverted: false,
+          badge: badge || undefined,
         };
       }
     }
@@ -264,6 +268,7 @@ class TabTracker {
         const matchesOtherItem = workspaceTabs.some((other) => areUrlsMatching(currentUrl, other.url));
 
         if (!matchesOtherItem) {
+          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
           newAssociations[tabItemId] = {
             tabItemId,
             browserTabId: matchingBrowserTab.id,
@@ -271,6 +276,7 @@ class TabTracker {
             currentUrl,
             originalUrl: matchingWorkspaceItem.url || info.originalUrl,
             isDiverted: true,
+            badge: badge || undefined,
           };
         }
       }
@@ -301,6 +307,7 @@ class TabTracker {
       favIconUrl: bt.favIconUrl,
       browserTabId: bt.id,
       windowId: bt.windowId || 0,
+      badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
       createdAt: Date.now(),
     }));
 
@@ -382,6 +389,7 @@ class TabTracker {
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
         const associations = await this.getAssociations();
+        const badge = extractTabNotificationBadge(newTab.title || (newTab as any).pendingTitle);
         associations[tabItemId] = {
           tabItemId,
           browserTabId: newTab.id,
@@ -389,6 +397,7 @@ class TabTracker {
           currentUrl: url,
           originalUrl: url,
           isDiverted: false,
+          badge: badge || undefined,
         };
         // Also associate any other workspace tabs that have matching URL
         for (const item of this.currentWorkspaceTabs) {
@@ -400,6 +409,7 @@ class TabTracker {
               currentUrl: url,
               originalUrl: item.url,
               isDiverted: false,
+              badge: badge || undefined,
             };
           }
         }
@@ -438,18 +448,14 @@ class TabTracker {
     // 1. Tab created
     if (tabsApi && tabsApi.onCreated) {
       tabsApi.onCreated.addListener(async () => {
-        if (this.currentWorkspaceTabs.length > 0) {
-          await this.syncWithWorkspace(this.currentWorkspaceTabs);
-        }
+        await this.syncWithWorkspace(this.currentWorkspaceTabs);
       });
     }
 
     // 2. Tab updated (URL changes / navigation / title load)
     if (tabsApi && tabsApi.onUpdated) {
       tabsApi.onUpdated.addListener(async (tabId: number, changeInfo: any, tab: any) => {
-        if (this.currentWorkspaceTabs.length > 0) {
-          await this.syncWithWorkspace(this.currentWorkspaceTabs);
-        }
+        await this.syncWithWorkspace(this.currentWorkspaceTabs);
       });
     }
 

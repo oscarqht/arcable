@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Header,
   WorkspaceManager,
   WorkspaceManagerHandle,
   DeviceModal,
+  ActionDropdownItem,
 } from '@arcable/shared/components';
 import { TabAssociationMap, Tab, TmpTab } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
@@ -367,6 +367,62 @@ export const App: React.FC = () => {
     }
   };
 
+  const bottomBarMenuItems: ActionDropdownItem[] = [
+    {
+      id: 'sync-raindrop',
+      label: isSyncing ? 'Syncing...' : hasRaindropAuth ? 'Raindrop Sync' : 'Connect Raindrop.io',
+      icon: (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '15px',
+            animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
+          }}
+        >
+          💧
+        </span>
+      ),
+      onClick: async () => {
+        if (!hasRaindropAuth) {
+          browser.runtime.openOptionsPage();
+          return;
+        }
+        if (workspaceRef.current) {
+          await workspaceRef.current.triggerSync();
+        }
+      },
+      disabled: isSyncing,
+    },
+    {
+      id: 'capture-tab',
+      label: isCapturing ? 'Adding Tab...' : 'Add Current Tab',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>⚡</span>,
+      onClick: handleCaptureCurrentTabFromHeader,
+      disabled: isCapturing,
+    },
+    {
+      id: 'add-space',
+      label: 'Add Space',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>➕</span>,
+      onClick: () => workspaceRef.current?.openNewSpace(),
+      dividerAfter: true,
+    },
+    {
+      id: 'devices',
+      label: 'Manage Connected Devices',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>📱</span>,
+      onClick: () => setIsDeviceModalOpen(true),
+    },
+    {
+      id: 'settings',
+      label: 'Extension Settings',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>⚙️</span>,
+      onClick: () => browser.runtime.openOptionsPage(),
+    },
+  ];
+
   return (
     <div
       style={{
@@ -380,164 +436,7 @@ export const App: React.FC = () => {
         color: isDark ? '#f8fafc' : '#0f172a',
       }}
     >
-      <Header
-        title="Arcable"
-        logoSrc={browser.runtime.getURL('icons/icon32.png')}
-        actions={
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-            {/* 1. Raindrop sync */}
-            <button
-              type="button"
-              onClick={async () => {
-                if (!hasRaindropAuth) {
-                  browser.runtime.openOptionsPage();
-                  return;
-                }
-                if (workspaceRef.current) {
-                  await workspaceRef.current.triggerSync();
-                }
-              }}
-              disabled={isSyncing}
-              title={
-                !hasRaindropAuth
-                  ? 'Connect Raindrop.io'
-                  : isSyncing
-                  ? 'Syncing with Raindrop...'
-                  : 'Raindrop Sync'
-              }
-              aria-label="Raindrop Sync"
-              style={{
-                border: '1px solid transparent',
-                background: 'transparent',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: isSyncing ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                fontSize: '15px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <span style={{
-                display: 'inline-flex',
-                opacity: isSyncing ? 0.5 : 1,
-                animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
-                transition: 'opacity 0.15s ease',
-              }}>
-                💧
-              </span>
-            </button>
-
-            {/* 2. Add current tab */}
-            <button
-              type="button"
-              onClick={handleCaptureCurrentTabFromHeader}
-              disabled={isCapturing}
-              title="Add Current Tab"
-              aria-label="Add Current Tab"
-              style={{
-                border: '1px solid transparent',
-                background: 'transparent',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: isCapturing ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                fontSize: '15px',
-                opacity: isCapturing ? 0.6 : 1,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              ⚡
-            </button>
-
-            {/* 3. Add space */}
-            <button
-              type="button"
-              onClick={() => workspaceRef.current?.openNewSpace()}
-              title="Add Space"
-              aria-label="Add Space"
-              style={{
-                border: '1px solid transparent',
-                background: 'transparent',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                fontSize: '15px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              ➕
-            </button>
-
-            {/* 4. Devices management */}
-            <button
-              type="button"
-              onClick={() => setIsDeviceModalOpen(true)}
-              title="Manage Connected Devices"
-              aria-label="Manage Connected Devices"
-              style={{
-                border: '1px solid transparent',
-                background: 'transparent',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                fontSize: '15px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              📱
-            </button>
-
-            {/* Settings */}
-            <button
-              type="button"
-              onClick={() => browser.runtime.openOptionsPage()}
-              title="Extension Settings"
-              aria-label="Extension Settings"
-              style={{
-                border: '1px solid transparent',
-                background: 'transparent',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                fontSize: '15px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              ⚙️
-            </button>
-          </div>
-        }
-      />
-
+      <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <div
         style={{
           padding: '12px 12px 0 12px',
@@ -566,13 +465,10 @@ export const App: React.FC = () => {
           onResetDivertedUrl={handleResetDivertedUrl}
           onTabsChange={handleTabsChange}
           onCaptureCurrentTab={handleCaptureCurrentTab}
-
+          bottomBarMenuItems={bottomBarMenuItems}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
-
-
-
       </div>
 
       <DeviceModal

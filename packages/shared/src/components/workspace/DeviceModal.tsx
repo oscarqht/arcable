@@ -1015,7 +1015,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                           type="button"
                           onClick={() => setConfirmDeleteDevice(device)}
                           disabled={isBusy}
-                          title="Delete Device"
+                          title="Delete"
                           style={{
                             border: `1px solid ${isDark ? '#7f1d1d' : '#fee2e2'}`,
                             background: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2',

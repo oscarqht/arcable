@@ -209,7 +209,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
               Cancel
             </Button>
             <Button type="submit" variant="primary" size="md">
-              {space ? 'Save Changes' : 'Create Space'}
+              {space ? 'Save' : 'Create'}
             </Button>
           </div>
         </form>

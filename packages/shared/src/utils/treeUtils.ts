@@ -192,3 +192,40 @@ export function getAllFolderTabUrls(
   collectFromFolder(folderId);
   return urls;
 }
+
+/**
+ * Extracts notification badge counts from browser tab titles
+ * (e.g. "(3) Slack", "(1) Inbox - Gmail", "(99+) Discord", "[2] GitHub", "• (5) Messages", "Chat (4)")
+ */
+export function extractTabNotificationBadge(title?: string | null): string | null {
+  if (!title || typeof title !== 'string') return null;
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+
+  // 1. Leading pattern: (3), (99+), [5], • (2), * (4), (1,234)
+  const leadingMatch = trimmed.match(/^(?:[•\*\s]*)[(\[]\s*([0-9]{1,4}(?:,[0-9]{3})?\+?)\s*[)\]]/);
+  if (leadingMatch) {
+    const rawVal = leadingMatch[1].replace(/,/g, '');
+    const num = parseInt(rawVal, 10);
+    if (!isNaN(num)) {
+      if (num > 99 || rawVal.includes('+')) {
+        return '99+';
+      }
+      if (num > 0) {
+        return `${num}`;
+      }
+    }
+  }
+
+  // 2. Trailing pattern: Chat (3), Inbox (12)
+  const trailingMatch = trimmed.match(/[(\[]\s*([0-9]{1,4})\s*[)\]]\s*$/);
+  if (trailingMatch) {
+    const num = parseInt(trailingMatch[1], 10);
+    if (!isNaN(num) && num > 0 && num < 1000) {
+      if (num > 99) return '99+';
+      return `${num}`;
+    }
+  }
+
+  return null;
+}

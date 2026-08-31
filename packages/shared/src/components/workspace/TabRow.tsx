@@ -27,6 +27,7 @@ export interface TabRowProps {
   isAssociated?: boolean;
   isDiverted?: boolean;
   isHighlighted?: boolean;
+  badge?: string | number | null;
   onOpen?: (url: string, tabId?: string) => void;
   onCloseAssociatedTab?: () => void;
 
@@ -52,6 +53,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   isAssociated = false,
   isDiverted = false,
   isHighlighted = false,
+  badge,
   onOpen,
   onCloseAssociatedTab,
   onResetDivertedUrl,
@@ -244,7 +246,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
         outline: isHighlighted ? '2px solid #38bdf8' : 'none',
-        boxShadow: isHighlighted ? '0 0 12px rgba(56, 189, 248, 0.45)' : 'none',
+        outlineOffset: isHighlighted ? '-2px' : undefined,
+        boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.35)' : 'none',
         color: textColor,
         cursor: 'pointer',
         gap: '6px',
@@ -267,8 +270,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            borderRadius: '4px',
-            overflow: 'hidden',
+            position: 'relative',
           }}
         >
           <TabFavicon
@@ -279,6 +281,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             isDarkTheme={isDarkTheme}
             showDomainFallback={true}
             globeIconSize={18}
+            badge={badge}
           />
         </div>
 

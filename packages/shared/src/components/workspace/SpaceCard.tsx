@@ -587,10 +587,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         color: themeStyles.textColor,
         borderRadius: '24px',
         border: `1px solid ${themeStyles.borderColor}`,
-        padding: isCollapsed ? '14px 18px' : '22px 14px',
+        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '14px 12px' : '22px 14px'),
         display: 'flex',
         flexDirection: 'column',
-        gap: isCollapsed ? '0' : '16px',
+        gap: isCollapsed ? '0' : (isSingleColumn ? '12px' : '16px'),
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
         transition: 'all 0.2s ease',
         boxSizing: 'border-box',
@@ -743,6 +743,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     alwaysShowActions={alwaysShowActions}
                     isAssociated={Boolean(tabAssociations && tabAssociations[t.id])}
                     isDiverted={Boolean(tabAssociations && tabAssociations[t.id]?.isDiverted)}
+                    badge={tabAssociations?.[t.id]?.badge}
                     isHighlighted={highlightedTabId === t.id}
                     onOpen={onOpenTab}
                     onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
@@ -812,6 +813,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       alwaysShowActions={alwaysShowActions}
                       isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
                       isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
+                      badge={tabAssociations?.[item.id]?.badge}
                       isHighlighted={highlightedTabId === item.id}
                       onOpen={onOpenTab}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}

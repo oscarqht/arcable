@@ -84,104 +84,30 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   return (
-    <>
-      <style>{`@media (max-width: 399px) { .fav-shelf-header { display: none !important; } }`}</style>
-      <div
+    <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '10px',
-        padding: '14px 16px',
+        padding: '12px',
         backgroundColor: isDark ? '#1e293b' : '#ffffff',
         borderRadius: '20px',
         border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
         boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.03)',
       }}
     >
-      <div className="fav-shelf-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#d4a373',
-            }}
-          >
-            <StarIcon size={16} filled={true} />
-          </div>
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: isDark ? '#94a3b8' : '#475569',
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-            }}
-          >
-            Favourites ({tabs.length})
-          </span>
-          <span style={{ fontSize: '11px', color: isDark ? '#64748b' : '#94a3b8', fontWeight: 400 }}>
-            • Global bookmarks
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={onAddFavouriteTab}
-          title="Add new global favourite tab"
-          style={{
-            border: 'none',
-            background: 'transparent',
-            color: isDark ? '#38bdf8' : '#0284c7',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            padding: '3px 8px',
-            borderRadius: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-          }}
-        >
-          <PlusIcon size={13} />
-          <span>Favourite</span>
-        </button>
-      </div>
-
-      {tabs.length === 0 ? (
-        <div
-          onClick={onAddFavouriteTab}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '14px',
-            borderRadius: '12px',
-            border: `1px dashed ${isDark ? '#334155' : '#cbd5e1'}`,
-            backgroundColor: isDark ? '#0f172a' : '#f8fafc',
-            color: isDark ? '#94a3b8' : '#64748b',
-            fontSize: '13px',
-            cursor: 'pointer',
-            gap: '6px',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <StarIcon size={14} color="#d4a373" filled={true} />
-          <span>No favourite tabs yet. Click to add a favourite accessible across all spaces.</span>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(48px, 1fr))',
-            gap: '8px',
-            width: '100%',
-          }}
-        >
-          {tabs.map((tab) => {
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(48px, 1fr))',
+          gap: '8px',
+          width: '100%',
+        }}
+      >
+        {tabs.map((tab) => {
             const isHovered = hoveredTabId === tab.id;
             const isDragTarget = dragOverTabId === tab.id;
             const isAssociated = Boolean(tabAssociations && tabAssociations[tab.id]);
+            const badge = tabAssociations?.[tab.id]?.badge;
             const isHighlighted = highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
@@ -237,13 +163,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     ? `3px solid ${isDark ? '#38bdf8' : '#0284c7'}`
                     : undefined,
                   outline: isHighlighted ? '2px solid #38bdf8' : 'none',
+                  outlineOffset: isHighlighted ? '-2px' : undefined,
                   borderRadius: '12px',
                   cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
                   userSelect: 'none',
                   boxShadow: isHighlighted
-                    ? '0 0 12px rgba(56, 189, 248, 0.5)'
+                    ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.4)'
                     : isHovered
                     ? '0 2px 8px rgba(0,0,0,0.15)'
                     : 'none',
@@ -262,7 +189,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
-                    overflow: 'hidden',
+                    position: 'relative',
                   }}
                 >
                   <TabFavicon
@@ -273,6 +200,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     globeIconSize={24}
                     globeIconColor={isDark ? '#94a3b8' : '#64748b'}
                     showDomainFallback={true}
+                    badge={badge}
                   />
                 </div>
 
@@ -339,7 +267,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     </button>
                     <button
                       type="button"
-                      title="Delete tab"
+                      title="Delete"
                       onClick={(e) => {
                         e.stopPropagation();
                         onDeleteTab(tab.id);
@@ -363,9 +291,43 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               </div>
             );
           })}
+
+          <button
+            type="button"
+            onClick={onAddFavouriteTab}
+            title="Add favourite tab"
+            aria-label="Add favourite tab"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              minWidth: 0,
+              height: '48px',
+              backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+              border: `1px dashed ${isDark ? '#334155' : '#cbd5e1'}`,
+              borderRadius: '12px',
+              cursor: 'pointer',
+              color: isDark ? '#94a3b8' : '#64748b',
+              transition: 'all 0.15s ease',
+              outline: 'none',
+              padding: 0,
+              boxSizing: 'border-box',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = isDark ? 'rgba(255,255,255,0.08)' : '#f0fdf4';
+              e.currentTarget.style.borderColor = isDark ? '#38bdf8' : '#86efac';
+              e.currentTarget.style.color = isDark ? '#38bdf8' : '#16a34a';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = isDark ? '#0f172a' : '#f8fafc';
+              e.currentTarget.style.borderColor = isDark ? '#334155' : '#cbd5e1';
+              e.currentTarget.style.color = isDark ? '#94a3b8' : '#64748b';
+            }}
+          >
+            <PlusIcon size={18} />
+          </button>
         </div>
-      )}
     </div>
-    </>
   );
 };

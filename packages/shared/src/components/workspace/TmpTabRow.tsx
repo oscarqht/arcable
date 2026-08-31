@@ -16,6 +16,7 @@ export interface TmpTabRowProps {
   alwaysShowActions?: boolean;
   isAssociated?: boolean;
   isHighlighted?: boolean;
+  badge?: string | number | null;
   onOpen?: (url: string, tabId?: string) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
@@ -28,6 +29,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   alwaysShowActions = false,
   isAssociated = true,
   isHighlighted = false,
+  badge,
   onOpen,
   onPromote,
   onClose,
@@ -72,7 +74,8 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         borderRadius: '10px',
         backgroundColor: isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
         outline: isHighlighted ? '2px solid #38bdf8' : 'none',
-        boxShadow: isHighlighted ? '0 0 12px rgba(56, 189, 248, 0.45)' : 'none',
+        outlineOffset: isHighlighted ? '-2px' : undefined,
+        boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.35)' : 'none',
         color: textColor,
         cursor: 'pointer',
         gap: '6px',
@@ -94,8 +97,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            borderRadius: '4px',
-            overflow: 'hidden',
+            position: 'relative',
           }}
         >
           <TabFavicon
@@ -105,6 +107,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
             isDarkTheme={isDarkTheme}
             showDomainFallback={true}
             globeIconSize={18}
+            badge={tab.badge || badge}
           />
         </div>
 

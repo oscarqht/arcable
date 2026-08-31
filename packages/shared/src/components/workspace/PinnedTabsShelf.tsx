@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
+import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
@@ -20,6 +21,7 @@ import {
 
 export interface PinnedTabsShelfProps {
   tabs: Tab[];
+  tabAssociations?: TabAssociationMap;
   isDarkTheme?: boolean;
   shelfBg?: string;
   onOpenTab?: (url: string) => void;
@@ -33,6 +35,7 @@ export interface PinnedTabsShelfProps {
 
 export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   tabs,
+  tabAssociations,
   isDarkTheme,
   shelfBg,
   onOpenTab,
@@ -212,6 +215,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   size={18}
                   emojiSize={18}
                   globeIconSize={18}
+                  badge={tabAssociations?.[tab.id]?.badge}
                 />
 
                 <span

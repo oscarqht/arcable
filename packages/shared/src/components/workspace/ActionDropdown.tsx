@@ -19,6 +19,7 @@ export interface ActionDropdownProps {
   isDarkTheme?: boolean;
   visible?: boolean;
   buttonTitle?: string;
+  triggerIcon?: React.ReactNode;
   align?: 'left' | 'right';
   size?: 'sm' | 'md';
   hoverBg?: string;
@@ -31,6 +32,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   isDarkTheme,
   visible = true,
   buttonTitle = 'More actions',
+  triggerIcon,
   align = 'right',
   size = 'sm',
   hoverBg,
@@ -171,6 +173,14 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
             transform: scale(1);
           }
         }
+        @keyframes arcable-spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
       `}</style>
       {/* ... Trigger Button */}
       <button
@@ -209,7 +219,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
           }
         }}
       >
-        <MoreHorizontalIcon size={iconSize} />
+        {triggerIcon || <MoreHorizontalIcon size={iconSize} />}
       </button>
 
       {/* Dropdown Menu Popup */}

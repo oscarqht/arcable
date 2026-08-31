@@ -50,6 +50,7 @@ export interface TmpTab {
   favIconUrl?: string;
   browserTabId?: number;
   windowId?: number;
+  badge?: string | number | null;
   createdAt?: number;
 }
 

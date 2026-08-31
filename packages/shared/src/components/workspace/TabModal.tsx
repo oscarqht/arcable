@@ -226,7 +226,7 @@ export const TabModal: React.FC<TabModalProps> = ({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: favourite ? 0.5 : 1 }}>
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-                Space {favourite ? '(N/A for Favourite)' : <span style={{ color: '#ef4444' }}>*</span>}
+                Space {favourite ? null : <span style={{ color: '#ef4444' }}>*</span>}
               </label>
               <select
                 value={parentSpaceId}
@@ -326,7 +326,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                 Cancel
               </Button>
               <Button type="submit" variant="primary" size="md">
-                {tab ? 'Save Changes' : 'Add Tab'}
+                {tab ? 'Save' : 'Add'}
               </Button>
             </div>
           </div>
