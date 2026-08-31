@@ -22,6 +22,7 @@ import {
   recomputeSyncFileOnDeviceRemoval,
   recomputeSyncFileOnDeleteOtherDevices,
   setStoredDeviceName,
+  sortDevicesByLastSync,
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
@@ -381,14 +382,7 @@ export async function fetchRaindropDevices(
     );
 
     const devicesMap = syncFile.devices || {};
-    const deviceList = Object.values(devicesMap);
-
-    // Sort: current device first (if any), then newest lastSyncAt first
-    deviceList.sort((a, b) => {
-      if (currId && a.deviceId === currId) return -1;
-      if (currId && b.deviceId === currId) return 1;
-      return (b.lastSyncAt || 0) - (a.lastSyncAt || 0);
-    });
+    const deviceList = sortDevicesByLastSync(Object.values(devicesMap));
 
     return { success: true, devices: deviceList };
   } catch (err: any) {
@@ -477,7 +471,7 @@ export async function renameRaindropDevice(
       setStoredDeviceName(trimmedName);
     }
 
-    const deviceList = Object.values(updatedSyncFile.devices);
+    const deviceList = sortDevicesByLastSync(Object.values(updatedSyncFile.devices));
     return { success: true, devices: deviceList };
   } catch (err: any) {
     console.error('[RaindropSync] Error renaming device:', err);
@@ -542,7 +536,7 @@ export async function deleteRaindropDevice(
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
     await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
 
-    const deviceList = Object.values(updatedSyncFile.devices);
+    const deviceList = sortDevicesByLastSync(Object.values(updatedSyncFile.devices));
     return { success: true, devices: deviceList, latestSnapshot };
   } catch (err: any) {
     console.error('[RaindropSync] Error deleting device:', err);
@@ -607,7 +601,7 @@ export async function deleteAllOtherRaindropDevices(
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
     await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
 
-    const deviceList = Object.values(updatedSyncFile.devices);
+    const deviceList = sortDevicesByLastSync(Object.values(updatedSyncFile.devices));
     return { success: true, devices: deviceList, latestSnapshot };
   } catch (err: any) {
     console.error('[RaindropSync] Error deleting other devices:', err);

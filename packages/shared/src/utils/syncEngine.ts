@@ -753,3 +753,19 @@ export function createInitialSyncFile(
     operations: [],
   };
 }
+
+/**
+ * Sorts devices by lastSyncAt descending (most recent first).
+ * If lastSyncAt is identical or missing, sorts alphabetically by deviceName/deviceId.
+ */
+export function sortDevicesByLastSync(devices: DeviceSyncRecord[]): DeviceSyncRecord[] {
+  return [...devices].sort((a, b) => {
+    const timeA = a.lastSyncAt || 0;
+    const timeB = b.lastSyncAt || 0;
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+    return (a.deviceName || a.deviceId || '').localeCompare(b.deviceName || b.deviceId || '');
+  });
+}
+

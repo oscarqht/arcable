@@ -1,8 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { DeviceSyncRecord } from '../../types/sync';
-import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName, isDeviceOnline } from '../../utils/syncEngine';
+import {
+  getOrCreateDeviceId,
+  getStoredDeviceName,
+  setStoredDeviceName,
+  isDeviceOnline,
+  sortDevicesByLastSync,
+} from '../../utils/syncEngine';
 import {
   fetchRaindropDevices,
   renameRaindropDevice,
@@ -217,6 +223,11 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
 
   const effectiveCurrentDeviceId = currentDeviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : '');
 
+  // Sorted devices: always sorted by lastSyncAt descending (most recent one on top)
+  const sortedDevices = useMemo(() => {
+    return sortDevicesByLastSync(devices);
+  }, [devices]);
+
   // Derive the generated name from smart selectors
   const generateSmartName = useCallback((): string => {
     const parts = [smartType, smartBrowser, smartOs].filter(Boolean);
@@ -235,12 +246,12 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (onFetchDevices) {
         const fetched = await onFetchDevices();
         if (Array.isArray(fetched)) {
-          setDevices(fetched);
+          setDevices(sortDevicesByLastSync(fetched));
         }
       } else if (raindropToken) {
         const res = await fetchRaindropDevices(raindropToken, effectiveCurrentDeviceId);
         if (res.success && res.devices) {
-          setDevices(res.devices);
+          setDevices(sortDevicesByLastSync(res.devices));
         } else {
           setErrorMessage(res.error || 'Failed to load devices from Raindrop.');
         }
@@ -332,14 +343,14 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (onRenameDevice) {
         const updated = await onRenameDevice(deviceId, trimmed);
         if (Array.isArray(updated)) {
-          setDevices(updated);
+          setDevices(sortDevicesByLastSync(updated));
         } else {
           await loadDevices(true);
         }
       } else if (raindropToken) {
         const res = await renameRaindropDevice(raindropToken, deviceId, trimmed);
         if (res.success && res.devices) {
-          setDevices(res.devices);
+          setDevices(sortDevicesByLastSync(res.devices));
         } else {
           throw new Error(res.error || 'Failed to rename device');
         }
@@ -366,14 +377,14 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (onDeleteDevice) {
         const updated = await onDeleteDevice(deviceId);
         if (Array.isArray(updated)) {
-          setDevices(updated);
+          setDevices(sortDevicesByLastSync(updated));
         } else {
           await loadDevices(true);
         }
       } else if (raindropToken) {
         const res = await deleteRaindropDevice(raindropToken, deviceId);
         if (res.success && res.devices) {
-          setDevices(res.devices);
+          setDevices(sortDevicesByLastSync(res.devices));
         } else {
           throw new Error(res.error || 'Failed to delete device');
         }
@@ -396,14 +407,14 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (onDeleteOtherDevices) {
         const updated = await onDeleteOtherDevices(effectiveCurrentDeviceId);
         if (Array.isArray(updated)) {
-          setDevices(updated);
+          setDevices(sortDevicesByLastSync(updated));
         } else {
           await loadDevices(true);
         }
       } else if (raindropToken) {
         const res = await deleteAllOtherRaindropDevices(raindropToken, effectiveCurrentDeviceId);
         if (res.success && res.devices) {
-          setDevices(res.devices);
+          setDevices(sortDevicesByLastSync(res.devices));
         } else {
           throw new Error(res.error || 'Failed to delete other devices');
         }
@@ -422,9 +433,18 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
+    <>
+      <style>{`
+        @media (max-width: 479.98px) {
+          .arcable-device-id,
+          .arcable-device-id-sep {
+            display: none !important;
+          }
+        }
+      `}</style>
+      <div
+        style={{
+          position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
@@ -672,7 +692,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
 
         {/* Device List Area */}
         <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px', minHeight: '180px' }}>
-          {loading && devices.length === 0 ? (
+          {loading && sortedDevices.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: '13px' }}>
               <div
                 style={{
@@ -687,7 +707,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
               />
               Loading devices from Raindrop...
             </div>
-          ) : devices.length === 0 ? (
+          ) : sortedDevices.length === 0 ? (
             <div
               style={{
                 textAlign: 'center',
@@ -706,7 +726,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {devices.map((device) => {
+              {sortedDevices.map((device) => {
                 const isCurrent = device.deviceId === effectiveCurrentDeviceId;
                 const isEditing = editingDeviceId === device.deviceId;
                 const isBusy = actionInProgressId === device.deviceId;
@@ -936,7 +956,15 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                           </div>
                         ) : (
                           <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                minWidth: 0,
+                                flexWrap: 'nowrap',
+                              }}
+                            >
                               <span
                                 style={{
                                   fontSize: '13px',
@@ -945,26 +973,48 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
+                                  minWidth: 0,
+                                  flexShrink: 1,
                                 }}
+                                title={device.deviceName || 'Unnamed Device'}
                               >
                                 {device.deviceName || 'Unnamed Device'}
                               </span>
 
-                              {isCurrent ? (
-                                <Badge variant="success">Current</Badge>
-                              ) : isDeviceOnline(device.lastSyncAt) ? (
-                                <Badge variant="info">Online</Badge>
-                              ) : (
-                                <Badge variant="default">Offline</Badge>
-                              )}
+                              <span style={{ flexShrink: 0, display: 'inline-flex' }}>
+                                {isCurrent ? (
+                                  <Badge variant="success">Current</Badge>
+                                ) : isDeviceOnline(device.lastSyncAt) ? (
+                                  <Badge variant="info">Online</Badge>
+                                ) : (
+                                  <Badge variant="default">Offline</Badge>
+                                )}
+                              </span>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                marginTop: '2px',
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
                               <span
+                                className="arcable-device-id"
                                 style={{
                                   fontFamily: 'monospace',
                                   fontSize: '11px',
                                   color: isDark ? '#64748b' : '#94a3b8',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  minWidth: 0,
+                                  flexShrink: 1,
                                 }}
                                 title={device.deviceId}
                               >
@@ -972,8 +1022,24 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                   ? `${device.deviceId.substring(0, 16)}...`
                                   : device.deviceId}
                               </span>
-                              <span style={{ fontSize: '11px', color: isDark ? '#475569' : '#cbd5e1' }}>•</span>
-                              <span style={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                              <span
+                                className="arcable-device-id-sep"
+                                style={{
+                                  fontSize: '11px',
+                                  color: isDark ? '#475569' : '#cbd5e1',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                •
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  color: isDark ? '#94a3b8' : '#64748b',
+                                  flexShrink: 0,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
                                 {formatSyncTime(device.lastSyncAt)}
                               </span>
                             </div>
@@ -1057,10 +1123,10 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8' }}>
-              {devices.length} registered device{devices.length === 1 ? '' : 's'}
+              {sortedDevices.length} registered device{sortedDevices.length === 1 ? '' : 's'}
             </span>
 
-            {devices.length > 1 && (
+            {sortedDevices.length > 1 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -1087,5 +1153,6 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };
