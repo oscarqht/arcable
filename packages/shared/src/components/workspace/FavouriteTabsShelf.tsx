@@ -77,7 +77,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   return (
-    <div
+    <>
+      <style>{`@media (max-width: 399px) { .fav-shelf-header { display: none !important; } }`}</style>
+      <div
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -89,7 +91,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.03)',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="fav-shelf-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div
             style={{
@@ -348,5 +350,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         </div>
       )}
     </div>
+    </>
   );
 };

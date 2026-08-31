@@ -18,7 +18,6 @@ import { FolderItem } from './FolderItem';
 import { PinnedTabsShelf } from './PinnedTabsShelf';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
-  ChevronRightIcon,
   CopyIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -483,7 +482,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         color: themeStyles.textColor,
         borderRadius: '24px',
         border: `1px solid ${themeStyles.borderColor}`,
-        padding: isCollapsed ? '14px 18px' : '22px 24px',
+        padding: isCollapsed ? '14px 18px' : '22px 14px',
         display: 'flex',
         flexDirection: 'column',
         gap: isCollapsed ? '0' : '16px',
@@ -505,21 +504,6 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         onClick={toggleCollapse}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-          {/* Chevron with smooth rotation */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transform: !isCollapsed ? 'rotate(90deg)' : 'rotate(0deg)',
-              transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              color: 'inherit',
-              opacity: 0.8,
-              flexShrink: 0,
-            }}
-          >
-            <ChevronRightIcon size={18} />
-          </div>
 
           {/* Emoji / Icon Container */}
           <div

@@ -16,7 +16,6 @@ import {
   StarIcon,
   EditIcon,
   TrashIcon,
-  DragHandleIcon,
 } from '../Icons';
 
 export interface TabRowProps {
@@ -249,34 +248,6 @@ export const TabRow: React.FC<TabRowProps> = ({
     >
       {/* Left side: Drag handle on hover / spacer, Favicon/Emoji, Title (Full Width) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-        {/* Spacer normally (aligns with folder chevron), Drag Handle on hover */}
-        <div
-          style={{
-            width: '20px',
-            height: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {isHovered && (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.65,
-                cursor: 'grab',
-                color: 'inherit',
-              }}
-              title="Drag to reorder"
-            >
-              <DragHandleIcon size={15} />
-            </span>
-          )}
-        </div>
-
         {/* Favicon or Custom Emoji (Always visible, matching FolderIcon position) */}
         <div
           style={{

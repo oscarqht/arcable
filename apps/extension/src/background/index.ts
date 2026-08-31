@@ -549,48 +549,71 @@ void getStoredAuthState(true).then((auth) => {
 // Handle extension toolbar action click:
 // - If not logged in / no API token -> open options page
 // - Otherwise -> open side panel
-async function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): Promise<void> {
-  try {
-    const auth = await getStoredAuthState();
-    const isLoggedIn = Boolean(auth && auth.isAuthenticated && auth.accessToken);
+//
+// IMPORTANT (Firefox/Zen): browser.sidebarAction.open() MUST be called synchronously
+// within the user-gesture handler. Any `await` before it causes Firefox to lose the
+// user action context, resulting in the call being silently rejected or throwing,
+// which previously fell through to the `tabs.create` fallback (full-tab mode).
+//
+// Fix: use the in-memory `cachedAuthState` (kept up-to-date by the storage listener)
+// for the auth check so we can call sidebarAction.open() without any prior `await`.
+function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
+  // Use cached auth state synchronously — no await before opening the sidebar.
+  // cachedAuthState is always kept in sync via the storage.onChanged listener.
+  const isLoggedIn = Boolean(
+    cachedAuthState && cachedAuthState.isAuthenticated && cachedAuthState.accessToken
+  );
 
-    if (!isLoggedIn) {
-      // Instantly open options page with 0ms delay
-      if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.openOptionsPage === 'function') {
-        chrome.runtime.openOptionsPage();
-      } else if (browser.runtime && typeof browser.runtime.openOptionsPage === 'function') {
-        void browser.runtime.openOptionsPage();
-      } else {
-        void browser.tabs.create({ url: browser.runtime.getURL('options/index.html') });
-      }
+  if (!isLoggedIn) {
+    // Open options page immediately (synchronous path)
+    if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.openOptionsPage === 'function') {
+      chrome.runtime.openOptionsPage();
+    } else if (browser.runtime && typeof browser.runtime.openOptionsPage === 'function') {
+      void browser.runtime.openOptionsPage();
     } else {
-      // Logged in with API token / OAuth -> open side panel
+      void browser.tabs.create({ url: browser.runtime.getURL('options/index.html') });
+    }
+    return;
+  }
+
+  // Logged in — open the side panel synchronously within the user gesture context.
+  // Firefox: sidebarAction.open() must be called here, before any async operations.
+  if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
+    try {
+      void (browser as any).sidebarAction.open();
+    } catch (openErr) {
+      console.warn('[Arcable Background] sidebarAction.open() failed:', openErr);
+      void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+    }
+    return;
+  }
+
+  // Chrome: sidePanel.open() can handle async internally after the click
+  if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
+    const openChromeSidePanel = async () => {
       try {
-        if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-          const windowId = tab?.windowId;
-          if (windowId !== undefined) {
-            await chrome.sidePanel.open({ windowId });
-          } else if (tab?.id !== undefined) {
-            await chrome.sidePanel.open({ tabId: tab.id });
-          } else {
-            const currentWin = await browser.windows.getCurrent();
-            if (currentWin?.id !== undefined) {
-              await chrome.sidePanel.open({ windowId: currentWin.id });
-            }
-          }
-        } else if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
-          await (browser as any).sidebarAction.open();
+        const windowId = tab?.windowId;
+        if (windowId !== undefined) {
+          await chrome.sidePanel.open({ windowId });
+        } else if (tab?.id !== undefined) {
+          await chrome.sidePanel.open({ tabId: tab.id });
         } else {
-          await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+          const currentWin = await browser.windows.getCurrent();
+          if (currentWin?.id !== undefined) {
+            await chrome.sidePanel.open({ windowId: currentWin.id });
+          }
         }
       } catch (openErr) {
-        console.warn('[Arcable Background] Side panel open failed, opening sidepanel tab fallback:', openErr);
+        console.warn('[Arcable Background] chrome.sidePanel.open() failed:', openErr);
         await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
       }
-    }
-  } catch (err) {
-    console.error('[Arcable Background] Error handling action click:', err);
+    };
+    void openChromeSidePanel();
+    return;
   }
+
+  // Last resort fallback: open as a tab
+  void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
 }
 
 if (browser.action && browser.action.onClicked) {

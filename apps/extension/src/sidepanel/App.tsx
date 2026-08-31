@@ -3,11 +3,6 @@ import {
   Header,
   WorkspaceManager,
   WorkspaceManagerHandle,
-  DropletIcon,
-  ZapIcon,
-  PlusIcon,
-  BracesIcon,
-  DevicesIcon,
   DeviceModal,
 } from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
@@ -257,10 +252,9 @@ export const App: React.FC = () => {
       <Header
         title="Arcable"
         logoSrc={browser.runtime.getURL('icons/icon32.png')}
-        badgeText="Sidepanel"
-        badgeVariant="info"
         actions={
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
             {/* 1. Raindrop sync */}
             <button
               type="button"
@@ -283,9 +277,9 @@ export const App: React.FC = () => {
               }
               aria-label="Raindrop Sync"
               style={{
-                border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
-                background: isDark ? 'rgba(56, 189, 248, 0.15)' : (isSyncing ? '#f0f9ff' : '#e0f2fe'),
-                color: isDark ? '#38bdf8' : '#0284c7',
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -294,18 +288,17 @@ export const App: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 0,
+                fontSize: '15px',
                 transition: 'all 0.15s ease',
               }}
             >
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  animation: isSyncing ? 'spin 1s linear infinite' : 'none',
-                }}
-              >
-                <DropletIcon size={15} color={isDark ? '#38bdf8' : '#0284c7'} />
+              <span style={{
+                display: 'inline-flex',
+                opacity: isSyncing ? 0.5 : 1,
+                animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
+                transition: 'opacity 0.15s ease',
+              }}>
+                💧
               </span>
             </button>
 
@@ -317,9 +310,9 @@ export const App: React.FC = () => {
               title="Add Current Tab"
               aria-label="Add Current Tab"
               style={{
-                border: '1px solid #5c7c6f',
-                background: '#5c7c6f',
-                color: '#ffffff',
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -328,11 +321,12 @@ export const App: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 0,
+                fontSize: '15px',
                 opacity: isCapturing ? 0.6 : 1,
                 transition: 'all 0.15s ease',
               }}
             >
-              <ZapIcon size={15} color="#ffffff" />
+              ⚡
             </button>
 
             {/* 3. Add space */}
@@ -342,9 +336,9 @@ export const App: React.FC = () => {
               title="Add Space"
               aria-label="Add Space"
               style={{
-                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                background: isDark ? '#1e293b' : '#f1f5f9',
-                color: isDark ? '#38bdf8' : '#0284c7',
+                border: '1px solid transparent',
+                background: 'transparent',
+                color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
                 borderRadius: '6px',
@@ -353,10 +347,11 @@ export const App: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 0,
+                fontSize: '15px',
                 transition: 'all 0.15s ease',
               }}
             >
-              <PlusIcon size={15} color={isDark ? '#38bdf8' : '#0284c7'} />
+              ➕
             </button>
 
             {/* 4. Devices management */}
@@ -366,8 +361,8 @@ export const App: React.FC = () => {
               title="Manage Connected Devices"
               aria-label="Manage Connected Devices"
               style={{
-                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                background: isDark ? '#151e2e' : '#f8fafc',
+                border: '1px solid transparent',
+                background: 'transparent',
                 color: isDark ? '#94a3b8' : '#64748b',
                 width: '28px',
                 height: '28px',
@@ -377,34 +372,11 @@ export const App: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 0,
+                fontSize: '15px',
                 transition: 'all 0.15s ease',
               }}
             >
-              <DevicesIcon size={15} color={isDark ? '#94a3b8' : '#64748b'} />
-            </button>
-
-            {/* 5. JSON */}
-            <button
-              type="button"
-              onClick={() => workspaceRef.current?.openJsonModal()}
-              title="Inspect Workspace JSON"
-              aria-label="Inspect Workspace JSON"
-              style={{
-                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                background: isDark ? '#151e2e' : '#f8fafc',
-                color: isDark ? '#94a3b8' : '#64748b',
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <BracesIcon size={15} color={isDark ? '#94a3b8' : '#64748b'} />
+              📱
             </button>
 
             {/* Settings */}

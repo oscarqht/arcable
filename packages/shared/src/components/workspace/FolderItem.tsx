@@ -9,7 +9,6 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
-  ChevronRightIcon,
   CopyIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -19,7 +18,6 @@ import {
   FolderPlusIcon,
   EditIcon,
   TrashIcon,
-  DragHandleIcon,
 } from '../Icons';
 
 export interface FolderItemProps {
@@ -281,7 +279,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       >
         {/* Left section: expand state / drag handle, folder icon, folder title, color badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
-          {/* Folder expand state icon normally, Drag Handle on hover */}
+          {/* Folder Icon / Custom Emoji — with tiny folder badge bottom-right */}
           <div
             style={{
               width: '20px',
@@ -290,47 +288,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-            }}
-          >
-            {isHovered ? (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.65,
-                  cursor: 'grab',
-                  color: 'inherit',
-                }}
-                title="Drag to reorder folder"
-              >
-                <DragHandleIcon size={15} />
-              </span>
-            ) : (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.15s ease',
-                  opacity: 0.75,
-                }}
-              >
-                <ChevronRightIcon size={16} />
-              </div>
-            )}
-          </div>
-
-          {/* Folder Icon / Custom Emoji */}
-          <div
-            style={{
-              width: '20px',
-              height: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
+              position: 'relative',
             }}
           >
             {folder.customEmojiIcon ? (
@@ -339,6 +297,19 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <FolderOpenIcon size={20} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
             ) : (
               <FolderIcon size={20} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
+            )}
+            {folder.customEmojiIcon && (
+              <span
+                style={{
+                  position: 'absolute',
+                  bottom: '-3px',
+                  right: '-4px',
+                  fontSize: '9px',
+                  lineHeight: 1,
+                }}
+              >
+                📂
+              </span>
             )}
           </div>
 
@@ -412,9 +383,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             display: 'flex',
             flexDirection: 'column',
             gap: '4px',
-            paddingLeft: '10px',
+            paddingLeft: '6px',
             borderLeft: `1.5px solid ${guideLineColor}`,
-            marginLeft: '18px',
+            marginLeft: '10px',
             marginTop: '4px',
           }}
         >
