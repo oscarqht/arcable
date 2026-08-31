@@ -449,9 +449,36 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
     <>
       <style>{`
         @media (max-width: 479.98px) {
+          .arcable-device-modal-box {
+            padding: 16px !important;
+          }
           .arcable-device-id,
           .arcable-device-id-sep {
             display: none !important;
+          }
+          .arcable-device-badge-desktop {
+            display: none !important;
+          }
+          .arcable-device-actions-desktop {
+            display: none !important;
+          }
+          .arcable-device-row2 {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            width: 100% !important;
+            margin-top: 4px !important;
+            overflow: visible !important;
+          }
+          .arcable-device-row2-right {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-shrink: 0 !important;
+            margin-left: auto !important;
+          }
+          .arcable-device-badge-mobile {
+            display: inline-flex !important;
           }
         }
       `}</style>
@@ -473,6 +500,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       onClick={onClose}
     >
       <div
+        className="arcable-device-modal-box"
         style={{
           backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderRadius: '16px',
@@ -970,6 +998,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                         ) : (
                           <>
                             <div
+                              className="arcable-device-row1"
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -994,7 +1023,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 {device.deviceName || 'Unnamed Device'}
                               </span>
 
-                              <span style={{ flexShrink: 0, display: 'inline-flex' }}>
+                              <span className="arcable-device-badge-desktop" style={{ flexShrink: 0, display: 'inline-flex' }}>
                                 {isCurrent ? (
                                   <Badge variant="success">Current</Badge>
                                 ) : isDeviceOnline(device.lastSyncAt) ? (
@@ -1006,6 +1035,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                             </div>
 
                             <div
+                              className="arcable-device-row2"
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -1017,44 +1047,124 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              <span
-                                className="arcable-device-id"
+                              <div
+                                className="arcable-device-row2-left"
                                 style={{
-                                  fontFamily: 'monospace',
-                                  fontSize: '11px',
-                                  color: isDark ? '#64748b' : '#94a3b8',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  minWidth: 0,
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
-                                  minWidth: 0,
-                                  flexShrink: 1,
                                 }}
-                                title={device.deviceId}
                               >
-                                {device.deviceId.length > 20
-                                  ? `${device.deviceId.substring(0, 16)}...`
-                                  : device.deviceId}
-                              </span>
-                              <span
-                                className="arcable-device-id-sep"
+                                <span
+                                  className="arcable-device-id"
+                                  style={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '11px',
+                                    color: isDark ? '#64748b' : '#94a3b8',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    minWidth: 0,
+                                    flexShrink: 1,
+                                  }}
+                                  title={device.deviceId}
+                                >
+                                  {device.deviceId.length > 20
+                                    ? `${device.deviceId.substring(0, 16)}...`
+                                    : device.deviceId}
+                                </span>
+                                <span
+                                  className="arcable-device-id-sep"
+                                  style={{
+                                    fontSize: '11px',
+                                    color: isDark ? '#475569' : '#cbd5e1',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  •
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    color: isDark ? '#94a3b8' : '#64748b',
+                                    flexShrink: 0,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {formatSyncTime(device.lastSyncAt)}
+                                </span>
+                              </div>
+
+                              <div
+                                className="arcable-device-row2-right"
                                 style={{
-                                  fontSize: '11px',
-                                  color: isDark ? '#475569' : '#cbd5e1',
-                                  flexShrink: 0,
+                                  display: 'none',
                                 }}
                               >
-                                •
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: '11px',
-                                  color: isDark ? '#94a3b8' : '#64748b',
-                                  flexShrink: 0,
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {formatSyncTime(device.lastSyncAt)}
-                              </span>
+                                <span className="arcable-device-badge-mobile" style={{ display: 'none', flexShrink: 0 }}>
+                                  {isCurrent ? (
+                                    <Badge variant="success">Current</Badge>
+                                  ) : isDeviceOnline(device.lastSyncAt) ? (
+                                    <Badge variant="info">Online</Badge>
+                                  ) : (
+                                    <Badge variant="default">Offline</Badge>
+                                  )}
+                                </span>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                  {isCurrent && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartRename(device)}
+                                      disabled={isBusy}
+                                      title="Rename Current Device"
+                                      style={{
+                                        border: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                                        background: isDark ? '#1e293b' : '#f8fafc',
+                                        color: isDark ? '#cbd5e1' : '#475569',
+                                        width: '26px',
+                                        height: '26px',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: 0,
+                                        transition: 'all 0.15s ease',
+                                      }}
+                                    >
+                                      <EditIcon size={13} color={isDark ? '#cbd5e1' : '#475569'} />
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteDevice(device)}
+                                    disabled={isBusy}
+                                    title="Delete"
+                                    style={{
+                                      border: `1px solid ${isDark ? '#7f1d1d' : '#fee2e2'}`,
+                                      background: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2',
+                                      color: '#ef4444',
+                                      width: '26px',
+                                      height: '26px',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      padding: 0,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    <TrashIcon size={13} color="#ef4444" />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </>
                         )}
@@ -1063,7 +1173,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
 
                     {/* Action buttons (Rename & Delete) — hidden while editing */}
                     {!isEditing && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                      <div className="arcable-device-actions-desktop" style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                         {/* Only allow renaming the current device */}
                         {isCurrent && (
                           <button
