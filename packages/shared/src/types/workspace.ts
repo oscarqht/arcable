@@ -43,6 +43,17 @@ export interface ArcableWorkspaceData {
   version?: number;
 }
 
+export interface TmpTab {
+  id: string;
+  url: string;
+  title?: string;
+  favIconUrl?: string;
+  browserTabId?: number;
+  windowId?: number;
+  createdAt?: number;
+}
+
 export type WorkspaceSiblingItem =
   | { type: 'folder'; data: Folder; id: string; order: number }
   | { type: 'tab'; data: Tab; id: string; order: number };
+

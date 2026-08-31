@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -16,6 +16,7 @@ import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
+import { TmpTabsList } from './TmpTabsList';
 import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
@@ -53,6 +54,9 @@ export interface WorkspaceManagerProps {
   hideSearchBar?: boolean;
   searchQuery?: string;
   tabAssociations?: TabAssociationMap;
+  tmpTabs?: TmpTab[];
+  onCloseTmpTab?: (tab: TmpTab) => void;
+  onPromoteTmpTab?: (tab: TmpTab) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -69,6 +73,7 @@ export interface WorkspaceManagerProps {
   }) => Promise<SyncResult | void | any>;
 }
 
+
 export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, WorkspaceManagerProps>(
   function WorkspaceManager(
     {
@@ -83,6 +88,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       hideSearchBar = false,
       searchQuery: externalSearchQuery,
       tabAssociations,
+      tmpTabs,
+      onCloseTmpTab,
+      onPromoteTmpTab,
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
@@ -96,6 +104,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
+
 
   const { isDark } = useSystemTheme();
   const {
@@ -742,7 +751,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setIsTabModalOpen(true);
   };
 
+  const handlePromoteTmpTab = (tmpTab: TmpTab) => {
+    if (onPromoteTmpTab) {
+      onPromoteTmpTab(tmpTab);
+      return;
+    }
+    setEditingTab(null);
+    setTargetSpaceIdForModal(activeSpace?.id);
+    setDefaultTabFolderId(undefined);
+    setDefaultTabPinned(false);
+    setDefaultTabFavourite(false);
+    setInitialTabUrl(tmpTab.url);
+    setInitialTabTitle(tmpTab.title || '');
+    setIsTabModalOpen(true);
+  };
+
   const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
+
     setEditingFolder(null);
     setTargetSpaceIdForModal(spaceId || activeSpace?.id);
     setDefaultFolderParentId(parentFolderId);
@@ -813,11 +838,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         flexDirection: 'column',
         gap: compact ? '12px' : '16px',
         width: '100%',
-        flex: compact ? 1 : undefined,
+        flex: compact ? '1 0 auto' : undefined,
         minHeight: compact ? '100%' : undefined,
+        paddingBottom: compact ? '80px' : undefined,
         boxSizing: 'border-box',
       }}
     >
+
+
       {/* Global Favourite Tabs Shelf */}
       <FavouriteTabsShelf
         tabs={favouriteTabs}
@@ -1377,12 +1405,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           <div
             style={{
               width: '100%',
-              flex: compact ? 1 : undefined,
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
+              flexShrink: 0,
             }}
           >
+
             <div
               style={{
                 display: 'flex',
@@ -1455,16 +1484,28 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         )
       )}
 
+      {/* Tmp Tabs List (Temporary unmatched open browser tabs) */}
+      {tmpTabs && tmpTabs.length > 0 && (
+        <TmpTabsList
+          tabs={tmpTabs}
+          compact={compact}
+          alwaysShowActions={alwaysShowActions}
+          highlightedTabId={highlightedTabId}
+          onOpen={onOpenTab}
+          onPromote={handlePromoteTmpTab}
+          onClose={(t) => onCloseTmpTab?.(t)}
+        />
+      )}
 
       {/* Fixed Bottom Spaces Selector (Sidepanel / Compact mode: semi-transparent, 100% rounded corner, margins) */}
+
       {compact && sortedSpaces.length > 0 && (
         <div
           style={{
-            position: 'sticky',
-            bottom: '8px',
-            left: 0,
-            right: 0,
-            marginTop: 'auto',
+            position: 'fixed',
+            bottom: '12px',
+            left: '16px',
+            right: '16px',
             zIndex: 30,
             backgroundColor: isDark ? 'rgba(21, 30, 46, 0.88)' : 'rgba(255, 255, 255, 0.78)',
             backdropFilter: 'blur(16px)',
@@ -1472,7 +1513,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             border: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.85)',
             borderRadius: '9999px',
             padding: '5px 10px',
-            margin: '8px 4px 6px 4px',
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
@@ -1483,6 +1523,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         >
+
           {sortedSpaces.map((space) => {
             const isActive = space.id === activeSpace?.id;
             const spaceColor = space.colors || '#3b82f6';

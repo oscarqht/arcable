@@ -18,3 +18,6 @@ export * from './EmojiPicker';
 export * from './workspace/TabFavicon';
 export * from './workspace/DeviceModal';
 export * from './workspace/ActionDropdown';
+export * from './workspace/TmpTabRow';
+export * from './workspace/TmpTabsList';
+

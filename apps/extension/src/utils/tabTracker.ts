@@ -1,17 +1,21 @@
-import { Tab, TabAssociationMap, AssociatedTabInfo } from '@arcable/shared/types';
+import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab } from '@arcable/shared/types';
 import { normalizeUrl, areUrlsMatching } from '@arcable/shared/utils';
 import { browser } from './browser';
 
 const SESSION_KEY = 'arcable_tab_associations';
+const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
 
 // In-memory fallback if storage is unavailable
 let memoryAssociations: TabAssociationMap = {};
+let memoryTmpTabs: TmpTab[] = [];
 
 type ChangeListener = (associations: TabAssociationMap) => void;
+type TmpTabsChangeListener = (tmpTabs: TmpTab[]) => void;
 type TabActivatedListener = (tabItemId: string) => void;
 
 class TabTracker {
   private listeners: Set<ChangeListener> = new Set();
+  private tmpTabsListeners: Set<TmpTabsChangeListener> = new Set();
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
@@ -28,6 +32,16 @@ class TabTracker {
     } catch {}
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  public subscribeTmpTabs(listener: TmpTabsChangeListener): () => void {
+    this.tmpTabsListeners.add(listener);
+    try {
+      listener([...memoryTmpTabs]);
+    } catch {}
+    return () => {
+      this.tmpTabsListeners.delete(listener);
     };
   }
 
@@ -49,6 +63,17 @@ class TabTracker {
     }
   }
 
+  private notifyTmpTabs(tabs: TmpTab[]) {
+    const copy = [...tabs];
+    for (const listener of this.tmpTabsListeners) {
+      try {
+        listener(copy);
+      } catch (err) {
+        console.warn('[TabTracker] Error in tmpTabs listener:', err);
+      }
+    }
+  }
+
   private notifyActivated(tabItemId: string) {
     for (const listener of this.tabActivatedListeners) {
       try {
@@ -58,6 +83,7 @@ class TabTracker {
       }
     }
   }
+
 
   // Load associations from session storage (or local storage fallback)
   public async getAssociations(): Promise<TabAssociationMap> {
@@ -123,6 +149,49 @@ class TabTracker {
       }
     } catch (err) {
       console.warn('[TabTracker] Could not save associations to storage:', err);
+    }
+  }
+
+  // Load tmp tabs from local storage (or browser storage)
+  public async getTmpTabs(): Promise<TmpTab[]> {
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        const res = await browser.storage.local.get(STORAGE_KEY_TMP_TABS);
+        if (res && res[STORAGE_KEY_TMP_TABS] && Array.isArray(res[STORAGE_KEY_TMP_TABS])) {
+          memoryTmpTabs = [...res[STORAGE_KEY_TMP_TABS]];
+          return memoryTmpTabs;
+        }
+      }
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem(STORAGE_KEY_TMP_TABS);
+        if (raw) {
+          memoryTmpTabs = JSON.parse(raw);
+          return memoryTmpTabs;
+        }
+      }
+    } catch (err) {
+      console.warn('[TabTracker] Could not read tmpTabs from storage:', err);
+    }
+    return [...memoryTmpTabs];
+  }
+
+  // Save tmp tabs strictly to local storage
+  private async saveTmpTabs(tmpTabs: TmpTab[]): Promise<void> {
+    memoryTmpTabs = [...tmpTabs];
+    this.notifyTmpTabs(memoryTmpTabs);
+
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        await browser.storage.local.set({ [STORAGE_KEY_TMP_TABS]: memoryTmpTabs });
+      }
+    } catch {}
+
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY_TMP_TABS, JSON.stringify(memoryTmpTabs));
+      }
+    } catch (err) {
+      console.warn('[TabTracker] Could not save tmpTabs to storage:', err);
     }
   }
 
@@ -208,6 +277,35 @@ class TabTracker {
     }
 
     await this.saveAssociations(newAssociations);
+
+    // Phase 3: Track unmatched browser tabs in tmp tabs list
+    const associatedBrowserTabIds = new Set(Object.values(newAssociations).map((a) => a.browserTabId));
+    const unmatchedBrowserTabs = allBrowserTabs.filter((bt) => {
+      if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
+      const url = bt.url || bt.pendingUrl || '';
+      if (!url) return false;
+      if (
+        url.startsWith('chrome-extension://') ||
+        url.startsWith('moz-extension://') ||
+        url.startsWith('devtools://')
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => ({
+      id: `tmp_${bt.id}`,
+      url: bt.url || bt.pendingUrl || '',
+      title: bt.title || '',
+      favIconUrl: bt.favIconUrl,
+      browserTabId: bt.id,
+      windowId: bt.windowId || 0,
+      createdAt: Date.now(),
+    }));
+
+    await this.saveTmpTabs(newTmpTabs);
+
     return newAssociations;
   }
 
@@ -266,6 +364,18 @@ class TabTracker {
     }
   }
 
+  // Close a temporary tab
+  public async closeTmpTab(browserTabId: number): Promise<void> {
+    try {
+      await browser.tabs.remove(browserTabId).catch(() => {});
+      const currentTmpTabs = await this.getTmpTabs();
+      const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+      await this.saveTmpTabs(updated);
+    } catch (err) {
+      console.warn('[TabTracker] Error closing tmp tab:', err);
+    }
+  }
+
   // Open a new browser tab and associate it with tab item
   public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
     try {
@@ -315,6 +425,11 @@ class TabTracker {
           memoryAssociations = { ...newVal };
           this.notify(memoryAssociations);
         }
+        if (changes[STORAGE_KEY_TMP_TABS]) {
+          const newVal = (changes[STORAGE_KEY_TMP_TABS].newValue as TmpTab[]) || [];
+          memoryTmpTabs = [...newVal];
+          this.notifyTmpTabs(memoryTmpTabs);
+        }
       });
     }
 
@@ -354,6 +469,12 @@ class TabTracker {
         if (changed) {
           await this.saveAssociations(associations);
         }
+
+        const tmpTabs = await this.getTmpTabs();
+        const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
+        if (updatedTmp.length !== tmpTabs.length) {
+          await this.saveTmpTabs(updatedTmp);
+        }
       });
     }
 
@@ -361,9 +482,18 @@ class TabTracker {
     if (tabsApi && tabsApi.onActivated) {
       tabsApi.onActivated.addListener(async (activeInfo: any) => {
         const associations = await this.getAssociations();
+        let found = false;
         for (const [tabItemId, info] of Object.entries(associations)) {
           if (info.browserTabId === activeInfo.tabId) {
             this.notifyActivated(tabItemId);
+            found = true;
+          }
+        }
+        if (!found) {
+          const tmpTabs = await this.getTmpTabs();
+          const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeInfo.tabId);
+          if (matchingTmp) {
+            this.notifyActivated(matchingTmp.id);
           }
         }
       });
@@ -372,3 +502,4 @@ class TabTracker {
 }
 
 export const tabTracker = new TabTracker();
+

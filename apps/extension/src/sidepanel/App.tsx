@@ -5,7 +5,7 @@ import {
   WorkspaceManagerHandle,
   DeviceModal,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
@@ -16,7 +16,9 @@ export const App: React.FC = () => {
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
+  const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
+
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -47,6 +49,10 @@ export const App: React.FC = () => {
     tabTracker.getAssociations().then(setTabAssociations);
     const unsubAssociations = tabTracker.subscribe(setTabAssociations);
 
+    // Initial tmp tabs subscription
+    tabTracker.getTmpTabs().then(setTmpTabs);
+    const unsubTmpTabs = tabTracker.subscribeTmpTabs(setTmpTabs);
+
     // Tab activation listener (when user selects a browser tab)
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId) => {
       setHighlightedTabId(tabItemId);
@@ -62,6 +68,7 @@ export const App: React.FC = () => {
         workspaceRef.current.revealAndHighlightTab(tabItemId);
       }
     });
+
 
     // Check initial Raindrop auth & cached snapshot
     browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot']).then((res: any) => {
@@ -181,6 +188,7 @@ export const App: React.FC = () => {
       chrome.tabs.onActivated.addListener(listener);
       return () => {
         unsubAssociations();
+        unsubTmpTabs();
         unsubActivated();
         if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         chrome.tabs.onActivated.removeListener(listener);
@@ -190,11 +198,13 @@ export const App: React.FC = () => {
 
     return () => {
       unsubAssociations();
+      unsubTmpTabs();
       unsubActivated();
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
+
 
 
   const handleSyncRaindrop = async (syncParams?: {
@@ -263,6 +273,15 @@ export const App: React.FC = () => {
 
   const handleOpenTab = async (url: string, tabId?: string) => {
     try {
+      // Check if this is a tmp tab
+      if (tabId && tabId.startsWith('tmp_')) {
+        const matchingTmp = tmpTabs.find((t) => t.id === tabId || areUrlsMatching(t.url, url));
+        if (matchingTmp && matchingTmp.browserTabId !== undefined) {
+          await tabTracker.activateTab(matchingTmp.browserTabId, matchingTmp.windowId);
+          return;
+        }
+      }
+
       // Check if this specific tab item or URL is already associated
       if (tabId && tabAssociations[tabId]) {
         const assoc = tabAssociations[tabId];
@@ -295,6 +314,13 @@ export const App: React.FC = () => {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
+
+  const handleCloseTmpTab = async (tab: TmpTab) => {
+    if (tab.browserTabId !== undefined) {
+      await tabTracker.closeTmpTab(tab.browserTabId);
+    }
+  };
+
 
 
 
@@ -532,6 +558,8 @@ export const App: React.FC = () => {
           headerTitle="Sidepanel Workspace"
           hideControlBarActions={true}
           tabAssociations={tabAssociations}
+          tmpTabs={tmpTabs}
+          onCloseTmpTab={handleCloseTmpTab}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
           onCloseAssociatedTab={handleCloseAssociatedTab}
@@ -542,6 +570,7 @@ export const App: React.FC = () => {
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
+
 
 
       </div>
