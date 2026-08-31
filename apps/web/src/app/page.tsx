@@ -11,6 +11,8 @@ import {
   SearchIcon,
   CloseIcon,
   DeviceModal,
+  LogInIcon,
+  LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
@@ -210,7 +212,10 @@ export default function HomePage() {
         title="Arcable"
         leftContent={
           authState.isAuthenticated && authState.user ? (
-            <span style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '6px' }}>
+            <span
+              className="header-user-info"
+              style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '6px' }}
+            >
               Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{authState.user.name}</strong>
             </span>
           ) : null
@@ -297,13 +302,14 @@ export default function HomePage() {
 
             <button
               type="button"
+              className="header-action-btn"
               onClick={async () => {
                 if (workspaceRef.current) {
                   await workspaceRef.current.triggerSync();
                 }
               }}
               disabled={isSyncing}
-              title="Sync spaces, folders and tabs with Raindrop.io"
+              title={isSyncing ? 'Syncing...' : 'Raindrop Sync'}
               style={{
                 border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                 background: isDark
@@ -317,8 +323,10 @@ export default function HomePage() {
                 cursor: isSyncing ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '5px',
                 transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
               }}
             >
               <span
@@ -329,14 +337,16 @@ export default function HomePage() {
                   animation: isSyncing ? 'spin 1s linear infinite' : 'none',
                 }}
               >
-                <DropletIcon size={13} color={isDark ? '#38bdf8' : '#0284c7'} />
+                <DropletIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
               </span>
-              <span>{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+              <span className="header-btn-text">{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
             </button>
 
             <button
               type="button"
+              className="header-action-btn"
               onClick={() => workspaceRef.current?.openNewSpace()}
+              title="New Space"
               style={{
                 border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : 'none',
                 background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
@@ -348,17 +358,20 @@ export default function HomePage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '4px',
                 transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
               }}
             >
-              <PlusIcon size={13} />
-              <span>Space</span>
+              <PlusIcon size={14} />
+              <span className="header-btn-text">Space</span>
             </button>
 
             {/* Devices Management Button */}
             <button
               type="button"
+              className="header-action-btn"
               onClick={() => setIsDeviceModalOpen(true)}
               title="Manage connected sync devices"
               style={{
@@ -372,38 +385,23 @@ export default function HomePage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '5px',
                 transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
               }}
             >
               <DevicesIcon size={14} color={isDark ? '#94a3b8' : '#64748b'} />
-              <span>Devices</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => workspaceRef.current?.openJsonModal()}
-              title="Inspect raw workspace JSON in localStorage"
-              style={{
-                border: isDark ? '1px solid #334155' : 'none',
-                background: isDark ? '#151e2e' : '#f1f5f9',
-                color: isDark ? '#94a3b8' : '#64748b',
-                fontSize: '12px',
-                padding: '5px 10px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: 500,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {'{ }'} JSON
+              <span className="header-btn-text">Devices</span>
             </button>
 
             {authState.isAuthenticated ? (
               <button
                 type="button"
+                className="header-action-btn"
                 onClick={handleLogout}
                 disabled={authLoading}
+                title={authLoading ? 'Logging out...' : 'Logout'}
                 style={{
                   border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                   background: isDark ? '#151e2e' : '#ffffff',
@@ -415,16 +413,22 @@ export default function HomePage() {
                   cursor: authLoading ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
                   transition: 'all 0.15s ease',
+                  boxSizing: 'border-box',
                 }}
               >
-                {authLoading ? 'Logging out...' : 'Logout'}
+                <LogOutIcon size={14} color={isDark ? '#cbd5e1' : '#475569'} />
+                <span className="header-btn-text">{authLoading ? 'Logging out...' : 'Logout'}</span>
               </button>
             ) : (
               <button
                 type="button"
+                className="header-action-btn"
                 onClick={handleLoginWithOAuth}
                 disabled={authLoading}
+                title={authLoading ? 'Connecting...' : 'Login'}
                 style={{
                   border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                   background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
@@ -436,10 +440,14 @@ export default function HomePage() {
                   cursor: authLoading ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
                   transition: 'all 0.15s ease',
+                  boxSizing: 'border-box',
                 }}
               >
-                {authLoading ? 'Connecting...' : 'Login'}
+                <LogInIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
+                <span className="header-btn-text">{authLoading ? 'Connecting...' : 'Login'}</span>
               </button>
             )}
           </div>

@@ -107,3 +107,23 @@ a {
     display: flex !important;
   }
 }
+
+/* Header responsive adjustments (< 780px) */
+@media (max-width: 779.98px) {
+  .header-user-info {
+    display: none !important;
+  }
+
+  .header-action-btn .header-btn-text {
+    display: none !important;
+  }
+
+  .header-action-btn {
+    padding: 0 !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    gap: 0 !important;
+    justify-content: center !important;
+  }
+}
