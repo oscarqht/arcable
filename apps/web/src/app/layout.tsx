@@ -6,13 +6,13 @@ export const metadata = {
   description: 'Arcable web dashboard and knowledge management platform',
   icons: {
     icon: [
-      { url: '/favicon.ico?v=2', sizes: 'any' },
-      { url: '/icon32.png?v=2', type: 'image/png', sizes: '32x32' },
-      { url: '/icon16.png?v=2', type: 'image/png', sizes: '16x16' },
-      { url: '/icon.png?v=2', type: 'image/png', sizes: '512x512' },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon64.png', type: 'image/png', sizes: '64x64' },
+      { url: '/icon256.png', type: 'image/png', sizes: '256x256' },
+      { url: '/icon1024.png', type: 'image/png', sizes: '1024x1024' },
     ],
-    shortcut: '/favicon.ico?v=2',
-    apple: '/apple-icon.png?v=2',
+    shortcut: '/favicon.ico',
+    apple: '/apple-icon.png',
   },
 };
 
@@ -24,12 +24,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/icon32.png?v=2" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/icon16.png?v=2" />
-        <link rel="icon" type="image/png" sizes="512x512" href="/icon.png?v=2" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon.png?v=2" />
-        <link rel="shortcut icon" href="/favicon.ico?v=2" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" type="image/png" sizes="64x64" href="/icon64.png" />
+        <link rel="icon" type="image/png" sizes="256x256" href="/icon256.png" />
+        <link rel="icon" type="image/png" sizes="1024x1024" href="/icon1024.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon.png" />
+        <link rel="shortcut icon" href="/favicon.ico" />
       </head>
       <body>{children}</body>
     </html>
