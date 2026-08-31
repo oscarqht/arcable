@@ -136,22 +136,9 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   }, [allFolders, allTabs, space.id]);
 
 
-  // Color Archetype and custom theme determination
+  // Color and custom theme determination
   const hasExplicitColor = Boolean(space.colors && space.colors.trim());
-  const isDark = hasExplicitColor ? isDarkColor(space.colors) : false;
-
-  // Archetype rotation when no custom color is specified
-  const archetype = useMemo<'neutral' | 'primary' | 'secondary' | 'tertiary'>(() => {
-    if (hasExplicitColor) return 'neutral';
-    const archetypes: Array<'neutral' | 'primary' | 'secondary' | 'tertiary'> = [
-      'neutral',
-      'primary',
-      'secondary',
-      'tertiary',
-    ];
-    const positiveIndex = ((cardIndex % archetypes.length) + archetypes.length) % archetypes.length;
-    return archetypes[positiveIndex];
-  }, [cardIndex, hasExplicitColor]);
+  const isDark = hasExplicitColor ? isDarkColor(space.colors) : isSystemDark;
 
   // Theme styling configuration
   const themeStyles = useMemo(() => {
@@ -378,68 +365,20 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       };
     }
 
-    if (archetype === 'primary') {
-      return {
-        containerBg: '#33e895',
-        isDark: false,
-        textColor: '#0c3e2c',
-        subtextColor: 'rgba(12, 62, 44, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#0c3e2c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(12, 62, 44, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(12, 62, 44, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-      };
-    }
-
-    if (archetype === 'secondary') {
-      return {
-        containerBg: '#ff8657',
-        isDark: false,
-        textColor: '#42160d',
-        subtextColor: 'rgba(66, 22, 13, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.42)',
-        badgeText: '#42160d',
-        inputBg: 'rgba(255, 255, 255, 0.35)',
-        inputPlaceholder: 'rgba(66, 22, 13, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(66, 22, 13, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.28)',
-      };
-    }
-
-    if (archetype === 'tertiary') {
-      return {
-        containerBg: '#666789',
-        isDark: true,
-        textColor: '#ffffff',
-        subtextColor: 'rgba(255, 255, 255, 0.85)',
-        badgeBg: 'rgba(255, 255, 255, 0.25)',
-        badgeText: '#ffffff',
-        inputBg: 'rgba(255, 255, 255, 0.2)',
-        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
-        borderColor: 'rgba(255, 255, 255, 0.18)',
-        shelfBg: 'rgba(255, 255, 255, 0.16)',
-      };
-    }
-
-    // Default neutral slate surface
+    // Default when no theme color is specified: White in bright mode, Soft dark charcoal in dark mode
     if (isSystemDark) {
       return {
-        containerBg: '#151e2e',
+        containerBg: '#18181b',
         isDark: true,
         textColor: '#f8fafc',
         subtextColor: '#94a3b8',
-        badgeBg: 'rgba(255, 255, 255, 0.1)',
-        badgeText: '#e2e8f0',
-        inputBg: '#0b0f19',
-        inputPlaceholder: '#64748b',
+        badgeBg: 'rgba(255, 255, 255, 0.08)',
+        badgeText: '#f1f5f9',
+        inputBg: 'rgba(255, 255, 255, 0.06)',
+        inputPlaceholder: '#71717a',
         actionHoverBg: 'rgba(255, 255, 255, 0.08)',
-        borderColor: '#243247',
-        shelfBg: '#0b0f19',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        shelfBg: 'rgba(0, 0, 0, 0.25)',
       };
     }
 
@@ -456,7 +395,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       borderColor: '#e2e8f0',
       shelfBg: '#f8fafc',
     };
-  }, [hasExplicitColor, space.colors, isDark, archetype, isSystemDark]);
+  }, [hasExplicitColor, space.colors, isDark, isSystemDark]);
 
   // Copy all tab URLs in this space
   const handleCopyAllUrls = (e: React.MouseEvent) => {
