@@ -18,8 +18,6 @@ export const App: React.FC = () => {
   const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
-
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -56,16 +54,18 @@ export const App: React.FC = () => {
     // Tab activation listener (when user selects a browser tab)
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId) => {
       setHighlightedTabId(tabItemId);
-      if (highlightTimeoutRef.current) {
-        clearTimeout(highlightTimeoutRef.current);
-      }
-      highlightTimeoutRef.current = setTimeout(() => {
-        setHighlightedTabId(null);
-      }, 2500);
-
-
-      if (workspaceRef.current) {
+      if (tabItemId && workspaceRef.current) {
         workspaceRef.current.revealAndHighlightTab(tabItemId);
+      }
+    });
+
+    // Check currently active tab item on mount
+    tabTracker.getActiveTabItemId().then((tabItemId) => {
+      if (tabItemId) {
+        setHighlightedTabId(tabItemId);
+        if (workspaceRef.current) {
+          workspaceRef.current.revealAndHighlightTab(tabItemId);
+        }
       }
     });
 
@@ -174,6 +174,10 @@ export const App: React.FC = () => {
             url: tab.url,
             favIconUrl: tab.favIconUrl,
           });
+          const activeItemId = await tabTracker.getActiveTabItemId();
+          if (activeItemId) {
+            setHighlightedTabId(activeItemId);
+          }
         }
       } catch (e) {
         console.warn('Error reading active tab in sidepanel:', e);
@@ -190,7 +194,6 @@ export const App: React.FC = () => {
         unsubAssociations();
         unsubTmpTabs();
         unsubActivated();
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         chrome.tabs.onActivated.removeListener(listener);
         browser.storage.onChanged.removeListener(handleStorageChange);
       };
@@ -200,7 +203,6 @@ export const App: React.FC = () => {
       unsubAssociations();
       unsubTmpTabs();
       unsubActivated();
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
@@ -272,6 +274,9 @@ export const App: React.FC = () => {
   };
 
   const handleOpenTab = async (url: string, tabId?: string) => {
+    if (tabId) {
+      setHighlightedTabId(tabId);
+    }
     try {
       // Check if this is a tmp tab
       if (tabId && tabId.startsWith('tmp_')) {

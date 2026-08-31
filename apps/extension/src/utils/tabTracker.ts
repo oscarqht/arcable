@@ -11,7 +11,7 @@ let memoryTmpTabs: TmpTab[] = [];
 
 type ChangeListener = (associations: TabAssociationMap) => void;
 type TmpTabsChangeListener = (tmpTabs: TmpTab[]) => void;
-type TabActivatedListener = (tabItemId: string) => void;
+type TabActivatedListener = (tabItemId: string | null) => void;
 
 class TabTracker {
   private listeners: Set<ChangeListener> = new Set();
@@ -74,7 +74,7 @@ class TabTracker {
     }
   }
 
-  private notifyActivated(tabItemId: string) {
+  private notifyActivated(tabItemId: string | null) {
     for (const listener of this.tabActivatedListeners) {
       try {
         listener(tabItemId);
@@ -82,6 +82,55 @@ class TabTracker {
         console.warn('[TabTracker] Error in tabActivated listener:', err);
       }
     }
+  }
+
+  // Get the active tab item ID (workspace tab ID or tmp tab ID) for the active browser tab
+  public async getActiveTabItemId(): Promise<string | null> {
+    try {
+      let activeTab: any = null;
+      if (typeof browser !== 'undefined' && browser.tabs) {
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        activeTab = tabs[0];
+        if (!activeTab) {
+          const lastFocusedTabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+          activeTab = lastFocusedTabs[0];
+        }
+      } else if (typeof chrome !== 'undefined' && chrome.tabs) {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        activeTab = tabs[0];
+        if (!activeTab) {
+          const lastFocusedTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          activeTab = lastFocusedTabs[0];
+        }
+      }
+
+      if (!activeTab || activeTab.id === undefined) return null;
+
+      const associations = await this.getAssociations();
+      for (const [tabItemId, info] of Object.entries(associations)) {
+        if (info.browserTabId === activeTab.id) {
+          return tabItemId;
+        }
+      }
+
+      const tmpTabs = await this.getTmpTabs();
+      const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeTab.id);
+      if (matchingTmp) {
+        return matchingTmp.id;
+      }
+
+      if (activeTab.url) {
+        const matchingWorkspaceTab = this.currentWorkspaceTabs.find((t) =>
+          areUrlsMatching(t.url, activeTab.url)
+        );
+        if (matchingWorkspaceTab) {
+          return matchingWorkspaceTab.id;
+        }
+      }
+    } catch (err) {
+      console.warn('[TabTracker] Error getting active tab item ID:', err);
+    }
+    return null;
   }
 
 
@@ -493,6 +542,7 @@ class TabTracker {
           if (info.browserTabId === activeInfo.tabId) {
             this.notifyActivated(tabItemId);
             found = true;
+            break;
           }
         }
         if (!found) {
@@ -500,7 +550,30 @@ class TabTracker {
           const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeInfo.tabId);
           if (matchingTmp) {
             this.notifyActivated(matchingTmp.id);
+            found = true;
           }
+        }
+        if (!found) {
+          // Fallback: sync with current workspace tabs and check again
+          const updatedAssociations = await this.syncWithWorkspace(this.currentWorkspaceTabs);
+          for (const [tabItemId, info] of Object.entries(updatedAssociations)) {
+            if (info.browserTabId === activeInfo.tabId) {
+              this.notifyActivated(tabItemId);
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            const updatedTmp = await this.getTmpTabs();
+            const matchingTmp = updatedTmp.find((t) => t.browserTabId === activeInfo.tabId);
+            if (matchingTmp) {
+              this.notifyActivated(matchingTmp.id);
+              found = true;
+            }
+          }
+        }
+        if (!found) {
+          this.notifyActivated(null);
         }
       });
     }
