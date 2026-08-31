@@ -200,7 +200,6 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 cursor: 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
-                overflow: 'hidden',
                 userSelect: 'none',
                 boxShadow: isHovered ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
               }}

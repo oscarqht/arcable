@@ -40,7 +40,68 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [isOpen, setIsOpen] = useState(false);
+  const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const activeItems = items.filter(Boolean);
+
+  // Determine if dropdown should open upwards (drop-up) or downwards (drop-down)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const calculatePlacement = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const menuHeight = menuRef.current?.offsetHeight || (activeItems.length * 36 + 16);
+
+      // Check space available in viewport
+      const spaceBelowViewport = window.innerHeight - rect.bottom;
+      const spaceAboveViewport = rect.top;
+
+      // Check space available within closest scrollable or overflow-hidden parent (e.g. SpaceCard carousel container or scroll container)
+      let containerBottom = window.innerHeight;
+      let containerTop = 0;
+      let parent = containerRef.current.parentElement;
+      while (parent && parent !== document.body) {
+        const style = window.getComputedStyle(parent);
+        if (
+          style.overflow === 'hidden' ||
+          style.overflowY === 'hidden' ||
+          style.overflowY === 'auto' ||
+          style.overflowY === 'scroll'
+        ) {
+          const pRect = parent.getBoundingClientRect();
+          if (pRect.bottom < containerBottom) {
+            containerBottom = pRect.bottom;
+          }
+          if (pRect.top > containerTop) {
+            containerTop = pRect.top;
+          }
+        }
+        parent = parent.parentElement;
+      }
+
+      const availableSpaceBelow = Math.min(spaceBelowViewport, containerBottom - rect.bottom);
+      const availableSpaceAbove = Math.min(spaceAboveViewport, rect.top - containerTop);
+
+      // If not enough room below for the menu + margin, and more room above (or enough room above)
+      if (availableSpaceBelow < menuHeight + 8 && availableSpaceAbove > availableSpaceBelow) {
+        setPlacement('top');
+      } else {
+        setPlacement('bottom');
+      }
+    };
+
+    calculatePlacement();
+    window.addEventListener('resize', calculatePlacement);
+    window.addEventListener('scroll', calculatePlacement, true);
+
+    return () => {
+      window.removeEventListener('resize', calculatePlacement);
+      window.removeEventListener('scroll', calculatePlacement, true);
+    };
+  }, [isOpen, activeItems.length]);
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {
@@ -66,7 +127,6 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
     };
   }, [isOpen]);
 
-  const activeItems = items.filter(Boolean);
   if (activeItems.length === 0) {
     return null;
   }
@@ -96,10 +156,22 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
-        zIndex: isOpen ? 50 : 'auto',
+        zIndex: isOpen ? 100 : 'auto',
       }}
       onClick={(e) => e.stopPropagation()}
     >
+      <style>{`
+        @keyframes dropdownFadeIn {
+          from {
+            opacity: 0;
+            transform: scale(0.96);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      `}</style>
       {/* ... Trigger Button */}
       <button
         type="button"
@@ -143,25 +215,37 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
       {/* Dropdown Menu Popup */}
       {isOpen && (
         <div
+          ref={menuRef}
           style={{
             position: 'absolute',
-            top: 'calc(100% + 4px)',
+            ...(placement === 'top'
+              ? { bottom: 'calc(100% + 4px)', top: 'auto' }
+              : { top: 'calc(100% + 4px)', bottom: 'auto' }),
             ...(align === 'right' ? { right: 0 } : { left: 0 }),
             backgroundColor: menuBg,
             borderRadius: '12px',
             border: `1px solid ${menuBorder}`,
             boxShadow: effectiveDark
-              ? '0 10px 30px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3)'
-              : '0 10px 30px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06)',
+              ? placement === 'top'
+                ? '0 -10px 30px rgba(0, 0, 0, 0.5), 0 -4px 12px rgba(0, 0, 0, 0.3)'
+                : '0 10px 30px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3)'
+              : placement === 'top'
+                ? '0 -10px 30px rgba(0, 0, 0, 0.12), 0 -4px 12px rgba(0, 0, 0, 0.06)'
+                : '0 10px 30px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06)',
             padding: '5px',
             minWidth: '165px',
             maxWidth: '260px',
+            maxHeight: 'calc(100vh - 40px)',
+            overflowY: 'auto',
             zIndex: 100,
             display: 'flex',
             flexDirection: 'column',
             gap: '2px',
             userSelect: 'none',
             animation: 'dropdownFadeIn 0.15s ease-out',
+            transformOrigin: placement === 'top'
+              ? (align === 'right' ? 'bottom right' : 'bottom left')
+              : (align === 'right' ? 'top right' : 'top left'),
             boxSizing: 'border-box',
           }}
           onClick={(e) => e.stopPropagation()}
