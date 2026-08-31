@@ -13,6 +13,7 @@ import {
   removeStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
@@ -939,12 +940,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Space DnD Handlers
   const handleSpaceDragStart = (e: React.DragEvent, spaceId: string) => {
-    e.dataTransfer.setData('application/json', JSON.stringify({ id: spaceId, type: 'space' }));
-    e.dataTransfer.effectAllowed = 'move';
+    startDrag(e, { id: spaceId, type: 'space' });
     setDraggingSpaceId(spaceId);
   };
 
   const handleSpaceDragOver = (e: React.DragEvent, spaceId: string) => {
+    if (!isDragAcceptable(e, ['space'])) {
+      return;
+    }
+    const activeDrag = getActiveDrag();
+    if (activeDrag && activeDrag.id === spaceId) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -962,6 +969,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   };
 
   const handleSpaceDrop = (e: React.DragEvent, targetSpaceId: string) => {
+    if (!isDragAcceptable(e, ['space'])) {
+      endDrag();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const pos = spaceDropPos || 'after';
@@ -971,15 +982,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { id: string; type: string };
-      if (!parsed || parsed.type !== 'space' || parsed.id === targetSpaceId) return;
+      const activeDrag = getActiveDrag();
+      const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
+      if (!sourceId || sourceId === targetSpaceId) return;
 
-      reorderSpaces(parsed.id, targetSpaceId, pos);
-    } catch {}
+      reorderSpaces(sourceId, targetSpaceId, pos);
+    } catch {} finally {
+      endDrag();
+    }
   };
 
   const handleSpaceDragEnd = () => {
+    endDrag();
     setDraggingSpaceId(null);
     setDragOverSpaceId(null);
     setSpaceDropPos(null);

@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -162,22 +163,26 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
-    e.dataTransfer.setData(
-      'application/json',
-      JSON.stringify({
-        id: tab.id,
-        type: 'tab',
-        parentFolderId: tab.parentFolderId,
-        parentSpaceId: tab.parentSpaceId,
-      })
-    );
-    e.dataTransfer.effectAllowed = 'move';
+    startDrag(e, {
+      id: tab.id,
+      type: 'tab',
+      parentFolderId: tab.parentFolderId,
+      parentSpaceId: tab.parentSpaceId,
+    });
     if (onDragStartItem) {
       onDragStartItem(e, tab);
     }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
+    // Only accept tab or folder items! Spaces or shelf tabs MUST NOT light up tab items
+    if (!isDragAcceptable(e, ['tab', 'folder'])) {
+      return;
+    }
+    const activeDrag = getActiveDrag();
+    if (activeDrag && activeDrag.id === tab.id) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -195,16 +200,23 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
+    if (!isDragAcceptable(e, ['tab', 'folder'])) {
+      setDropIndicator(null);
+      endDrag();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     setDropIndicator(null);
     if (onDropItem) {
       onDropItem(e, tab);
     }
+    endDrag();
   };
 
   const handleDragEnd = (e: React.DragEvent) => {
     setDropIndicator(null);
+    endDrag();
     if (onDragEndItem) {
       onDragEndItem(e);
     }

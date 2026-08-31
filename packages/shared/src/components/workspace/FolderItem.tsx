@@ -5,6 +5,7 @@ import { Folder, Tab } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls } from '../../utils/treeUtils';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
@@ -185,19 +186,23 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
-    e.dataTransfer.setData(
-      'application/json',
-      JSON.stringify({
-        id: folder.id,
-        type: 'folder',
-        parentFolderId: folder.parentFolderId,
-        parentSpaceId: folder.parentSpaceId,
-      })
-    );
-    e.dataTransfer.effectAllowed = 'move';
+    startDrag(e, {
+      id: folder.id,
+      type: 'folder',
+      parentFolderId: folder.parentFolderId,
+      parentSpaceId: folder.parentSpaceId,
+    });
   };
 
   const handleDragOver = (e: React.DragEvent) => {
+    // Only accept folder or tab items! Spaces or shelf tabs MUST NOT light up folders
+    if (!isDragAcceptable(e, ['folder', 'tab'])) {
+      return;
+    }
+    const activeDrag = getActiveDrag();
+    if (activeDrag && activeDrag.id === folder.id) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -218,6 +223,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
+    if (!isDragAcceptable(e, ['folder', 'tab'])) {
+      setDropIndicator(null);
+      endDrag();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const currentIndicator = dropIndicator || 'inside';
@@ -225,18 +235,25 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+      const activeDrag = getActiveDrag();
+      const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' }) : null);
       if (!parsed || !parsed.id || parsed.id === folder.id) return;
 
       onReorderSiblingItem?.({
         sourceId: parsed.id,
-        sourceType: parsed.type,
+        sourceType: parsed.type as 'folder' | 'tab',
         targetId: folder.id,
         targetType: 'folder',
         position: currentIndicator,
       });
-    } catch {}
+    } catch {} finally {
+      endDrag();
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDropIndicator(null);
+    endDrag();
   };
 
   const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
@@ -260,6 +277,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onDragEnd={handleDragEnd}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => {
           setIsHovered(false);

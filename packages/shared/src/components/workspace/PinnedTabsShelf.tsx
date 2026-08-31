@@ -5,6 +5,7 @@ import { Tab } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -58,11 +59,17 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   }
 
   const handleDragStart = (e: React.DragEvent, tabId: string) => {
-    e.dataTransfer.setData('application/json', JSON.stringify({ id: tabId, type: 'pinnedTab' }));
-    e.dataTransfer.effectAllowed = 'move';
+    startDrag(e, { id: tabId, type: 'pinnedTab' });
   };
 
   const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    if (!isDragAcceptable(e, ['pinnedTab'])) {
+      return;
+    }
+    const activeDrag = getActiveDrag();
+    if (activeDrag && activeDrag.id === tabId) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -78,6 +85,12 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent, targetTabId: string) => {
+    if (!isDragAcceptable(e, ['pinnedTab'])) {
+      setDragOverTabId(null);
+      setDropPosition(null);
+      endDrag();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const pos = dropPosition || 'after';
@@ -86,12 +99,20 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { id: string; type: string };
-      if (!parsed || !parsed.id || parsed.id === targetTabId) return;
+      const activeDrag = getActiveDrag();
+      const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
+      if (!sourceId || sourceId === targetTabId) return;
 
-      onReorderPinnedTabs?.(parsed.id, targetTabId, pos);
-    } catch {}
+      onReorderPinnedTabs?.(sourceId, targetTabId, pos);
+    } catch {} finally {
+      endDrag();
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDragOverTabId(null);
+    setDropPosition(null);
+    endDrag();
   };
 
   const resolvedBg = shelfBg || (effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.03)');
@@ -172,6 +193,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
               onDragOver={(e) => handleDragOver(e, tab.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, tab.id)}
+              onDragEnd={handleDragEnd}
               onMouseEnter={() => setHoveredTabId(tab.id)}
               onMouseLeave={() => {
                 setHoveredTabId(null);
