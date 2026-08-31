@@ -391,16 +391,28 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     [sortedSpaces.length, displayIndex]
   );
 
+  const activeSpaceIdRef = useRef(activeSpace?.id);
+  useEffect(() => {
+    activeSpaceIdRef.current = activeSpace?.id;
+  }, [activeSpace?.id]);
+
+  const displayIndexRef = useRef(displayIndex);
+  useEffect(() => {
+    displayIndexRef.current = displayIndex;
+  }, [displayIndex]);
+
   const handleNavigateSpace = useCallback(
     (direction: 'next' | 'prev') => {
       if (sortedSpaces.length <= 1) return;
 
-      const currentActiveIdx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+      const currentSpaceId = activeSpaceIdRef.current;
+      const currentActiveIdx = sortedSpaces.findIndex((s) => s.id === currentSpaceId);
       const currentIdx = currentActiveIdx === -1 ? 0 : currentActiveIdx;
 
       if (direction === 'next') {
         const nextIdx = (currentIdx + 1) % sortedSpaces.length;
         const nextSpace = sortedSpaces[nextIdx];
+        activeSpaceIdRef.current = nextSpace.id;
 
         if (currentIdx === sortedSpaces.length - 1) {
           // Wrap forward: slide to cloned first space at index N + 1
@@ -408,13 +420,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setDisplayIndex(sortedSpaces.length + 1);
           setActiveSpace(nextSpace.id);
         } else {
-          setIsTransitioning(true);
-          setDisplayIndex(nextIdx + 1);
+          // If we were at boundary clone, snap silently to 1 before moving
+          if (displayIndexRef.current === sortedSpaces.length + 1) {
+            setIsTransitioning(false);
+            setDisplayIndex(1);
+            requestAnimationFrame(() => {
+              setIsTransitioning(true);
+              setDisplayIndex(nextIdx + 1);
+            });
+          } else {
+            setIsTransitioning(true);
+            setDisplayIndex(nextIdx + 1);
+          }
           setActiveSpace(nextSpace.id);
         }
       } else {
         const prevIdx = (currentIdx - 1 + sortedSpaces.length) % sortedSpaces.length;
         const prevSpace = sortedSpaces[prevIdx];
+        activeSpaceIdRef.current = prevSpace.id;
 
         if (currentIdx === 0) {
           // Wrap backward: slide to cloned last space at index 0
@@ -422,25 +445,45 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setDisplayIndex(0);
           setActiveSpace(prevSpace.id);
         } else {
-          setIsTransitioning(true);
-          setDisplayIndex(prevIdx + 1);
+          // If we were at boundary clone 0, snap silently to N before moving
+          if (displayIndexRef.current === 0) {
+            setIsTransitioning(false);
+            setDisplayIndex(sortedSpaces.length);
+            requestAnimationFrame(() => {
+              setIsTransitioning(true);
+              setDisplayIndex(prevIdx + 1);
+            });
+          } else {
+            setIsTransitioning(true);
+            setDisplayIndex(prevIdx + 1);
+          }
           setActiveSpace(prevSpace.id);
         }
       }
     },
-    [sortedSpaces, activeSpace?.id, setActiveSpace]
+    [sortedSpaces, setActiveSpace]
   );
 
   // Horizontal wheel / two-finger swipe gesture to switch spaces with circular wrap-around
   const wheelAccumulatorRef = useRef(0);
-  const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isCooldownRef = useRef(false);
+  const wheelIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLockedRef = useRef(false);
+  const lastTriggerTimeRef = useRef(0);
+  const prevDeltaXRef = useRef(0);
+  const recentDeltasRef = useRef<number[]>([]);
+  const lastTouchTimeRef = useRef(0);
 
   useEffect(() => {
     // Only enable gesture in focused space mode or compact/sidepanel view
     if (viewMode !== 'focused' && !compact) {
       return;
     }
+
+    const resetGesture = () => {
+      isLockedRef.current = false;
+      wheelAccumulatorRef.current = 0;
+      recentDeltasRef.current = [];
+    };
 
     const handleWheel = (e: WheelEvent) => {
       // Do nothing if we only have 0 or 1 space or if a modal is open
@@ -454,11 +497,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         return;
       }
 
-      // Check if horizontal delta is dominant
+      // Check if horizontal delta is strictly dominant over vertical delta
       const absX = Math.abs(e.deltaX);
       const absY = Math.abs(e.deltaY);
 
-      if (absX < 8 || absX <= absY * 0.85) {
+      // Require horizontal dominance
+      const isHorizontalIntent = absX >= 6 && absX > absY * 1.25;
+
+      if (!isHorizontalIntent) {
         return;
       }
 
@@ -471,38 +517,75 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       // Prevent native horizontal page scroll / bounce / back-forward navigation
       e.preventDefault();
 
-      if (isCooldownRef.current) {
-        return;
+      const now = Date.now();
+      const timeSinceTrigger = now - lastTriggerTimeRef.current;
+
+      // Track recent deltas to detect acceleration/new swipe intents
+      recentDeltasRef.current.push(absX);
+      if (recentDeltasRef.current.length > 5) {
+        recentDeltasRef.current.shift();
+      }
+
+      // Short idle timer: 70ms of silence on horizontal wheel means fingers lifted/paused
+      if (wheelIdleTimerRef.current) {
+        clearTimeout(wheelIdleTimerRef.current);
+      }
+      wheelIdleTimerRef.current = setTimeout(resetGesture, 70);
+
+      // If currently locked after a trigger:
+      if (isLockedRef.current) {
+        // Fast lockout window of 110ms to prevent duplicate triggers from the initial burst
+        if (timeSinceTrigger < 110) {
+          prevDeltaXRef.current = e.deltaX;
+          return;
+        }
+
+        // Check if user made a deliberate reversal in swipe direction
+        const isReversal =
+          (prevDeltaXRef.current > 0 && e.deltaX < -18) ||
+          (prevDeltaXRef.current < 0 && e.deltaX > 18);
+
+        // Check if a new consecutive swipe began (acceleration / surge after decay)
+        const prevDelta = recentDeltasRef.current[recentDeltasRef.current.length - 2] || 0;
+        const isNewBurst = absX >= 26 && absX > prevDelta * 1.25 + 4;
+
+        if (isReversal || isNewBurst) {
+          // Unlock immediately for the new swipe gesture!
+          isLockedRef.current = false;
+          wheelAccumulatorRef.current = 0;
+        } else {
+          prevDeltaXRef.current = e.deltaX;
+          return;
+        }
+      }
+
+      // Reset accumulation if user changed swipe direction
+      if (
+        (wheelAccumulatorRef.current > 0 && e.deltaX < 0) ||
+        (wheelAccumulatorRef.current < 0 && e.deltaX > 0)
+      ) {
+        wheelAccumulatorRef.current = 0;
       }
 
       wheelAccumulatorRef.current += e.deltaX;
 
-      if (wheelTimeoutRef.current) {
-        clearTimeout(wheelTimeoutRef.current);
-      }
-      wheelTimeoutRef.current = setTimeout(() => {
-        wheelAccumulatorRef.current = 0;
-      }, 180);
-
-      const THRESHOLD = 30;
+      const THRESHOLD = 36;
 
       if (wheelAccumulatorRef.current >= THRESHOLD) {
-        // Scrolled right / two-finger swipe left -> Switch to Next Space (circle back to 1st)
+        // Swiped left (scrolled right) -> Switch to Next Space
+        isLockedRef.current = true;
+        lastTriggerTimeRef.current = now;
+        prevDeltaXRef.current = e.deltaX;
         wheelAccumulatorRef.current = 0;
-        isCooldownRef.current = true;
-        setTimeout(() => {
-          isCooldownRef.current = false;
-        }, 320);
-
+        recentDeltasRef.current = [absX];
         handleNavigateSpace('next');
       } else if (wheelAccumulatorRef.current <= -THRESHOLD) {
-        // Scrolled left / two-finger swipe right -> Switch to Prev Space (circle back to last)
+        // Swiped right (scrolled left) -> Switch to Prev Space
+        isLockedRef.current = true;
+        lastTriggerTimeRef.current = now;
+        prevDeltaXRef.current = e.deltaX;
         wheelAccumulatorRef.current = 0;
-        isCooldownRef.current = true;
-        setTimeout(() => {
-          isCooldownRef.current = false;
-        }, 320);
-
+        recentDeltasRef.current = [absX];
         handleNavigateSpace('prev');
       }
     };
@@ -523,7 +606,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (e.touches.length === 1) {
         const deltaX = Math.abs(e.touches[0].clientX - touchStartX);
         const deltaY = Math.abs(e.touches[0].clientY - touchStartY);
-        if (deltaX > deltaY && deltaX > 8) {
+        if (deltaX > 10 && deltaX > deltaY * 1.25) {
           const target = e.target as HTMLElement | null;
           if (!target || (!['INPUT', 'TEXTAREA'].includes(target.tagName) && !target.isContentEditable)) {
             e.preventDefault();
@@ -547,12 +630,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const deltaY = e.changedTouches[0].clientY - touchStartY;
         const elapsed = Date.now() - touchStartTime;
 
-        if (elapsed < 500 && Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+        // Snappy touch cooldown: 120ms
+        const now = Date.now();
+        if (now - lastTouchTimeRef.current < 120) {
+          return;
+        }
+
+        if (elapsed < 600 && Math.abs(deltaX) > 35 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
           const target = e.target as HTMLElement | null;
           if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
             return;
           }
 
+          lastTouchTimeRef.current = now;
           if (deltaX < 0) {
             // Swiped left -> Next space (circle back to 1st)
             handleNavigateSpace('next');
@@ -574,8 +664,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
-      if (wheelTimeoutRef.current) {
-        clearTimeout(wheelTimeoutRef.current);
+      if (wheelIdleTimerRef.current) {
+        clearTimeout(wheelIdleTimerRef.current);
       }
     };
   }, [
