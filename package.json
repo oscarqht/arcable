@@ -19,7 +19,8 @@
     "build:extension:firefox": "npm run build:firefox --workspace=@arcable/extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "clean": "npm run clean --workspaces --if-present"
+    "clean": "npm run clean --workspaces --if-present",
+    "version:bump:minor": "node scripts/bump-version.mjs"
   },
   "keywords": [
     "arcable",

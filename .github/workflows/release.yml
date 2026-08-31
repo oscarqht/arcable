@@ -1,0 +1,64 @@
+name: Build Extensions and Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to release (e.g. v0.2.0)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag name to release (e.g. v0.2.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build extensions
+        run: npm run build:extension
+
+      - name: Package extension archives
+        run: |
+          RELEASE_TAG="${{ inputs.tag || github.ref_name }}"
+          echo "Packaging extension archives for tag: ${RELEASE_TAG}"
+          
+          mkdir -p artifacts
+          
+          # Package Chrome extension
+          (cd apps/extension/dist/chrome && zip -r "../../../artifacts/arcable-chrome-${RELEASE_TAG}.zip" .)
+          
+          # Package Firefox extension
+          (cd apps/extension/dist/firefox && zip -r "../../../artifacts/arcable-firefox-${RELEASE_TAG}.zip" .)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: Release ${{ inputs.tag || github.ref_name }}
+          files: |
+            artifacts/arcable-chrome-*.zip
+            artifacts/arcable-firefox-*.zip
+          generate_release_notes: true
