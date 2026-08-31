@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useImperativeHandle, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap } from '../../types/tabTracker';
@@ -306,6 +306,131 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }
   }, [activeSpace?.id]);
 
+  const displaySpaces = useMemo(() => {
+    if (sortedSpaces.length <= 1) {
+      return sortedSpaces.map((s) => ({ space: s, isClone: false, cloneKey: s.id }));
+    }
+    const lastSpace = sortedSpaces[sortedSpaces.length - 1];
+    const firstSpace = sortedSpaces[0];
+    return [
+      { space: lastSpace, isClone: true, cloneKey: `${lastSpace.id}-clone-start` },
+      ...sortedSpaces.map((s) => ({ space: s, isClone: false, cloneKey: s.id })),
+      { space: firstSpace, isClone: true, cloneKey: `${firstSpace.id}-clone-end` },
+    ];
+  }, [sortedSpaces]);
+
+  const [displayIndex, setDisplayIndex] = useState<number>(() => {
+    if (sortedSpaces.length <= 1) return 0;
+    const idx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+    return idx === -1 ? 1 : idx + 1;
+  });
+  const [isTransitioning, setIsTransitioning] = useState(true);
+
+  // Sync displayIndex when activeSpace changes from external interactions (like pill clicks)
+  useEffect(() => {
+    const activeIdx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+    if (activeIdx === -1) return;
+    if (sortedSpaces.length <= 1) {
+      setDisplayIndex(0);
+      return;
+    }
+    // If currently animating at clone boundaries for this space, do not interrupt
+    if (displayIndex === 0 && activeIdx === sortedSpaces.length - 1) {
+      return;
+    }
+    if (displayIndex === sortedSpaces.length + 1 && activeIdx === 0) {
+      return;
+    }
+    if (displayIndex !== activeIdx + 1) {
+      setDisplayIndex(activeIdx + 1);
+      setIsTransitioning(true);
+    }
+  }, [activeSpace?.id, sortedSpaces]);
+
+  // Re-enable transition after silent snap
+  useEffect(() => {
+    if (!isTransitioning) {
+      const rafId1 = requestAnimationFrame(() => {
+        const rafId2 = requestAnimationFrame(() => {
+          setIsTransitioning(true);
+        });
+        return () => cancelAnimationFrame(rafId2);
+      });
+      return () => cancelAnimationFrame(rafId1);
+    }
+  }, [isTransitioning]);
+
+  // Fallback safety timer for boundary clone snaps
+  useEffect(() => {
+    if (sortedSpaces.length >= 2) {
+      if (displayIndex === 0 || displayIndex === sortedSpaces.length + 1) {
+        const timer = setTimeout(() => {
+          setIsTransitioning(false);
+          setDisplayIndex(displayIndex === 0 ? sortedSpaces.length : 1);
+        }, 400);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [displayIndex, sortedSpaces.length]);
+
+  const handleTrackTransitionEnd = useCallback(
+    (e: React.TransitionEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget || e.propertyName !== 'transform') {
+        return;
+      }
+      if (sortedSpaces.length >= 2) {
+        if (displayIndex === sortedSpaces.length + 1) {
+          setIsTransitioning(false);
+          setDisplayIndex(1);
+        } else if (displayIndex === 0) {
+          setIsTransitioning(false);
+          setDisplayIndex(sortedSpaces.length);
+        }
+      }
+    },
+    [sortedSpaces.length, displayIndex]
+  );
+
+  const handleNavigateSpace = useCallback(
+    (direction: 'next' | 'prev') => {
+      if (sortedSpaces.length <= 1) return;
+
+      const currentActiveIdx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+      const currentIdx = currentActiveIdx === -1 ? 0 : currentActiveIdx;
+
+      if (direction === 'next') {
+        const nextIdx = (currentIdx + 1) % sortedSpaces.length;
+        const nextSpace = sortedSpaces[nextIdx];
+
+        if (currentIdx === sortedSpaces.length - 1) {
+          // Wrap forward: slide to cloned first space at index N + 1
+          setIsTransitioning(true);
+          setDisplayIndex(sortedSpaces.length + 1);
+          setActiveSpace(nextSpace.id);
+        } else {
+          setIsTransitioning(true);
+          setDisplayIndex(nextIdx + 1);
+          setActiveSpace(nextSpace.id);
+        }
+      } else {
+        const prevIdx = (currentIdx - 1 + sortedSpaces.length) % sortedSpaces.length;
+        const prevSpace = sortedSpaces[prevIdx];
+
+        if (currentIdx === 0) {
+          // Wrap backward: slide to cloned last space at index 0
+          setIsTransitioning(true);
+          setDisplayIndex(0);
+          setActiveSpace(prevSpace.id);
+        } else {
+          setIsTransitioning(true);
+          setDisplayIndex(prevIdx + 1);
+          setActiveSpace(prevSpace.id);
+        }
+      }
+    },
+    [sortedSpaces, activeSpace?.id, setActiveSpace]
+  );
+
   // Horizontal wheel / two-finger swipe gesture to switch spaces with circular wrap-around
   const wheelAccumulatorRef = useRef(0);
   const wheelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -369,9 +494,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           isCooldownRef.current = false;
         }, 320);
 
-        const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
-        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortedSpaces.length;
-        setActiveSpace(sortedSpaces[nextIndex].id);
+        handleNavigateSpace('next');
       } else if (wheelAccumulatorRef.current <= -THRESHOLD) {
         // Scrolled left / two-finger swipe right -> Switch to Prev Space (circle back to last)
         wheelAccumulatorRef.current = 0;
@@ -380,9 +503,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           isCooldownRef.current = false;
         }, 320);
 
-        const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
-        const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + sortedSpaces.length) % sortedSpaces.length;
-        setActiveSpace(sortedSpaces[prevIndex].id);
+        handleNavigateSpace('prev');
       }
     };
 
@@ -434,14 +555,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
           if (deltaX < 0) {
             // Swiped left -> Next space (circle back to 1st)
-            const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
-            const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortedSpaces.length;
-            setActiveSpace(sortedSpaces[nextIndex].id);
+            handleNavigateSpace('next');
           } else {
             // Swiped right -> Prev space (circle back to last)
-            const currentIndex = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
-            const prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + sortedSpaces.length) % sortedSpaces.length;
-            setActiveSpace(sortedSpaces[prevIndex].id);
+            handleNavigateSpace('prev');
           }
         }
       }
@@ -466,7 +583,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     compact,
     sortedSpaces,
     activeSpace?.id,
-    setActiveSpace,
+    handleNavigateSpace,
     isSpaceModalOpen,
     isFolderModalOpen,
     isTabModalOpen,
@@ -1463,29 +1580,35 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             }}
           >
             <div
+              onTransitionEnd={handleTrackTransitionEnd}
               style={{
                 display: 'flex',
                 flexDirection: 'row',
                 width: '100%',
                 gap: '20px',
-                transform: `translateX(calc(-${(sortedSpaces.findIndex((s) => s.id === activeSpace?.id) === -1 ? 0 : sortedSpaces.findIndex((s) => s.id === activeSpace?.id)) * 100}% - ${(sortedSpaces.findIndex((s) => s.id === activeSpace?.id) === -1 ? 0 : sortedSpaces.findIndex((s) => s.id === activeSpace?.id)) * 20}px))`,
-                transition: 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
+                transform: `translateX(calc(-${displayIndex * 100}% - ${displayIndex * 20}px))`,
+                transition: isTransitioning ? 'transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
                 willChange: 'transform',
                 alignItems: 'flex-start',
               }}
             >
-              {sortedSpaces.map((space) => (
+              {displaySpaces.map(({ space, isClone, cloneKey }) => (
                 <div
-                  key={space.id}
-                  ref={(el) => {
-                    spaceCardWrapperRefs.current[space.id] = el;
-                  }}
+                  key={cloneKey}
+                  ref={
+                    !isClone
+                      ? (el) => {
+                          spaceCardWrapperRefs.current[space.id] = el;
+                        }
+                      : undefined
+                  }
                   style={{
                     width: '100%',
                     minWidth: '100%',
                     maxWidth: '100%',
                     flexShrink: 0,
                     boxSizing: 'border-box',
+                    pointerEvents: isClone ? 'none' : 'auto',
                   }}
                 >
                   <SpaceCard
