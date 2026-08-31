@@ -9,6 +9,9 @@ import {
   savePendingOperation,
   getStoredPendingOperations,
   clearStoredPendingOperations,
+  removeStoredPendingOperations,
+  replayOperations,
+  getOrCreateDeviceId,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 
@@ -257,38 +260,26 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
   if (typeof window === 'undefined') return DEFAULT_WORKSPACE;
   try {
     const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (!raw) {
-      const initial = {
-        ...DEFAULT_WORKSPACE,
-        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => {
-          const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
-          setLocalFolderExpanded(f.id, isExp);
-          return {
-            ...f,
-            isExpanded: isExp,
-          };
-        }),
-      };
-      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
-      return initial;
+    let parsed: ArcableWorkspaceData | null = null;
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw) as ArcableWorkspaceData;
+      } catch {
+        parsed = null;
+      }
     }
-    const parsed = JSON.parse(raw) as ArcableWorkspaceData;
+
     if (!parsed || !Array.isArray(parsed.spaces) || parsed.spaces.length === 0) {
-      const initial = {
-        ...DEFAULT_WORKSPACE,
-        folders: (DEFAULT_WORKSPACE.folders || []).map((f) => {
-          const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
-          setLocalFolderExpanded(f.id, isExp);
-          return {
-            ...f,
-            isExpanded: isExp,
-          };
-        }),
-      };
-      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
-      return initial;
+      parsed = { ...DEFAULT_WORKSPACE };
     }
-    return {
+
+    // Replay any pending operations that may not have been compacted or saved yet
+    const pendingOps = getStoredPendingOperations();
+    if (pendingOps.length > 0) {
+      parsed = replayOperations(parsed, pendingOps);
+    }
+
+    const initial: ArcableWorkspaceData = {
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
         const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
@@ -302,6 +293,9 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       activeSpaceId: parsed.activeSpaceId || parsed.spaces[0]?.id || 'space_personal',
       version: parsed.version || 1,
     };
+
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
+    return initial;
   } catch (err) {
     console.warn('Failed to parse workspace from localStorage:', err);
     return DEFAULT_WORKSPACE;
@@ -1320,9 +1314,17 @@ export function useWorkspace() {
 
   const applyLatestSnapshot = useCallback((snapshot: ArcableWorkspaceData) => {
     if (snapshot && Array.isArray(snapshot.spaces) && snapshot.spaces.length > 0) {
+      // Always replay any remaining local unsynced pending operations on top of the remote snapshot.
+      // This guarantees that any changes made locally while syncing was in flight (or offline)
+      // are never reverted or overridden when the remote snapshot arrives.
+      const pendingOps = getStoredPendingOperations();
+      const resolvedSnapshot = pendingOps.length > 0
+        ? replayOperations(snapshot, pendingOps)
+        : snapshot;
+
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
-        const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
+        const activeSpaceStillExists = resolvedSnapshot.spaces.some((s) => s.id === currentActive);
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();
@@ -1332,7 +1334,7 @@ export function useWorkspace() {
           }
         });
 
-        const mergedFolders = (snapshot.folders || []).map((f) => {
+        const mergedFolders = (resolvedSnapshot.folders || []).map((f) => {
           const explicitExpand = f.isExpanded !== undefined
             ? f.isExpanded
             : (prevExpandMap.has(f.id)
@@ -1346,13 +1348,13 @@ export function useWorkspace() {
         });
 
         return {
-          spaces: snapshot.spaces,
+          spaces: resolvedSnapshot.spaces,
           folders: mergedFolders,
-          tabs: snapshot.tabs || [],
+          tabs: resolvedSnapshot.tabs || [],
           activeSpaceId: activeSpaceStillExists
             ? currentActive
-            : snapshot.spaces[0]?.id || 'space_personal',
-          version: snapshot.version || 1,
+            : resolvedSnapshot.spaces[0]?.id || 'space_personal',
+          version: resolvedSnapshot.version || 1,
         };
       });
       return true;
@@ -1367,15 +1369,24 @@ export function useWorkspace() {
   const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
+      const deviceId = getOrCreateDeviceId();
+      const pendingOps = getStoredPendingOperations();
+      const syncedOpIds = pendingOps.map((op) => op.id);
+
       const result = await syncWorkspaceWithRaindrop(token, {
         localState: data,
+        deviceId,
         deviceName,
+        pendingOps,
       });
 
       setLastSyncResult(result);
 
-      if (result.success && result.latestSnapshot) {
-        applyLatestSnapshot(result.latestSnapshot);
+      if (result.success) {
+        removeStoredPendingOperations(syncedOpIds);
+        if (result.latestSnapshot) {
+          applyLatestSnapshot(result.latestSnapshot);
+        }
       }
 
       return result;

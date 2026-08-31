@@ -9,6 +9,7 @@ import {
   getStoredPendingOperations,
   clearStoredPendingOperations,
   removeStoredPendingOperations,
+  replayOperations,
 } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
 import { browser, getActiveTab } from '../utils/browser';
@@ -40,7 +41,11 @@ export const App: React.FC = () => {
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         const local = window.localStorage.getItem('arcable_workspace_data');
         if (!local) {
-          const snapshot = res.arcable_workspace_snapshot;
+          let snapshot = res.arcable_workspace_snapshot;
+          const remainingOps = getStoredPendingOperations();
+          if (remainingOps.length > 0) {
+            snapshot = replayOperations(snapshot, remainingOps);
+          }
           const merged = {
             ...snapshot,
             folders: (snapshot.folders || []).map((f: any) => {
@@ -218,7 +223,10 @@ export const App: React.FC = () => {
       if (response && response.success) {
         removeStoredPendingOperations(syncedOpIds);
         if (response.data?.latestSnapshot && typeof window !== 'undefined') {
-          const snapshot = response.data.latestSnapshot;
+          const remainingOps = getStoredPendingOperations();
+          const snapshot = remainingOps.length > 0
+            ? replayOperations(response.data.latestSnapshot, remainingOps)
+            : response.data.latestSnapshot;
           try {
             const raw = window.localStorage.getItem('arcable_workspace_data');
             const current = raw ? JSON.parse(raw) : null;
@@ -297,7 +305,10 @@ export const App: React.FC = () => {
       if (response && response.success) {
         removeStoredPendingOperations(syncedOpIds);
         if (response.data?.latestSnapshot && typeof window !== 'undefined') {
-          const snapshot = response.data.latestSnapshot;
+          const remainingOps = getStoredPendingOperations();
+          const snapshot = remainingOps.length > 0
+            ? replayOperations(response.data.latestSnapshot, remainingOps)
+            : response.data.latestSnapshot;
           try {
             const raw = window.localStorage.getItem('arcable_workspace_data');
             const current = raw ? JSON.parse(raw) : null;

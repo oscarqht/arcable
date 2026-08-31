@@ -6,7 +6,7 @@ import {
   DeviceModal,
 } from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 
 export const App: React.FC = () => {
@@ -28,7 +28,11 @@ export const App: React.FC = () => {
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         const local = window.localStorage.getItem('arcable_workspace_data');
         if (!local) {
-          const snapshot = res.arcable_workspace_snapshot;
+          let snapshot = res.arcable_workspace_snapshot;
+          const remainingOps = getStoredPendingOperations();
+          if (remainingOps.length > 0) {
+            snapshot = replayOperations(snapshot, remainingOps);
+          }
           const merged = {
             ...snapshot,
             folders: (snapshot.folders || []).map((f: any) => {
@@ -58,7 +62,11 @@ export const App: React.FC = () => {
           setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
-          const snapshot = changes.arcable_workspace_snapshot.newValue;
+          let snapshot = changes.arcable_workspace_snapshot.newValue;
+          const remainingOps = getStoredPendingOperations();
+          if (remainingOps.length > 0) {
+            snapshot = replayOperations(snapshot, remainingOps);
+          }
           try {
             const raw = window.localStorage.getItem('arcable_workspace_data');
             const current = raw ? JSON.parse(raw) : null;
