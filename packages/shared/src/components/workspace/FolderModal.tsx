@@ -25,14 +25,14 @@ interface FolderModalProps {
 }
 
 const PRESET_COLORS = [
-  '#f4efdf', // Cream Vanilla
-  '#f0b8cd', // Blossom Pink
-  '#e9c3e3', // Soft Lilac
-  '#da7682', // Berry Rose
-  '#eb8570', // Warm Melon
-  '#dcce7f', // Soft Honey
-  '#5becad', // Mint Green
-  '#919bb5', // Slate Periwinkle
+  '#f29bbb', // Blossom Pink
+  '#a6729e', // Purple Mauve
+  '#f25e6c', // Coral Red
+  '#ff8657', // Warm Orange
+  '#f8d558', // Sunny Yellow
+  '#33e895', // Mint Green
+  '#6dbad9', // Sky Blue
+  '#666789', // Slate Indigo
 ];
 
 export const FolderModal: React.FC<FolderModalProps> = ({
@@ -218,7 +218,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-                Parent Folder (Optional)
+                Parent Folder
               </label>
               <select
                 value={parentFolderId}
@@ -254,7 +254,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Color Accent (Optional)
+              Color Accent
             </label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button

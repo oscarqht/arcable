@@ -26,7 +26,7 @@ const STORAGE_KEY_ITEMS = 'arcable_items';
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
 
 // Always enable instant open of Chrome SidePanel on action click
-async function syncSidePanelBehavior(): Promise<void> {
+async function syncSidePanelBehavior(_isAuthenticated?: boolean): Promise<void> {
   try {
     if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
       await chrome.sidePanel.setPanelBehavior({

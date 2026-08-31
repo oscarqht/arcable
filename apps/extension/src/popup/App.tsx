@@ -108,7 +108,7 @@ export const App: React.FC = () => {
           workspace = {
             activeSpaceId: 'space_personal',
             version: 1,
-            spaces: [{ id: 'space_personal', name: 'Personal', emojiIcon: '🏠', colors: '#5becad', createdAt: now, updatedAt: now }],
+            spaces: [{ id: 'space_personal', name: 'Personal', emojiIcon: '🏠', colors: '#33e895', createdAt: now, updatedAt: now }],
             folders: [],
             tabs: [],
           };

@@ -198,7 +198,7 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
                 marginBottom: '6px',
               }}
             >
-              Target Parent Folder (Optional)
+              Target Parent Folder
             </label>
             <select
               value={targetParentFolderId}

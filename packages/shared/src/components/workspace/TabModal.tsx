@@ -176,7 +176,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Custom Title (Optional)
+              Custom Title
             </label>
             <input
               type="text"
@@ -219,7 +219,7 @@ export const TabModal: React.FC<TabModalProps> = ({
             />
 
             <label htmlFor="favouriteTabCheckbox" style={{ fontSize: '13px', fontWeight: 600, color: favourite ? (isDark ? '#86efac' : '#166534') : (isDark ? '#cbd5e1' : '#334155'), cursor: 'pointer' }}>
-              ⭐ Mark as Favourite (Visible across all spaces)
+              ⭐ Mark as Favourite
             </label>
           </div>
 
@@ -257,7 +257,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-                Folder {favourite ? '(N/A for Favourite)' : '(Optional)'}
+                Folder
               </label>
               <select
                 value={parentFolderId}

@@ -64,7 +64,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({
             marginBottom: '6px',
           }}
         >
-          {label} {required ? <span style={{ color: '#ef4444' }}>*</span> : <span style={{ color: '#94a3b8', fontWeight: 400 }}>(Optional)</span>}
+          {label} {required ? <span style={{ color: '#ef4444' }}>*</span> : null}
         </label>
       )}
 
