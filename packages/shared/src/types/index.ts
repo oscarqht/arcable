@@ -53,3 +53,5 @@ export interface ExtensionResponse<T = unknown> {
 export * from './raindrop';
 export * from './workspace';
 export * from './sync';
+export * from './tabTracker';
+

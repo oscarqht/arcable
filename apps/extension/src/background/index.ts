@@ -25,24 +25,21 @@ const STORAGE_KEY_ITEMS = 'arcable_items';
 
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
 
-// Sync Chrome SidePanel action behavior dynamically based on auth state
-async function syncSidePanelBehavior(isLoggedIn?: boolean): Promise<void> {
+// Always enable instant open of Chrome SidePanel on action click
+async function syncSidePanelBehavior(): Promise<void> {
   try {
-    if (typeof isLoggedIn === 'undefined') {
-      const auth = await getStoredAuthState();
-      isLoggedIn = Boolean(auth && auth.isAuthenticated && auth.accessToken);
-    }
-
     if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
       await chrome.sidePanel.setPanelBehavior({
-        openPanelOnActionClick: isLoggedIn,
+        openPanelOnActionClick: true,
       });
-      console.log(`[Arcable Background] SidePanel behavior updated: openPanelOnActionClick = ${isLoggedIn}`);
+      console.log('[Arcable Background] SidePanel behavior initialized: openPanelOnActionClick = true');
     }
   } catch (err) {
     console.warn('[Arcable Background] Could not update sidePanel behavior:', err);
   }
 }
+void syncSidePanelBehavior();
+
 
 // Helper to get current stored Raindrop auth state (instant local storage lookup)
 async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
@@ -535,49 +532,16 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
-  void getStoredAuthState(true).then((auth) => {
-    void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
-  });
+  void syncSidePanelBehavior();
   void triggerBackgroundSync();
 });
 
 // Initial side panel behavior synchronization on service worker load
-void getStoredAuthState(true).then((auth) => {
-  void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
-});
+void syncSidePanelBehavior();
 
-// Handle extension toolbar action click:
-// - If not logged in / no API token -> open options page
-// - Otherwise -> open side panel
-//
-// IMPORTANT (Firefox/Zen): browser.sidebarAction.open() MUST be called synchronously
-// within the user-gesture handler. Any `await` before it causes Firefox to lose the
-// user action context, resulting in the call being silently rejected or throwing,
-// which previously fell through to the `tabs.create` fallback (full-tab mode).
-//
-// Fix: use the in-memory `cachedAuthState` (kept up-to-date by the storage listener)
-// for the auth check so we can call sidebarAction.open() without any prior `await`.
+// Handle extension toolbar action click (instantly open side panel)
 function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
-  // Use cached auth state synchronously — no await before opening the sidebar.
-  // cachedAuthState is always kept in sync via the storage.onChanged listener.
-  const isLoggedIn = Boolean(
-    cachedAuthState && cachedAuthState.isAuthenticated && cachedAuthState.accessToken
-  );
-
-  if (!isLoggedIn) {
-    // Open options page immediately (synchronous path)
-    if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.openOptionsPage === 'function') {
-      chrome.runtime.openOptionsPage();
-    } else if (browser.runtime && typeof browser.runtime.openOptionsPage === 'function') {
-      void browser.runtime.openOptionsPage();
-    } else {
-      void browser.tabs.create({ url: browser.runtime.getURL('options/index.html') });
-    }
-    return;
-  }
-
-  // Logged in — open the side panel synchronously within the user gesture context.
-  // Firefox: sidebarAction.open() must be called here, before any async operations.
+  // Firefox: sidebarAction.open()
   if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
     try {
       void (browser as any).sidebarAction.open();
@@ -588,27 +552,24 @@ function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
     return;
   }
 
-  // Chrome: sidePanel.open() can handle async internally after the click
+  // Chrome: sidePanel.open()
   if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-    const openChromeSidePanel = async () => {
-      try {
-        const windowId = tab?.windowId;
-        if (windowId !== undefined) {
-          await chrome.sidePanel.open({ windowId });
-        } else if (tab?.id !== undefined) {
-          await chrome.sidePanel.open({ tabId: tab.id });
-        } else {
-          const currentWin = await browser.windows.getCurrent();
-          if (currentWin?.id !== undefined) {
-            await chrome.sidePanel.open({ windowId: currentWin.id });
-          }
-        }
-      } catch (openErr) {
+    const windowId = tab?.windowId;
+    if (windowId !== undefined) {
+      void chrome.sidePanel.open({ windowId }).catch((openErr) => {
         console.warn('[Arcable Background] chrome.sidePanel.open() failed:', openErr);
-        await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
-      }
-    };
-    void openChromeSidePanel();
+        void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+      });
+    } else {
+      chrome.windows.getCurrent((win) => {
+        if (win?.id !== undefined) {
+          void chrome.sidePanel.open({ windowId: win.id }).catch((openErr) => {
+            console.warn('[Arcable Background] chrome.sidePanel.open() failed:', openErr);
+            void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+          });
+        }
+      });
+    }
     return;
   }
 
@@ -621,5 +582,6 @@ if (browser.action && browser.action.onClicked) {
 } else if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
   chrome.action.onClicked.addListener(handleActionClick);
 }
+
 
 

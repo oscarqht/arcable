@@ -512,4 +512,39 @@ export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 16, color = 'curr
   </svg>
 );
 
+export const MinusIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+  >
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
+
+export const SlashIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+  >
+    <line x1="17" y1="4" x2="7" y2="20" />
+  </svg>
+);
+
+
 

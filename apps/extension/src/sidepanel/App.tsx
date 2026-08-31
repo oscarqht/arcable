@@ -1,24 +1,68 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Header,
   WorkspaceManager,
   WorkspaceManagerHandle,
   DeviceModal,
 } from '@arcable/shared/components';
+import { TabAssociationMap, Tab } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
+import { tabTracker } from '../utils/tabTracker';
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
+  const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
+  const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
 
+  // Sync tabTracker with local workspace tabs
+  const syncTabsWithTracker = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('arcable_workspace_data');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.tabs && Array.isArray(parsed.tabs)) {
+          void tabTracker.syncWithWorkspace(parsed.tabs);
+        }
+      }
+    } catch {}
+  }, []);
+
+  const handleTabsChange = useCallback((tabs: Tab[]) => {
+    void tabTracker.syncWithWorkspace(tabs);
+  }, []);
+
+
   useEffect(() => {
+    // Initial tab associations subscription
+    tabTracker.getAssociations().then(setTabAssociations);
+    const unsubAssociations = tabTracker.subscribe(setTabAssociations);
+
+    // Tab activation listener (when user selects a browser tab)
+    const unsubActivated = tabTracker.onTabItemActivated((tabItemId) => {
+      setHighlightedTabId(tabItemId);
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTabId(null);
+      }, 2500);
+
+
+      if (workspaceRef.current) {
+        workspaceRef.current.revealAndHighlightTab(tabItemId);
+      }
+    });
+
     // Check initial Raindrop auth & cached snapshot
     browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot']).then((res: any) => {
       const auth = res.arcable_raindrop_auth;
@@ -47,6 +91,8 @@ export const App: React.FC = () => {
           window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
         }
       }
+      // Perform initial tab tracking sync once local snapshot is processed
+      syncTabsWithTracker();
     });
 
     browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((res: any) => {
@@ -104,6 +150,7 @@ export const App: React.FC = () => {
               JSON.stringify(merged)
             );
           }
+          syncTabsWithTracker();
         }
       }
     };
@@ -133,15 +180,22 @@ export const App: React.FC = () => {
       const listener = () => updateActiveTab();
       chrome.tabs.onActivated.addListener(listener);
       return () => {
+        unsubAssociations();
+        unsubActivated();
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         chrome.tabs.onActivated.removeListener(listener);
         browser.storage.onChanged.removeListener(handleStorageChange);
       };
     }
 
     return () => {
+      unsubAssociations();
+      unsubActivated();
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
+
 
   const handleSyncRaindrop = async (syncParams?: {
     localState: any;
@@ -207,14 +261,57 @@ export const App: React.FC = () => {
     return res.data || [];
   };
 
-  const handleOpenTab = async (url: string) => {
+  const handleOpenTab = async (url: string, tabId?: string) => {
     try {
+      // Check if this specific tab item or URL is already associated
+      if (tabId && tabAssociations[tabId]) {
+        const assoc = tabAssociations[tabId];
+        await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+        return;
+      }
+
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const allTabs = (parsed.tabs || []) as Tab[];
+          const matchingItem = tabId
+            ? allTabs.find((t) => t.id === tabId)
+            : allTabs.find((t) => areUrlsMatching(t.url, url));
+
+          if (matchingItem && tabAssociations[matchingItem.id]) {
+            const assoc = tabAssociations[matchingItem.id];
+            await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+            return;
+          } else if (matchingItem) {
+            await tabTracker.openAndAssociateTab(matchingItem.id, url);
+            return;
+          }
+        }
+      }
       await browser.tabs.create({ url, active: true });
     } catch (e) {
       console.warn('Failed to open tab via browser API, falling back to window.open:', e);
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
+
+
+
+  const handleCloseAssociatedTab = async (tabId: string) => {
+    const assoc = tabAssociations[tabId];
+    if (assoc) {
+      await tabTracker.closeAssociatedTab(assoc.browserTabId, tabId);
+    }
+  };
+
+  const handleResetDivertedUrl = async (tabId: string) => {
+    const assoc = tabAssociations[tabId];
+    if (assoc) {
+      await tabTracker.activateAndResetUrl(assoc.browserTabId, assoc.windowId, assoc.originalUrl, tabId);
+    }
+  };
+
 
   const handleCaptureCurrentTab = async () => {
     try {
@@ -434,11 +531,19 @@ export const App: React.FC = () => {
           defaultViewMode="focused"
           headerTitle="Sidepanel Workspace"
           hideControlBarActions={true}
+          tabAssociations={tabAssociations}
+          highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
+          onCloseAssociatedTab={handleCloseAssociatedTab}
+          onResetDivertedUrl={handleResetDivertedUrl}
+          onTabsChange={handleTabsChange}
           onCaptureCurrentTab={handleCaptureCurrentTab}
+
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
+
+
       </div>
 
       <DeviceModal

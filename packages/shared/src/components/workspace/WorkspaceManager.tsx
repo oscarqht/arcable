@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
+import { TabAssociationMap } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
@@ -35,12 +36,14 @@ export interface WorkspaceManagerHandle {
   openJsonModal: () => void;
   triggerSync: () => Promise<void>;
   captureCurrentTab: () => Promise<void>;
+  revealAndHighlightTab: (tabId: string) => void;
   isSyncing: boolean;
 }
 
 export interface WorkspaceManagerProps {
-  onOpenTab?: (url: string) => void;
+  onOpenTab?: (url: string, tabId?: string) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
+
   compact?: boolean;
   alwaysShowActions?: boolean;
   headerTitle?: string;
@@ -49,6 +52,11 @@ export interface WorkspaceManagerProps {
   hideControlBarActions?: boolean;
   hideSearchBar?: boolean;
   searchQuery?: string;
+  tabAssociations?: TabAssociationMap;
+  highlightedTabId?: string | null;
+  onCloseAssociatedTab?: (tabId: string) => void;
+  onResetDivertedUrl?: (tabId: string) => void;
+  onTabsChange?: (tabs: Tab[]) => void;
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   raindropToken?: string;
@@ -74,6 +82,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       hideControlBarActions = false,
       hideSearchBar = false,
       searchQuery: externalSearchQuery,
+      tabAssociations,
+      highlightedTabId,
+      onCloseAssociatedTab,
+      onResetDivertedUrl,
+      onTabsChange,
       onSearchChange,
       onSyncStateChange,
       raindropToken,
@@ -83,6 +96,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
+
   const { isDark } = useSystemTheme();
   const {
     data,
@@ -114,6 +128,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     favouriteTabs,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
+
+  // Notify parent of tab changes (e.g. to associate newly created items with open browser tabs)
+  useEffect(() => {
+    if (isLoaded && data.tabs) {
+      onTabsChange?.(data.tabs);
+    }
+  }, [data.tabs, isLoaded, onTabsChange]);
+
 
   // View mode: 'grid' (Synctable multi-card dashboard) or 'focused' (Single active space)
   const [viewMode, setViewMode] = useState<'grid' | 'focused'>(compact ? 'focused' : defaultViewMode);
@@ -191,7 +213,34 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   }, [sortedSpaces]);
 
+  // Auto-reveal and expand folder hierarchy when highlightedTabId changes
+  useEffect(() => {
+    if (!highlightedTabId) return;
+    const targetTab = data.tabs.find((t) => t.id === highlightedTabId);
+    if (!targetTab) return;
+
+    if (targetTab.parentSpaceId && targetTab.parentSpaceId !== activeSpace?.id) {
+      setActiveSpace(targetTab.parentSpaceId);
+    }
+
+    if (targetTab.parentFolderId) {
+      let currentFolderId: string | undefined = targetTab.parentFolderId;
+      while (currentFolderId) {
+        const folder = data.folders.find((f) => f.id === currentFolderId);
+        if (folder) {
+          if (!folder.isExpanded) {
+            toggleFolderExpand(folder.id);
+          }
+          currentFolderId = folder.parentFolderId;
+        } else {
+          break;
+        }
+      }
+    }
+  }, [highlightedTabId, data.tabs, data.folders, activeSpace?.id, setActiveSpace, toggleFolderExpand]);
+
   const toggleSpaceCollapse = (spaceId: string) => {
+
     setSpaceCollapseMap((prev) => {
       const current = prev[spaceId] ?? false;
       const next = !current;
@@ -601,10 +650,32 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       captureCurrentTab: async () => {
         await handleCaptureTab();
       },
+      revealAndHighlightTab: (tabId: string) => {
+        const targetTab = data.tabs.find((t) => t.id === tabId);
+        if (!targetTab) return;
+        if (targetTab.parentSpaceId) {
+          setActiveSpace(targetTab.parentSpaceId);
+        }
+        if (targetTab.parentFolderId) {
+          let currentFolderId: string | undefined = targetTab.parentFolderId;
+          while (currentFolderId) {
+            const folder = data.folders.find((f) => f.id === currentFolderId);
+            if (folder) {
+              if (!folder.isExpanded) {
+                toggleFolderExpand(folder.id);
+              }
+              currentFolderId = folder.parentFolderId;
+            } else {
+              break;
+            }
+          }
+        }
+      },
       isSyncing: isCurrentlySyncing,
     }),
-    [isCurrentlySyncing, performSync, handleCaptureTab]
+    [isCurrentlySyncing, performSync, handleCaptureTab, data.tabs, data.folders, setActiveSpace, toggleFolderExpand]
   );
+
 
   // Space DnD Handlers
   const handleSpaceDragStart = (e: React.DragEvent, spaceId: string) => {
@@ -705,11 +776,35 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   if (!isLoaded) {
     return (
-      <div style={{ padding: '32px', textAlign: 'center', color: isDark ? '#94a3b8' : '#64748b', fontSize: '14px' }}>
-        Loading workspace...
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '48px 16px',
+          gap: '12px',
+          color: isDark ? '#94a3b8' : '#64748b',
+          fontSize: '13px',
+          fontWeight: 500,
+        }}
+      >
+        <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        <div
+          style={{
+            width: '24px',
+            height: '24px',
+            borderRadius: '50%',
+            border: `2px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+            borderTopColor: '#38bdf8',
+            animation: 'arcable-spin 0.8s linear infinite',
+          }}
+        />
+        <span>Loading workspace...</span>
       </div>
     );
   }
+
 
   return (
     <div
@@ -726,6 +821,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       {/* Global Favourite Tabs Shelf */}
       <FavouriteTabsShelf
         tabs={favouriteTabs}
+        tabAssociations={tabAssociations}
+        highlightedTabId={highlightedTabId}
         onOpenTab={onOpenTab}
         onEditTab={(tab) => {
           setEditingTab(tab);
@@ -737,6 +834,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
+
 
       {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
       {!hideControlBar && !compact && (
@@ -1152,8 +1250,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 cardIndex={idx}
                 searchQuery={activeSearchQuery}
                 isCollapsed={false}
+                tabAssociations={tabAssociations}
+                highlightedTabId={highlightedTabId}
                 onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                 onOpenTab={onOpenTab}
+                onCloseAssociatedTab={onCloseAssociatedTab}
+                onResetDivertedUrl={onResetDivertedUrl}
                 onEditSpace={(sp) => {
                   setEditingSpace(sp);
                   setIsSpaceModalOpen(true);
@@ -1230,8 +1332,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     searchQuery={activeSearchQuery}
                     alwaysShowActions={alwaysShowActions}
                     isCollapsed={true}
+                    tabAssociations={tabAssociations}
+                    highlightedTabId={highlightedTabId}
                     onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                     onOpenTab={onOpenTab}
+                    onCloseAssociatedTab={onCloseAssociatedTab}
+                    onResetDivertedUrl={onResetDivertedUrl}
                     onEditSpace={(sp) => {
                       setEditingSpace(sp);
                       setIsSpaceModalOpen(true);
@@ -1309,7 +1415,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     isSingleColumn={compact}
                     alwaysShowActions={alwaysShowActions}
                     isCollapsed={false}
+                    tabAssociations={tabAssociations}
+                    highlightedTabId={highlightedTabId}
                     onOpenTab={onOpenTab}
+                    onCloseAssociatedTab={onCloseAssociatedTab}
+                    onResetDivertedUrl={onResetDivertedUrl}
                     onEditSpace={(sp) => {
                       setEditingSpace(sp);
                       setIsSpaceModalOpen(true);
@@ -1344,6 +1454,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           </div>
         )
       )}
+
 
       {/* Fixed Bottom Spaces Selector (Sidepanel / Compact mode: semi-transparent, 100% rounded corner, margins) */}
       {compact && sortedSpaces.length > 0 && (

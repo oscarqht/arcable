@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Folder, Tab } from '../../types/workspace';
+import { TabAssociationMap } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls } from '../../utils/treeUtils';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -28,15 +29,20 @@ export interface FolderItemProps {
   isDarkTheme?: boolean;
   compact?: boolean;
   alwaysShowActions?: boolean;
+  tabAssociations?: TabAssociationMap;
+  highlightedTabId?: string | null;
   onToggleExpand: (folderId: string) => void;
   onEditFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string) => void;
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
-  onOpenTab?: (url: string) => void;
+  onOpenTab?: (url: string, tabId?: string) => void;
+  onCloseAssociatedTab?: (tabId: string) => void;
+
+  onResetDivertedUrl?: (tabId: string) => void;
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
-  onTogglePinTab: (tabId: string) => void;
+  onTogglePinTab?: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -58,12 +64,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   isDarkTheme,
   compact = false,
   alwaysShowActions = false,
+  tabAssociations,
+  highlightedTabId,
   onToggleExpand,
   onEditFolder,
   onDeleteFolder,
   onAddSubFolder,
   onAddTabInFolder,
   onOpenTab,
+  onCloseAssociatedTab,
+  onResetDivertedUrl,
   onEditTab,
   onDeleteTab,
   onTogglePinTab,
@@ -73,6 +83,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onMoveSiblingItem,
   onReorderSiblingItem,
 }) => {
+
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
@@ -404,12 +415,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   isDarkTheme={effectiveDark}
                   compact={compact}
                   alwaysShowActions={alwaysShowActions}
+                  tabAssociations={tabAssociations}
+                  highlightedTabId={highlightedTabId}
                   onToggleExpand={onToggleExpand}
                   onEditFolder={onEditFolder}
                   onDeleteFolder={onDeleteFolder}
                   onAddSubFolder={onAddSubFolder}
                   onAddTabInFolder={onAddTabInFolder}
                   onOpenTab={onOpenTab}
+                  onCloseAssociatedTab={onCloseAssociatedTab}
+                  onResetDivertedUrl={onResetDivertedUrl}
                   onEditTab={onEditTab}
                   onDeleteTab={onDeleteTab}
                   onTogglePinTab={onTogglePinTab}
@@ -437,7 +452,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 isDarkTheme={effectiveDark}
                 compact={compact}
                 alwaysShowActions={alwaysShowActions}
+                isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
+                isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
+                isHighlighted={highlightedTabId === item.id}
                 onOpen={onOpenTab}
+                onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
+                onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                 onEdit={onEditTab}
                 onDelete={onDeleteTab}
                 onTogglePin={onTogglePinTab}

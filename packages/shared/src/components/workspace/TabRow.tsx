@@ -12,10 +12,11 @@ import {
   CopyIcon,
   CheckIcon,
   ExternalLinkIcon,
-  PinIcon,
   StarIcon,
   EditIcon,
   TrashIcon,
+  MinusIcon,
+  SlashIcon,
 } from '../Icons';
 
 export interface TabRowProps {
@@ -23,7 +24,13 @@ export interface TabRowProps {
   isDarkTheme?: boolean;
   compact?: boolean;
   alwaysShowActions?: boolean;
-  onOpen?: (url: string) => void;
+  isAssociated?: boolean;
+  isDiverted?: boolean;
+  isHighlighted?: boolean;
+  onOpen?: (url: string, tabId?: string) => void;
+  onCloseAssociatedTab?: () => void;
+
+  onResetDivertedUrl?: () => void;
   onEdit: (tab: Tab) => void;
   onDelete: (id: string) => void;
   onTogglePin?: (id: string) => void;
@@ -42,7 +49,12 @@ export const TabRow: React.FC<TabRowProps> = ({
   isDarkTheme,
   compact = false,
   alwaysShowActions = false,
+  isAssociated = false,
+  isDiverted = false,
+  isHighlighted = false,
   onOpen,
+  onCloseAssociatedTab,
+  onResetDivertedUrl,
   onEdit,
   onDelete,
   onTogglePin,
@@ -69,12 +81,13 @@ export const TabRow: React.FC<TabRowProps> = ({
     e.preventDefault();
     if (tab.url) {
       if (onOpen) {
-        onOpen(tab.url);
+        onOpen(tab.url, tab.id);
       } else {
         window.open(tab.url, '_blank', 'noopener,noreferrer');
       }
     }
   };
+
 
   const handleCopyUrl = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -109,18 +122,9 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: 'Open in new tab',
         icon: <ExternalLinkIcon size={15} />,
         onClick: handleOpenLink,
-        dividerAfter: Boolean(onTogglePin || onToggleFavourite),
+        dividerAfter: Boolean(onToggleFavourite),
       },
     ];
-
-    if (onTogglePin) {
-      items.push({
-        id: 'toggle-pin',
-        label: tab.pinned ? 'Unpin tab' : 'Pin tab',
-        icon: <PinIcon size={14} filled={Boolean(tab.pinned)} />,
-        onClick: () => onTogglePin(tab.id),
-      });
-    }
 
     if (onToggleFavourite) {
       items.push({
@@ -152,7 +156,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
 
     return items;
-  }, [copied, handleCopyUrl, handleOpenLink, onTogglePin, tab, onToggleFavourite, onEdit, onDelete]);
+  }, [copied, handleCopyUrl, handleOpenLink, tab, onToggleFavourite, onEdit, onDelete]);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
@@ -205,10 +209,14 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   // Color tokens
-  const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
+  const associatedBg = effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.075)';
+  const hoverBg = isAssociated
+    ? (effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.12)')
+    : (effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)');
   const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
   const showActions = isMobile || alwaysShowActions || isHovered;
+
 
   return (
     <div
@@ -232,13 +240,15 @@ export const TabRow: React.FC<TabRowProps> = ({
         minHeight: '38px',
         padding: '0 8px',
         borderRadius: '10px',
-        backgroundColor: isHovered ? hoverBg : 'transparent',
+        backgroundColor: isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
+        outline: isHighlighted ? '2px solid #38bdf8' : 'none',
+        boxShadow: isHighlighted ? '0 0 12px rgba(56, 189, 248, 0.45)' : 'none',
         color: textColor,
         cursor: 'pointer',
-        gap: '8px',
-        transition: 'background-color 0.12s ease',
+        gap: '6px',
+        transition: 'background-color 0.12s ease, outline 0.2s ease, box-shadow 0.2s ease',
         userSelect: 'none',
         boxSizing: 'border-box',
         width: '100%',
@@ -246,9 +256,9 @@ export const TabRow: React.FC<TabRowProps> = ({
         position: 'relative',
       }}
     >
-      {/* Left side: Drag handle on hover / spacer, Favicon/Emoji, Title (Full Width) */}
+      {/* Left side: Favicon/Emoji, Diverted icon (if any), Title (Full Width) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-        {/* Favicon or Custom Emoji (Always visible, matching FolderIcon position) */}
+        {/* Favicon or Custom Emoji */}
         <div
           style={{
             width: '18px',
@@ -272,6 +282,37 @@ export const TabRow: React.FC<TabRowProps> = ({
           />
         </div>
 
+        {/* Diverted "/" icon button when tab has navigated away */}
+        {isDiverted && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onResetDivertedUrl?.();
+            }}
+            title="Associated browser tab navigated to a different URL. Click to activate and return to original URL"
+            aria-label="Restore original URL"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '18px',
+              height: '18px',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: effectiveDark ? 'rgba(234, 179, 8, 0.25)' : '#fef08a',
+              color: effectiveDark ? '#fde047' : '#a16207',
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+              transition: 'all 0.12s ease',
+            }}
+          >
+            <SlashIcon size={12} />
+          </button>
+        )}
+
         {/* Title taking 100% available width */}
         <span
           style={{
@@ -290,15 +331,70 @@ export const TabRow: React.FC<TabRowProps> = ({
         </span>
       </div>
 
-      {/* Right side: Action Dropdown (Only takes width when hovered or alwaysShowActions) */}
-      <ActionDropdown
-        items={tabMenuItems}
-        isDarkTheme={effectiveDark}
-        visible={showActions}
-        hoverBg={activeIconHoverBg}
-        buttonTitle="Tab options"
-        size="sm"
-      />
+      {/* Right side: ... action button on hover on the left of - button; - button always visible when associated */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '2px',
+          flexShrink: 0,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Action Dropdown (...) button on hover */}
+        <ActionDropdown
+          items={tabMenuItems}
+          isDarkTheme={effectiveDark}
+          visible={showActions}
+          hoverBg={activeIconHoverBg}
+          buttonTitle="Tab options"
+          size="sm"
+        />
+
+        {/* "-" button: Always visible when associated */}
+        {isAssociated && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onCloseAssociatedTab?.();
+            }}
+            title="Close associated browser tab"
+            aria-label="Close associated browser tab"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '24px',
+              height: '24px',
+              borderRadius: '6px',
+              border: 'none',
+              background: 'transparent',
+              color: effectiveDark ? '#94a3b8' : textColor,
+              opacity: 0.8,
+              cursor: 'pointer',
+              padding: 0,
+              flexShrink: 0,
+              transition: 'background-color 0.12s ease, color 0.12s ease, opacity 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+              e.currentTarget.style.color = '#ef4444';
+              e.currentTarget.style.opacity = '1';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+              e.currentTarget.style.opacity = '0.8';
+            }}
+          >
+            <MinusIcon size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
+
 };
+

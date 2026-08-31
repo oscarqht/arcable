@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Space, Folder, Tab } from '../../types/workspace';
+import { TabAssociationMap } from '../../types/tabTracker';
 import {
   isDarkColor,
   getSpaceColorStyle,
@@ -15,7 +16,6 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { FolderItem } from './FolderItem';
-import { PinnedTabsShelf } from './PinnedTabsShelf';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   CopyIcon,
@@ -42,7 +42,12 @@ export interface SpaceCardProps {
   cardIndex?: number;
   isSingleColumn?: boolean;
   alwaysShowActions?: boolean;
-  onOpenTab?: (url: string) => void;
+  tabAssociations?: TabAssociationMap;
+  highlightedTabId?: string | null;
+  onOpenTab?: (url: string, tabId?: string) => void;
+  onCloseAssociatedTab?: (tabId: string) => void;
+
+  onResetDivertedUrl?: (tabId: string) => void;
   onEditSpace?: (space: Space) => void;
   onDeleteSpace?: (spaceId: string) => void;
   onConvertSpace?: (space: Space) => void;
@@ -78,7 +83,11 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   cardIndex = 0,
   isSingleColumn = false,
   alwaysShowActions = false,
+  tabAssociations,
+  highlightedTabId,
   onOpenTab,
+  onCloseAssociatedTab,
+  onResetDivertedUrl,
   onEditSpace,
   onDeleteSpace,
   onConvertSpace,
@@ -96,6 +105,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onReorderPinnedTabs,
   onMoveSpace,
 }) => {
+
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const [internalSearch, setInternalSearch] = useState('');
@@ -121,13 +131,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     return allTabs.filter((t) => !t.favourite && (t.parentSpaceId === space.id || !t.parentSpaceId));
   }, [allTabs, space.id]);
 
-  const pinnedTabs = useMemo(() => {
-    return spaceTabs.filter((t) => t.pinned && !t.parentFolderId);
-  }, [spaceTabs]);
-
   const rootSiblings = useMemo(() => {
     return getSortedSiblings(allFolders, allTabs, space.id, undefined);
   }, [allFolders, allTabs, space.id]);
+
 
   // Color Archetype and custom theme determination
   const hasExplicitColor = Boolean(space.colors && space.colors.trim());
@@ -636,7 +643,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     isDarkTheme={themeStyles.isDark}
                     compact={isSingleColumn}
                     alwaysShowActions={alwaysShowActions}
+                    isAssociated={Boolean(tabAssociations && tabAssociations[t.id])}
+                    isDiverted={Boolean(tabAssociations && tabAssociations[t.id]?.isDiverted)}
+                    isHighlighted={highlightedTabId === t.id}
                     onOpen={onOpenTab}
+                    onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
+                    onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
                     onEdit={onEditTab || (() => {})}
                     onDelete={onDeleteTab || (() => {})}
                     onTogglePin={onTogglePinTab}
@@ -647,31 +659,6 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
             </div>
           ) : (
             <>
-              {/* Pinned Tabs Shelf */}
-              {pinnedTabs.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <PinnedTabsShelf
-                    tabs={pinnedTabs}
-                    isDarkTheme={themeStyles.isDark}
-                    shelfBg={themeStyles.shelfBg}
-                    onOpenTab={onOpenTab}
-                    onEditTab={onEditTab || (() => {})}
-                    onDeleteTab={onDeleteTab || (() => {})}
-                    onTogglePinTab={onTogglePinTab || (() => {})}
-                    onToggleFavouriteTab={onToggleFavouriteTab}
-                    onAddPinnedTab={() => onAddTab?.(undefined, true)}
-                    onReorderPinnedTabs={onReorderPinnedTabs}
-                  />
-                  <div
-                    style={{
-                      height: '1px',
-                      backgroundColor: themeStyles.borderColor,
-                      margin: '3px 0',
-                    }}
-                  />
-                </div>
-              )}
-
               {/* Folders & Tabs Hierarchy (Interleaved Siblings) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {rootSiblings.map((item, index) => {
@@ -688,12 +675,16 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         isDarkTheme={themeStyles.isDark}
                         compact={isSingleColumn}
                         alwaysShowActions={alwaysShowActions}
+                        tabAssociations={tabAssociations}
+                        highlightedTabId={highlightedTabId}
                         onToggleExpand={onToggleFolderExpand || (() => {})}
                         onEditFolder={onEditFolder || (() => {})}
                         onDeleteFolder={onDeleteFolder || (() => {})}
                         onAddSubFolder={onAddFolder || (() => {})}
                         onAddTabInFolder={(pId) => onAddTab?.(pId, false)}
                         onOpenTab={onOpenTab}
+                        onCloseAssociatedTab={onCloseAssociatedTab}
+                        onResetDivertedUrl={onResetDivertedUrl}
                         onEditTab={onEditTab || (() => {})}
                         onDeleteTab={onDeleteTab || (() => {})}
                         onTogglePinTab={onTogglePinTab || (() => {})}
@@ -721,7 +712,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       isDarkTheme={themeStyles.isDark}
                       compact={isSingleColumn}
                       alwaysShowActions={alwaysShowActions}
+                      isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
+                      isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
+                      isHighlighted={highlightedTabId === item.id}
                       onOpen={onOpenTab}
+                      onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
+                      onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                       onEdit={onEditTab || (() => {})}
                       onDelete={onDeleteTab || (() => {})}
                       onTogglePin={onTogglePinTab}
@@ -760,7 +756,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                 })}
 
                 {/* Empty State */}
-                {rootSiblings.length === 0 && pinnedTabs.length === 0 && (
+                {rootSiblings.length === 0 && (
+
                   <div
                     style={{
                       textAlign: 'center',

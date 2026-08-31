@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Tab } from '../../types/workspace';
+import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
@@ -16,8 +17,11 @@ import {
 
 export interface FavouriteTabsShelfProps {
   tabs: Tab[];
-  onOpenTab?: (url: string) => void;
+  tabAssociations?: TabAssociationMap;
+  highlightedTabId?: string | null;
+  onOpenTab?: (url: string, tabId?: string) => void;
   onEditTab: (tab: Tab) => void;
+
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
@@ -26,6 +30,8 @@ export interface FavouriteTabsShelfProps {
 
 export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   tabs,
+  tabAssociations,
+  highlightedTabId,
   onOpenTab,
   onEditTab,
   onDeleteTab,
@@ -33,6 +39,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onAddFavouriteTab,
   onReorderFavouriteTabs,
 }) => {
+
   const { isDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
@@ -174,6 +181,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           {tabs.map((tab) => {
             const isHovered = hoveredTabId === tab.id;
             const isDragTarget = dragOverTabId === tab.id;
+            const isAssociated = Boolean(tabAssociations && tabAssociations[tab.id]);
+            const isHighlighted = highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
             const tooltipText = tab.url ? `${displayTitle}\n${tab.url}` : displayTitle;
@@ -197,12 +206,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onClick={() => {
                   if (tab.url) {
                     if (onOpenTab) {
-                      onOpenTab(tab.url);
+                      onOpenTab(tab.url, tab.id);
                     } else {
                       window.open(tab.url, '_blank', 'noopener,noreferrer');
                     }
                   }
                 }}
+
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -211,31 +221,37 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   minWidth: 0,
                   height: '48px',
                   backgroundColor: isHovered
-                    ? isDark ? 'rgba(255,255,255,0.1)' : '#f0fdf4'
+                    ? isDark ? 'rgba(255,255,255,0.15)' : '#f0fdf4'
+                    : isAssociated
+                    ? isDark ? 'rgba(255,255,255,0.08)' : '#e0f2fe'
                     : isDark ? '#0f172a' : '#f8fafc',
                   border: isHovered
                     ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
+                    : isAssociated
+                    ? isDark ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid #bae6fd'
                     : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
                   borderLeft: isDragTarget && dropPosition === 'before'
                     ? `3px solid ${isDark ? '#38bdf8' : '#0284c7'}`
-                    : isHovered
-                    ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
-                    : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    : undefined,
                   borderRight: isDragTarget && dropPosition === 'after'
                     ? `3px solid ${isDark ? '#38bdf8' : '#0284c7'}`
-                    : isHovered
-                    ? isDark ? '1px solid #38bdf8' : '1px solid #86efac'
-                    : isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    : undefined,
+                  outline: isHighlighted ? '2px solid #38bdf8' : 'none',
                   borderRadius: '12px',
                   cursor: 'grab',
                   transition: 'all 0.12s ease',
                   position: 'relative',
                   userSelect: 'none',
-                  boxShadow: isHovered ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
+                  boxShadow: isHighlighted
+                    ? '0 0 12px rgba(56, 189, 248, 0.5)'
+                    : isHovered
+                    ? '0 2px 8px rgba(0,0,0,0.15)'
+                    : 'none',
                   boxSizing: 'border-box',
                 }}
                 title={tooltipText}
               >
+
                 <div
                   style={{
                     width: '24px',
