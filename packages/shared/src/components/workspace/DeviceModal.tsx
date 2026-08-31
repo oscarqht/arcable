@@ -8,6 +8,9 @@ import {
   setStoredDeviceName,
   isDeviceOnline,
   sortDevicesByLastSync,
+  detectDeviceType,
+  detectBrowserName,
+  detectOsName,
 } from '../../utils/syncEngine';
 import {
   fetchRaindropDevices,
@@ -309,6 +312,16 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
       if (!detectedOs && osValues.has(part)) { detectedOs = part; continue; }
       if (part === '🏠 Home') { detectedLocation = 'home'; continue; }
       if (part === '🏢 Office') { detectedLocation = 'office'; continue; }
+    }
+
+    if (!detectedType) detectedType = detectDeviceType();
+    if (!detectedBrowser) {
+      const currentBrowser = detectBrowserName();
+      if (browserValues.has(currentBrowser)) detectedBrowser = currentBrowser;
+    }
+    if (!detectedOs) {
+      const currentOs = detectOsName();
+      if (osValues.has(currentOs)) detectedOs = currentOs;
     }
 
     setRenameMode('smart');

@@ -217,7 +217,7 @@ export const App: React.FC = () => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SYNC_WORKSPACE',
       payload: {
-        deviceName: getStoredDeviceName('Sidepanel'),
+        deviceName: getStoredDeviceName(undefined, 'Ext'),
         localState: syncParams?.localState,
         deviceId: syncParams?.deviceId,
         pendingOps: syncParams?.pendingOps,

@@ -225,13 +225,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   }, [sortedSpaces]);
 
-  // Auto-reveal and expand folder hierarchy when highlightedTabId changes
+  const prevHighlightedTabIdRef = useRef<string | null | undefined>(undefined);
+
+  // Auto-reveal and expand folder hierarchy when highlightedTabId genuinely changes
   useEffect(() => {
-    if (!highlightedTabId) return;
+    if (!highlightedTabId) {
+      prevHighlightedTabIdRef.current = highlightedTabId;
+      return;
+    }
+    if (prevHighlightedTabIdRef.current === highlightedTabId) {
+      return;
+    }
+    prevHighlightedTabIdRef.current = highlightedTabId;
+
     const targetTab = data.tabs.find((t) => t.id === highlightedTabId);
     if (!targetTab) return;
 
-    if (targetTab.parentSpaceId && targetTab.parentSpaceId !== activeSpace?.id) {
+    if (targetTab.parentSpaceId) {
       setActiveSpace(targetTab.parentSpaceId);
     }
 
@@ -249,7 +259,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }
       }
     }
-  }, [highlightedTabId, data.tabs, data.folders, activeSpace?.id, setActiveSpace, toggleFolderExpand]);
+  }, [highlightedTabId, data.tabs, data.folders, setActiveSpace, toggleFolderExpand]);
 
   const toggleSpaceCollapse = (spaceId: string) => {
 

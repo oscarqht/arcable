@@ -16,6 +16,7 @@ import {
   renameRaindropDevice,
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
+  getDefaultDeviceName,
 } from '@arcable/shared/utils';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -471,7 +472,7 @@ async function getOrCreateExtensionDeviceId(): Promise<string> {
 
 async function getExtensionDeviceName(): Promise<string> {
   const res = await browser.storage.local.get('arcable_device_name');
-  return (res.arcable_device_name as string) || 'Arcable Extension';
+  return (res.arcable_device_name as string) || getDefaultDeviceName('Ext');
 }
 
 // Helper for periodic background sync

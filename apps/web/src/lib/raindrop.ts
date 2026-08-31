@@ -15,6 +15,7 @@ import {
   renameRaindropDevice,
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
+  getDefaultDeviceName,
 } from '@arcable/shared/utils';
 
 import type {
@@ -87,6 +88,7 @@ export {
   renameRaindropDevice,
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
+  getDefaultDeviceName,
 };
 
 export type {

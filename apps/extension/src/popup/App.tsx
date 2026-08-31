@@ -6,6 +6,7 @@ import {
   generateId,
   cleanUrl,
   getOrCreateDeviceId,
+  getStoredDeviceName,
   getStoredPendingOperations,
   clearStoredPendingOperations,
   removeStoredPendingOperations,
@@ -212,7 +213,7 @@ export const App: React.FC = () => {
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: {
-          deviceName: 'Arcable Extension Popup',
+          deviceName: getStoredDeviceName(undefined, 'Ext'),
           localState,
           deviceId,
           pendingOps,
@@ -294,7 +295,7 @@ export const App: React.FC = () => {
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: {
-          deviceName: 'Arcable Extension Popup',
+          deviceName: getStoredDeviceName(undefined, 'Ext'),
           localState,
           deviceId,
           pendingOps,

@@ -3,6 +3,7 @@ import {
   ACCESS_TOKEN_COOKIE,
   getRaindropTokenFromEnv,
   syncWorkspaceWithRaindrop,
+  getDefaultDeviceName,
 } from '@/lib/raindrop';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     const result = await syncWorkspaceWithRaindrop(token, {
       localState: body?.localState,
       deviceId: body?.deviceId,
-      deviceName: body?.deviceName || 'Arcable Web App',
+      deviceName: body?.deviceName || getDefaultDeviceName('Web App'),
       pendingOps: body?.pendingOps,
     });
 

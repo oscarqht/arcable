@@ -100,7 +100,7 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: authState.accessToken,
-          deviceName: getStoredDeviceName('Arcable Web App'),
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
           localState: syncParams?.localState,
           deviceId: syncParams?.deviceId,
           pendingOps: syncParams?.pendingOps,

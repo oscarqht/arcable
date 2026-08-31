@@ -65,7 +65,7 @@ export const App: React.FC = () => {
     // 2. Load device info
     const curDevId = getOrCreateDeviceId();
     setDeviceId(curDevId);
-    const curDevName = getStoredDeviceName('Arcable Browser Extension');
+    const curDevName = getStoredDeviceName(undefined, 'Ext');
     setDeviceName(curDevName);
     setDeviceNameInput(curDevName);
 

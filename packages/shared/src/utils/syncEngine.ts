@@ -38,18 +38,183 @@ export function getOrCreateDeviceId(): string {
 }
 
 /**
- * Gets the stored custom device name, or a default fallback.
+ * Detects whether the current execution context is the browser extension or web app.
  */
-export function getStoredDeviceName(defaultName: string = 'Browser Device'): string {
+export function detectDeviceType(fallback?: 'Web App' | 'Ext'): 'Web App' | 'Ext' {
+  if (fallback) return fallback;
+  if (typeof window !== 'undefined') {
+    const proto = window.location?.protocol;
+    if (proto === 'chrome-extension:' || proto === 'moz-extension:') {
+      return 'Ext';
+    }
+  }
+  // Check Chrome / WebExtensions runtime in background worker or extension page
+  try {
+    const globalAny = (typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {}) as any;
+    if (
+      (typeof chrome !== 'undefined' && chrome?.runtime?.id) ||
+      (typeof globalAny.browser !== 'undefined' && globalAny.browser?.runtime?.id)
+    ) {
+      return 'Ext';
+    }
+  } catch {}
+
+  return 'Web App';
+}
+
+/**
+ * Detects the browser name from the environment (userAgent / navigator).
+ */
+export function detectBrowserName(): string {
+  if (typeof navigator === 'undefined') {
+    return 'Chrome';
+  }
+
+  const ua = navigator.userAgent || '';
+
+  // 1. Zen Browser (Zen/x.x in userAgent)
+  if (/Zen\/|zen/i.test(ua)) {
+    return 'Zen';
+  }
+
+  // 2. Arc Browser
+  if (
+    /(?:Arc|ArcBrowser)\//i.test(ua) ||
+    (typeof window !== 'undefined' &&
+      Boolean(
+        (window as any).arc ||
+        (typeof document !== 'undefined' &&
+          getComputedStyle(document.documentElement).getPropertyValue('--arc-palette-title'))
+      ))
+  ) {
+    return 'Arc';
+  }
+
+  // 3. Brave Browser
+  if (
+    /Brave\//i.test(ua) ||
+    Boolean((navigator as any).brave?.isBrave) ||
+    ((navigator as any).userAgentData?.brands?.some((b: { brand: string }) => /Brave/i.test(b.brand)))
+  ) {
+    return 'Brave';
+  }
+
+  // 4. Vivaldi Browser
+  if (/Vivaldi\//i.test(ua)) {
+    return 'Vivaldi';
+  }
+
+  // 5. Comet Browser
+  if (/Comet\//i.test(ua)) {
+    return 'Comet';
+  }
+
+  // 6. Dia Browser
+  if (/Dia\//i.test(ua)) {
+    return 'Dia';
+  }
+
+  // 7. Microsoft Edge
+  if (/Edg(?:e|A|iOS)?\//i.test(ua)) {
+    return 'Edge';
+  }
+
+  // 8. Opera
+  if (/OPR\/|Opera\//i.test(ua)) {
+    return 'Opera';
+  }
+
+  // 9. Firefox
+  if (/Firefox\//i.test(ua)) {
+    return 'Firefox';
+  }
+
+  // 10. Chrome / Chromium
+  if (/Chrome\/|CriOS\//i.test(ua)) {
+    return 'Chrome';
+  }
+
+  // 11. Safari
+  if (/Safari\//i.test(ua) && !/Chrome\/|CriOS\//i.test(ua)) {
+    return 'Safari';
+  }
+
+  return 'Chrome';
+}
+
+/**
+ * Detects the operating system from the environment (userAgent / navigator).
+ */
+export function detectOsName(): string {
+  if (typeof navigator === 'undefined') {
+    return 'macOS';
+  }
+
+  const ua = navigator.userAgent || '';
+  const platform = ((navigator as any).userAgentData?.platform || navigator.platform || '');
+
+  // 1. iOS (iPhone, iPad, iPod)
+  if (
+    /iPhone|iPad|iPod/i.test(ua) ||
+    (platform === 'MacIntel' && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1)
+  ) {
+    return 'iOS';
+  }
+
+  // 2. macOS
+  if (/Macintosh|Mac OS X|MacIntel|MacPPC|Mac68K/i.test(ua) || /Mac/i.test(platform)) {
+    return 'macOS';
+  }
+
+  // 3. Windows
+  if (/Windows|Win32|Win64|WOW64/i.test(ua) || /Win/i.test(platform)) {
+    return 'Windows';
+  }
+
+  // 4. Android
+  if (/Android/i.test(ua) || /Android/i.test(platform)) {
+    return 'Android';
+  }
+
+  // 5. ChromeOS
+  if (/CrOS/i.test(ua)) {
+    return 'ChromeOS';
+  }
+
+  // 6. Linux
+  if (/Linux|X11/i.test(ua) || /Linux/i.test(platform)) {
+    return 'Linux';
+  }
+
+  return 'macOS';
+}
+
+/**
+ * Generates the default device name in the format: `type + browser name + os name`
+ * e.g., 'Web App / Chrome / macOS' or 'Ext / Zen / Windows'
+ */
+export function getDefaultDeviceName(type?: 'Web App' | 'Ext' | string): string {
+  const resolvedType = (type === 'Web App' || type === 'Ext') ? type : detectDeviceType();
+  const browser = detectBrowserName();
+  const os = detectOsName();
+  return `${resolvedType} / ${browser} / ${os}`;
+}
+
+/**
+ * Gets the stored custom device name, or a default fallback formatted as:
+ * `type + browser name + os name` (e.g. 'Web App / Chrome / macOS' or 'Ext / Zen / Windows')
+ */
+export function getStoredDeviceName(defaultName?: string, type?: 'Web App' | 'Ext' | string): string {
+  const fallback = defaultName || getDefaultDeviceName(type);
   if (typeof window === 'undefined') {
-    return defaultName;
+    return fallback;
   }
 
   try {
     const name = window.localStorage.getItem(DEVICE_NAME_STORAGE_KEY);
-    return name && name.trim() ? name.trim() : defaultName;
+    return name && name.trim() ? name.trim() : fallback;
   } catch {
-    return defaultName;
+    return fallback;
   }
 }
 
@@ -512,7 +677,7 @@ export function compactSyncFile(
   // Update current device
   devices[currentDeviceId] = {
     deviceId: currentDeviceId,
-    deviceName: deviceName || devices[currentDeviceId]?.deviceName || 'Browser Device',
+    deviceName: deviceName || devices[currentDeviceId]?.deviceName || getDefaultDeviceName(),
     lastSyncAt: now,
   };
 
@@ -671,7 +836,7 @@ export function recomputeSyncFileOnDeleteOtherDevices(
   const validDevices: Record<string, DeviceSyncRecord> = {
     [keepDeviceId]: currentRecord || {
       deviceId: keepDeviceId,
-      deviceName: 'Current Device',
+      deviceName: getDefaultDeviceName(),
       lastSyncAt: now,
     },
   };
@@ -745,7 +910,7 @@ export function createInitialSyncFile(
     devices: {
       [deviceId]: {
         deviceId,
-        deviceName: deviceName || 'Primary Device',
+        deviceName: deviceName || getDefaultDeviceName(),
         lastSyncAt: now,
       },
     },
