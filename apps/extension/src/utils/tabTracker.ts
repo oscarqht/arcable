@@ -133,7 +133,6 @@ class TabTracker {
     return null;
   }
 
-
   // Load associations from session storage (or local storage fallback)
   public async getAssociations(): Promise<TabAssociationMap> {
     try {
@@ -244,7 +243,7 @@ class TabTracker {
     }
   }
 
-  // Full synchronization between open browser tabs and workspace items
+  // Full synchronization between open browser tabs and workspace items (strictly 1-to-1)
   public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
     this.currentWorkspaceTabs = workspaceTabs;
     let allBrowserTabs: any[] = [];
@@ -256,67 +255,95 @@ class TabTracker {
 
     const currentAssociations = await this.getAssociations();
     const newAssociations: TabAssociationMap = {};
+    const assignedBrowserTabIds = new Set<number>();
+    const assignedTabItemIds = new Set<string>();
 
-    // Phase 1: Match every workspace tab against open browser tabs
-    // If a tab is open with a matching URL, ANY workspace item with that URL associates with it.
-    for (const item of workspaceTabs) {
-      if (!item.url) continue;
+    // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
+    for (const [tabItemId, info] of Object.entries(currentAssociations)) {
+      const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
+      const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
 
-      // 1a. Check if previously associated tab is still open and has matching URL
-      const prevInfo = currentAssociations[item.id];
-      const prevTab = prevInfo ? allBrowserTabs.find((bt) => bt.id === prevInfo.browserTabId) : null;
       if (
-        prevTab &&
-        prevTab.id !== undefined &&
-        areUrlsMatching(prevTab.url || prevTab.pendingUrl, item.url)
+        matchingWorkspaceItem &&
+        matchingBrowserTab &&
+        matchingBrowserTab.id !== undefined &&
+        !assignedBrowserTabIds.has(matchingBrowserTab.id)
       ) {
-        const badge = extractTabNotificationBadge(prevTab.title || prevTab.pendingTitle);
-        newAssociations[item.id] = {
-          tabItemId: item.id,
-          browserTabId: prevTab.id,
-          windowId: prevTab.windowId || 0,
-          currentUrl: prevTab.url || prevTab.pendingUrl || item.url,
-          originalUrl: item.url,
-          isDiverted: false,
-          badge: badge || undefined,
-        };
-        continue;
-      }
-
-      // 1b. Otherwise find first available open tab with matching URL
-      const matchingTab = allBrowserTabs.find(
-        (bt) =>
-          bt.id !== undefined &&
-          areUrlsMatching(bt.url || bt.pendingUrl, item.url)
-      );
-
-      if (matchingTab && matchingTab.id !== undefined) {
-        const badge = extractTabNotificationBadge(matchingTab.title || matchingTab.pendingTitle);
-        newAssociations[item.id] = {
-          tabItemId: item.id,
-          browserTabId: matchingTab.id,
-          windowId: matchingTab.windowId || 0,
-          currentUrl: matchingTab.url || matchingTab.pendingUrl || item.url,
-          originalUrl: item.url,
-          isDiverted: false,
-          badge: badge || undefined,
-        };
+        const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
+        if (areUrlsMatching(currentUrl, matchingWorkspaceItem.url)) {
+          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+          newAssociations[tabItemId] = {
+            tabItemId,
+            browserTabId: matchingBrowserTab.id,
+            windowId: matchingBrowserTab.windowId || 0,
+            currentUrl: currentUrl || matchingWorkspaceItem.url,
+            originalUrl: matchingWorkspaceItem.url,
+            isDiverted: false,
+            badge: badge || undefined,
+          };
+          assignedBrowserTabIds.add(matchingBrowserTab.id);
+          assignedTabItemIds.add(tabItemId);
+        }
       }
     }
 
-    // Phase 2: Preserve diverted associations for tabs that haven't matched another workspace item
+    // Step 2: Direct URL matching for remaining unassociated workspace items & browser tabs (strictly 1-to-1, first match)
+    for (const item of workspaceTabs) {
+      if (assignedTabItemIds.has(item.id) || !item.url) continue;
+
+      const matchingBrowserTab = allBrowserTabs.find(
+        (bt) =>
+          bt.id !== undefined &&
+          !assignedBrowserTabIds.has(bt.id) &&
+          areUrlsMatching(bt.url || bt.pendingUrl, item.url)
+      );
+
+      if (matchingBrowserTab && matchingBrowserTab.id !== undefined) {
+        const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+        newAssociations[item.id] = {
+          tabItemId: item.id,
+          browserTabId: matchingBrowserTab.id,
+          windowId: matchingBrowserTab.windowId || 0,
+          currentUrl: matchingBrowserTab.url || matchingBrowserTab.pendingUrl || item.url,
+          originalUrl: item.url,
+          isDiverted: false,
+          badge: badge || undefined,
+        };
+        assignedBrowserTabIds.add(matchingBrowserTab.id);
+        assignedTabItemIds.add(item.id);
+      }
+    }
+
+    // Step 3: Diverted associations retention (if browser tab navigated to external URL)
     for (const [tabItemId, info] of Object.entries(currentAssociations)) {
-      if (newAssociations[tabItemId]) continue; // already matched in phase 1
+      if (assignedTabItemIds.has(tabItemId)) continue;
+      if (assignedBrowserTabIds.has(info.browserTabId)) continue;
 
       const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
       const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
 
       if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
         const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-        // If this tab directly matches a workspace item's URL, do not keep it diverted for a different item
-        const matchesOtherItem = workspaceTabs.some((other) => areUrlsMatching(currentUrl, other.url));
 
-        if (!matchesOtherItem) {
+        // If this tab's new URL matches an unassociated workspace item, bind to that item instead
+        const matchingUnassocItem = workspaceTabs.find(
+          (t) => !assignedTabItemIds.has(t.id) && t.url && areUrlsMatching(currentUrl, t.url)
+        );
+
+        if (matchingUnassocItem) {
+          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+          newAssociations[matchingUnassocItem.id] = {
+            tabItemId: matchingUnassocItem.id,
+            browserTabId: matchingBrowserTab.id,
+            windowId: matchingBrowserTab.windowId || 0,
+            currentUrl: currentUrl || matchingUnassocItem.url,
+            originalUrl: matchingUnassocItem.url,
+            isDiverted: false,
+            badge: badge || undefined,
+          };
+          assignedBrowserTabIds.add(matchingBrowserTab.id);
+          assignedTabItemIds.add(matchingUnassocItem.id);
+        } else {
           const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
           newAssociations[tabItemId] = {
             tabItemId,
@@ -327,6 +354,8 @@ class TabTracker {
             isDiverted: true,
             badge: badge || undefined,
           };
+          assignedBrowserTabIds.add(matchingBrowserTab.id);
+          assignedTabItemIds.add(tabItemId);
         }
       }
     }
@@ -404,15 +433,13 @@ class TabTracker {
     }
   }
 
-  // Close the associated browser tab and break association
+  // Close the associated browser tab and break association (strictly 1-to-1)
   public async closeAssociatedTab(browserTabId: number, tabItemId: string): Promise<void> {
     try {
       await browser.tabs.remove(browserTabId).catch(() => {});
       const associations = await this.getAssociations();
-      for (const [id, info] of Object.entries(associations)) {
-        if (info.browserTabId === browserTabId || id === tabItemId) {
-          delete associations[id];
-        }
+      if (associations[tabItemId]) {
+        delete associations[tabItemId];
       }
       await this.saveAssociations(associations);
     } catch (err) {
@@ -432,13 +459,14 @@ class TabTracker {
     }
   }
 
-  // Open a new browser tab and associate it with tab item
+  // Open a new browser tab and associate it with tab item (strictly 1-to-1)
   public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
     try {
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
         const associations = await this.getAssociations();
         const badge = extractTabNotificationBadge(newTab.title || (newTab as any).pendingTitle);
+        // Strictly 1-to-1: associate ONLY tabItemId with this new browser tab
         associations[tabItemId] = {
           tabItemId,
           browserTabId: newTab.id,
@@ -448,20 +476,6 @@ class TabTracker {
           isDiverted: false,
           badge: badge || undefined,
         };
-        // Also associate any other workspace tabs that have matching URL
-        for (const item of this.currentWorkspaceTabs) {
-          if (item.url && areUrlsMatching(item.url, url)) {
-            associations[item.id] = {
-              tabItemId: item.id,
-              browserTabId: newTab.id,
-              windowId: newTab.windowId || 0,
-              currentUrl: url,
-              originalUrl: item.url,
-              isDiverted: false,
-              badge: badge || undefined,
-            };
-          }
-        }
         await this.saveAssociations(associations);
       }
     } catch (err) {
@@ -581,4 +595,3 @@ class TabTracker {
 }
 
 export const tabTracker = new TabTracker();
-
