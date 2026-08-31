@@ -1355,10 +1355,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             right: 0,
             marginTop: 'auto',
             zIndex: 30,
-            backgroundColor: 'rgba(255, 255, 255, 0.78)',
+            backgroundColor: isDark ? 'rgba(21, 30, 46, 0.88)' : 'rgba(255, 255, 255, 0.78)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
-            border: '1px solid rgba(226, 232, 240, 0.85)',
+            border: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.85)',
             borderRadius: '9999px',
             padding: '5px 10px',
             margin: '8px 4px 6px 4px',
@@ -1366,7 +1366,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-around',
-            boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)',
+            boxShadow: isDark
+              ? '0 4px 16px -2px rgba(0, 0, 0, 0.45), 0 2px 6px -1px rgba(0, 0, 0, 0.3)'
+              : '0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)',
             transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
           }}
         >

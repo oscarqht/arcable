@@ -9,21 +9,59 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet" />
     <style>
       :root {
+        --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
         --bg-main: #f8fafc;
+        --bg-card: #ffffff;
+        --bg-subtle: #f1f5f9;
+        --bg-hover: rgba(0, 0, 0, 0.05);
+        --border-main: #e2e8f0;
+        --border-subtle: #f1f5f9;
+        --border-input: #cbd5e1;
         --text-main: #0f172a;
+        --text-sub: #64748b;
+        --text-muted: #94a3b8;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --bg-main: #0b0f19;
+          --bg-card: #151e2e;
+          --bg-subtle: #1e293b;
+          --bg-hover: rgba(255, 255, 255, 0.08);
+          --border-main: #243247;
+          --border-subtle: rgba(255, 255, 255, 0.08);
+          --border-input: #334155;
           --text-main: #f8fafc;
+          --text-sub: #94a3b8;
+          --text-muted: #64748b;
           color-scheme: dark;
         }
       }
       html.dark, body.dark {
         --bg-main: #0b0f19;
+        --bg-card: #151e2e;
+        --bg-subtle: #1e293b;
+        --bg-hover: rgba(255, 255, 255, 0.08);
+        --border-main: #243247;
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --border-input: #334155;
         --text-main: #f8fafc;
+        --text-sub: #94a3b8;
+        --text-muted: #64748b;
         color-scheme: dark;
+      }
+      html.light, body.light {
+        --bg-main: #f8fafc;
+        --bg-card: #ffffff;
+        --bg-subtle: #f1f5f9;
+        --bg-hover: rgba(0, 0, 0, 0.05);
+        --border-main: #e2e8f0;
+        --border-subtle: #f1f5f9;
+        --border-input: #cbd5e1;
+        --text-main: #0f172a;
+        --text-sub: #64748b;
+        --text-muted: #94a3b8;
+        color-scheme: light;
       }
       html, body {
         margin: 0;
@@ -33,7 +71,7 @@
         overflow-x: hidden;
         overscroll-behavior: none;
         overscroll-behavior-x: none;
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+        font-family: var(--font-family);
         background-color: var(--bg-main);
         color: var(--text-main);
         box-sizing: border-box;
@@ -71,6 +109,29 @@
         }
       }
     </style>
+    <script>
+      (function() {
+        try {
+          var isDark = false;
+          var stored = localStorage.getItem('arcable_config');
+          if (stored) {
+            var cfg = JSON.parse(stored);
+            if (cfg.theme === 'dark') isDark = true;
+            else if (cfg.theme === 'light') isDark = false;
+            else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) isDark = true;
+          } else if (localStorage.getItem('arcable_theme') === 'dark') {
+            isDark = true;
+          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            isDark = true;
+          }
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.colorScheme = 'dark';
+          }
+        } catch(e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
