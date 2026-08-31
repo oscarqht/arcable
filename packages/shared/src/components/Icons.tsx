@@ -480,4 +480,36 @@ export const RefreshIcon: React.FC<IconProps> = ({ size = 16, color = 'currentCo
   </svg>
 );
 
+export const MoreHorizontalIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <circle cx="12" cy="12" r="2.2" />
+    <circle cx="19" cy="12" r="2.2" />
+    <circle cx="5" cy="12" r="2.2" />
+  </svg>
+);
+
+export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <circle cx="12" cy="12" r="2.2" />
+    <circle cx="12" cy="5" r="2.2" />
+    <circle cx="12" cy="19" r="2.2" />
+  </svg>
+);
+
 

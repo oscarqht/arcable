@@ -6,12 +6,16 @@ import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   PinIcon,
   PlusIcon,
   StarIcon,
   EditIcon,
   TrashIcon,
+  CopyIcon,
+  ExternalLinkIcon,
 } from '../Icons';
 
 export interface PinnedTabsShelfProps {
@@ -40,6 +44,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onReorderPinnedTabs,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
+  const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
@@ -224,82 +229,72 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 </span>
               </div>
 
-              {/* Action buttons on hover */}
-              {isHovered && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2px',
-                    paddingLeft: '4px',
-                    flexShrink: 0,
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {onToggleFavouriteTab && (
-                    <button
-                      type="button"
-                      title={tab.favourite ? 'Remove favourite' : 'Add to global favourites'}
-                      onClick={() => onToggleFavouriteTab(tab.id)}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: tab.favourite ? '#eab308' : 'inherit',
-                        cursor: 'pointer',
-                        padding: '1px 2px',
-                        display: 'flex',
-                      }}
-                    >
-                      <StarIcon size={13} filled={Boolean(tab.favourite)} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    title="Unpin"
-                    onClick={() => onTogglePinTab(tab.id)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'inherit',
-                      cursor: 'pointer',
-                      padding: '1px 2px',
-                      display: 'flex',
-                    }}
-                  >
-                    <PinIcon size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Edit"
-                    onClick={() => onEditTab(tab)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'inherit',
-                      cursor: 'pointer',
-                      padding: '1px 2px',
-                      display: 'flex',
-                    }}
-                  >
-                    <EditIcon size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete"
-                    onClick={() => onDeleteTab(tab.id)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#ef4444',
-                      cursor: 'pointer',
-                      padding: '1px 2px',
-                      display: 'flex',
-                    }}
-                  >
-                    <TrashIcon size={12} />
-                  </button>
-                </div>
-              )}
+              {/* Action dropdown on hover */}
+              <ActionDropdown
+                items={[
+                  {
+                    id: 'copy-url',
+                    label: 'Copy URL',
+                    icon: <CopyIcon size={14} />,
+                    onClick: () => {
+                      if (tab.url) navigator.clipboard.writeText(tab.url);
+                    },
+                  },
+                  {
+                    id: 'open-tab',
+                    label: 'Open in new tab',
+                    icon: <ExternalLinkIcon size={14} />,
+                    onClick: () => {
+                      if (tab.url) {
+                        if (onOpenTab) onOpenTab(tab.url);
+                        else window.open(tab.url, '_blank', 'noopener,noreferrer');
+                      }
+                    },
+                    dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
+                  },
+                  ...(onToggleFavouriteTab
+                    ? [
+                        {
+                          id: 'toggle-fav',
+                          label: tab.favourite ? 'Remove favourite' : 'Add favourite',
+                          icon: (
+                            <StarIcon
+                              size={14}
+                              filled={Boolean(tab.favourite)}
+                              color={tab.favourite ? '#eab308' : 'currentColor'}
+                            />
+                          ),
+                          onClick: () => onToggleFavouriteTab(tab.id),
+                        },
+                      ]
+                    : []),
+                  {
+                    id: 'unpin',
+                    label: 'Unpin tab',
+                    icon: <PinIcon size={14} />,
+                    onClick: () => onTogglePinTab(tab.id),
+                    dividerAfter: Boolean(onEditTab || onDeleteTab),
+                  },
+                  {
+                    id: 'edit-tab',
+                    label: 'Edit tab',
+                    icon: <EditIcon size={14} />,
+                    onClick: () => onEditTab(tab),
+                  },
+                  {
+                    id: 'delete-tab',
+                    label: 'Delete tab',
+                    icon: <TrashIcon size={14} />,
+                    danger: true,
+                    onClick: () => onDeleteTab(tab.id),
+                  },
+                ]}
+                isDarkTheme={effectiveDark}
+                visible={isMobile || isHovered}
+                hoverBg={itemHoverBg}
+                buttonTitle="Pinned tab options"
+                size="sm"
+              />
             </div>
           );
         })}

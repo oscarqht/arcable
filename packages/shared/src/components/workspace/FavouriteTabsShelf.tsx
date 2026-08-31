@@ -6,6 +6,7 @@ import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   StarIcon,
   PlusIcon,
@@ -33,6 +34,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onReorderFavouriteTabs,
 }) => {
   const { isDark } = useSystemTheme();
+  const isMobile = useIsMobile();
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
@@ -256,8 +258,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   />
                 </div>
 
-                {/* Action buttons on hover */}
-                {isHovered && (
+                {/* Action buttons on hover (desktop only, hidden on mobile) */}
+                {!isMobile && isHovered && (
                   <div
                     style={{
                       position: 'absolute',

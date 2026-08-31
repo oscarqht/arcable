@@ -1228,6 +1228,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     allTabs={data.tabs}
                     cardIndex={idx}
                     searchQuery={activeSearchQuery}
+                    alwaysShowActions={alwaysShowActions}
                     isCollapsed={true}
                     onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                     onOpenTab={onOpenTab}

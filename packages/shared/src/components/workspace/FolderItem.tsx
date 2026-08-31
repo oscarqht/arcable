@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Folder, Tab } from '../../types/workspace';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls } from '../../utils/treeUtils';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   ChevronRightIcon,
   CopyIcon,
@@ -74,6 +76,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onReorderSiblingItem,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
+  const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -107,6 +110,69 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       }
     }
   };
+
+  const folderMenuItems: ActionDropdownItem[] = useMemo(() => {
+    const items: ActionDropdownItem[] = [
+      {
+        id: 'copy-folder',
+        label: copied ? 'Copied URLs!' : `Copy all URLs (${totalItemCount})`,
+        icon: copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />,
+        onClick: handleCopyFolder,
+      },
+      {
+        id: 'open-folder',
+        label: `Open all tabs (${totalItemCount})`,
+        icon: <ExternalLinkIcon size={15} />,
+        onClick: handleOpenFolder,
+        dividerAfter: true,
+      },
+      {
+        id: 'add-tab',
+        label: 'Add tab',
+        icon: <PlusIcon size={15} />,
+        onClick: () => onAddTabInFolder(folder.id),
+      },
+      {
+        id: 'add-subfolder',
+        label: 'Add subfolder',
+        icon: <FolderPlusIcon size={15} />,
+        onClick: () => onAddSubFolder(folder.id),
+        dividerAfter: true,
+      },
+      {
+        id: 'edit-folder',
+        label: 'Edit folder',
+        icon: <EditIcon size={14} />,
+        onClick: () => onEditFolder(folder),
+      },
+    ];
+
+    if (onDeleteFolder) {
+      items.push({
+        id: 'delete-folder',
+        label: 'Delete folder',
+        icon: <TrashIcon size={14} />,
+        danger: true,
+        onClick: () => {
+          if (confirm(`Delete folder "${folder.name}" and all its contents?`)) {
+            onDeleteFolder(folder.id);
+          }
+        },
+      });
+    }
+
+    return items;
+  }, [
+    copied,
+    totalItemCount,
+    handleCopyFolder,
+    handleOpenFolder,
+    onAddTabInFolder,
+    folder,
+    onAddSubFolder,
+    onEditFolder,
+    onDeleteFolder,
+  ]);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
@@ -328,134 +394,15 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           )}
         </div>
 
-        {/* Right Section: Folder Action Buttons on Hover */}
-        {(alwaysShowActions || isHovered) && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '3px',
-              flexShrink: 0,
-              marginLeft: '4px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Copy all folder URLs */}
-            <button
-            type="button"
-            onClick={handleCopyFolder}
-            title={`Copy all ${totalItemCount} tab URLs`}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            {copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />}
-          </button>
-
-          {/* Open all folder tabs */}
-          <button
-            type="button"
-            onClick={handleOpenFolder}
-            title={`Open all ${totalItemCount} tabs in browser`}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <ExternalLinkIcon size={15} />
-          </button>
-
-          {/* Add tab in folder */}
-          <button
-            type="button"
-            onClick={() => onAddTabInFolder(folder.id)}
-            title="Add tab inside this folder"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <PlusIcon size={15} />
-          </button>
-
-          {/* Add subfolder */}
-          <button
-            type="button"
-            onClick={() => onAddSubFolder(folder.id)}
-            title="Add nested subfolder"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <FolderPlusIcon size={15} />
-          </button>
-
-          {/* Edit folder */}
-          <button
-            type="button"
-            onClick={() => onEditFolder(folder)}
-            title="Edit folder"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.8,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <EditIcon size={14} />
-          </button>
-        </div>
-      )}
+        {/* Right Section: Folder Action Dropdown on Hover / Mobile */}
+        <ActionDropdown
+          items={folderMenuItems}
+          isDarkTheme={effectiveDark}
+          visible={isMobile || alwaysShowActions || isHovered}
+          hoverBg={activeIconHoverBg}
+          buttonTitle="Folder options"
+          size="sm"
+        />
       </div>
 
       {/* Expanded Folder Contents */}

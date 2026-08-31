@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Tab } from '../../types/workspace';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   CopyIcon,
   CheckIcon,
@@ -55,6 +57,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onDragEndItem,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
+  const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -93,6 +96,64 @@ export const TabRow: React.FC<TabRowProps> = ({
       }
     }
   };
+
+  const tabMenuItems: ActionDropdownItem[] = useMemo(() => {
+    const items: ActionDropdownItem[] = [
+      {
+        id: 'copy-url',
+        label: copied ? 'Copied URL!' : 'Copy URL',
+        icon: copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />,
+        onClick: handleCopyUrl,
+      },
+      {
+        id: 'open-tab',
+        label: 'Open in new tab',
+        icon: <ExternalLinkIcon size={15} />,
+        onClick: handleOpenLink,
+        dividerAfter: Boolean(onTogglePin || onToggleFavourite),
+      },
+    ];
+
+    if (onTogglePin) {
+      items.push({
+        id: 'toggle-pin',
+        label: tab.pinned ? 'Unpin tab' : 'Pin tab',
+        icon: <PinIcon size={14} filled={Boolean(tab.pinned)} />,
+        onClick: () => onTogglePin(tab.id),
+      });
+    }
+
+    if (onToggleFavourite) {
+      items.push({
+        id: 'toggle-fav',
+        label: tab.favourite ? 'Remove favourite' : 'Add to favourites',
+        icon: <StarIcon size={14} filled={Boolean(tab.favourite)} color={tab.favourite ? '#eab308' : 'currentColor'} />,
+        onClick: () => onToggleFavourite(tab.id),
+        dividerAfter: Boolean(onEdit || onDelete),
+      });
+    }
+
+    if (onEdit) {
+      items.push({
+        id: 'edit-tab',
+        label: 'Edit tab',
+        icon: <EditIcon size={14} />,
+        onClick: () => onEdit(tab),
+      });
+    }
+
+    if (onDelete) {
+      items.push({
+        id: 'delete-tab',
+        label: 'Delete tab',
+        icon: <TrashIcon size={14} />,
+        danger: true,
+        onClick: () => onDelete(tab.id),
+      });
+    }
+
+    return items;
+  }, [copied, handleCopyUrl, handleOpenLink, onTogglePin, tab, onToggleFavourite, onEdit, onDelete]);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
@@ -148,7 +209,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
   const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
-  const showActions = alwaysShowActions || isHovered;
+  const showActions = isMobile || alwaysShowActions || isHovered;
 
   return (
     <div
@@ -258,91 +319,15 @@ export const TabRow: React.FC<TabRowProps> = ({
         </span>
       </div>
 
-      {/* Right side: Action Buttons (Only takes width when hovered or alwaysShowActions) */}
-      {showActions && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-            flexShrink: 0,
-            marginLeft: '4px',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Copy URL */}
-          <button
-            type="button"
-            onClick={handleCopyUrl}
-            title="Copy URL"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-              transition: 'background-color 0.12s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            {copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />}
-          </button>
-
-          {/* Open in new tab */}
-          <button
-            type="button"
-            onClick={handleOpenLink}
-            title="Open in new tab"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-              transition: 'background-color 0.12s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <ExternalLinkIcon size={15} />
-          </button>
-
-          {/* Edit */}
-          <button
-            type="button"
-            onClick={() => onEdit(tab)}
-            title="Edit tab"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              padding: '4px 5px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-              transition: 'background-color 0.12s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = activeIconHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <EditIcon size={14} />
-          </button>
-        </div>
-      )}
+      {/* Right side: Action Dropdown (Only takes width when hovered or alwaysShowActions) */}
+      <ActionDropdown
+        items={tabMenuItems}
+        isDarkTheme={effectiveDark}
+        visible={showActions}
+        hoverBg={activeIconHoverBg}
+        buttonTitle="Tab options"
+        size="sm"
+      />
     </div>
   );
 };

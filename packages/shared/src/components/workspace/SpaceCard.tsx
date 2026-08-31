@@ -12,9 +12,11 @@ import {
 } from '../../utils/treeUtils';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { FolderItem } from './FolderItem';
 import { PinnedTabsShelf } from './PinnedTabsShelf';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   ChevronRightIcon,
   CopyIcon,
@@ -96,6 +98,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onMoveSpace,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
+  const isMobile = useIsMobile();
   const [internalSearch, setInternalSearch] = useState('');
   const [copied, setCopied] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
@@ -389,6 +392,88 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   const totalTabsCount = spaceTabs.length;
 
+  const spaceMenuItems: ActionDropdownItem[] = useMemo(() => {
+    const items: ActionDropdownItem[] = [
+      {
+        id: 'copy-urls',
+        label: copied ? 'Copied all URLs!' : 'Copy all URLs',
+        icon: copied ? <CheckIcon size={16} color="#10b981" /> : <CopyIcon size={16} />,
+        onClick: handleCopyAllUrls,
+      },
+      {
+        id: 'open-tabs',
+        label: 'Open all tabs',
+        icon: <ExternalLinkIcon size={16} />,
+        onClick: handleOpenAllTabs,
+        dividerAfter: Boolean(onAddTab || onAddFolder),
+      },
+    ];
+
+    if (onAddTab) {
+      items.push({
+        id: 'add-tab',
+        label: 'Add tab',
+        icon: <PlusIcon size={16} />,
+        onClick: () => onAddTab(),
+      });
+    }
+
+    if (onAddFolder) {
+      items.push({
+        id: 'add-folder',
+        label: 'Add folder',
+        icon: <FolderPlusIcon size={16} />,
+        onClick: () => onAddFolder(),
+        dividerAfter: Boolean(onConvertSpace || onEditSpace || onDeleteSpace),
+      });
+    }
+
+    if (onConvertSpace && allSpaces.length > 1) {
+      items.push({
+        id: 'convert-space',
+        label: 'Convert to folder...',
+        icon: <FolderInputIcon size={16} />,
+        onClick: () => onConvertSpace(space),
+      });
+    }
+
+    if (onEditSpace) {
+      items.push({
+        id: 'edit-space',
+        label: 'Edit space',
+        icon: <EditIcon size={16} />,
+        onClick: () => onEditSpace(space),
+      });
+    }
+
+    if (onDeleteSpace && allSpaces.length > 1) {
+      items.push({
+        id: 'delete-space',
+        label: 'Delete space',
+        icon: <TrashIcon size={16} />,
+        danger: true,
+        onClick: () => {
+          if (confirm(`Delete space "${space.name}" and all its folders & tabs?`)) {
+            onDeleteSpace(space.id);
+          }
+        },
+      });
+    }
+
+    return items;
+  }, [
+    copied,
+    handleCopyAllUrls,
+    handleOpenAllTabs,
+    onAddTab,
+    onAddFolder,
+    onConvertSpace,
+    allSpaces.length,
+    space,
+    onEditSpace,
+    onDeleteSpace,
+  ]);
+
   return (
     <div
       onMouseEnter={() => setIsCardHovered(true)}
@@ -474,200 +559,15 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           </h3>
         </div>
 
-        {/* Header Action Buttons (rendered only on hover / alwaysShowActions to give title full width) */}
-        {(isCardHovered || alwaysShowActions) && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              flexShrink: 0,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Copy All URLs Button */}
-            <button
-              type="button"
-              onClick={handleCopyAllUrls}
-              title="Copy all URLs in space"
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: 'inherit',
-                padding: '6px 7px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.85,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              {copied ? <CheckIcon size={16} color="#10b981" /> : <CopyIcon size={16} />}
-            </button>
-
-            {/* Open All Tabs Button */}
-            <button
-              type="button"
-              onClick={handleOpenAllTabs}
-              title="Open all tabs in browser"
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: 'inherit',
-                padding: '6px 7px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.85,
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              <ExternalLinkIcon size={16} />
-            </button>
-
-            {/* Add Tab Button */}
-            {onAddTab && (
-              <button
-                type="button"
-                onClick={() => onAddTab()}
-                title="Add tab to this space"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  padding: '6px 7px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.85,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <PlusIcon size={16} />
-              </button>
-            )}
-
-            {/* Add Folder Button */}
-            {onAddFolder && (
-              <button
-                type="button"
-                onClick={() => onAddFolder()}
-                title="Add folder to this space"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  padding: '6px 7px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.85,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <FolderPlusIcon size={16} />
-              </button>
-            )}
-
-            {/* Convert Space to Folder Button */}
-            {onConvertSpace && allSpaces.length > 1 && (
-              <button
-                type="button"
-                onClick={() => onConvertSpace(space)}
-                title="Convert space into a folder in another space"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  padding: '6px 7px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.75,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <FolderInputIcon size={15} />
-              </button>
-            )}
-
-            {/* Edit Space Button */}
-            {onEditSpace && (
-              <button
-                type="button"
-                onClick={() => onEditSpace(space)}
-                title="Edit space name, icon and color"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  padding: '6px 7px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.75,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <EditIcon size={15} />
-              </button>
-            )}
-
-            {/* Delete Space Button */}
-            {onDeleteSpace && allSpaces.length > 1 && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm(`Delete space "${space.name}" and all its folders & tabs?`)) {
-                    onDeleteSpace(space.id);
-                  }
-                }}
-                title="Delete space"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  padding: '6px 7px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  opacity: 0.75,
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = themeStyles.actionHoverBg)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <TrashIcon size={15} />
-              </button>
-            )}
-          </div>
-        )}
+        {/* Header Action Dropdown (rendered on hover / alwaysShowActions / mobile) */}
+        <ActionDropdown
+          items={spaceMenuItems}
+          isDarkTheme={themeStyles.isDark}
+          visible={isMobile || isCardHovered || alwaysShowActions}
+          hoverBg={themeStyles.actionHoverBg}
+          buttonTitle="Space options"
+          size="md"
+        />
       </div>
 
       {/* Expanded Card Body */}
