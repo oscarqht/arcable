@@ -33,7 +33,7 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
   onClearError,
 }) => {
   const { isDark } = useSystemTheme();
-  const [authMethod, setAuthMethod] = useState<'oauth' | 'token'>('token');
+  const [authMethod, setAuthMethod] = useState<'oauth' | 'token'>('oauth');
   const [tokenInput, setTokenInput] = useState('');
   const [submittingToken, setSubmittingToken] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -179,31 +179,6 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         <button
           type="button"
           onClick={() => {
-            setAuthMethod('token');
-            setLocalError(null);
-          }}
-          style={{
-            padding: '8px 14px',
-            fontSize: '13px',
-            fontWeight: authMethod === 'token' ? 600 : 500,
-            color: authMethod === 'token'
-              ? isDark ? '#f8fafc' : '#0f172a'
-              : isDark ? '#94a3b8' : '#64748b',
-            borderBottom: authMethod === 'token'
-              ? isDark ? '2px solid #38bdf8' : '2px solid #0f172a'
-              : '2px solid transparent',
-            background: 'none',
-            borderTop: 'none',
-            borderLeft: 'none',
-            borderRight: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          API Token
-        </button>
-        <button
-          type="button"
-          onClick={() => {
             setAuthMethod('oauth');
             setLocalError(null);
           }}
@@ -226,6 +201,31 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         >
           OAuth 2.0
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            setAuthMethod('token');
+            setLocalError(null);
+          }}
+          style={{
+            padding: '8px 14px',
+            fontSize: '13px',
+            fontWeight: authMethod === 'token' ? 600 : 500,
+            color: authMethod === 'token'
+              ? isDark ? '#f8fafc' : '#0f172a'
+              : isDark ? '#94a3b8' : '#64748b',
+            borderBottom: authMethod === 'token'
+              ? isDark ? '2px solid #38bdf8' : '2px solid #0f172a'
+              : '2px solid transparent',
+            background: 'none',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          API Token
+        </button>
       </div>
 
       {activeError && (
@@ -244,7 +244,28 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
         </div>
       )}
 
-      {authMethod === 'token' ? (
+      {authMethod === 'oauth' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <p style={{ fontSize: '13px', color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
+            Authorize Arcable to access your Raindrop collections and bookmarks using standard Raindrop OAuth.
+          </p>
+          {onLoginWithOAuth ? (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={onLoginWithOAuth}
+              isLoading={isLoading}
+            >
+              Sign in with Raindrop OAuth
+            </Button>
+          ) : (
+            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+              OAuth login is available when configured on the host platform.
+            </div>
+          )}
+        </div>
+      ) : (
         <form onSubmit={handleTokenSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -306,27 +327,6 @@ export const RaindropAuthCard: React.FC<RaindropAuthCardProps> = ({
             Connect with API Token
           </Button>
         </form>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <p style={{ fontSize: '13px', color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
-            Authorize Arcable to access your Raindrop collections and bookmarks using standard Raindrop OAuth.
-          </p>
-          {onLoginWithOAuth ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={onLoginWithOAuth}
-              isLoading={isLoading}
-            >
-              Sign in with Raindrop OAuth
-            </Button>
-          ) : (
-            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-              OAuth login is available when configured on the host platform.
-            </div>
-          )}
-        </div>
       )}
     </Card>
   );

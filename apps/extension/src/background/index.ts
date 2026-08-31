@@ -224,10 +224,10 @@ browser.runtime.onMessage.addListener(
             provider: 'raindrop',
           };
           const stateStr = encodeURIComponent(JSON.stringify(statePayload));
+          const authUrl = `https://oh-auth.vercel.app/auth/raindrop?state=${stateStr}`;
 
           // Try launchWebAuthFlow if identity API is supported
           if (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.launchWebAuthFlow) {
-            const authUrl = `https://oh-auth.vercel.app/auth/raindrop?state=${stateStr}`;
             try {
               const redirectUrl = await new Promise<string | undefined>((resolve, reject) => {
                 chrome.identity.launchWebAuthFlow(
@@ -247,23 +247,38 @@ browser.runtime.onMessage.addListener(
                 const url = new URL(redirectUrl);
                 const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
                 const token = hashParams.get('access_token') || url.searchParams.get('access_token');
+                const refreshToken = hashParams.get('refresh_token') || url.searchParams.get('refresh_token');
+                const expiresIn = hashParams.get('expires_in') || url.searchParams.get('expires_in');
                 if (token) {
                   const auth = await processOAuthTokens({
                     access_token: token,
-                    refresh_token: hashParams.get('refresh_token') || undefined,
-                    expires_in: Number(hashParams.get('expires_in')) || 2592000,
+                    refresh_token: refreshToken || undefined,
+                    expires_in: Number(expiresIn) || 2592000,
                   });
                   return { success: Boolean(auth), data: auth };
                 }
               }
-            } catch (authErr) {
-              console.warn('[Arcable] launchWebAuthFlow failed, opening tab fallback:', authErr);
+
+              // Check if token was received via external message / bridge during the flow
+              const currentAuth = await getStoredAuthState();
+              if (currentAuth.isAuthenticated) {
+                return { success: true, data: currentAuth };
+              }
+
+              return { success: true };
+            } catch (authErr: any) {
+              console.warn('[Arcable] launchWebAuthFlow finished/failed:', authErr);
+              // Check if token was received before reporting error or user cancellation
+              const currentAuth = await getStoredAuthState();
+              if (currentAuth.isAuthenticated) {
+                return { success: true, data: currentAuth };
+              }
+              return { success: false, error: authErr?.message || 'OAuth flow was cancelled or failed' };
             }
           }
 
-          // Fallback: Open web auth tab
-          const oauthTabUrl = `http://localhost:3000/api/auth/login?ext=true&extId=${extensionId}`;
-          await browser.tabs.create({ url: oauthTabUrl });
+          // Fallback if identity API is completely unavailable: open auth provider URL
+          await browser.tabs.create({ url: authUrl });
           return { success: true, data: { status: 'opened_tab' } };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to initiate OAuth flow' };

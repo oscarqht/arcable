@@ -1,19 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Header, Card, Button, RaindropAuthCard } from '@arcable/shared/components';
-import { ArcableConfig, RaindropAuthState, ExtensionResponse } from '@arcable/shared/types';
-import { useSystemTheme } from '@arcable/shared/hooks';
+import { Header, RaindropAuthCard } from '@arcable/shared/components';
+import { RaindropAuthState, ExtensionResponse } from '@arcable/shared/types';
 import { browser } from '../utils/browser';
 
 export const App: React.FC = () => {
-  const { isDark } = useSystemTheme();
-  const [config, setConfig] = useState<ArcableConfig>({
-    theme: 'system',
-    syncEnabled: true,
-    autoCapture: false,
-    apiEndpoint: 'http://localhost:3000',
-  });
-  const [saved, setSaved] = useState(false);
-
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
     isAuthenticated: false,
@@ -22,17 +12,10 @@ export const App: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Load extension preferences
-    browser.storage.local.get('arcable_config').then((res) => {
-      if (res.arcable_config) {
-        setConfig(res.arcable_config as ArcableConfig);
-      }
-    });
-
-    // 2. Load Raindrop auth state
+    // 1. Load Raindrop auth state
     fetchAuthState();
 
-    // 3. Listen to storage changes (e.g. from OAuth bridge or external auth)
+    // 2. Listen to storage changes (e.g. from OAuth bridge or external auth)
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local' && changes.arcable_raindrop_auth) {
         const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
@@ -115,13 +98,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await browser.storage.local.set({ arcable_config: config });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
   return (
     <div style={{ maxWidth: '640px', margin: '40px auto', padding: '0 16px' }}>
       <Header
@@ -142,61 +118,6 @@ export const App: React.FC = () => {
           onLogout={handleLogout}
           onClearError={() => setAuthError(null)}
         />
-      </div>
-
-      {/* Extension Preferences */}
-      <div style={{ marginTop: '24px' }}>
-        <Card title="Extension Preferences" subtitle="Configure synchronization and browser behavior">
-          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 500, color: isDark ? '#e2e8f0' : '#334155' }}>Webapp API Endpoint</label>
-              <input
-                type="text"
-                value={config.apiEndpoint || ''}
-                onChange={(e) => setConfig({ ...config, apiEndpoint: e.target.value })}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                  border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                  color: isDark ? '#f8fafc' : '#0f172a',
-                  fontSize: '14px',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                id="syncEnabled"
-                checked={config.syncEnabled}
-                onChange={(e) => setConfig({ ...config, syncEnabled: e.target.checked })}
-              />
-              <label htmlFor="syncEnabled" style={{ fontSize: '14px', color: isDark ? '#cbd5e1' : '#334155' }}>
-                Enable cloud sync with Arcable Webapp
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="checkbox"
-                id="autoCapture"
-                checked={config.autoCapture}
-                onChange={(e) => setConfig({ ...config, autoCapture: e.target.checked })}
-              />
-              <label htmlFor="autoCapture" style={{ fontSize: '14px', color: isDark ? '#cbd5e1' : '#334155' }}>
-                Auto-capture visited pages metadata
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
-              <Button type="submit" variant="primary">
-                Save Preferences
-              </Button>
-              {saved && <span style={{ color: '#22c55e', fontSize: '14px', fontWeight: 500 }}>Saved!</span>}
-            </div>
-          </form>
-        </Card>
       </div>
     </div>
   );
