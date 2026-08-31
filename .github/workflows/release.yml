@@ -45,13 +45,14 @@ jobs:
           RELEASE_TAG="${{ inputs.tag || github.ref_name }}"
           echo "Packaging extension archives for tag: ${RELEASE_TAG}"
           
-          mkdir -p artifacts
+          ARTIFACTS_DIR="${GITHUB_WORKSPACE:-$PWD}/artifacts"
+          mkdir -p "$ARTIFACTS_DIR"
           
           # Package Chrome extension
-          (cd apps/extension/dist/chrome && zip -r "../../../artifacts/arcable-chrome-${RELEASE_TAG}.zip" .)
+          (cd apps/extension/dist/chrome && zip -r "${ARTIFACTS_DIR}/arcable-chrome-${RELEASE_TAG}.zip" .)
           
           # Package Firefox extension
-          (cd apps/extension/dist/firefox && zip -r "../../../artifacts/arcable-firefox-${RELEASE_TAG}.zip" .)
+          (cd apps/extension/dist/firefox && zip -r "${ARTIFACTS_DIR}/arcable-firefox-${RELEASE_TAG}.zip" .)
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
