@@ -251,8 +251,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         {/* Favicon or Custom Emoji (Always visible, matching FolderIcon position) */}
         <div
           style={{
-            width: '20px',
-            height: '20px',
+            width: '18px',
+            height: '18px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -264,7 +264,7 @@ export const TabRow: React.FC<TabRowProps> = ({
           <TabFavicon
             url={tab.url}
             customEmojiIcon={tab.customEmojiIcon}
-            size={20}
+            size={18}
             emojiSize={18}
             isDarkTheme={isDarkTheme}
             showDomainFallback={true}

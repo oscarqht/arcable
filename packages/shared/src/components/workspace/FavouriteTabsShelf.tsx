@@ -238,9 +238,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               >
                 <div
                   style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
                     backgroundColor: isHovered ? (isDark ? 'rgba(255,255,255,0.08)' : '#ffffff') : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
@@ -252,8 +252,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   <TabFavicon
                     url={tab.url}
                     customEmojiIcon={tab.customEmojiIcon}
-                    size={32}
-                    emojiSize={26}
+                    size={24}
+                    emojiSize={24}
                     globeIconSize={24}
                     globeIconColor={isDark ? '#94a3b8' : '#64748b'}
                     showDomainFallback={true}

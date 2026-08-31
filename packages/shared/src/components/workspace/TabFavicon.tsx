@@ -19,7 +19,7 @@ export interface TabFaviconProps {
 export const TabFavicon: React.FC<TabFaviconProps> = ({
   url,
   customEmojiIcon,
-  size = 16,
+  size = 18,
   emojiSize,
   isDarkTheme = false,
   showDomainFallback = false,

@@ -210,7 +210,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 <TabFavicon
                   url={tab.url}
                   customEmojiIcon={tab.customEmojiIcon}
-                  size={20}
+                  size={18}
                   emojiSize={18}
                   globeIconSize={18}
                 />

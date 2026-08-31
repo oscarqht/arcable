@@ -282,8 +282,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           {/* Folder Icon / Custom Emoji — with tiny folder badge bottom-right */}
           <div
             style={{
-              width: '20px',
-              height: '20px',
+              width: '18px',
+              height: '18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -294,9 +294,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             {folder.customEmojiIcon ? (
               <span style={{ fontSize: '18px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
             ) : isExpanded ? (
-              <FolderOpenIcon size={20} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
+              <FolderOpenIcon size={18} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
             ) : (
-              <FolderIcon size={20} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
+              <FolderIcon size={18} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
             )}
             {folder.customEmojiIcon && (
               <span
