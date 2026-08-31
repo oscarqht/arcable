@@ -52,7 +52,7 @@ export function detectDeviceType(fallback?: 'Web App' | 'Ext'): 'Web App' | 'Ext
   try {
     const globalAny = (typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : {}) as any;
     if (
-      (typeof chrome !== 'undefined' && chrome?.runtime?.id) ||
+      (typeof globalAny.chrome !== 'undefined' && globalAny.chrome?.runtime?.id) ||
       (typeof globalAny.browser !== 'undefined' && globalAny.browser?.runtime?.id)
     ) {
       return 'Ext';
