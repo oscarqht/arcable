@@ -320,7 +320,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     if (!el) return;
 
     if (el.offsetHeight > 0) {
-      setActiveSpaceHeight(el.offsetHeight);
+      setActiveSpaceHeight(el.offsetHeight + 8);
     }
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -329,7 +329,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (entry.target === el) {
             const h = (entry.target as HTMLElement).offsetHeight || Math.round(entry.contentRect.height);
             if (h > 0) {
-              setActiveSpaceHeight(h);
+              setActiveSpaceHeight(h + 8);
             }
           }
         }
@@ -1680,11 +1680,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         sortedSpaces.length > 0 && (
           <div
             style={{
-              width: '100%',
+              width: 'calc(100% + 8px)',
+              margin: '-2px -4px -4px -4px',
+              padding: '2px 4px 8px 4px',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
               flexShrink: 0,
+              boxSizing: 'border-box',
               height: activeSpaceHeight !== undefined ? `${activeSpaceHeight}px` : 'auto',
               transition: 'height 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
             }}

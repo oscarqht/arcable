@@ -46,12 +46,45 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '2px',
+        gap: '4px',
         width: '100%',
         boxSizing: 'border-box',
         padding: 0,
+        marginTop: compact ? '6px' : '10px',
       }}
     >
+      {/* Section Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '2px 4px 2px 4px',
+          fontSize: '11px',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: effectiveDark ? '#94a3b8' : '#64748b',
+          userSelect: 'none',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span>Open Tabs</span>
+          <span
+            style={{
+              backgroundColor: effectiveDark ? '#1e293b' : '#f1f5f9',
+              color: effectiveDark ? '#cbd5e1' : '#475569',
+              padding: '1px 6px',
+              borderRadius: '5px',
+              fontSize: '10.5px',
+              fontWeight: 600,
+            }}
+          >
+            {tabs.length}
+          </span>
+        </div>
+      </div>
+
       {tabs.map((tab) => {
         const audibleInfo =
           tab.browserTabId !== undefined
