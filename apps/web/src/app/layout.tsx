@@ -1,7 +1,13 @@
 import React from 'react';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
-export const metadata = {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
+export const metadata: Metadata = {
   title: 'Arcable - Web App',
   description: 'Arcable web dashboard and knowledge management platform',
   icons: {
@@ -15,6 +21,7 @@ export const metadata = {
     apple: '/apple-icon.png',
   },
 };
+
 
 export default function RootLayout({
   children,
