@@ -1,6 +1,6 @@
 {
   "name": "arcable-monorepo",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Arcable monorepo containing Chrome/Firefox extension, Next.js webapp, and shared libraries.",
   "workspaces": [
