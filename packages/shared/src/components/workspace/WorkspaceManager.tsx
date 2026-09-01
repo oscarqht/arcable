@@ -1132,12 +1132,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
-      {/* Search Input with Floating Dropdown (between Favourite Items and Spaces) */}
+      {/* Raindrop Search Input & Filter with Inline Results */}
       <RaindropSearchInput
         raindropToken={raindropToken}
         onSearchRaindrop={onSearchRaindrop}
         onOpenTab={onOpenTab}
         compact={compact}
+        searchQuery={activeSearchQuery}
+        onSearchChange={handleUpdateSearch}
       />
 
       {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
@@ -1441,64 +1443,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       </div>
       )}
 
-      {/* Global Search Toolbar (Grid Mode) */}
-      {viewMode === 'grid' && !compact && !hideSearchBar && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-          <div style={{ position: 'relative', width: '100%', maxWidth: '360px' }}>
-            <div
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                display: 'flex',
-                alignItems: 'center',
-                pointerEvents: 'none',
-                color: '#94a3b8',
-              }}
-            >
-              <SearchIcon size={16} />
-            </div>
-            <input
-              type="text"
-              placeholder="Search across all spaces..."
-              value={activeSearchQuery}
-              onChange={(e) => handleUpdateSearch(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 32px 8px 36px',
-                borderRadius: '20px',
-                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                backgroundColor: isDark ? '#151e2e' : '#ffffff',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '13px',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-            {activeSearchQuery && (
-              <button
-                type="button"
-                onClick={() => handleUpdateSearch('')}
-                style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: '2px',
-                  display: 'flex',
-                }}
-              >
-                <CloseIcon size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Content Area: Grid Mode vs Focused Mode */}
       {viewMode === 'grid' && !compact ? (

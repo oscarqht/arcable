@@ -22,8 +22,6 @@ import {
   CheckIcon,
   ExternalLinkIcon,
   PlusIcon,
-  SearchIcon,
-  CloseIcon,
   EditIcon,
   TrashIcon,
   FolderIcon,
@@ -108,7 +106,6 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
-  const [internalSearch, setInternalSearch] = useState('');
   const [copied, setCopied] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
@@ -124,7 +121,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     }
   };
 
-  const activeSearch = (externalSearch || internalSearch).trim().toLowerCase();
+  const activeSearch = externalSearch.trim().toLowerCase();
 
   // Space contents
   const spaceTabs = useMemo(() => {
@@ -602,67 +599,6 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       {/* Expanded Card Body */}
       {!isCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* Card Search Bar */}
-          {!externalSearch && (
-            <div style={{ position: 'relative', width: '100%' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '14px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  pointerEvents: 'none',
-                  opacity: 0.65,
-                  color: 'inherit',
-                }}
-              >
-                <SearchIcon size={16} />
-              </div>
-              <input
-                type="text"
-                placeholder={`Search tabs in ${space.name}...`}
-                value={internalSearch}
-                onChange={(e) => setInternalSearch(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '9px 34px 9px 38px',
-                  borderRadius: '14px',
-                  border: 'none',
-                  backgroundColor: themeStyles.inputBg,
-                  color: themeStyles.textColor,
-                  fontSize: '13.5px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  transition: 'background-color 0.15s ease',
-                }}
-              />
-              {internalSearch && (
-                <button
-                  type="button"
-                  onClick={() => setInternalSearch('')}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'inherit',
-                    opacity: 0.65,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '2px',
-                  }}
-                >
-                  <CloseIcon size={14} />
-                </button>
-              )}
-            </div>
-          )}
-
           {/* Search Results Filter Mode */}
           {filteredTabs !== null ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
