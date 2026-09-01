@@ -454,7 +454,10 @@ export default function HomePage() {
         }
       />
 
-      <main style={{ maxWidth: '1440px', width: '100%', margin: '20px auto', padding: '0 20px', boxSizing: 'border-box' }}>
+      <main
+        className="main-content"
+        style={{ maxWidth: '1440px', width: '100%', margin: '20px auto', padding: '0 20px', boxSizing: 'border-box' }}
+      >
         <WorkspaceManager
           ref={workspaceRef}
           hideControlBar={true}

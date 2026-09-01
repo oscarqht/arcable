@@ -1494,6 +1494,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         /* Synctable Multi-Card Responsive Grid */
         <>
           <div
+            className="space-cards-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))',

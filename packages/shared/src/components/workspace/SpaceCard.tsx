@@ -519,6 +519,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   return (
     <div
+      className="space-card"
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}
       style={{

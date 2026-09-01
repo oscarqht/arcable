@@ -127,3 +127,32 @@ a {
     justify-content: center !important;
   }
 }
+
+/* Space Cards Grid: 3 columns when screen width is < 800px */
+.space-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+@media (max-width: 799.98px) {
+  .main-content {
+    margin: 12px auto !important;
+    padding: 0 10px !important;
+  }
+
+  .space-cards-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .space-card {
+    padding: 12px 10px !important;
+    border-radius: 16px !important;
+  }
+
+  .space-card h3 {
+    font-size: 14px !important;
+  }
+}
