@@ -5,6 +5,7 @@ import { Space, Folder } from '../../types/workspace';
 import { Button } from '../Button';
 import { FolderInputIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 
 export interface ConvertSpaceModalProps {
   isOpen: boolean;
@@ -44,7 +45,8 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
   // Folders in the selected destination space
   const availableParentFolders = useMemo(() => {
     if (!targetSpaceId) return [];
-    return allFolders.filter((f) => f.parentSpaceId === targetSpaceId);
+    const spaceFolders = allFolders.filter((f) => f.parentSpaceId === targetSpaceId);
+    return getTreeOrderedFolders(spaceFolders);
   }, [allFolders, targetSpaceId]);
 
   if (!isOpen || !space) return null;
@@ -218,7 +220,7 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
               <option value="">(Root of Destination Space)</option>
               {availableParentFolders.map((f) => (
                 <option key={f.id} value={f.id}>
-                  {f.customEmojiIcon ? `${f.customEmojiIcon} ` : '📁 '}{f.name}
+                  {f.customEmojiIcon ? `${f.customEmojiIcon} ` : '📁 '}{getFolderPath(f.id, allFolders)}
                 </option>
               ))}
             </select>

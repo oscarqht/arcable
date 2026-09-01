@@ -5,6 +5,7 @@ import { Tab, Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 
 interface TabModalProps {
   isOpen: boolean;
@@ -75,7 +76,8 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   // Available folders in selected space
   const spaceFolders = useMemo(() => {
-    return allFolders.filter((f) => f.parentSpaceId === parentSpaceId);
+    const foldersInSpace = allFolders.filter((f) => f.parentSpaceId === parentSpaceId);
+    return getTreeOrderedFolders(foldersInSpace);
   }, [allFolders, parentSpaceId]);
 
   if (!isOpen) return null;
@@ -278,7 +280,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                 <option value="">(None - Root of Space)</option>
                 {spaceFolders.map((f) => (
                   <option key={f.id} value={f.id}>
-                    📁 {f.name}
+                    {f.customEmojiIcon ? `${f.customEmojiIcon} ` : '📁 '}{getFolderPath(f.id, allFolders)}
                   </option>
                 ))}
               </select>

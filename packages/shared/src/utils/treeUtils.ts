@@ -229,3 +229,77 @@ export function extractTabNotificationBadge(title?: string | null): string | nul
 
   return null;
 }
+
+/**
+ * Computes the full path for a folder by traversing up its parentFolderId chain.
+ * E.g., if "foo" has child "bar", and "bar" has child "baz", getFolderPath(baz.id, allFolders) returns "foo/bar/baz".
+ */
+export function getFolderPath(
+  folderId: string,
+  allFolders: Folder[],
+  separator: string = '/'
+): string {
+  const folderMap = new Map<string, Folder>();
+  for (const f of allFolders) {
+    folderMap.set(f.id, f);
+  }
+
+  const pathParts: string[] = [];
+  const visited = new Set<string>();
+  let currentId: string | undefined = folderId;
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const folder = folderMap.get(currentId);
+    if (!folder) break;
+    pathParts.unshift(folder.name);
+    currentId = folder.parentFolderId;
+  }
+
+  return pathParts.join(separator);
+}
+
+/**
+ * Recursively orders folders in tree hierarchy (parent followed by children) for dropdown presentations.
+ */
+export function getTreeOrderedFolders(folders: Folder[]): Folder[] {
+  const folderMap = new Map<string, Folder>();
+  const childrenMap = new Map<string, Folder[]>();
+  const rootFolders: Folder[] = [];
+
+  for (const f of folders) {
+    folderMap.set(f.id, f);
+  }
+
+  const sorted = [...folders].sort((a, b) => {
+    const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+    const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id.localeCompare(b.id);
+  });
+
+  for (const f of sorted) {
+    if (f.parentFolderId && folderMap.has(f.parentFolderId)) {
+      const list = childrenMap.get(f.parentFolderId) || [];
+      list.push(f);
+      childrenMap.set(f.parentFolderId, list);
+    } else {
+      rootFolders.push(f);
+    }
+  }
+
+  const result: Folder[] = [];
+  function traverse(folder: Folder) {
+    result.push(folder);
+    const children = childrenMap.get(folder.id) || [];
+    for (const child of children) {
+      traverse(child);
+    }
+  }
+
+  for (const root of rootFolders) {
+    traverse(root);
+  }
+
+  return result;
+}

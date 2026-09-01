@@ -5,6 +5,7 @@ import { Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 
 interface FolderModalProps {
   isOpen: boolean;
@@ -90,9 +91,10 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
   // Folders available in the selected parent space
   const availableParentFolders = useMemo(() => {
-    return allFolders.filter(
+    const validFolders = allFolders.filter(
       (f) => f.parentSpaceId === parentSpaceId && !invalidParentFolderIds.has(f.id)
     );
+    return getTreeOrderedFolders(validFolders);
   }, [allFolders, parentSpaceId, invalidParentFolderIds]);
 
   if (!isOpen) return null;
@@ -237,7 +239,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 <option value="">(None - Root of Space)</option>
                 {availableParentFolders.map((f) => (
                   <option key={f.id} value={f.id}>
-                    📁 {f.name}
+                    {f.customEmojiIcon ? `${f.customEmojiIcon} ` : '📁 '}{getFolderPath(f.id, allFolders)}
                   </option>
                 ))}
               </select>
