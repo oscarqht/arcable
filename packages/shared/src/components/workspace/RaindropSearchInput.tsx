@@ -87,13 +87,17 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     }
   }, [searchQuery]);
 
-  // Global shortcut: Cmd+F / Ctrl+F to auto focus search input
+  // Global shortcut: Cmd+F / Ctrl+F to auto focus search input, and Esc to clear search
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
+      } else if (e.key === 'Escape') {
+        if (!e.defaultPrevented && (query.trim() || searchResults)) {
+          handleClear(false);
+        }
       }
     };
 
@@ -101,7 +105,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     return () => {
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, []);
+  }, [query, searchResults]);
 
   // Perform search against Raindrop API
   const executeSearch = useCallback(
@@ -188,7 +192,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     }, 250);
   };
 
-  const handleClear = () => {
+  const handleClear = (shouldFocus: boolean = false) => {
     setInternalQuery('');
     onSearchChange?.('');
     activeRequestIdRef.current++;
@@ -196,7 +200,11 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     setIsSearching(false);
     setSearchError(null);
     setHighlightedIndex(-1);
-    inputRef.current?.focus();
+    if (shouldFocus) {
+      inputRef.current?.focus();
+    } else {
+      inputRef.current?.blur();
+    }
   };
 
   // Build selectable items list for keyboard navigation
@@ -223,6 +231,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
         window.open(item.link, '_blank', 'noopener,noreferrer');
       }
     }
+    handleClear(false);
   };
 
   const handleSelectCollection = (collection: RaindropCollectionItem) => {
@@ -232,6 +241,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     } else if (typeof window !== 'undefined') {
       window.open(collectionUrl, '_blank', 'noopener,noreferrer');
     }
+    handleClear(false);
   };
 
   const handleSelectCurrent = () => {
@@ -261,7 +271,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
       handleSelectCurrent();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      handleClear();
+      handleClear(false);
     }
   };
 
@@ -417,7 +427,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
           {query && (
             <button
               type="button"
-              onClick={handleClear}
+              onClick={() => handleClear(true)}
               title="Clear search"
               style={{
                 position: 'absolute',
@@ -617,7 +627,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
             {/* Clear button */}
             <button
               type="button"
-              onClick={handleClear}
+              onClick={() => handleClear(false)}
               title="Close search results"
               style={{
                 border: 'none',

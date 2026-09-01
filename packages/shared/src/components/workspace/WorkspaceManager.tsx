@@ -177,12 +177,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const isExternalSearch = externalSearchQuery !== undefined;
   const activeSearchQuery = isExternalSearch ? externalSearchQuery : globalSearch;
 
-  const handleUpdateSearch = (value: string) => {
-    if (!isExternalSearch) {
-      setGlobalSearch(value);
-    }
-    onSearchChange?.(value);
-  };
+  const handleUpdateSearch = useCallback(
+    (value: string) => {
+      if (!isExternalSearch) {
+        setGlobalSearch(value);
+      }
+      onSearchChange?.(value);
+    },
+    [isExternalSearch, onSearchChange]
+  );
+
+  const handleOpenTabWithSearchClear = useCallback(
+    (url: string, tabId?: string) => {
+      if (activeSearchQuery) {
+        handleUpdateSearch('');
+      }
+      if (onOpenTab) {
+        onOpenTab(url, tabId);
+      } else if (typeof window !== 'undefined' && url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    },
+    [activeSearchQuery, handleUpdateSearch, onOpenTab]
+  );
 
   // Filter tmp tabs when search query is active
   const filteredTmpTabs = useMemo(() => {
@@ -1147,7 +1164,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tabs={favouriteTabs}
         tabAssociations={tabAssociations}
         highlightedTabId={highlightedTabId}
-        onOpenTab={onOpenTab}
+        onOpenTab={handleOpenTabWithSearchClear}
         onEditTab={(tab) => {
           setEditingTab(tab);
           setTargetSpaceIdForModal(tab.parentSpaceId);
@@ -1165,7 +1182,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           raindropToken={raindropToken}
           onSearchRaindrop={onSearchRaindrop}
           onSaveToRaindrop={onSaveToRaindrop}
-          onOpenTab={onOpenTab}
+          onOpenTab={handleOpenTabWithSearchClear}
           compact={compact}
           searchQuery={activeSearchQuery}
           onSearchChange={handleUpdateSearch}
@@ -1535,7 +1552,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   audibleTabs={audibleTabs}
                   highlightedTabId={highlightedTabId}
                   onToggleCollapse={() => toggleSpaceCollapse(space.id)}
-                  onOpenTab={onOpenTab}
+                  onOpenTab={handleOpenTabWithSearchClear}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
                   onMediaControl={onMediaControl}
@@ -1620,7 +1637,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       audibleTabs={audibleTabs}
                       highlightedTabId={highlightedTabId}
                       onToggleCollapse={() => toggleSpaceCollapse(space.id)}
-                      onOpenTab={onOpenTab}
+                      onOpenTab={handleOpenTabWithSearchClear}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
                       onMediaControl={onMediaControl}
@@ -1666,7 +1683,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               alwaysShowActions={alwaysShowActions}
               highlightedTabId={highlightedTabId}
               audibleTabs={audibleTabs}
-              onOpen={onOpenTab}
+              onOpen={handleOpenTabWithSearchClear}
               onPromote={handlePromoteTmpTab}
               onClose={(t) => onCloseTmpTab?.(t)}
               onRename={onRenameTmpTab}
@@ -1736,7 +1753,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     tabAssociations={tabAssociations}
                     audibleTabs={audibleTabs}
                     highlightedTabId={highlightedTabId}
-                    onOpenTab={onOpenTab}
+                    onOpenTab={handleOpenTabWithSearchClear}
                     onCloseAssociatedTab={onCloseAssociatedTab}
                     onResetDivertedUrl={onResetDivertedUrl}
                     onMediaControl={onMediaControl}
@@ -1783,7 +1800,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           alwaysShowActions={alwaysShowActions}
           highlightedTabId={highlightedTabId}
           audibleTabs={audibleTabs}
-          onOpen={onOpenTab}
+          onOpen={handleOpenTabWithSearchClear}
           onPromote={handlePromoteTmpTab}
           onClose={(t) => onCloseTmpTab?.(t)}
           onRename={onRenameTmpTab}

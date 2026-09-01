@@ -512,6 +512,11 @@ export default function HomePage() {
           showJsonInspector={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
+          onOpenTab={(url) => {
+            if (typeof window !== 'undefined' && url) {
+              window.open(url, '_blank', 'noopener,noreferrer');
+            }
+          }}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
           onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
