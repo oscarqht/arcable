@@ -11,6 +11,7 @@ import {
   getFaviconUrl,
   isValidHttpUrl,
 } from '../../utils/treeUtils';
+import { getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -138,265 +139,9 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
 
   // Color and custom theme determination
-  const hasExplicitColor = Boolean(space.colors && space.colors.trim());
-  const isDark = hasExplicitColor ? isDarkColor(space.colors) : isSystemDark;
-
-  // Theme styling configuration
   const themeStyles = useMemo(() => {
-    const rawColor = space.colors?.trim().toLowerCase();
-    
-    // Check known palette presets
-    const paletteMap: Record<string, any> = {
-      // New Theme Colors
-      '#f29bbb': {
-        textColor: '#471b2b',
-        subtextColor: 'rgba(71, 27, 43, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#471b2b',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(71, 27, 43, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(71, 27, 43, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#a6729e': {
-        textColor: '#ffffff',
-        subtextColor: 'rgba(255, 255, 255, 0.85)',
-        badgeBg: 'rgba(255, 255, 255, 0.25)',
-        badgeText: '#ffffff',
-        inputBg: 'rgba(255, 255, 255, 0.2)',
-        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
-        borderColor: 'rgba(255, 255, 255, 0.18)',
-        shelfBg: 'rgba(255, 255, 255, 0.16)',
-        isDark: true,
-      },
-      '#f25e6c': {
-        textColor: '#ffffff',
-        subtextColor: 'rgba(255, 255, 255, 0.85)',
-        badgeBg: 'rgba(255, 255, 255, 0.25)',
-        badgeText: '#ffffff',
-        inputBg: 'rgba(255, 255, 255, 0.2)',
-        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
-        borderColor: 'rgba(255, 255, 255, 0.18)',
-        shelfBg: 'rgba(255, 255, 255, 0.16)',
-        isDark: true,
-      },
-      '#ff8657': {
-        textColor: '#42160d',
-        subtextColor: 'rgba(66, 22, 13, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.42)',
-        badgeText: '#42160d',
-        inputBg: 'rgba(255, 255, 255, 0.35)',
-        inputPlaceholder: 'rgba(66, 22, 13, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(66, 22, 13, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.28)',
-        isDark: false,
-      },
-      '#f8d558': {
-        textColor: '#38310c',
-        subtextColor: 'rgba(56, 49, 12, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#38310c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(56, 49, 12, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(56, 49, 12, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#33e895': {
-        textColor: '#0c3e2c',
-        subtextColor: 'rgba(12, 62, 44, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#0c3e2c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(12, 62, 44, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(12, 62, 44, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#6dbad9': {
-        textColor: '#103444',
-        subtextColor: 'rgba(16, 52, 68, 0.75)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#103444',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(16, 52, 68, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(16, 52, 68, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#666789': {
-        textColor: '#ffffff',
-        subtextColor: 'rgba(255, 255, 255, 0.85)',
-        badgeBg: 'rgba(255, 255, 255, 0.25)',
-        badgeText: '#ffffff',
-        inputBg: 'rgba(255, 255, 255, 0.2)',
-        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
-        borderColor: 'rgba(255, 255, 255, 0.18)',
-        shelfBg: 'rgba(255, 255, 255, 0.16)',
-        isDark: true,
-      },
-      // Backward compatibility presets
-      '#f4efdf': {
-        textColor: '#2c2923',
-        subtextColor: 'rgba(44, 41, 35, 0.72)',
-        badgeBg: 'rgba(0, 0, 0, 0.06)',
-        badgeText: '#2c2923',
-        inputBg: 'rgba(0, 0, 0, 0.04)',
-        inputPlaceholder: 'rgba(44, 41, 35, 0.55)',
-        actionHoverBg: 'rgba(0, 0, 0, 0.07)',
-        borderColor: 'rgba(44, 41, 35, 0.1)',
-        shelfBg: 'rgba(0, 0, 0, 0.04)',
-        isDark: false,
-      },
-      '#f0b8cd': {
-        textColor: '#471b2b',
-        subtextColor: 'rgba(71, 27, 43, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#471b2b',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(71, 27, 43, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(71, 27, 43, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#e9c3e3': {
-        textColor: '#3f1e3c',
-        subtextColor: 'rgba(63, 30, 60, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#3f1e3c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(63, 30, 60, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(63, 30, 60, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#da7682': {
-        textColor: '#ffffff',
-        subtextColor: 'rgba(255, 255, 255, 0.85)',
-        badgeBg: 'rgba(255, 255, 255, 0.25)',
-        badgeText: '#ffffff',
-        inputBg: 'rgba(255, 255, 255, 0.2)',
-        inputPlaceholder: 'rgba(255, 255, 255, 0.7)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.22)',
-        borderColor: 'rgba(255, 255, 255, 0.18)',
-        shelfBg: 'rgba(255, 255, 255, 0.16)',
-        isDark: true,
-      },
-      '#eb8570': {
-        textColor: '#42160d',
-        subtextColor: 'rgba(66, 22, 13, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.42)',
-        badgeText: '#42160d',
-        inputBg: 'rgba(255, 255, 255, 0.35)',
-        inputPlaceholder: 'rgba(66, 22, 13, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(66, 22, 13, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.28)',
-        isDark: false,
-      },
-      '#dcce7f': {
-        textColor: '#38310c',
-        subtextColor: 'rgba(56, 49, 12, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#38310c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(56, 49, 12, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(56, 49, 12, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#5becad': {
-        textColor: '#0c3e2c',
-        subtextColor: 'rgba(12, 62, 44, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.45)',
-        badgeText: '#0c3e2c',
-        inputBg: 'rgba(255, 255, 255, 0.38)',
-        inputPlaceholder: 'rgba(12, 62, 44, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.4)',
-        borderColor: 'rgba(12, 62, 44, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.3)',
-        isDark: false,
-      },
-      '#919bb5': {
-        textColor: '#152033',
-        subtextColor: 'rgba(21, 32, 51, 0.72)',
-        badgeBg: 'rgba(255, 255, 255, 0.4)',
-        badgeText: '#152033',
-        inputBg: 'rgba(255, 255, 255, 0.35)',
-        inputPlaceholder: 'rgba(21, 32, 51, 0.58)',
-        actionHoverBg: 'rgba(255, 255, 255, 0.35)',
-        borderColor: 'rgba(21, 32, 51, 0.12)',
-        shelfBg: 'rgba(255, 255, 255, 0.28)',
-        isDark: false,
-      },
-    };
-
-    if (rawColor && paletteMap[rawColor]) {
-      return {
-        containerBg: space.colors,
-        ...paletteMap[rawColor],
-      };
-    }
-
-    if (hasExplicitColor) {
-      return {
-        containerBg: space.colors,
-        isDark,
-        textColor: isDark ? '#ffffff' : '#191c1b',
-        subtextColor: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(25, 28, 27, 0.75)',
-        badgeBg: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.08)',
-        badgeText: isDark ? '#ffffff' : '#191c1b',
-        inputBg: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.05)',
-        inputPlaceholder: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.55)',
-        actionHoverBg: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)',
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
-        shelfBg: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.04)',
-      };
-    }
-
-    // Default when no theme color is specified: White in bright mode, Soft dark charcoal in dark mode
-    if (isSystemDark) {
-      return {
-        containerBg: '#18181b',
-        isDark: true,
-        textColor: '#f8fafc',
-        subtextColor: '#94a3b8',
-        badgeBg: 'rgba(255, 255, 255, 0.08)',
-        badgeText: '#f1f5f9',
-        inputBg: 'rgba(255, 255, 255, 0.06)',
-        inputPlaceholder: '#71717a',
-        actionHoverBg: 'rgba(255, 255, 255, 0.08)',
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        shelfBg: 'rgba(0, 0, 0, 0.25)',
-      };
-    }
-
-    return {
-      containerBg: '#ffffff',
-      isDark: false,
-      textColor: '#0f172a',
-      subtextColor: '#64748b',
-      badgeBg: '#f1f5f9',
-      badgeText: '#475569',
-      inputBg: '#f8fafc',
-      inputPlaceholder: '#94a3b8',
-      actionHoverBg: '#f1f5f9',
-      borderColor: '#e2e8f0',
-      shelfBg: '#f8fafc',
-    };
-  }, [hasExplicitColor, space.colors, isDark, isSystemDark]);
+    return getSpaceThemeStyles(space.colors, isSystemDark);
+  }, [space.colors, isSystemDark]);
 
   // Copy all tab URLs in this space
   const handleCopyAllUrls = (e: React.MouseEvent) => {
@@ -524,15 +269,15 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}
       style={{
-        backgroundColor: themeStyles.containerBg,
+        background: themeStyles.containerBg,
         color: themeStyles.textColor,
         borderRadius: '24px',
-        border: `1px solid ${themeStyles.borderColor}`,
+        border: themeStyles.cardBorder,
+        boxShadow: themeStyles.cardBoxShadow,
         padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '14px 12px' : '22px 14px'),
         display: 'flex',
         flexDirection: 'column',
         gap: isCollapsed ? '0' : (isSingleColumn ? '12px' : '16px'),
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
         transition: 'all 0.2s ease',
         boxSizing: 'border-box',
         width: '100%',

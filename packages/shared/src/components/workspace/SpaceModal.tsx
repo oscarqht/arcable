@@ -5,6 +5,7 @@ import { Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { PRESET_GRADIENTS, PRESET_SOLID_COLORS } from '../../utils/spaceTheme';
 
 interface SpaceModalProps {
   isOpen: boolean;
@@ -12,17 +13,6 @@ interface SpaceModalProps {
   space?: Space | null; // null/undefined for create, Space for edit
   onSave: (spaceData: { name: string; emojiIcon?: string; colors?: string }) => void;
 }
-
-const PRESET_COLORS = [
-  '#f29bbb', // Blossom Pink
-  '#a6729e', // Purple Mauve
-  '#f25e6c', // Coral Red
-  '#ff8657', // Warm Orange
-  '#f8d558', // Sunny Yellow
-  '#33e895', // Mint Green
-  '#6dbad9', // Sky Blue
-  '#666789', // Slate Indigo
-];
 
 export const SpaceModal: React.FC<SpaceModalProps> = ({
   isOpen,
@@ -92,10 +82,10 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
       <div
         style={{
           backgroundColor: isDark ? '#1e293b' : '#ffffff',
-          borderRadius: '12px',
+          borderRadius: '16px',
           padding: '24px',
           width: '100%',
-          maxWidth: '440px',
+          maxWidth: '460px',
           boxShadow: isDark
             ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
             : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -137,7 +127,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
               style={{
                 width: '100%',
                 padding: '9px 12px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
                 backgroundColor: isDark ? '#0f172a' : '#ffffff',
                 color: isDark ? '#f8fafc' : '#0f172a',
@@ -157,59 +147,109 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
             allowClear
           />
 
+          {/* Color Palette */}
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Color Theme
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '10px' }}>
+              Space Color
             </label>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setColors('')}
-                title="No custom theme (Default)"
-                style={{
-                  width: '30px',
-                  height: '30px',
-                  borderRadius: '50%',
-                  backgroundColor: isDark ? '#334155' : '#f8fafc',
-                  border: !colors ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : (isDark ? '1.5px solid #475569' : '1.5px solid #cbd5e1'),
-                  cursor: 'pointer',
-                  outline: 'none',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 0,
-                  boxSizing: 'border-box',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  transition: 'transform 0.12s ease',
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="8" cy="8" r="6" stroke={isDark ? '#94a3b8' : '#94a3b8'} strokeWidth="1.5" />
-                  <line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#ef4444" strokeWidth="1.5" />
-                </svg>
-              </button>
-              {PRESET_COLORS.map((c) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* Row 1: Gradients */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {PRESET_GRADIENTS.map((g) => {
+                  const isSelected = colors === g.value || colors === g.id;
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => setColors(g.value)}
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: g.value,
+                        border: 'none',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer',
+                        padding: 0,
+                        boxShadow: isSelected
+                          ? (isDark ? '0 0 0 2.5px #1e293b, 0 0 0 4.5px #38bdf8, 0 2px 8px rgba(0,0,0,0.35)' : '0 0 0 2.5px #ffffff, 0 0 0 4.5px #0f172a, 0 2px 8px rgba(0,0,0,0.15)')
+                          : (isDark ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0,0,0,0.2)' : 'inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0,0,0,0.06)'),
+                        transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+                        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                      }}
+                      title={g.name}
+                      aria-label={g.name}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Row 2: Solid Colors */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {PRESET_SOLID_COLORS.map((c) => {
+                  const isSelected = colors === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setColors(c)}
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        backgroundColor: c,
+                        border: 'none',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer',
+                        padding: 0,
+                        boxShadow: isSelected
+                          ? (isDark ? '0 0 0 2.5px #1e293b, 0 0 0 4.5px #38bdf8, 0 2px 8px rgba(0,0,0,0.35)' : '0 0 0 2.5px #ffffff, 0 0 0 4.5px #0f172a, 0 2px 8px rgba(0,0,0,0.15)')
+                          : (isDark ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0,0,0,0.2)' : 'inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0,0,0,0.06)'),
+                        transform: isSelected ? 'scale(1.08)' : 'scale(1)',
+                        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                      }}
+                      title={c}
+                      aria-label={`Solid color ${c}`}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Row 3: No theme color option */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
                 <button
-                  key={c}
                   type="button"
-                  onClick={() => setColors(c)}
+                  onClick={() => setColors('')}
                   style={{
-                    width: '30px',
-                    height: '30px',
+                    width: '32px',
+                    height: '32px',
                     borderRadius: '50%',
-                    backgroundColor: c,
-                    border: colors === c ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : '1.5px solid rgba(0,0,0,0.15)',
-                    cursor: 'pointer',
+                    backgroundColor: isDark ? '#334155' : '#f1f5f9',
+                    border: 'none',
                     outline: 'none',
                     boxSizing: 'border-box',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                    transform: colors === c ? 'scale(1.1)' : 'scale(1)',
-                    transition: 'transform 0.12s ease, border-color 0.12s ease',
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: !colors
+                      ? (isDark ? '0 0 0 2.5px #1e293b, 0 0 0 4.5px #38bdf8, 0 2px 8px rgba(0,0,0,0.35)' : '0 0 0 2.5px #ffffff, 0 0 0 4.5px #0f172a, 0 2px 8px rgba(0,0,0,0.15)')
+                      : (isDark ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0,0,0,0.2)' : 'inset 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0,0,0,0.06)'),
+                    transform: !colors ? 'scale(1.08)' : 'scale(1)',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                   }}
-                  title={c}
-                />
-              ))}
+                  title="No theme color (Default)"
+                  aria-label="No theme color (Default)"
+                >
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="8" cy="8" r="5.5" stroke={isDark ? '#94a3b8' : '#64748b'} strokeWidth="1.5" />
+                    <line x1="4" y1="12" x2="12" y2="4" stroke="#ef4444" strokeWidth="1.5" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 

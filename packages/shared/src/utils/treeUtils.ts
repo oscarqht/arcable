@@ -88,38 +88,46 @@ export function getFaviconUrl(urlStr: string | null | undefined): string {
 }
 
 /**
- * Checks whether a hex color is dark enough to require light text (YIQ formula)
+ * Checks whether a color or gradient is dark enough to require light text (YIQ formula)
  */
-export function isDarkColor(hexColor?: string | null): boolean {
-  if (!hexColor || !hexColor.startsWith('#')) return false;
-  const hex = hexColor.replace('#', '');
-  if (hex.length === 3) {
-    const r = parseInt(hex[0] + hex[0], 16) || 0;
-    const g = parseInt(hex[1] + hex[1], 16) || 0;
-    const b = parseInt(hex[2] + hex[2], 16) || 0;
+export function isDarkColor(colorStr?: string | null): boolean {
+  if (!colorStr || typeof colorStr !== 'string') return false;
+  const trimmed = colorStr.trim();
+  let hex = trimmed;
+  if (trimmed.includes('gradient')) {
+    const match = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
+    if (!match) return false;
+    hex = match[0];
+  }
+  if (!hex.startsWith('#')) return false;
+  const rawHex = hex.replace('#', '');
+  if (rawHex.length === 3) {
+    const r = parseInt(rawHex[0] + rawHex[0], 16) || 0;
+    const g = parseInt(rawHex[1] + rawHex[1], 16) || 0;
+    const b = parseInt(rawHex[2] + rawHex[2], 16) || 0;
     const yiq = (r * 299 + g * 587 + b * 114) / 1000;
     return yiq < 140;
   }
-  const r = parseInt(hex.substring(0, 2), 16) || 0;
-  const g = parseInt(hex.substring(2, 4), 16) || 0;
-  const b = parseInt(hex.substring(4, 6), 16) || 0;
+  const r = parseInt(rawHex.substring(0, 2), 16) || 0;
+  const g = parseInt(rawHex.substring(2, 4), 16) || 0;
+  const b = parseInt(rawHex.substring(4, 6), 16) || 0;
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq < 140;
 }
 
 /**
- * Generates background CSS properties for space cards using the space color.
+ * Generates background CSS properties for space cards using the space color or gradient.
  */
 export function getSpaceColorStyle(
-  colorHex?: string | null
+  colorStr?: string | null
 ): React.CSSProperties | undefined {
-  if (!colorHex || typeof colorHex !== 'string' || !colorHex.trim()) {
+  if (!colorStr || typeof colorStr !== 'string' || !colorStr.trim()) {
     return undefined;
   }
 
-  const hex = colorHex.trim();
+  const bg = colorStr.trim();
   return {
-    backgroundColor: hex,
+    background: bg,
   };
 }
 

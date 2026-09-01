@@ -14,6 +14,7 @@ import {
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { getSpaceThemeStyles, getSpacePrimaryColor } from '../../utils/spaceTheme';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
@@ -1393,7 +1394,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           >
             {sortedSpaces.map((space) => {
               const isActive = space.id === activeSpace?.id;
-              const spaceColor = space.colors || '#919bb5';
+              const spaceTheme = getSpaceThemeStyles(space.colors, isDark);
+              const primaryColor = spaceTheme.primaryColor;
               const isDragTarget = dragOverSpaceId === space.id;
 
               return (
@@ -1418,9 +1420,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     gap: '6px',
                     padding: '7px 14px',
                     borderRadius: '24px',
-                    backgroundColor: isActive ? spaceColor : (isDark ? '#1e293b' : '#f8fafc'),
-                    color: isActive ? '#ffffff' : (isDark ? '#e2e8f0' : '#334155'),
-                    border: `1px solid ${isActive ? spaceColor : (isDark ? '#334155' : '#e2e8f0')}`,
+                    background: isActive ? spaceTheme.containerBg : (isDark ? '#1e293b' : '#f8fafc'),
+                    color: isActive ? spaceTheme.textColor : (isDark ? '#e2e8f0' : '#334155'),
+                    border: `1px solid ${isActive ? (spaceTheme.containerBg.includes('gradient') ? 'rgba(0,0,0,0.12)' : primaryColor) : (isDark ? '#334155' : '#e2e8f0')}`,
                     borderLeft: isDragTarget && spaceDropPos === 'before' ? '3px solid #0284c7' : undefined,
                     borderRight: isDragTarget && spaceDropPos === 'after' ? '3px solid #0284c7' : undefined,
                     opacity: draggingSpaceId === space.id ? 0.45 : 1,
@@ -1430,7 +1432,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     whiteSpace: 'nowrap',
                     flexShrink: 0,
                     transition: 'all 0.15s ease',
-                    boxShadow: isActive ? `0 2px 8px ${spaceColor}40` : 'none',
+                    boxShadow: isActive ? (spaceTheme.containerBg.includes('gradient') ? '0 2px 8px rgba(0,0,0,0.15)' : `0 2px 8px ${primaryColor}40`) : 'none',
                     userSelect: 'none',
                   }}
                   title={`${space.name} (Click to select, drag to reorder)`}
@@ -1452,8 +1454,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         title="Edit space"
                         style={{
                           border: 'none',
-                          background: 'rgba(255,255,255,0.25)',
-                          color: '#ffffff',
+                          background: spaceTheme.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.1)',
+                          color: spaceTheme.textColor,
                           fontSize: '10px',
                           padding: '1px 4px',
                           borderRadius: '4px',
@@ -1826,7 +1828,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
           {sortedSpaces.map((space) => {
             const isActive = space.id === activeSpace?.id;
-            const spaceColor = space.colors || '#3b82f6';
+            const primaryColor = getSpacePrimaryColor(space.colors);
             const isDragTarget = dragOverSpaceId === space.id;
 
             let boxShadow = 'none';
@@ -1837,7 +1839,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 boxShadow = '2px 0 0 0 #0284c7';
               }
             } else if (isActive) {
-              boxShadow = `0 0 0 1.5px ${spaceColor}, 0 2px 6px ${spaceColor}35`;
+              boxShadow = `0 0 0 1.5px ${primaryColor}, 0 2px 6px ${primaryColor}35`;
             }
 
             return (
@@ -1864,7 +1866,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   appearance: 'none',
                   border: 'none',
                   outline: 'none',
-                  background: isActive ? `${spaceColor}18` : 'transparent',
+                  background: isActive ? `${primaryColor}18` : 'transparent',
                   borderRadius: '9999px',
                   width: '32px',
                   height: '32px',
@@ -1896,7 +1898,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       width: '6px',
                       height: '2px',
                       borderRadius: '2px',
-                      backgroundColor: spaceColor,
+                      backgroundColor: primaryColor,
                       transition: 'all 0.25s ease',
                     }}
                   />

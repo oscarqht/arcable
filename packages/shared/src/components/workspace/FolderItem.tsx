@@ -100,7 +100,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
   const totalItemCount = siblings.length;
-  const folderColor = folder.colors || null;
 
   const handleCopyFolder = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -328,9 +327,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             {folder.customEmojiIcon ? (
               <span style={{ fontSize: '18px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
             ) : isExpanded ? (
-              <FolderOpenIcon size={18} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
+              <FolderOpenIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             ) : (
-              <FolderIcon size={18} color={folderColor || (isDarkTheme ? '#a5c4b5' : '#4b7593')} />
+              <FolderIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             )}
             {folder.customEmojiIcon && (
               <span
@@ -361,21 +360,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           >
             {folder.name}
           </span>
-
-          {/* Color Dot if custom color exists */}
-          {folderColor && (
-            <span
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: folderColor,
-                flexShrink: 0,
-                boxShadow: '0 0 2px rgba(0,0,0,0.2)',
-              }}
-              title={`Color: ${folderColor}`}
-            />
-          )}
 
           {/* Item Count Badge */}
           <span

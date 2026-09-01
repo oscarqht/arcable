@@ -21,20 +21,8 @@ interface FolderModalProps {
     parentSpaceId: string;
     parentFolderId?: string;
     customEmojiIcon?: string;
-    colors?: string;
   }) => void;
 }
-
-const PRESET_COLORS = [
-  '#f29bbb', // Blossom Pink
-  '#a6729e', // Purple Mauve
-  '#f25e6c', // Coral Red
-  '#ff8657', // Warm Orange
-  '#f8d558', // Sunny Yellow
-  '#33e895', // Mint Green
-  '#6dbad9', // Sky Blue
-  '#666789', // Slate Indigo
-];
 
 export const FolderModal: React.FC<FolderModalProps> = ({
   isOpen,
@@ -52,7 +40,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
   const [customEmojiIcon, setCustomEmojiIcon] = useState('');
-  const [colors, setColors] = useState('');
 
   const prevIsOpenRef = React.useRef(false);
   const prevFolderIdRef = React.useRef<string | null | undefined>(undefined);
@@ -67,13 +54,11 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         setParentSpaceId(folder.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
         setCustomEmojiIcon(folder.customEmojiIcon || '');
-        setColors(folder.colors || '');
       } else {
         setName('');
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultParentFolderId || '');
         setCustomEmojiIcon('');
-        setColors('');
       }
     }
 
@@ -125,7 +110,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
       parentSpaceId,
       parentFolderId: parentFolderId || undefined,
       customEmojiIcon: customEmojiIcon.trim() || undefined,
-      colors: colors.trim() || undefined,
     });
     onClose();
   };
@@ -270,63 +254,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             label="Emoji Icon"
             allowClear
           />
-
-
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Color Accent
-            </label>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={() => setColors('')}
-                title="No color (Default)"
-                style={{
-                  width: '30px',
-                  height: '30px',
-                  borderRadius: '50%',
-                  backgroundColor: isDark ? '#334155' : '#f8fafc',
-                  border: !colors ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : (isDark ? '1.5px solid #475569' : '1.5px solid #cbd5e1'),
-                  cursor: 'pointer',
-                  outline: 'none',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 0,
-                  boxSizing: 'border-box',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  transition: 'transform 0.12s ease',
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="8" cy="8" r="6" stroke="#94a3b8" strokeWidth="1.5" />
-                  <line x1="3.5" y1="12.5" x2="12.5" y2="3.5" stroke="#ef4444" strokeWidth="1.5" />
-                </svg>
-              </button>
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColors(c)}
-                  style={{
-                    width: '30px',
-                    height: '30px',
-                    borderRadius: '50%',
-                    backgroundColor: c,
-                    border: colors === c ? (isDark ? '2.5px solid #38bdf8' : '2.5px solid #0f172a') : '1.5px solid rgba(0,0,0,0.15)',
-                    cursor: 'pointer',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                    transform: colors === c ? 'scale(1.1)' : 'scale(1)',
-                    transition: 'transform 0.12s ease, border-color 0.12s ease',
-                  }}
-                  title={c}
-                />
-              ))}
-            </div>
-          </div>
 
           <div style={{ display: 'flex', justifyContent: folder && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
             {folder && onDelete && (
