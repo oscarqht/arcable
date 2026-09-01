@@ -128,7 +128,7 @@ a {
   }
 }
 
-/* Space Cards Grid: responsive breakpoints (<=420: 1 col, <=600: 2 cols, <=960: 3 cols, <=1280: 4 cols, otherwise 5 cols) */
+/* Space Cards Grid: responsive breakpoints (<=500: 1 col, <=600: 2 cols, <=960: 3 cols, <=1280: 4 cols, otherwise 5 cols) */
 .space-cards-grid {
   display: grid !important;
   grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
@@ -176,7 +176,7 @@ a {
   }
 }
 
-@media (max-width: 420px) {
+@media (max-width: 500px) {
   .main-content {
     padding: 0 8px !important;
   }
@@ -186,5 +186,6 @@ a {
     gap: 10px !important;
   }
 }
+
 
 
