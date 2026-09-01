@@ -35,12 +35,35 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
   const [targetSpaceId, setTargetSpaceId] = useState('');
   const [targetParentFolderId, setTargetParentFolderId] = useState('');
 
+  const prevIsOpenRef = React.useRef(false);
+  const prevSpaceIdRef = React.useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen && destinationSpaces.length > 0) {
+    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
+    const spaceChanged = isOpen && space?.id !== prevSpaceIdRef.current;
+
+    if (isNewlyOpened || spaceChanged) {
+      if (destinationSpaces.length > 0) {
+        setTargetSpaceId(destinationSpaces[0].id);
+        setTargetParentFolderId('');
+      } else {
+        setTargetSpaceId('');
+        setTargetParentFolderId('');
+      }
+    }
+
+    prevIsOpenRef.current = isOpen;
+    prevSpaceIdRef.current = space?.id;
+  }, [isOpen, space, destinationSpaces]);
+
+  // If destination space was deleted remotely while modal is open, ensure targetSpaceId points to a valid destination space
+  useEffect(() => {
+    if (!isOpen) return;
+    if (targetSpaceId && destinationSpaces.length > 0 && !destinationSpaces.some((s) => s.id === targetSpaceId)) {
       setTargetSpaceId(destinationSpaces[0].id);
       setTargetParentFolderId('');
     }
-  }, [isOpen, destinationSpaces]);
+  }, [isOpen, targetSpaceId, destinationSpaces]);
 
   // Folders in the selected destination space
   const availableParentFolders = useMemo(() => {

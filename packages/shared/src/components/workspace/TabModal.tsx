@@ -54,14 +54,20 @@ export const TabModal: React.FC<TabModalProps> = ({
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
 
+  const prevIsOpenRef = React.useRef(false);
+  const prevTabIdRef = React.useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
+    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
+    const tabChanged = isOpen && tab?.id !== prevTabIdRef.current;
+
+    if (isNewlyOpened || tabChanged) {
       if (tab) {
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
         setCustomEmojiIcon(tab.customEmojiIcon || '');
         setFavourite(Boolean(tab.favourite));
-        setParentSpaceId(tab.parentSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(tab.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
       } else {
         setUrl(initialUrl || '');
@@ -72,7 +78,19 @@ export const TabModal: React.FC<TabModalProps> = ({
         setParentFolderId(defaultFolderId || '');
       }
     }
+
+    prevIsOpenRef.current = isOpen;
+    prevTabIdRef.current = tab?.id;
   }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, allSpaces]);
+
+  // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!favourite && parentSpaceId && allSpaces.length > 0 && !allSpaces.some((s) => s.id === parentSpaceId)) {
+      setParentSpaceId(allSpaces[0].id);
+      setParentFolderId('');
+    }
+  }, [isOpen, favourite, parentSpaceId, allSpaces]);
 
   // Available folders in selected space
   const spaceFolders = useMemo(() => {

@@ -35,8 +35,14 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
   const [emojiIcon, setEmojiIcon] = useState('');
   const [colors, setColors] = useState('');
 
+  const prevIsOpenRef = React.useRef(false);
+  const prevSpaceIdRef = React.useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
+    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
+    const spaceChanged = isOpen && space?.id !== prevSpaceIdRef.current;
+
+    if (isNewlyOpened || spaceChanged) {
       if (space) {
         setName(space.name || '');
         setEmojiIcon(space.emojiIcon || '');
@@ -47,6 +53,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
         setColors('');
       }
     }
+
+    prevIsOpenRef.current = isOpen;
+    prevSpaceIdRef.current = space?.id;
   }, [isOpen, space]);
 
   if (!isOpen) return null;

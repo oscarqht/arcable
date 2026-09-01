@@ -270,14 +270,18 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
     }
   }, [onFetchDevices, raindropToken, effectiveCurrentDeviceId]);
 
+  const prevIsOpenRef = React.useRef(false);
+
   useEffect(() => {
-    if (isOpen) {
+    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
+    if (isNewlyOpened) {
       setEditingDeviceId(null);
       setConfirmDeleteDevice(null);
       setConfirmDeleteOtherDevices(false);
       setSuccessMessage(null);
       void loadDevices();
     }
+    prevIsOpenRef.current = isOpen;
   }, [isOpen, loadDevices]);
 
   const resetRenameState = () => {

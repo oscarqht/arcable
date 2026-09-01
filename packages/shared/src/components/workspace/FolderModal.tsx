@@ -54,11 +54,17 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [customEmojiIcon, setCustomEmojiIcon] = useState('');
   const [colors, setColors] = useState('');
 
+  const prevIsOpenRef = React.useRef(false);
+  const prevFolderIdRef = React.useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (isOpen) {
+    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
+    const folderChanged = isOpen && folder?.id !== prevFolderIdRef.current;
+
+    if (isNewlyOpened || folderChanged) {
       if (folder) {
         setName(folder.name || '');
-        setParentSpaceId(folder.parentSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(folder.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
         setCustomEmojiIcon(folder.customEmojiIcon || '');
         setColors(folder.colors || '');
@@ -70,7 +76,19 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         setColors('');
       }
     }
+
+    prevIsOpenRef.current = isOpen;
+    prevFolderIdRef.current = folder?.id;
   }, [isOpen, folder, defaultSpaceId, defaultParentFolderId, allSpaces]);
+
+  // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
+  useEffect(() => {
+    if (!isOpen) return;
+    if (parentSpaceId && allSpaces.length > 0 && !allSpaces.some((s) => s.id === parentSpaceId)) {
+      setParentSpaceId(allSpaces[0].id);
+      setParentFolderId('');
+    }
+  }, [isOpen, parentSpaceId, allSpaces]);
 
   // Compute invalid parent folder IDs (self and all descendants to prevent cycles)
   const invalidParentFolderIds = useMemo(() => {
