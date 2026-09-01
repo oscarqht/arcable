@@ -243,155 +243,194 @@ class TabTracker {
     }
   }
 
+  private lockPromise: Promise<any> = Promise.resolve();
+  private pendingCreations: Map<string, { tabItemId: string; url: string; timestamp: number }> = new Map();
+
+  private runWithLock<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.lockPromise.then(
+      () => fn(),
+      () => fn()
+    );
+    this.lockPromise = next.catch(() => {});
+    return next;
+  }
+
+  public registerPendingCreation(tabItemId: string, url: string): void {
+    const now = Date.now();
+    for (const [id, entry] of this.pendingCreations.entries()) {
+      if (now - entry.timestamp > 15000) {
+        this.pendingCreations.delete(id);
+      }
+    }
+    this.pendingCreations.set(tabItemId, { tabItemId, url, timestamp: now });
+  }
+
+  public unregisterPendingCreation(tabItemId: string): void {
+    this.pendingCreations.delete(tabItemId);
+  }
+
   // Full synchronization between open browser tabs and workspace items (strictly 1-to-1)
   public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
-    this.currentWorkspaceTabs = workspaceTabs;
-    let allBrowserTabs: any[] = [];
-    try {
-      allBrowserTabs = await browser.tabs.query({});
-    } catch (err) {
-      console.warn('[TabTracker] tabs.query failed:', err);
-    }
+    return this.runWithLock(async () => {
+      this.currentWorkspaceTabs = workspaceTabs;
+      let allBrowserTabs: any[] = [];
+      try {
+        allBrowserTabs = await browser.tabs.query({});
+      } catch (err) {
+        console.warn('[TabTracker] tabs.query failed:', err);
+      }
 
-    const currentAssociations = await this.getAssociations();
-    const newAssociations: TabAssociationMap = {};
-    const assignedBrowserTabIds = new Set<number>();
-    const assignedTabItemIds = new Set<string>();
+      const currentAssociations = await this.getAssociations();
+      const newAssociations: TabAssociationMap = {};
+      const assignedBrowserTabIds = new Set<number>();
+      const assignedTabItemIds = new Set<string>();
 
-    // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
-    for (const [tabItemId, info] of Object.entries(currentAssociations)) {
-      const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
-      const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
+      // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
+      for (const [tabItemId, info] of Object.entries(currentAssociations)) {
+        const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
+        const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
 
-      if (
-        matchingWorkspaceItem &&
-        matchingBrowserTab &&
-        matchingBrowserTab.id !== undefined &&
-        !assignedBrowserTabIds.has(matchingBrowserTab.id)
-      ) {
-        const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-        if (areUrlsMatching(currentUrl, matchingWorkspaceItem.url)) {
-          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-          newAssociations[tabItemId] = {
-            tabItemId,
-            browserTabId: matchingBrowserTab.id,
-            windowId: matchingBrowserTab.windowId || 0,
-            currentUrl: currentUrl || matchingWorkspaceItem.url,
-            originalUrl: matchingWorkspaceItem.url,
-            isDiverted: false,
-            badge: badge || undefined,
-          };
-          assignedBrowserTabIds.add(matchingBrowserTab.id);
-          assignedTabItemIds.add(tabItemId);
+        if (
+          matchingWorkspaceItem &&
+          matchingBrowserTab &&
+          matchingBrowserTab.id !== undefined &&
+          !assignedBrowserTabIds.has(matchingBrowserTab.id)
+        ) {
+          const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
+          if (areUrlsMatching(currentUrl, matchingWorkspaceItem.url)) {
+            const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+            newAssociations[tabItemId] = {
+              tabItemId,
+              browserTabId: matchingBrowserTab.id,
+              windowId: matchingBrowserTab.windowId || 0,
+              currentUrl: currentUrl || matchingWorkspaceItem.url,
+              originalUrl: matchingWorkspaceItem.url,
+              isDiverted: false,
+              badge: badge || undefined,
+            };
+            assignedBrowserTabIds.add(matchingBrowserTab.id);
+            assignedTabItemIds.add(tabItemId);
+          }
         }
       }
-    }
 
-    // Step 2: Direct URL matching for remaining unassociated workspace items & browser tabs (strictly 1-to-1, first match)
-    for (const item of workspaceTabs) {
-      if (assignedTabItemIds.has(item.id) || !item.url) continue;
-
-      const matchingBrowserTab = allBrowserTabs.find(
-        (bt) =>
-          bt.id !== undefined &&
-          !assignedBrowserTabIds.has(bt.id) &&
-          areUrlsMatching(bt.url || bt.pendingUrl, item.url)
+      // Step 2: Direct URL matching for remaining unassociated workspace items & browser tabs (strictly 1-to-1)
+      // Prioritize tab items with pending creations (i.e. tab items explicitly clicked to be opened)
+      const unassociatedWorkspaceTabs = workspaceTabs.filter(
+        (item) => !assignedTabItemIds.has(item.id) && Boolean(item.url)
       );
 
-      if (matchingBrowserTab && matchingBrowserTab.id !== undefined) {
-        const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-        newAssociations[item.id] = {
-          tabItemId: item.id,
-          browserTabId: matchingBrowserTab.id,
-          windowId: matchingBrowserTab.windowId || 0,
-          currentUrl: matchingBrowserTab.url || matchingBrowserTab.pendingUrl || item.url,
-          originalUrl: item.url,
-          isDiverted: false,
-          badge: badge || undefined,
-        };
-        assignedBrowserTabIds.add(matchingBrowserTab.id);
-        assignedTabItemIds.add(item.id);
-      }
-    }
+      unassociatedWorkspaceTabs.sort((a, b) => {
+        const aPending = this.pendingCreations.has(a.id) ? 1 : 0;
+        const bPending = this.pendingCreations.has(b.id) ? 1 : 0;
+        return bPending - aPending;
+      });
 
-    // Step 3: Diverted associations retention (if browser tab navigated to external URL)
-    for (const [tabItemId, info] of Object.entries(currentAssociations)) {
-      if (assignedTabItemIds.has(tabItemId)) continue;
-      if (assignedBrowserTabIds.has(info.browserTabId)) continue;
+      for (const item of unassociatedWorkspaceTabs) {
+        if (assignedTabItemIds.has(item.id) || !item.url) continue;
 
-      const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
-      const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
-
-      if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
-        const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-
-        // If this tab's new URL matches an unassociated workspace item, bind to that item instead
-        const matchingUnassocItem = workspaceTabs.find(
-          (t) => !assignedTabItemIds.has(t.id) && t.url && areUrlsMatching(currentUrl, t.url)
+        const matchingBrowserTab = allBrowserTabs.find(
+          (bt) =>
+            bt.id !== undefined &&
+            !assignedBrowserTabIds.has(bt.id) &&
+            areUrlsMatching(bt.url || bt.pendingUrl, item.url)
         );
 
-        if (matchingUnassocItem) {
+        if (matchingBrowserTab && matchingBrowserTab.id !== undefined) {
           const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-          newAssociations[matchingUnassocItem.id] = {
-            tabItemId: matchingUnassocItem.id,
+          newAssociations[item.id] = {
+            tabItemId: item.id,
             browserTabId: matchingBrowserTab.id,
             windowId: matchingBrowserTab.windowId || 0,
-            currentUrl: currentUrl || matchingUnassocItem.url,
-            originalUrl: matchingUnassocItem.url,
+            currentUrl: matchingBrowserTab.url || matchingBrowserTab.pendingUrl || item.url,
+            originalUrl: item.url,
             isDiverted: false,
             badge: badge || undefined,
           };
           assignedBrowserTabIds.add(matchingBrowserTab.id);
-          assignedTabItemIds.add(matchingUnassocItem.id);
-        } else {
-          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-          newAssociations[tabItemId] = {
-            tabItemId,
-            browserTabId: matchingBrowserTab.id,
-            windowId: matchingBrowserTab.windowId || 0,
-            currentUrl,
-            originalUrl: matchingWorkspaceItem.url || info.originalUrl,
-            isDiverted: true,
-            badge: badge || undefined,
-          };
-          assignedBrowserTabIds.add(matchingBrowserTab.id);
-          assignedTabItemIds.add(tabItemId);
+          assignedTabItemIds.add(item.id);
         }
       }
-    }
 
-    await this.saveAssociations(newAssociations);
+      // Step 3: Diverted associations retention (if browser tab navigated to external URL)
+      for (const [tabItemId, info] of Object.entries(currentAssociations)) {
+        if (assignedTabItemIds.has(tabItemId)) continue;
+        if (assignedBrowserTabIds.has(info.browserTabId)) continue;
 
-    // Phase 3: Track unmatched browser tabs in tmp tabs list
-    const associatedBrowserTabIds = new Set(Object.values(newAssociations).map((a) => a.browserTabId));
-    const unmatchedBrowserTabs = allBrowserTabs.filter((bt) => {
-      if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
-      const url = bt.url || bt.pendingUrl || '';
-      if (!url) return false;
-      if (
-        url.startsWith('chrome-extension://') ||
-        url.startsWith('moz-extension://') ||
-        url.startsWith('devtools://')
-      ) {
-        return false;
+        const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
+        const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
+
+        if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
+          const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
+
+          // If this tab's new URL matches an unassociated workspace item, bind to that item instead
+          const matchingUnassocItem = workspaceTabs.find(
+            (t) => !assignedTabItemIds.has(t.id) && t.url && areUrlsMatching(currentUrl, t.url)
+          );
+
+          if (matchingUnassocItem) {
+            const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+            newAssociations[matchingUnassocItem.id] = {
+              tabItemId: matchingUnassocItem.id,
+              browserTabId: matchingBrowserTab.id,
+              windowId: matchingBrowserTab.windowId || 0,
+              currentUrl: currentUrl || matchingUnassocItem.url,
+              originalUrl: matchingUnassocItem.url,
+              isDiverted: false,
+              badge: badge || undefined,
+            };
+            assignedBrowserTabIds.add(matchingBrowserTab.id);
+            assignedTabItemIds.add(matchingUnassocItem.id);
+          } else {
+            const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+            newAssociations[tabItemId] = {
+              tabItemId,
+              browserTabId: matchingBrowserTab.id,
+              windowId: matchingBrowserTab.windowId || 0,
+              currentUrl,
+              originalUrl: matchingWorkspaceItem.url || info.originalUrl,
+              isDiverted: true,
+              badge: badge || undefined,
+            };
+            assignedBrowserTabIds.add(matchingBrowserTab.id);
+            assignedTabItemIds.add(tabItemId);
+          }
+        }
       }
-      return true;
+
+      await this.saveAssociations(newAssociations);
+
+      // Phase 3: Track unmatched browser tabs in tmp tabs list
+      const associatedBrowserTabIds = new Set(Object.values(newAssociations).map((a) => a.browserTabId));
+      const unmatchedBrowserTabs = allBrowserTabs.filter((bt) => {
+        if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
+        const url = bt.url || bt.pendingUrl || '';
+        if (!url) return false;
+        if (
+          url.startsWith('chrome-extension://') ||
+          url.startsWith('moz-extension://') ||
+          url.startsWith('devtools://')
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => ({
+        id: `tmp_${bt.id}`,
+        url: bt.url || bt.pendingUrl || '',
+        title: bt.title || '',
+        favIconUrl: bt.favIconUrl,
+        browserTabId: bt.id,
+        windowId: bt.windowId || 0,
+        badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
+        createdAt: Date.now(),
+      }));
+
+      await this.saveTmpTabs(newTmpTabs);
+
+      return newAssociations;
     });
-
-    const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => ({
-      id: `tmp_${bt.id}`,
-      url: bt.url || bt.pendingUrl || '',
-      title: bt.title || '',
-      favIconUrl: bt.favIconUrl,
-      browserTabId: bt.id,
-      windowId: bt.windowId || 0,
-      badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
-      createdAt: Date.now(),
-    }));
-
-    await this.saveTmpTabs(newTmpTabs);
-
-    return newAssociations;
   }
 
   // Activate browser tab and focus its window
@@ -413,75 +452,94 @@ class TabTracker {
     originalUrl: string,
     tabItemId: string
   ): Promise<void> {
-    try {
-      if (windowId !== undefined && typeof browser.windows !== 'undefined' && browser.windows.update) {
-        await browser.windows.update(windowId, { focused: true }).catch(() => {});
-      }
-      await browser.tabs.update(browserTabId, { url: originalUrl, active: true });
+    return this.runWithLock(async () => {
+      try {
+        if (windowId !== undefined && typeof browser.windows !== 'undefined' && browser.windows.update) {
+          await browser.windows.update(windowId, { focused: true }).catch(() => {});
+        }
+        await browser.tabs.update(browserTabId, { url: originalUrl, active: true });
 
-      const associations = await this.getAssociations();
-      if (associations[tabItemId]) {
-        associations[tabItemId] = {
-          ...associations[tabItemId],
-          currentUrl: originalUrl,
-          isDiverted: false,
-        };
-        await this.saveAssociations(associations);
+        const associations = await this.getAssociations();
+        if (associations[tabItemId]) {
+          associations[tabItemId] = {
+            ...associations[tabItemId],
+            currentUrl: originalUrl,
+            isDiverted: false,
+          };
+          await this.saveAssociations(associations);
+        }
+      } catch (err) {
+        console.warn('[TabTracker] Error resetting tab URL:', err);
       }
-    } catch (err) {
-      console.warn('[TabTracker] Error resetting tab URL:', err);
-    }
+    });
   }
 
   // Close the associated browser tab and break association (strictly 1-to-1)
   public async closeAssociatedTab(browserTabId: number, tabItemId: string): Promise<void> {
-    try {
-      await browser.tabs.remove(browserTabId).catch(() => {});
-      const associations = await this.getAssociations();
-      if (associations[tabItemId]) {
-        delete associations[tabItemId];
+    return this.runWithLock(async () => {
+      try {
+        await browser.tabs.remove(browserTabId).catch(() => {});
+        const associations = await this.getAssociations();
+        if (associations[tabItemId]) {
+          delete associations[tabItemId];
+        }
+        await this.saveAssociations(associations);
+      } catch (err) {
+        console.warn('[TabTracker] Error closing tab:', err);
       }
-      await this.saveAssociations(associations);
-    } catch (err) {
-      console.warn('[TabTracker] Error closing tab:', err);
-    }
+    });
   }
 
   // Close a temporary tab
   public async closeTmpTab(browserTabId: number): Promise<void> {
-    try {
-      await browser.tabs.remove(browserTabId).catch(() => {});
-      const currentTmpTabs = await this.getTmpTabs();
-      const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
-      await this.saveTmpTabs(updated);
-    } catch (err) {
-      console.warn('[TabTracker] Error closing tmp tab:', err);
-    }
+    return this.runWithLock(async () => {
+      try {
+        await browser.tabs.remove(browserTabId).catch(() => {});
+        const currentTmpTabs = await this.getTmpTabs();
+        const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+        await this.saveTmpTabs(updated);
+      } catch (err) {
+        console.warn('[TabTracker] Error closing tmp tab:', err);
+      }
+    });
   }
 
   // Open a new browser tab and associate it with tab item (strictly 1-to-1)
   public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
     try {
+      this.registerPendingCreation(tabItemId, url);
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
-        const associations = await this.getAssociations();
-        const badge = extractTabNotificationBadge(newTab.title || (newTab as any).pendingTitle);
-        // Strictly 1-to-1: associate ONLY tabItemId with this new browser tab
-        associations[tabItemId] = {
-          tabItemId,
-          browserTabId: newTab.id,
-          windowId: newTab.windowId || 0,
-          currentUrl: url,
-          originalUrl: url,
-          isDiverted: false,
-          badge: badge || undefined,
-        };
-        await this.saveAssociations(associations);
+        const newTabId = newTab.id;
+        const windowId = newTab.windowId || 0;
+        const title = newTab.title || (newTab as any).pendingTitle;
+        await this.runWithLock(async () => {
+          const associations = await this.getAssociations();
+          const badge = extractTabNotificationBadge(title);
+          // Strictly 1-to-1: clear any existing association tied to this browserTabId or tabItemId
+          for (const [id, info] of Object.entries(associations)) {
+            if (info.browserTabId === newTabId || id === tabItemId) {
+              delete associations[id];
+            }
+          }
+          associations[tabItemId] = {
+            tabItemId,
+            browserTabId: newTabId,
+            windowId,
+            currentUrl: url,
+            originalUrl: url,
+            isDiverted: false,
+            badge: badge || undefined,
+          };
+          await this.saveAssociations(associations);
+        });
       }
     } catch (err) {
       console.warn('[TabTracker] Error opening new tab:', err);
       // Fallback
       window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      this.unregisterPendingCreation(tabItemId);
     }
   }
 
@@ -525,25 +583,27 @@ class TabTracker {
     // 3. Tab removed (closed)
     if (tabsApi && tabsApi.onRemoved) {
       tabsApi.onRemoved.addListener(async (tabId: number) => {
-        const associations = await this.getAssociations();
-        let changed = false;
+        await this.runWithLock(async () => {
+          const associations = await this.getAssociations();
+          let changed = false;
 
-        for (const [tabItemId, info] of Object.entries(associations)) {
-          if (info.browserTabId === tabId) {
-            delete associations[tabItemId];
-            changed = true;
+          for (const [tabItemId, info] of Object.entries(associations)) {
+            if (info.browserTabId === tabId) {
+              delete associations[tabItemId];
+              changed = true;
+            }
           }
-        }
 
-        if (changed) {
-          await this.saveAssociations(associations);
-        }
+          if (changed) {
+            await this.saveAssociations(associations);
+          }
 
-        const tmpTabs = await this.getTmpTabs();
-        const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
-        if (updatedTmp.length !== tmpTabs.length) {
-          await this.saveTmpTabs(updatedTmp);
-        }
+          const tmpTabs = await this.getTmpTabs();
+          const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
+          if (updatedTmp.length !== tmpTabs.length) {
+            await this.saveTmpTabs(updatedTmp);
+          }
+        });
       });
     }
 

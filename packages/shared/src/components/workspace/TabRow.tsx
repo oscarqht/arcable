@@ -105,7 +105,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     e.stopPropagation();
     if (tab.url) {
       if (onOpen) {
-        onOpen(tab.url);
+        onOpen(tab.url, tab.id);
       } else {
         window.open(tab.url, '_blank', 'noopener,noreferrer');
       }

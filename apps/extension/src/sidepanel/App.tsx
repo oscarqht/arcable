@@ -287,10 +287,16 @@ export const App: React.FC = () => {
         }
       }
 
-      // Check if this specific tab item or URL is already associated
+      // Check if this specific tab item is already associated
       if (tabId && tabAssociations[tabId]) {
         const assoc = tabAssociations[tabId];
         await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+        return;
+      }
+
+      // Prioritize associating new browser tab with the tab item being clicked
+      if (tabId) {
+        await tabTracker.openAndAssociateTab(tabId, url);
         return;
       }
 
@@ -299,9 +305,7 @@ export const App: React.FC = () => {
         if (raw) {
           const parsed = JSON.parse(raw);
           const allTabs = (parsed.tabs || []) as Tab[];
-          const matchingItem = tabId
-            ? allTabs.find((t) => t.id === tabId)
-            : allTabs.find((t) => areUrlsMatching(t.url, url));
+          const matchingItem = allTabs.find((t) => areUrlsMatching(t.url, url));
 
           if (matchingItem && tabAssociations[matchingItem.id]) {
             const assoc = tabAssociations[matchingItem.id];

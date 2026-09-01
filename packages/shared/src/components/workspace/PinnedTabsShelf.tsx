@@ -25,7 +25,7 @@ export interface PinnedTabsShelfProps {
   tabAssociations?: TabAssociationMap;
   isDarkTheme?: boolean;
   shelfBg?: string;
-  onOpenTab?: (url: string) => void;
+  onOpenTab?: (url: string, tabId?: string) => void;
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
@@ -205,7 +205,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
               onClick={() => {
                 if (tab.url) {
                   if (onOpenTab) {
-                    onOpenTab(tab.url);
+                    onOpenTab(tab.url, tab.id);
                   } else {
                     window.open(tab.url, '_blank', 'noopener,noreferrer');
                   }
@@ -271,7 +271,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     icon: <ExternalLinkIcon size={14} />,
                     onClick: () => {
                       if (tab.url) {
-                        if (onOpenTab) onOpenTab(tab.url);
+                        if (onOpenTab) onOpenTab(tab.url, tab.id);
                         else window.open(tab.url, '_blank', 'noopener,noreferrer');
                       }
                     },
