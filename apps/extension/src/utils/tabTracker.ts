@@ -1,13 +1,15 @@
-import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab } from '@arcable/shared/types';
+import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord } from '@arcable/shared/types';
 import { areUrlsMatching, extractTabNotificationBadge } from '@arcable/shared/utils';
 import { browser } from './browser';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
+const STORAGE_KEY_TMP_TAB_CUSTOM_TITLES = 'arcable_tmp_tab_custom_titles';
 
 // In-memory fallback if storage is unavailable
 let memoryAssociations: TabAssociationMap = {};
 let memoryTmpTabs: TmpTab[] = [];
+let memoryTmpTabCustomTitles: TmpTabCustomTitleRecord[] = [];
 
 type ChangeListener = (associations: TabAssociationMap) => void;
 type TmpTabsChangeListener = (tmpTabs: TmpTab[]) => void;
@@ -243,6 +245,104 @@ class TabTracker {
     }
   }
 
+  // Load custom title records from local storage (or browser storage)
+  public async getTmpTabCustomTitles(): Promise<TmpTabCustomTitleRecord[]> {
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        const res = await browser.storage.local.get(STORAGE_KEY_TMP_TAB_CUSTOM_TITLES);
+        if (res && res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES] && Array.isArray(res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES])) {
+          memoryTmpTabCustomTitles = [...res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES]];
+          return memoryTmpTabCustomTitles;
+        }
+      }
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem(STORAGE_KEY_TMP_TAB_CUSTOM_TITLES);
+        if (raw) {
+          memoryTmpTabCustomTitles = JSON.parse(raw);
+          return memoryTmpTabCustomTitles;
+        }
+      }
+    } catch (err) {
+      console.warn('[TabTracker] Could not read tmpTabCustomTitles from storage:', err);
+    }
+    return [...memoryTmpTabCustomTitles];
+  }
+
+  // Save custom title records to storage
+  private async saveTmpTabCustomTitles(records: TmpTabCustomTitleRecord[]): Promise<void> {
+    memoryTmpTabCustomTitles = [...records];
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        await browser.storage.local.set({ [STORAGE_KEY_TMP_TAB_CUSTOM_TITLES]: memoryTmpTabCustomTitles });
+      }
+    } catch {}
+
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STORAGE_KEY_TMP_TAB_CUSTOM_TITLES, JSON.stringify(memoryTmpTabCustomTitles));
+      }
+    } catch (err) {
+      console.warn('[TabTracker] Could not save tmpTabCustomTitles to storage:', err);
+    }
+  }
+
+  // Set or clear custom title for a tmp tab
+  public async setTmpTabCustomTitle(browserTabId: number | undefined, url: string, customTitle: string): Promise<void> {
+    return this.runWithLock(async () => {
+      const trimmed = customTitle.trim();
+      const records = await this.getTmpTabCustomTitles();
+      let updatedRecords: TmpTabCustomTitleRecord[];
+
+      if (!trimmed) {
+        // Clear / remove custom title for this tab
+        updatedRecords = records.filter(
+          (r) => !(browserTabId !== undefined && r.tabId === browserTabId) && !areUrlsMatching(r.url, url)
+        );
+      } else {
+        // Update existing matching entry or add new record
+        const existingIndex = records.findIndex(
+          (r) => (browserTabId !== undefined && r.tabId === browserTabId) || areUrlsMatching(r.url, url)
+        );
+        const newRecord: TmpTabCustomTitleRecord = {
+          tabId: browserTabId,
+          url,
+          customTitle: trimmed,
+          updatedAt: Date.now(),
+        };
+        if (existingIndex >= 0) {
+          updatedRecords = [...records];
+          updatedRecords[existingIndex] = newRecord;
+        } else {
+          updatedRecords = [...records, newRecord];
+        }
+      }
+
+      await this.saveTmpTabCustomTitles(updatedRecords);
+
+      // Update in-memory tmp tabs and notify subscribers immediately
+      const currentTmp = await this.getTmpTabs();
+      const updatedTmp = currentTmp.map((t) => {
+        if ((browserTabId !== undefined && t.browserTabId === browserTabId) || areUrlsMatching(t.url, url)) {
+          return {
+            ...t,
+            customTitle: trimmed || undefined,
+          };
+        }
+        return t;
+      });
+      await this.saveTmpTabs(updatedTmp);
+    });
+  }
+
+  // Remove custom title when a tmp tab is closed
+  public async removeTmpTabCustomTitle(browserTabId: number): Promise<void> {
+    const records = await this.getTmpTabCustomTitles();
+    const filtered = records.filter((r) => r.tabId !== browserTabId);
+    if (filtered.length !== records.length) {
+      await this.saveTmpTabCustomTitles(filtered);
+    }
+  }
+
   private lockPromise: Promise<any> = Promise.resolve();
   private pendingCreations: Map<string, { tabItemId: string; url: string; timestamp: number }> = new Map();
 
@@ -416,16 +516,69 @@ class TabTracker {
         return true;
       });
 
-      const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => ({
-        id: `tmp_${bt.id}`,
-        url: bt.url || bt.pendingUrl || '',
-        title: bt.title || '',
-        favIconUrl: bt.favIconUrl,
-        browserTabId: bt.id,
-        windowId: bt.windowId || 0,
-        badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
-        createdAt: Date.now(),
-      }));
+      const customTitleRecords = await this.getTmpTabCustomTitles();
+      let customTitlesModified = false;
+      const updatedCustomTitles = [...customTitleRecords];
+      const usedCustomTitleIndices = new Set<number>();
+
+      const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => {
+        const currentUrl = bt.url || bt.pendingUrl || '';
+        let matchedCustomTitle: string | undefined;
+
+        // Rule 1: Match by exact tabId first (handles in-session tab navigation - user navigated URL!)
+        // "once assigned a custom title, stick with that title regardless of what url that tab navigate to"
+        const idMatchIdx = updatedCustomTitles.findIndex(
+          (r, idx) => !usedCustomTitleIndices.has(idx) && bt.id !== undefined && r.tabId === bt.id
+        );
+
+        if (idMatchIdx >= 0) {
+          matchedCustomTitle = updatedCustomTitles[idMatchIdx].customTitle;
+          usedCustomTitleIndices.add(idMatchIdx);
+          // If URL changed due to navigation, update stored record's URL so it persists latest URL
+          if (currentUrl && !areUrlsMatching(updatedCustomTitles[idMatchIdx].url, currentUrl)) {
+            updatedCustomTitles[idMatchIdx] = {
+              ...updatedCustomTitles[idMatchIdx],
+              url: currentUrl,
+              updatedAt: Date.now(),
+            };
+            customTitlesModified = true;
+          }
+        } else {
+          // Rule 2: If not matched by tabId, match by URL (handles browser restart when Chrome creates new tab IDs)
+          const urlMatchIdx = updatedCustomTitles.findIndex(
+            (r, idx) => !usedCustomTitleIndices.has(idx) && currentUrl && areUrlsMatching(r.url, currentUrl)
+          );
+          if (urlMatchIdx >= 0) {
+            matchedCustomTitle = updatedCustomTitles[urlMatchIdx].customTitle;
+            usedCustomTitleIndices.add(urlMatchIdx);
+            // Rebind new tabId to this record
+            if (bt.id !== undefined && updatedCustomTitles[urlMatchIdx].tabId !== bt.id) {
+              updatedCustomTitles[urlMatchIdx] = {
+                ...updatedCustomTitles[urlMatchIdx],
+                tabId: bt.id,
+                updatedAt: Date.now(),
+              };
+              customTitlesModified = true;
+            }
+          }
+        }
+
+        return {
+          id: `tmp_${bt.id}`,
+          url: currentUrl,
+          title: bt.title || '',
+          customTitle: matchedCustomTitle,
+          favIconUrl: bt.favIconUrl,
+          browserTabId: bt.id,
+          windowId: bt.windowId || 0,
+          badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
+          createdAt: Date.now(),
+        };
+      });
+
+      if (customTitlesModified) {
+        await this.saveTmpTabCustomTitles(updatedCustomTitles);
+      }
 
       await this.saveTmpTabs(newTmpTabs);
 
@@ -495,6 +648,7 @@ class TabTracker {
     return this.runWithLock(async () => {
       try {
         await browser.tabs.remove(browserTabId).catch(() => {});
+        await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
         await this.saveTmpTabs(updated);
@@ -561,6 +715,10 @@ class TabTracker {
           memoryTmpTabs = [...newVal];
           this.notifyTmpTabs(memoryTmpTabs);
         }
+        if (changes[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES]) {
+          const newVal = (changes[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES].newValue as TmpTabCustomTitleRecord[]) || [];
+          memoryTmpTabCustomTitles = [...newVal];
+        }
       });
     }
 
@@ -597,6 +755,8 @@ class TabTracker {
           if (changed) {
             await this.saveAssociations(associations);
           }
+
+          await this.removeTmpTabCustomTitle(tabId);
 
           const tmpTabs = await this.getTmpTabs();
           const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);

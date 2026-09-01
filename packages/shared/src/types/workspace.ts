@@ -47,11 +47,19 @@ export interface TmpTab {
   id: string;
   url: string;
   title?: string;
+  customTitle?: string;
   favIconUrl?: string;
   browserTabId?: number;
   windowId?: number;
   badge?: string | number | null;
   createdAt?: number;
+}
+
+export interface TmpTabCustomTitleRecord {
+  tabId?: number;
+  url: string;
+  customTitle: string;
+  updatedAt: number;
 }
 
 export type WorkspaceSiblingItem =

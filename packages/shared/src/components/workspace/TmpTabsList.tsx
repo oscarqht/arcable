@@ -15,6 +15,7 @@ export interface TmpTabsListProps {
   onOpen?: (url: string, tabId?: string) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
+  onRename?: (tab: TmpTab, newTitle: string) => void;
 }
 
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
@@ -26,6 +27,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   onOpen,
   onPromote,
   onClose,
+  onRename,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
@@ -56,6 +58,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
           onOpen={onOpen}
           onPromote={onPromote}
           onClose={onClose}
+          onRename={onRename}
         />
       ))}
     </div>

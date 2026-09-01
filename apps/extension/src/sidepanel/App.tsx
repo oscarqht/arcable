@@ -349,6 +349,10 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRenameTmpTab = async (tab: TmpTab, newTitle: string) => {
+    await tabTracker.setTmpTabCustomTitle(tab.browserTabId, tab.url, newTitle);
+  };
+
 
 
 
@@ -518,6 +522,7 @@ export const App: React.FC = () => {
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
           onCloseTmpTab={handleCloseTmpTab}
+          onRenameTmpTab={handleRenameTmpTab}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
           onCloseAssociatedTab={handleCloseAssociatedTab}

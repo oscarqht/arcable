@@ -62,6 +62,7 @@ export interface WorkspaceManagerProps {
   tmpTabs?: TmpTab[];
   onCloseTmpTab?: (tab: TmpTab) => void;
   onPromoteTmpTab?: (tab: TmpTab) => void;
+  onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -102,6 +103,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       tmpTabs,
       onCloseTmpTab,
       onPromoteTmpTab,
+      onRenameTmpTab,
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
@@ -1052,7 +1054,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setDefaultTabPinned(false);
     setDefaultTabFavourite(false);
     setInitialTabUrl(tmpTab.url);
-    setInitialTabTitle(tmpTab.title || '');
+    setInitialTabTitle(tmpTab.customTitle || tmpTab.title || '');
     setIsTabModalOpen(true);
   };
 
@@ -1656,6 +1658,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               onOpen={onOpenTab}
               onPromote={handlePromoteTmpTab}
               onClose={(t) => onCloseTmpTab?.(t)}
+              onRename={onRenameTmpTab}
             />
           )}
         </>
@@ -1764,6 +1767,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           onOpen={onOpenTab}
           onPromote={handlePromoteTmpTab}
           onClose={(t) => onCloseTmpTab?.(t)}
+          onRename={onRenameTmpTab}
         />
       )}
 
