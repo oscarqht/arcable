@@ -17,6 +17,7 @@ import {
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
   getDefaultDeviceName,
+  searchRaindrop,
 } from '@arcable/shared/utils';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -320,6 +321,27 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: collections };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to fetch collections' };
+        }
+      }
+
+      // Raindrop: Search items & collections
+      case 'RAINDROP_SEARCH': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { query?: string; perpage?: number } | undefined;
+        const query = payload?.query || '';
+        if (!query.trim()) {
+          return { success: true, data: { items: [], collections: [] } };
+        }
+
+        try {
+          const result = await searchRaindrop(auth.accessToken, query.trim(), { perpage: payload?.perpage });
+          return { success: true, data: result };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to search Raindrop' };
         }
       }
 

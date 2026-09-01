@@ -5,6 +5,8 @@ import {
   RaindropBookmarkItem,
   RaindropCreateItemInput,
   RaindropTokenResponse,
+  RaindropSearchItem,
+  RaindropSearchResult,
 } from '../types/raindrop';
 
 export const RAINDROP_API_BASE = 'https://api.raindrop.io/rest/v1';
@@ -660,4 +662,170 @@ export async function exchangeRaindropOAuthCode(
   }
 
   return data;
+}
+
+/**
+ * Search Raindrop items and collections with ranking and mapping.
+ * Mirrors the search implementation from nenya-ext.
+ */
+export async function searchRaindrop(
+  token: string,
+  query: string,
+  options?: { perpage?: number }
+): Promise<RaindropSearchResult> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !query.trim()) {
+    return { items: [], collections: [] };
+  }
+
+  const perpage = options?.perpage || 50;
+  const headers = {
+    Authorization: `Bearer ${cleanToken}`,
+    Accept: 'application/json',
+  };
+
+  try {
+    const [itemsRes, rootColRes, childColRes] = await Promise.allSettled([
+      fetch(`${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`, {
+        method: 'GET',
+        headers,
+      }),
+      fetch(`${RAINDROP_API_BASE}/collections`, {
+        method: 'GET',
+        headers,
+      }),
+      fetch(`${RAINDROP_API_BASE}/collections/childrens`, {
+        method: 'GET',
+        headers,
+      }),
+    ]);
+
+    let rawItems: any[] = [];
+    if (itemsRes.status === 'fulfilled' && itemsRes.value.ok) {
+      const data = await itemsRes.value.json().catch(() => ({}));
+      if (Array.isArray(data.items)) {
+        rawItems = data.items;
+      }
+    }
+
+    const allCollections: RaindropCollectionItem[] = [];
+    if (rootColRes.status === 'fulfilled' && rootColRes.value.ok) {
+      const data = await rootColRes.value.json().catch(() => ({}));
+      if (Array.isArray(data.items)) {
+        allCollections.push(...data.items);
+      }
+    }
+
+    if (childColRes.status === 'fulfilled' && childColRes.value.ok) {
+      const data = await childColRes.value.json().catch(() => ({}));
+      if (Array.isArray(data.items)) {
+        allCollections.push(...data.items);
+      }
+    }
+
+    const queryLower = query.toLowerCase().trim();
+    const searchTerms = queryLower.split(/\s+/).filter(Boolean);
+
+    // Excluded internal / sync collections
+    const EXCLUDED_COLLECTIONS = ['nenya / options', 'arcable / sync'];
+    const excludedCollectionIds = new Set<number>();
+    allCollections.forEach((c) => {
+      if (c.title && EXCLUDED_COLLECTIONS.includes(c.title.toLowerCase().trim())) {
+        excludedCollectionIds.add(c._id);
+      }
+    });
+
+    // Create maps
+    const collectionIdTitleMap = new Map<number, string>();
+    const collectionIdParentMap = new Map<number, number>();
+    allCollections.forEach((c) => {
+      if (c._id && c.title) {
+        collectionIdTitleMap.set(c._id, c.title);
+      }
+      if (c._id && c.parent?.$id) {
+        collectionIdParentMap.set(c._id, c.parent.$id);
+      }
+    });
+    collectionIdTitleMap.set(-1, 'Unsorted');
+
+    // Filter items
+    const filteredItems: RaindropSearchItem[] = rawItems
+      .filter((item) => {
+        const colId = item.collection?.$id ?? item.collectionId;
+        if (colId !== undefined && excludedCollectionIds.has(colId)) {
+          return false;
+        }
+
+        const title = (item.title || '').toLowerCase();
+        const link = (item.link || '').toLowerCase();
+        const excerpt = (item.excerpt || '').toLowerCase();
+        const tags = Array.isArray(item.tags)
+          ? item.tags.map((t: any) => String(t).toLowerCase())
+          : [];
+
+        // If it's a Raindrop internal URL, only match against title
+        if (
+          link.startsWith('https://api.raindrop.io') ||
+          link.startsWith('https://up.raindrop.io')
+        ) {
+          return searchTerms.every((term) => title.includes(term));
+        }
+
+        const linkWithoutDomain = link
+          .replace('https://raindrop.io', '')
+          .replace('http://raindrop.io', '');
+        const searchableText = `${title} ${excerpt} ${tags.join(' ')} ${linkWithoutDomain}`;
+        return searchTerms.every((term) => searchableText.includes(term));
+      })
+      .map((item) => {
+        const colId = item.collection?.$id ?? item.collectionId;
+        const colTitle = colId !== undefined ? collectionIdTitleMap.get(colId) : undefined;
+        const parentId = colId !== undefined ? collectionIdParentMap.get(colId) : undefined;
+        const parentTitle = parentId !== undefined ? collectionIdTitleMap.get(parentId) : undefined;
+
+        return {
+          _id: item._id,
+          title: item.title || '',
+          excerpt: item.excerpt,
+          note: item.note,
+          link: item.link || '',
+          type: item.type,
+          file: item.file,
+          cover: item.cover,
+          tags: item.tags,
+          collectionId: colId,
+          collectionTitle: colTitle,
+          parentCollectionTitle: parentTitle,
+          created: item.created,
+          lastUpdate: item.lastUpdate,
+        };
+      });
+
+    // Sort items: system URLs to bottom
+    filteredItems.sort((a, b) => {
+      const aLink = (a.link || '').toLowerCase();
+      const bLink = (b.link || '').toLowerCase();
+      const aIsSystem = aLink.startsWith('https://api.raindrop.io') || aLink.startsWith('https://up.raindrop.io');
+      const bIsSystem = bLink.startsWith('https://api.raindrop.io') || bLink.startsWith('https://up.raindrop.io');
+
+      if (aIsSystem && !bIsSystem) return 1;
+      if (!aIsSystem && bIsSystem) return -1;
+      return 0;
+    });
+
+    // Filter collections matching query
+    const filteredCollections = allCollections.filter((c) => {
+      const titleLower = (c.title || '').toLowerCase().trim();
+      if (EXCLUDED_COLLECTIONS.includes(titleLower)) return false;
+      return searchTerms.every((term) => titleLower.includes(term));
+    });
+
+    return {
+      items: filteredItems,
+      collections: filteredCollections,
+    };
+  } catch (error) {
+    console.error('[RaindropClient] searchRaindrop error:', error);
+    return { items: [], collections: [] };
+  }
 }

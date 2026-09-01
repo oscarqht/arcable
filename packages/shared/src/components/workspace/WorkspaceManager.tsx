@@ -17,6 +17,8 @@ import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
+import { RaindropSearchInput } from './RaindropSearchInput';
+import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
 import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
@@ -67,6 +69,7 @@ export interface WorkspaceManagerProps {
   onSyncStateChange?: (isSyncing: boolean) => void;
   bottomBarMenuItems?: ActionDropdownItem[];
   raindropToken?: string;
+  onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   autoSync?: boolean;
   defaultViewMode?: 'grid' | 'focused';
   onSyncRaindrop?: (params: {
@@ -102,6 +105,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onSyncStateChange,
       bottomBarMenuItems,
       raindropToken,
+      onSearchRaindrop,
       autoSync = true,
       defaultViewMode = 'grid',
       onSyncRaindrop,
@@ -1128,6 +1132,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
+      {/* Search Input with Floating Dropdown (between Favourite Items and Spaces) */}
+      <RaindropSearchInput
+        raindropToken={raindropToken}
+        onSearchRaindrop={onSearchRaindrop}
+        onOpenTab={onOpenTab}
+        compact={compact}
+      />
 
       {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
       {!hideControlBar && !compact && (

@@ -120,6 +120,24 @@ export default function HomePage() {
     }
   };
 
+  const handleSearchRaindrop = async (query: string) => {
+    try {
+      const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(query)}`, {
+        headers: authState.accessToken
+          ? { Authorization: `Bearer ${authState.accessToken}` }
+          : undefined,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to search Raindrop bookmarks');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Raindrop search error:', err);
+      throw err;
+    }
+  };
+
   const handleFetchDevices = async () => {
     try {
       const res = await fetch('/api/raindrop/devices');
@@ -468,6 +486,7 @@ export default function HomePage() {
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
+          onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </main>

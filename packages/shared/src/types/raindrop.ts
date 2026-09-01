@@ -76,3 +76,13 @@ export interface RaindropCreateItemInput {
   collectionId?: number;
   cover?: string;
 }
+
+export interface RaindropSearchItem extends RaindropBookmarkItem {
+  collectionTitle?: string;
+  parentCollectionTitle?: string;
+}
+
+export interface RaindropSearchResult {
+  items: RaindropSearchItem[];
+  collections: RaindropCollectionItem[];
+}

@@ -229,6 +229,17 @@ export const App: React.FC = () => {
     return res.data;
   };
 
+  const handleSearchRaindrop = async (query: string) => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_SEARCH',
+      payload: { query },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to search Raindrop');
+    }
+    return res.data || { items: [], collections: [] };
+  };
+
   const handleFetchDevices = async () => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_GET_DEVICES',
@@ -476,6 +487,7 @@ export const App: React.FC = () => {
           onCaptureCurrentTab={handleCaptureCurrentTab}
           bottomBarMenuItems={bottomBarMenuItems}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
+          onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </div>
