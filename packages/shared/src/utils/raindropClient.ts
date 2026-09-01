@@ -140,7 +140,7 @@ export async function createRaindropBookmark(
   const payload: Record<string, any> = {
     link: input.link,
     title: input.title || input.link,
-    pleaseParse: {},
+    pleaseParse: input.pleaseParse ?? {},
   };
 
   if (input.excerpt) {

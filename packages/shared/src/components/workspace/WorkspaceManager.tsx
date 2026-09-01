@@ -70,6 +70,7 @@ export interface WorkspaceManagerProps {
   bottomBarMenuItems?: ActionDropdownItem[];
   raindropToken?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
+  onSaveToRaindrop?: () => Promise<void>;
   autoSync?: boolean;
   defaultViewMode?: 'grid' | 'focused';
   onSyncRaindrop?: (params: {
@@ -106,6 +107,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       bottomBarMenuItems,
       raindropToken,
       onSearchRaindrop,
+      onSaveToRaindrop,
       autoSync = true,
       defaultViewMode = 'grid',
       onSyncRaindrop,
@@ -1145,14 +1147,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       />
 
       {/* Raindrop Search Input & Filter with Inline Results */}
-      <RaindropSearchInput
-        raindropToken={raindropToken}
-        onSearchRaindrop={onSearchRaindrop}
-        onOpenTab={onOpenTab}
-        compact={compact}
-        searchQuery={activeSearchQuery}
-        onSearchChange={handleUpdateSearch}
-      />
+      {!hideSearchBar && (
+        <RaindropSearchInput
+          raindropToken={raindropToken}
+          onSearchRaindrop={onSearchRaindrop}
+          onSaveToRaindrop={onSaveToRaindrop}
+          onOpenTab={onOpenTab}
+          compact={compact}
+          searchQuery={activeSearchQuery}
+          onSearchChange={handleUpdateSearch}
+        />
+      )}
 
       {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
       {!hideControlBar && !compact && (

@@ -11,6 +11,7 @@ import { SearchIcon, CloseIcon, DropletIcon, ExternalLinkIcon } from '../Icons';
 export interface RaindropSearchInputProps {
   raindropToken?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
+  onSaveToRaindrop?: () => Promise<void>;
   onOpenTab?: (url: string, tabId?: string) => void;
   compact?: boolean;
   placeholder?: string;
@@ -22,9 +23,12 @@ type SelectableItem =
   | { type: 'collection'; data: RaindropCollectionItem; id: string }
   | { type: 'bookmark'; data: RaindropSearchItem; id: string };
 
+type SaveStatus = 'idle' | 'saving' | 'success' | 'error';
+
 export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   raindropToken,
   onSearchRaindrop,
+  onSaveToRaindrop,
   onOpenTab,
   compact = false,
   placeholder = 'Search Raindrop & filter spaces...',
@@ -40,6 +44,36 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isInputFocused, setIsInputFocused] = useState(false);
+
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const saveResetTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveResetTimerRef.current) {
+        clearTimeout(saveResetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSaveClick = async () => {
+    if (saveStatus === 'saving' || !onSaveToRaindrop) return;
+    if (saveResetTimerRef.current) {
+      clearTimeout(saveResetTimerRef.current);
+    }
+    setSaveStatus('saving');
+    try {
+      await onSaveToRaindrop();
+      setSaveStatus('success');
+    } catch (err) {
+      console.error('[RaindropSearchInput] Failed to save to Raindrop:', err);
+      setSaveStatus('error');
+    } finally {
+      saveResetTimerRef.current = setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
+    }
+  };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -266,132 +300,223 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
         }
       `}</style>
 
-      {/* Main Search Input Bar */}
+      {/* Main Search Input Bar & Save Button */}
       <div
         style={{
-          position: 'relative',
           display: 'flex',
           alignItems: 'center',
+          gap: '8px',
           width: '100%',
         }}
       >
-        {/* Left Search / Droplet Icon */}
         <div
           style={{
-            position: 'absolute',
-            left: compact ? '12px' : '14px',
+            position: 'relative',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            pointerEvents: 'none',
-            color: isSearching ? '#0284c7' : isDark ? '#64748b' : '#94a3b8',
-            transition: 'color 0.15s ease',
-            zIndex: 2,
+            flex: 1,
+            minWidth: 0,
           }}
         >
-          {isSearching ? (
-            <span
-              style={{
-                display: 'inline-block',
-                animation: 'arcable-raindrop-spin 0.8s linear infinite',
-                fontSize: compact ? '15px' : '16px',
-                lineHeight: 1,
-              }}
-            >
-              💧
-            </span>
-          ) : (
-            <SearchIcon size={compact ? 15 : 16} />
-          )}
-        </div>
-
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          placeholder={placeholder}
-          onChange={handleInputChange}
-          onFocus={() => setIsInputFocused(true)}
-          onBlur={() => setIsInputFocused(false)}
-          onKeyDown={handleKeyDown}
-          style={{
-            width: '100%',
-            height: compact ? '38px' : '42px',
-            padding: compact ? '7px 36px 7px 38px' : '8px 40px 8px 44px',
-            borderRadius: compact ? '14px' : '16px',
-            border: `1px solid ${
-              isInputFocused || shouldShowResults
-                ? '#0284c7'
-                : isDark
-                ? '#243247'
-                : '#cbd5e1'
-            }`,
-            backgroundColor: isDark ? '#151e2e' : '#ffffff',
-            color: isDark ? '#f8fafc' : '#0f172a',
-            fontSize: compact ? '13px' : '14px',
-            outline: 'none',
-            boxSizing: 'border-box',
-            boxShadow:
-              isInputFocused || shouldShowResults
-                ? isDark
-                  ? '0 0 0 2px rgba(56, 189, 248, 0.25)'
-                  : '0 0 0 2px rgba(2, 132, 199, 0.15)'
-                : 'none',
-            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-          }}
-        />
-
-        {/* Cmd+F Shortcut Hint */}
-        {!query && (
+          {/* Left Search / Droplet Icon */}
           <div
             style={{
               position: 'absolute',
-              right: compact ? '10px' : '14px',
-              display: 'flex',
-              alignItems: 'center',
-              pointerEvents: 'none',
-            }}
-          >
-            <kbd
-              style={{
-                fontSize: compact ? '9px' : '10px',
-                padding: '2px 5px',
-                borderRadius: '4px',
-                backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
-                color: isDark ? '#64748b' : '#94a3b8',
-                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                fontWeight: 600,
-                lineHeight: 1,
-              }}
-            >
-              ⌘F
-            </kbd>
-          </div>
-        )}
-
-        {/* Clear Button */}
-        {query && (
-          <button
-            type="button"
-            onClick={handleClear}
-            title="Clear search"
-            style={{
-              position: 'absolute',
-              right: compact ? '8px' : '12px',
-              border: 'none',
-              background: 'transparent',
-              color: isDark ? '#94a3b8' : '#64748b',
-              cursor: 'pointer',
-              padding: '4px',
+              left: compact ? '12px' : '14px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: '50%',
-              transition: 'background-color 0.1s ease',
+              pointerEvents: 'none',
+              color: isSearching ? '#0284c7' : isDark ? '#64748b' : '#94a3b8',
+              transition: 'color 0.15s ease',
+              zIndex: 2,
             }}
           >
-            <CloseIcon size={compact ? 13 : 15} />
+            {isSearching ? (
+              <span
+                style={{
+                  display: 'inline-block',
+                  animation: 'arcable-raindrop-spin 0.8s linear infinite',
+                  fontSize: compact ? '15px' : '16px',
+                  lineHeight: 1,
+                }}
+              >
+                💧
+              </span>
+            ) : (
+              <SearchIcon size={compact ? 15 : 16} />
+            )}
+          </div>
+
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            placeholder={placeholder}
+            onChange={handleInputChange}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            onKeyDown={handleKeyDown}
+            style={{
+              width: '100%',
+              height: compact ? '38px' : '42px',
+              padding: compact ? '7px 36px 7px 38px' : '8px 40px 8px 44px',
+              borderRadius: compact ? '14px' : '16px',
+              border: `1px solid ${
+                isInputFocused || shouldShowResults
+                  ? '#0284c7'
+                  : isDark
+                  ? '#243247'
+                  : '#cbd5e1'
+              }`,
+              backgroundColor: isDark ? '#151e2e' : '#ffffff',
+              color: isDark ? '#f8fafc' : '#0f172a',
+              fontSize: compact ? '13px' : '14px',
+              outline: 'none',
+              boxSizing: 'border-box',
+              boxShadow:
+                isInputFocused || shouldShowResults
+                  ? isDark
+                    ? '0 0 0 2px rgba(56, 189, 248, 0.25)'
+                    : '0 0 0 2px rgba(2, 132, 199, 0.15)'
+                  : 'none',
+              transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            }}
+          />
+
+          {/* Cmd+F Shortcut Hint */}
+          {!query && (
+            <div
+              style={{
+                position: 'absolute',
+                right: compact ? '10px' : '14px',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <kbd
+                style={{
+                  fontSize: compact ? '9px' : '10px',
+                  padding: '2px 5px',
+                  borderRadius: '4px',
+                  backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+                  color: isDark ? '#64748b' : '#94a3b8',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontWeight: 600,
+                  lineHeight: 1,
+                }}
+              >
+                ⌘F
+              </kbd>
+            </div>
+          )}
+
+          {/* Clear Button */}
+          {query && (
+            <button
+              type="button"
+              onClick={handleClear}
+              title="Clear search"
+              style={{
+                position: 'absolute',
+                right: compact ? '8px' : '12px',
+                border: 'none',
+                background: 'transparent',
+                color: isDark ? '#94a3b8' : '#64748b',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                transition: 'background-color 0.1s ease',
+              }}
+            >
+              <CloseIcon size={compact ? 13 : 15} />
+            </button>
+          )}
+        </div>
+
+        {/* Save to Raindrop Button (Icon only) */}
+        {onSaveToRaindrop && (
+          <button
+            type="button"
+            onClick={handleSaveClick}
+            disabled={saveStatus === 'saving'}
+            title="Save to Raindrop"
+            aria-label="Save to Raindrop"
+            style={{
+              width: compact ? '38px' : '42px',
+              height: compact ? '38px' : '42px',
+              padding: 0,
+              borderRadius: compact ? '14px' : '16px',
+              border: `1px solid ${
+                saveStatus === 'success'
+                  ? isDark
+                    ? 'rgba(34, 197, 94, 0.4)'
+                    : '#86efac'
+                  : saveStatus === 'error'
+                  ? isDark
+                    ? 'rgba(239, 68, 68, 0.4)'
+                    : '#fca5a5'
+                  : isDark
+                  ? '#243247'
+                  : '#cbd5e1'
+              }`,
+              backgroundColor:
+                saveStatus === 'success'
+                  ? isDark
+                    ? 'rgba(34, 197, 94, 0.15)'
+                    : '#f0fdf4'
+                  : saveStatus === 'error'
+                  ? isDark
+                    ? 'rgba(239, 68, 68, 0.15)'
+                    : '#fef2f2'
+                  : isDark
+                  ? '#151e2e'
+                  : '#ffffff',
+              color:
+                saveStatus === 'success'
+                  ? isDark
+                    ? '#4ade80'
+                    : '#16a34a'
+                  : saveStatus === 'error'
+                  ? isDark
+                    ? '#f87171'
+                    : '#dc2626'
+                  : isDark
+                  ? '#f8fafc'
+                  : '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
+              flexShrink: 0,
+              boxSizing: 'border-box',
+              boxShadow: isDark ? '0 1px 2px rgba(0, 0, 0, 0.2)' : '0 1px 2px rgba(0, 0, 0, 0.04)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: compact ? '15px' : '16px',
+                lineHeight: 1,
+                animation: saveStatus === 'saving' ? 'arcable-raindrop-spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              {saveStatus === 'saving'
+                ? '💧'
+                : saveStatus === 'success'
+                ? '✅'
+                : saveStatus === 'error'
+                ? '❌'
+                : '💧'}
+            </span>
           </button>
         )}
       </div>

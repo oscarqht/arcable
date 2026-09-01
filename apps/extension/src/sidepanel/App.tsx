@@ -387,6 +387,30 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSaveCurrentTabToRaindrop = async () => {
+    if (!hasRaindropAuth) {
+      browser.runtime.openOptionsPage();
+      throw new Error('Please connect your Raindrop.io account first in Settings.');
+    }
+    const tab = await getActiveTab();
+    if (!tab || !tab.url) {
+      throw new Error('No active tab URL detected.');
+    }
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_SAVE_BOOKMARK',
+      payload: {
+        link: tab.url,
+        title: tab.title || tab.url,
+        collectionId: -1,
+        pleaseParse: {},
+      },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to save bookmark to Raindrop');
+    }
+    return res.data;
+  };
+
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
       id: 'sync-raindrop',
@@ -486,6 +510,7 @@ export const App: React.FC = () => {
           onTabsChange={handleTabsChange}
           onCaptureCurrentTab={handleCaptureCurrentTab}
           bottomBarMenuItems={bottomBarMenuItems}
+          onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}

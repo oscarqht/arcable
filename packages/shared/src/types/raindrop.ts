@@ -75,6 +75,7 @@ export interface RaindropCreateItemInput {
   tags?: string[];
   collectionId?: number;
   cover?: string;
+  pleaseParse?: Record<string, any>;
 }
 
 export interface RaindropSearchItem extends RaindropBookmarkItem {
