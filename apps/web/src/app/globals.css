@@ -108,8 +108,8 @@ a {
   }
 }
 
-/* Header responsive adjustments (< 780px) */
-@media (max-width: 779.98px) {
+/* Header responsive adjustments (<= 780px) */
+@media (max-width: 780px) {
   .header-user-info {
     display: none !important;
   }
@@ -128,23 +128,35 @@ a {
   }
 }
 
-/* Space Cards Grid: 3 columns when screen width is < 800px */
+/* Space Cards Grid: responsive breakpoints (<=420: 1 col, <=600: 2 cols, <=960: 3 cols, <=1280: 4 cols, otherwise 5 cols) */
 .space-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 22px;
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 20px !important;
   align-items: start;
+  justify-content: center;
+  margin: 0 auto;
+  width: 100%;
 }
 
-@media (max-width: 799.98px) {
+@media (max-width: 1280px) {
+  .space-cards-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 16px !important;
+  }
+}
+
+@media (max-width: 960px) {
+  .space-cards-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
+}
+
+@media (max-width: 780px) {
   .main-content {
     margin: 12px auto !important;
     padding: 0 10px !important;
-  }
-
-  .space-cards-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 10px !important;
   }
 
   .space-card {
@@ -156,3 +168,23 @@ a {
     font-size: 14px !important;
   }
 }
+
+@media (max-width: 600px) {
+  .space-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .main-content {
+    padding: 0 8px !important;
+  }
+
+  .space-cards-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+
+
