@@ -88,7 +88,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
       }}
     >
       {/* Left side: Favicon, Title (Full Width) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
         <div
           style={{
             width: '18px',

@@ -272,7 +272,7 @@ export const TabRow: React.FC<TabRowProps> = ({
       }}
     >
       {/* Left side: Favicon/Emoji, Diverted icon (if any), Title (Full Width) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
         {/* Favicon or Custom Emoji */}
         <div
           style={{
