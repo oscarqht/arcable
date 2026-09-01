@@ -46,7 +46,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const [isInputFocused, setIsInputFocused] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
-  const saveResetTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const saveResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -78,7 +78,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeRequestIdRef = useRef(0);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync internal query if external searchQuery changes
   useEffect(() => {
