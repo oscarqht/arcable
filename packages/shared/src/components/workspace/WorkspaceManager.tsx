@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
-import { TabAssociationMap } from '../../types/tabTracker';
+import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
@@ -20,6 +20,7 @@ import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { RaindropSearchInput } from './RaindropSearchInput';
 import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
+import { AudibleTabsWidget } from './AudibleTabsWidget';
 import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
@@ -68,6 +69,9 @@ export interface WorkspaceManagerProps {
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   bottomBarMenuItems?: ActionDropdownItem[];
+  audibleTabs?: AudibleTab[];
+  onActivateAudibleTab?: (tabId: number, windowId?: number) => void;
+  onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   raindropToken?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
@@ -105,6 +109,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onSearchChange,
       onSyncStateChange,
       bottomBarMenuItems,
+      audibleTabs,
+      onActivateAudibleTab,
+      onToggleTabMute,
       raindropToken,
       onSearchRaindrop,
       onSaveToRaindrop,
@@ -1757,6 +1764,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           onOpen={onOpenTab}
           onPromote={handlePromoteTmpTab}
           onClose={(t) => onCloseTmpTab?.(t)}
+        />
+      )}
+
+      {/* Fixed Audible Tabs Floating Stack (Compact / Sidepanel mode) */}
+      {compact && audibleTabs && audibleTabs.length > 0 && (
+        <AudibleTabsWidget
+          tabs={audibleTabs}
+          isDarkTheme={isDark}
+          onActivateTab={onActivateAudibleTab}
+          onToggleMute={onToggleTabMute}
         />
       )}
 

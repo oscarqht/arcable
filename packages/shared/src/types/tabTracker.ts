@@ -9,3 +9,13 @@ export interface AssociatedTabInfo {
 }
 
 export type TabAssociationMap = Record<string, AssociatedTabInfo>; // tabItemId -> AssociatedTabInfo
+
+export interface AudibleTab {
+  id: number;
+  windowId: number;
+  title?: string;
+  url?: string;
+  favIconUrl?: string;
+  audible?: boolean;
+  muted?: boolean;
+}

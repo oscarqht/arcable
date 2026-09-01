@@ -5,11 +5,12 @@ import {
   DeviceModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
+import { audioTracker } from '../utils/audioTracker';
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -17,6 +18,7 @@ export const App: React.FC = () => {
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
+  const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -50,6 +52,10 @@ export const App: React.FC = () => {
     // Initial tmp tabs subscription
     tabTracker.getTmpTabs().then(setTmpTabs);
     const unsubTmpTabs = tabTracker.subscribeTmpTabs(setTmpTabs);
+
+    // Initial audible tabs subscription
+    audioTracker.getAudibleTabs().then(setAudibleTabs);
+    const unsubAudible = audioTracker.subscribe(setAudibleTabs);
 
     // Tab activation listener (when user selects a browser tab)
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId) => {
@@ -193,6 +199,7 @@ export const App: React.FC = () => {
       return () => {
         unsubAssociations();
         unsubTmpTabs();
+        unsubAudible();
         unsubActivated();
         chrome.tabs.onActivated.removeListener(listener);
         browser.storage.onChanged.removeListener(handleStorageChange);
@@ -202,6 +209,7 @@ export const App: React.FC = () => {
     return () => {
       unsubAssociations();
       unsubTmpTabs();
+      unsubAudible();
       unsubActivated();
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
@@ -358,6 +366,13 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleActivateAudibleTab = async (tabId: number, windowId?: number) => {
+    await audioTracker.activateTab(tabId, windowId);
+  };
+
+  const handleToggleTabMute = async (tabId: number, muted?: boolean) => {
+    await audioTracker.toggleMute(tabId, muted);
+  };
 
   const handleCaptureCurrentTab = async () => {
     try {
@@ -510,6 +525,9 @@ export const App: React.FC = () => {
           onTabsChange={handleTabsChange}
           onCaptureCurrentTab={handleCaptureCurrentTab}
           bottomBarMenuItems={bottomBarMenuItems}
+          audibleTabs={audibleTabs}
+          onActivateAudibleTab={handleActivateAudibleTab}
+          onToggleTabMute={handleToggleTabMute}
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
