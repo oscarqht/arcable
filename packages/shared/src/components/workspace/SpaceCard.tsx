@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Space, Folder, Tab } from '../../types/workspace';
-import { TabAssociationMap } from '../../types/tabTracker';
+import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import {
   isDarkColor,
   getSpaceColorStyle,
@@ -41,11 +41,12 @@ export interface SpaceCardProps {
   isSingleColumn?: boolean;
   alwaysShowActions?: boolean;
   tabAssociations?: TabAssociationMap;
+  audibleTabs?: AudibleTab[];
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
-
   onResetDivertedUrl?: (tabId: string) => void;
+  onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditSpace?: (space: Space) => void;
   onDeleteSpace?: (spaceId: string) => void;
   onConvertSpace?: (space: Space) => void;
@@ -82,10 +83,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   isSingleColumn = false,
   alwaysShowActions = false,
   tabAssociations,
+  audibleTabs,
   highlightedTabId,
   onOpenTab,
   onCloseAssociatedTab,
   onResetDivertedUrl,
+  onMediaControl,
   onEditSpace,
   onDeleteSpace,
   onConvertSpace,
@@ -103,6 +106,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onReorderPinnedTabs,
   onMoveSpace,
 }) => {
+
 
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
@@ -610,26 +614,40 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   No tabs match &ldquo;{activeSearch}&rdquo;
                 </div>
               ) : (
-                filteredTabs.map((t) => (
-                  <TabRow
-                    key={t.id}
-                    tab={t}
-                    isDarkTheme={themeStyles.isDark}
-                    compact={isSingleColumn}
-                    alwaysShowActions={alwaysShowActions}
-                    isAssociated={Boolean(tabAssociations && tabAssociations[t.id])}
-                    isDiverted={Boolean(tabAssociations && tabAssociations[t.id]?.isDiverted)}
-                    badge={tabAssociations?.[t.id]?.badge}
-                    isHighlighted={highlightedTabId === t.id}
-                    onOpen={onOpenTab}
-                    onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
-                    onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
-                    onEdit={onEditTab || (() => {})}
-                    onDelete={onDeleteTab || (() => {})}
-                    onTogglePin={onTogglePinTab}
-                    onToggleFavourite={onToggleFavouriteTab}
-                  />
-                ))
+                filteredTabs.map((t) => {
+                  const assoc = tabAssociations?.[t.id];
+                  const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
+                  const isAudible = Boolean(audibleInfo);
+                  const isMuted = audibleInfo?.muted === true;
+
+                  return (
+                    <TabRow
+                      key={t.id}
+                      tab={t}
+                      isDarkTheme={themeStyles.isDark}
+                      compact={isSingleColumn}
+                      alwaysShowActions={alwaysShowActions}
+                      isAssociated={Boolean(assoc)}
+                      isDiverted={Boolean(assoc?.isDiverted)}
+                      isAudible={isAudible}
+                      isMuted={isMuted}
+                      badge={assoc?.badge}
+                      isHighlighted={highlightedTabId === t.id}
+                      onOpen={onOpenTab}
+                      onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
+                      onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
+                      onMediaControl={
+                        onMediaControl && assoc
+                          ? (action) => onMediaControl(assoc.browserTabId, action)
+                          : undefined
+                      }
+                      onEdit={onEditTab || (() => {})}
+                      onDelete={onDeleteTab || (() => {})}
+                      onTogglePin={onTogglePinTab}
+                      onToggleFavourite={onToggleFavouriteTab}
+                    />
+                  );
+                })
               )}
             </div>
           ) : (
@@ -651,6 +669,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         compact={isSingleColumn}
                         alwaysShowActions={alwaysShowActions}
                         tabAssociations={tabAssociations}
+                        audibleTabs={audibleTabs}
                         highlightedTabId={highlightedTabId}
                         onToggleExpand={onToggleFolderExpand || (() => {})}
                         onEditFolder={onEditFolder || (() => {})}
@@ -660,6 +679,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onOpenTab={onOpenTab}
                         onCloseAssociatedTab={onCloseAssociatedTab}
                         onResetDivertedUrl={onResetDivertedUrl}
+                        onMediaControl={onMediaControl}
                         onEditTab={onEditTab || (() => {})}
                         onDeleteTab={onDeleteTab || (() => {})}
                         onTogglePinTab={onTogglePinTab || (() => {})}
@@ -680,6 +700,11 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     );
                   }
 
+                  const assoc = tabAssociations?.[item.id];
+                  const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
+                  const isAudible = Boolean(audibleInfo);
+                  const isMuted = audibleInfo?.muted === true;
+
                   return (
                     <TabRow
                       key={item.id}
@@ -687,13 +712,20 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       isDarkTheme={themeStyles.isDark}
                       compact={isSingleColumn}
                       alwaysShowActions={alwaysShowActions}
-                      isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
-                      isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
-                      badge={tabAssociations?.[item.id]?.badge}
+                      isAssociated={Boolean(assoc)}
+                      isDiverted={Boolean(assoc?.isDiverted)}
+                      isAudible={isAudible}
+                      isMuted={isMuted}
+                      badge={assoc?.badge}
                       isHighlighted={highlightedTabId === item.id}
                       onOpen={onOpenTab}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
+                      onMediaControl={
+                        onMediaControl && assoc
+                          ? (action) => onMediaControl(assoc.browserTabId, action)
+                          : undefined
+                      }
                       onEdit={onEditTab || (() => {})}
                       onDelete={onDeleteTab || (() => {})}
                       onTogglePin={onTogglePinTab}
@@ -730,6 +762,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     />
                   );
                 })}
+
 
                 {/* Empty State */}
                 {rootSiblings.length === 0 && (

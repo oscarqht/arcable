@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
-import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
+import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
@@ -73,6 +73,7 @@ export interface WorkspaceManagerProps {
   audibleTabs?: AudibleTab[];
   onActivateAudibleTab?: (tabId: number, windowId?: number) => void;
   onToggleTabMute?: (tabId: number, muted?: boolean) => void;
+  onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   raindropToken?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
@@ -114,6 +115,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       audibleTabs,
       onActivateAudibleTab,
       onToggleTabMute,
+      onMediaControl,
       raindropToken,
       onSearchRaindrop,
       onSaveToRaindrop,
@@ -123,6 +125,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
+
 
 
   const { isDark } = useSystemTheme();
@@ -1527,15 +1530,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   searchQuery={activeSearchQuery}
                   isCollapsed={false}
                   tabAssociations={tabAssociations}
+                  audibleTabs={audibleTabs}
                   highlightedTabId={highlightedTabId}
                   onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                   onOpenTab={onOpenTab}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
+                  onMediaControl={onMediaControl}
                   onEditSpace={(sp) => {
                     setEditingSpace(sp);
                     setIsSpaceModalOpen(true);
                   }}
+
                   onDeleteSpace={deleteSpace}
                   onConvertSpace={handleOpenConvertSpaceModal}
                   onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
@@ -1609,11 +1615,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       alwaysShowActions={alwaysShowActions}
                       isCollapsed={true}
                       tabAssociations={tabAssociations}
+                      audibleTabs={audibleTabs}
                       highlightedTabId={highlightedTabId}
                       onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                       onOpenTab={onOpenTab}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
+                      onMediaControl={onMediaControl}
                       onEditSpace={(sp) => {
                         setEditingSpace(sp);
                         setIsSpaceModalOpen(true);
@@ -1655,12 +1663,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               compact={compact}
               alwaysShowActions={alwaysShowActions}
               highlightedTabId={highlightedTabId}
+              audibleTabs={audibleTabs}
               onOpen={onOpenTab}
               onPromote={handlePromoteTmpTab}
               onClose={(t) => onCloseTmpTab?.(t)}
               onRename={onRenameTmpTab}
+              onMediaControl={onMediaControl}
             />
           )}
+
         </>
       ) : (
         /* Focused Space View / Sidepanel View with Horizontal Sliding Carousel */
@@ -1718,10 +1729,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     alwaysShowActions={alwaysShowActions}
                     isCollapsed={false}
                     tabAssociations={tabAssociations}
+                    audibleTabs={audibleTabs}
                     highlightedTabId={highlightedTabId}
                     onOpenTab={onOpenTab}
                     onCloseAssociatedTab={onCloseAssociatedTab}
                     onResetDivertedUrl={onResetDivertedUrl}
+                    onMediaControl={onMediaControl}
                     onEditSpace={(sp) => {
                       setEditingSpace(sp);
                       setIsSpaceModalOpen(true);
@@ -1764,12 +1777,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           compact={compact}
           alwaysShowActions={alwaysShowActions}
           highlightedTabId={highlightedTabId}
+          audibleTabs={audibleTabs}
           onOpen={onOpenTab}
           onPromote={handlePromoteTmpTab}
           onClose={(t) => onCloseTmpTab?.(t)}
           onRename={onRenameTmpTab}
+          onMediaControl={onMediaControl}
         />
       )}
+
 
       {/* Fixed Audible Tabs Floating Stack (Compact / Sidepanel mode) */}
       {compact && audibleTabs && audibleTabs.length > 0 && (

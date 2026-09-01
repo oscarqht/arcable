@@ -6,12 +6,13 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
+
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -435,6 +436,11 @@ export const App: React.FC = () => {
     await audioTracker.toggleMute(tabId, muted);
   };
 
+  const handleMediaControl = async (tabId: number, action: MediaControlAction) => {
+    await audioTracker.sendMediaControl(tabId, action);
+  };
+
+
   const handleCaptureCurrentTab = async () => {
     try {
       const tab = await getActiveTab();
@@ -596,7 +602,9 @@ export const App: React.FC = () => {
           audibleTabs={audibleTabs}
           onActivateAudibleTab={handleActivateAudibleTab}
           onToggleTabMute={handleToggleTabMute}
+          onMediaControl={handleMediaControl}
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
+
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}

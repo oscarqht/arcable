@@ -2,12 +2,22 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { TmpTab } from '../../types/workspace';
+import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
-import { PlusIcon, CloseIcon, EditIcon, CheckIcon } from '../Icons';
+import {
+  PlusIcon,
+  CloseIcon,
+  EditIcon,
+  CheckIcon,
+  PrevTrackIcon,
+  NextTrackIcon,
+  PlayIcon,
+  PauseIcon,
+} from '../Icons';
 
 export interface TmpTabRowProps {
   tab: TmpTab;
@@ -16,11 +26,14 @@ export interface TmpTabRowProps {
   alwaysShowActions?: boolean;
   isAssociated?: boolean;
   isHighlighted?: boolean;
+  isAudible?: boolean;
+  isMuted?: boolean;
   badge?: string | number | null;
   onOpen?: (url: string, tabId?: string) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
+  onMediaControl?: (action: MediaControlAction) => void;
 }
 
 export const TmpTabRow: React.FC<TmpTabRowProps> = ({
@@ -30,17 +43,30 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   alwaysShowActions = false,
   isAssociated = true,
   isHighlighted = false,
+  isAudible = false,
+  isMuted = false,
   badge,
   onOpen,
   onPromote,
   onClose,
   onRename,
+  onMediaControl,
 }) => {
+
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
+  const [isLocallyPaused, setIsLocallyPaused] = useState(false);
+
+  useEffect(() => {
+    if (!isAudible) {
+      setIsLocallyPaused(false);
+    }
+  }, [isAudible]);
+
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+
   const [editTitle, setEditTitle] = useState(tab.customTitle || tab.title || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -202,195 +228,325 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         )}
       </div>
 
-      {/* Right side action buttons */}
-      {showActions && (
+      {/* Right side action buttons & media controls */}
+      {(showActions || isAudible) && (
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '2px',
+            gap: '3px',
             flexShrink: 0,
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {isEditing ? (
+          {showActions && (
             <>
-              {/* Save / Checkmark Button */}
+              {isEditing ? (
+                <>
+                  {/* Save / Checkmark Button */}
+                  <button
+                    type="button"
+                    onClick={handleSaveRename}
+                    title="Save title"
+                    aria-label="Save title"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#34d399' : '#059669',
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(52, 211, 153, 0.2)' : '#d1fae5';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    <CheckIcon size={14} color={effectiveDark ? '#34d399' : '#059669'} />
+                  </button>
+
+                  {/* Cancel Button */}
+                  <button
+                    type="button"
+                    onClick={handleCancelRename}
+                    title="Cancel"
+                    aria-label="Cancel"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#94a3b8' : textColor,
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                    }}
+                  >
+                    <CloseIcon size={12} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Rename Button */}
+                  <button
+                    type="button"
+                    onClick={handleStartRename}
+                    title="Rename tab"
+                    aria-label="Rename tab"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#94a3b8' : textColor,
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                      e.currentTarget.style.color = '#0284c7';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                    }}
+                  >
+                    <EditIcon size={13} />
+                  </button>
+
+                  {/* "+" Button: Open Add Tab Modal prefilled */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onPromote(tab);
+                    }}
+                    title="Save to workspace"
+                    aria-label="Save to workspace"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#94a3b8' : textColor,
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                      e.currentTarget.style.color = '#0284c7';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                    }}
+                  >
+                    <PlusIcon size={14} />
+                  </button>
+
+                  {/* "x" Button: Close browser tab */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onClose(tab);
+                    }}
+                    title="Close tab"
+                    aria-label="Close tab"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#94a3b8' : textColor,
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                      e.currentTarget.style.color = '#ef4444';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                    }}
+                  >
+                    <CloseIcon size={13} />
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Compact inline media control bar - always visible on the right-most side when audible */}
+          {isAudible && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1px',
+                backgroundColor: effectiveDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+                border: `1px solid ${effectiveDark ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.28)'}`,
+                borderRadius: '6px',
+                padding: '1px 3px',
+                height: '24px',
+                boxSizing: 'border-box',
+                flexShrink: 0,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Previous track */}
               <button
                 type="button"
-                onClick={handleSaveRename}
-                title="Save title"
-                aria-label="Save title"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onMediaControl?.('prev');
+                }}
+                title="Previous track / Seek back"
+                aria-label="Previous track"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '6px',
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '4px',
                   border: 'none',
                   background: 'transparent',
                   color: effectiveDark ? '#34d399' : '#059669',
                   cursor: 'pointer',
                   padding: 0,
-                  flexShrink: 0,
-                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                  transition: 'background-color 0.12s ease, transform 0.1s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(52, 211, 153, 0.2)' : '#d1fae5';
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
-                <CheckIcon size={14} color={effectiveDark ? '#34d399' : '#059669'} />
+                <PrevTrackIcon size={11} />
               </button>
 
-              {/* Cancel Button */}
-              <button
-                type="button"
-                onClick={handleCancelRename}
-                title="Cancel"
-                aria-label="Cancel"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: effectiveDark ? '#94a3b8' : textColor,
-                  cursor: 'pointer',
-                  padding: 0,
-                  flexShrink: 0,
-                  transition: 'background-color 0.12s ease, color 0.12s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
-                  e.currentTarget.style.color = '#ef4444';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-                }}
-              >
-                <CloseIcon size={12} />
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Rename Button */}
-              <button
-                type="button"
-                onClick={handleStartRename}
-                title="Rename tab"
-                aria-label="Rename tab"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: 'transparent',
-                  color: effectiveDark ? '#94a3b8' : textColor,
-                  cursor: 'pointer',
-                  padding: 0,
-                  flexShrink: 0,
-                  transition: 'background-color 0.12s ease, color 0.12s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                  e.currentTarget.style.color = '#0284c7';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-                }}
-              >
-                <EditIcon size={13} />
-              </button>
-
-              {/* "+" Button: Open Add Tab Modal prefilled */}
+              {/* Play / Pause toggle */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  onPromote(tab);
+                  const nextPaused = !isLocallyPaused;
+                  setIsLocallyPaused(nextPaused);
+                  onMediaControl?.(nextPaused ? 'pause' : 'play');
                 }}
-                title="Save to workspace"
-                aria-label="Save to workspace"
+                title={isLocallyPaused ? 'Play' : 'Pause'}
+                aria-label={isLocallyPaused ? 'Play' : 'Pause'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '6px',
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '4px',
                   border: 'none',
                   background: 'transparent',
-                  color: effectiveDark ? '#94a3b8' : textColor,
+                  color: effectiveDark ? '#34d399' : '#059669',
                   cursor: 'pointer',
                   padding: 0,
-                  flexShrink: 0,
-                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                  transition: 'background-color 0.12s ease, transform 0.1s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                  e.currentTarget.style.color = '#0284c7';
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
                 }}
               >
-                <PlusIcon size={14} />
+                {isLocallyPaused ? <PlayIcon size={11} /> : <PauseIcon size={11} />}
               </button>
 
-              {/* "x" Button: Close browser tab */}
+
+              {/* Next track */}
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
-                  onClose(tab);
+                  onMediaControl?.('next');
                 }}
-                title="Close tab"
-                aria-label="Close tab"
+                title="Next track / Seek forward"
+                aria-label="Next track"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '6px',
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '4px',
                   border: 'none',
                   background: 'transparent',
-                  color: effectiveDark ? '#94a3b8' : textColor,
+                  color: effectiveDark ? '#34d399' : '#059669',
                   cursor: 'pointer',
                   padding: 0,
-                  flexShrink: 0,
-                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                  transition: 'background-color 0.12s ease, transform 0.1s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
-                  e.currentTarget.style.color = '#ef4444';
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
                 }}
               >
-                <CloseIcon size={13} />
+                <NextTrackIcon size={11} />
               </button>
-            </>
+            </div>
           )}
         </div>
       )}
+
     </div>
   );
 };

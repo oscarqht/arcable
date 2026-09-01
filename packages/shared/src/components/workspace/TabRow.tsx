@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+
 import { Tab } from '../../types/workspace';
+import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
@@ -18,6 +20,10 @@ import {
   TrashIcon,
   MinusIcon,
   SlashIcon,
+  PrevTrackIcon,
+  NextTrackIcon,
+  PlayIcon,
+  PauseIcon,
 } from '../Icons';
 
 export interface TabRowProps {
@@ -28,11 +34,13 @@ export interface TabRowProps {
   isAssociated?: boolean;
   isDiverted?: boolean;
   isHighlighted?: boolean;
+  isAudible?: boolean;
+  isMuted?: boolean;
   badge?: string | number | null;
   onOpen?: (url: string, tabId?: string) => void;
   onCloseAssociatedTab?: () => void;
-
   onResetDivertedUrl?: () => void;
+  onMediaControl?: (action: MediaControlAction) => void;
   onEdit: (tab: Tab) => void;
   onDelete: (id: string) => void;
   onTogglePin?: (id: string) => void;
@@ -54,10 +62,13 @@ export const TabRow: React.FC<TabRowProps> = ({
   isAssociated = false,
   isDiverted = false,
   isHighlighted = false,
+  isAudible = false,
+  isMuted = false,
   badge,
   onOpen,
   onCloseAssociatedTab,
   onResetDivertedUrl,
+  onMediaControl,
   onEdit,
   onDelete,
   onTogglePin,
@@ -70,9 +81,18 @@ export const TabRow: React.FC<TabRowProps> = ({
   onDropItem,
   onDragEndItem,
 }) => {
+
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
+  const [isLocallyPaused, setIsLocallyPaused] = useState(false);
+
+  useEffect(() => {
+    if (!isAudible) {
+      setIsLocallyPaused(false);
+    }
+  }, [isAudible]);
+
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
@@ -346,12 +366,12 @@ export const TabRow: React.FC<TabRowProps> = ({
         </span>
       </div>
 
-      {/* Right side: ... action button on hover on the left of - button; - button always visible when associated */}
+      {/* Right side: Actions (left) + Media controls (right-most) */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '2px',
+          gap: '3px',
           flexShrink: 0,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -407,7 +427,133 @@ export const TabRow: React.FC<TabRowProps> = ({
             <MinusIcon size={14} />
           </button>
         )}
+
+        {/* Compact inline media control bar - always visible on the right-most side when audible */}
+        {isAudible && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1px',
+              backgroundColor: effectiveDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+              border: `1px solid ${effectiveDark ? 'rgba(16, 185, 129, 0.35)' : 'rgba(16, 185, 129, 0.28)'}`,
+              borderRadius: '6px',
+              padding: '1px 3px',
+              height: '24px',
+              boxSizing: 'border-box',
+              flexShrink: 0,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Previous track */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onMediaControl?.('prev');
+              }}
+              title="Previous track / Seek back"
+              aria-label="Previous track"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
+                border: 'none',
+                background: 'transparent',
+                color: effectiveDark ? '#34d399' : '#059669',
+                cursor: 'pointer',
+                padding: 0,
+                transition: 'background-color 0.12s ease, transform 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <PrevTrackIcon size={11} />
+            </button>
+
+            {/* Play / Pause toggle */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const nextPaused = !isLocallyPaused;
+                setIsLocallyPaused(nextPaused);
+                onMediaControl?.(nextPaused ? 'pause' : 'play');
+              }}
+              title={isLocallyPaused ? 'Play' : 'Pause'}
+              aria-label={isLocallyPaused ? 'Play' : 'Pause'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
+                border: 'none',
+                background: 'transparent',
+                color: effectiveDark ? '#34d399' : '#059669',
+                cursor: 'pointer',
+                padding: 0,
+                transition: 'background-color 0.12s ease, transform 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {isLocallyPaused ? <PlayIcon size={11} /> : <PauseIcon size={11} />}
+            </button>
+
+
+            {/* Next track */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onMediaControl?.('next');
+              }}
+              title="Next track / Seek forward"
+              aria-label="Next track"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '20px',
+                height: '20px',
+                borderRadius: '4px',
+                border: 'none',
+                background: 'transparent',
+                color: effectiveDark ? '#34d399' : '#059669',
+                cursor: 'pointer',
+                padding: 0,
+                transition: 'background-color 0.12s ease, transform 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <NextTrackIcon size={11} />
+            </button>
+          </div>
+        )}
       </div>
+
     </div>
   );
 

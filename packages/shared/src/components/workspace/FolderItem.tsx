@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Folder, Tab } from '../../types/workspace';
-import { TabAssociationMap } from '../../types/tabTracker';
+import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
@@ -31,6 +31,7 @@ export interface FolderItemProps {
   compact?: boolean;
   alwaysShowActions?: boolean;
   tabAssociations?: TabAssociationMap;
+  audibleTabs?: AudibleTab[];
   highlightedTabId?: string | null;
   onToggleExpand: (folderId: string) => void;
   onEditFolder: (folder: Folder) => void;
@@ -39,8 +40,8 @@ export interface FolderItemProps {
   onAddTabInFolder: (parentFolderId: string) => void;
   onOpenTab?: (url: string, tabId?: string) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
-
   onResetDivertedUrl?: (tabId: string) => void;
+  onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
@@ -57,6 +58,7 @@ export interface FolderItemProps {
   }) => void;
 }
 
+
 export const FolderItem: React.FC<FolderItemProps> = ({
   folder,
   allFolders,
@@ -66,6 +68,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   compact = false,
   alwaysShowActions = false,
   tabAssociations,
+  audibleTabs,
   highlightedTabId,
   onToggleExpand,
   onEditFolder,
@@ -75,6 +78,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onOpenTab,
   onCloseAssociatedTab,
   onResetDivertedUrl,
+  onMediaControl,
   onEditTab,
   onDeleteTab,
   onTogglePinTab,
@@ -84,6 +88,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onMoveSiblingItem,
   onReorderSiblingItem,
 }) => {
+
 
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
@@ -434,6 +439,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   compact={compact}
                   alwaysShowActions={alwaysShowActions}
                   tabAssociations={tabAssociations}
+                  audibleTabs={audibleTabs}
                   highlightedTabId={highlightedTabId}
                   onToggleExpand={onToggleExpand}
                   onEditFolder={onEditFolder}
@@ -443,6 +449,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onOpenTab={onOpenTab}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
+                  onMediaControl={onMediaControl}
                   onEditTab={onEditTab}
                   onDeleteTab={onDeleteTab}
                   onTogglePinTab={onTogglePinTab}
@@ -463,6 +470,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               );
             }
 
+            const assoc = tabAssociations?.[item.id];
+            const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
+            const isAudible = Boolean(audibleInfo);
+            const isMuted = audibleInfo?.muted === true;
+
             return (
               <TabRow
                 key={item.id}
@@ -470,13 +482,20 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 isDarkTheme={effectiveDark}
                 compact={compact}
                 alwaysShowActions={alwaysShowActions}
-                isAssociated={Boolean(tabAssociations && tabAssociations[item.id])}
-                isDiverted={Boolean(tabAssociations && tabAssociations[item.id]?.isDiverted)}
-                badge={tabAssociations?.[item.id]?.badge}
+                isAssociated={Boolean(assoc)}
+                isDiverted={Boolean(assoc?.isDiverted)}
+                isAudible={isAudible}
+                isMuted={isMuted}
+                badge={assoc?.badge}
                 isHighlighted={highlightedTabId === item.id}
                 onOpen={onOpenTab}
                 onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                 onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
+                onMediaControl={
+                  onMediaControl && assoc
+                    ? (action) => onMediaControl(assoc.browserTabId, action)
+                    : undefined
+                }
                 onEdit={onEditTab}
                 onDelete={onDeleteTab}
                 onTogglePin={onTogglePinTab}
@@ -513,6 +532,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               />
             );
           })}
+
 
           {/* Empty Folder State */}
           {totalItemCount === 0 && (

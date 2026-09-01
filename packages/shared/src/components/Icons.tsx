@@ -583,3 +583,63 @@ export const LogOutIcon: React.FC<IconProps> = ({ size = 16, color = 'currentCol
     <line x1="21" y1="12" x2="9" y2="12" />
   </svg>
 );
+
+export const PrevTrackIcon: React.FC<IconProps> = ({ size = 14, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <polygon points="19 20 9 12 19 4 19 20" />
+    <line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+  </svg>
+);
+
+export const NextTrackIcon: React.FC<IconProps> = ({ size = 14, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <polygon points="5 4 15 12 5 20 5 4" />
+    <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+  </svg>
+);
+
+export const PlayIcon: React.FC<IconProps> = ({ size = 14, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <polygon points="6 3 20 12 6 21 6 3" />
+  </svg>
+);
+
+export const PauseIcon: React.FC<IconProps> = ({ size = 14, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="none"
+    className={className}
+    style={style}
+  >
+    <rect x="5" y="4" width="4.5" height="16" rx="1" />
+    <rect x="14.5" y="4" width="4.5" height="16" rx="1" />
+  </svg>
+);
+

@@ -1,4 +1,4 @@
-import { AudibleTab } from '@arcable/shared/types';
+import { AudibleTab, MediaControlAction } from '@arcable/shared/types';
 import { browser } from './browser';
 
 type AudioChangeListener = (tabs: AudibleTab[]) => void;
@@ -103,6 +103,18 @@ class AudioTracker {
       console.warn('[AudioTracker] Failed to toggle mute on tab:', err);
     }
   }
+
+  public async sendMediaControl(tabId: number, action: MediaControlAction): Promise<void> {
+    try {
+      const tabsApi = typeof browser !== 'undefined' && browser.tabs ? browser.tabs : (chrome as any)?.tabs;
+      if (tabsApi && tabsApi.sendMessage) {
+        await tabsApi.sendMessage(tabId, { type: 'MEDIA_CONTROL', action }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[AudioTracker] Failed to send media control:', err);
+    }
+  }
+
 
   private notify() {
     const list = this.getAudibleTabsList();

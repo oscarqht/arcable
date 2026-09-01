@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { TmpTab } from '../../types/workspace';
+import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 
@@ -12,10 +13,12 @@ export interface TmpTabsListProps {
   alwaysShowActions?: boolean;
   highlightedTabId?: string | null;
   activeBrowserTabId?: number;
+  audibleTabs?: AudibleTab[];
   onOpen?: (url: string, tabId?: string) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
+  onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
 }
 
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
@@ -24,10 +27,12 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   compact = false,
   alwaysShowActions = false,
   highlightedTabId,
+  audibleTabs,
   onOpen,
   onPromote,
   onClose,
   onRename,
+  onMediaControl,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
@@ -47,20 +52,37 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
         padding: 0,
       }}
     >
-      {tabs.map((tab) => (
-        <TmpTabRow
-          key={tab.id}
-          tab={tab}
-          isDarkTheme={effectiveDark}
-          compact={compact}
-          alwaysShowActions={alwaysShowActions}
-          isHighlighted={highlightedTabId === tab.id}
-          onOpen={onOpen}
-          onPromote={onPromote}
-          onClose={onClose}
-          onRename={onRename}
-        />
-      ))}
+      {tabs.map((tab) => {
+        const audibleInfo =
+          tab.browserTabId !== undefined
+            ? audibleTabs?.find((a) => a.id === tab.browserTabId)
+            : undefined;
+        const isAudible = Boolean(audibleInfo);
+        const isMuted = audibleInfo?.muted === true;
+
+        return (
+          <TmpTabRow
+            key={tab.id}
+            tab={tab}
+            isDarkTheme={effectiveDark}
+            compact={compact}
+            alwaysShowActions={alwaysShowActions}
+            isHighlighted={highlightedTabId === tab.id}
+            isAudible={isAudible}
+            isMuted={isMuted}
+            onOpen={onOpen}
+            onPromote={onPromote}
+            onClose={onClose}
+            onRename={onRename}
+            onMediaControl={
+              onMediaControl && tab.browserTabId !== undefined
+                ? (action) => onMediaControl(tab.browserTabId!, action)
+                : undefined
+            }
+          />
+        );
+      })}
     </div>
   );
 };
+

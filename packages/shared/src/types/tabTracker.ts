@@ -19,3 +19,6 @@ export interface AudibleTab {
   audible?: boolean;
   muted?: boolean;
 }
+
+export type MediaControlAction = 'prev' | 'next' | 'playPause' | 'play' | 'pause';
+
