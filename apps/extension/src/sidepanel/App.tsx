@@ -377,23 +377,7 @@ export const App: React.FC = () => {
         return;
       }
 
-      if (typeof window !== 'undefined') {
-        const raw = window.localStorage.getItem('arcable_workspace_data');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const allTabs = (parsed.tabs || []) as Tab[];
-          const matchingItem = allTabs.find((t) => areUrlsMatching(t.url, url));
-
-          if (matchingItem && tabAssociations[matchingItem.id]) {
-            const assoc = tabAssociations[matchingItem.id];
-            await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
-            return;
-          } else if (matchingItem) {
-            await tabTracker.openAndAssociateTab(matchingItem.id, url);
-            return;
-          }
-        }
-      }
+      // When tabId is not provided, open a new browser tab (will be tracked as a tmp tab)
       await browser.tabs.create({ url, active: true });
     } catch (e) {
       console.warn('Failed to open tab via browser API, falling back to window.open:', e);

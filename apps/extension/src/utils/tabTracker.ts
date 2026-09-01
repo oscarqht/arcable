@@ -120,15 +120,6 @@ class TabTracker {
       if (matchingTmp) {
         return matchingTmp.id;
       }
-
-      if (activeTab.url) {
-        const matchingWorkspaceTab = this.currentWorkspaceTabs.find((t) =>
-          areUrlsMatching(t.url, activeTab.url)
-        );
-        if (matchingWorkspaceTab) {
-          return matchingWorkspaceTab.id;
-        }
-      }
     } catch (err) {
       console.warn('[TabTracker] Error getting active tab item ID:', err);
     }
@@ -414,17 +405,11 @@ class TabTracker {
         }
       }
 
-      // Step 2: Direct URL matching for remaining unassociated workspace items & browser tabs (strictly 1-to-1)
-      // Prioritize tab items with pending creations (i.e. tab items explicitly clicked to be opened)
+      // Step 2: Direct matching ONLY for workspace items with pending creations (explicitly clicked to open)
+      // Manually opened tabs must never be automatically associated with saved tab items.
       const unassociatedWorkspaceTabs = workspaceTabs.filter(
-        (item) => !assignedTabItemIds.has(item.id) && Boolean(item.url)
+        (item) => !assignedTabItemIds.has(item.id) && Boolean(item.url) && this.pendingCreations.has(item.id)
       );
-
-      unassociatedWorkspaceTabs.sort((a, b) => {
-        const aPending = this.pendingCreations.has(a.id) ? 1 : 0;
-        const bPending = this.pendingCreations.has(b.id) ? 1 : 0;
-        return bPending - aPending;
-      });
 
       for (const item of unassociatedWorkspaceTabs) {
         if (assignedTabItemIds.has(item.id) || !item.url) continue;
@@ -449,6 +434,7 @@ class TabTracker {
           };
           assignedBrowserTabIds.add(matchingBrowserTab.id);
           assignedTabItemIds.add(item.id);
+          this.pendingCreations.delete(item.id);
         }
       }
 
@@ -462,39 +448,18 @@ class TabTracker {
 
         if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-
-          // If this tab's new URL matches an unassociated workspace item, bind to that item instead
-          const matchingUnassocItem = workspaceTabs.find(
-            (t) => !assignedTabItemIds.has(t.id) && t.url && areUrlsMatching(currentUrl, t.url)
-          );
-
-          if (matchingUnassocItem) {
-            const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-            newAssociations[matchingUnassocItem.id] = {
-              tabItemId: matchingUnassocItem.id,
-              browserTabId: matchingBrowserTab.id,
-              windowId: matchingBrowserTab.windowId || 0,
-              currentUrl: currentUrl || matchingUnassocItem.url,
-              originalUrl: matchingUnassocItem.url,
-              isDiverted: false,
-              badge: badge || undefined,
-            };
-            assignedBrowserTabIds.add(matchingBrowserTab.id);
-            assignedTabItemIds.add(matchingUnassocItem.id);
-          } else {
-            const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-            newAssociations[tabItemId] = {
-              tabItemId,
-              browserTabId: matchingBrowserTab.id,
-              windowId: matchingBrowserTab.windowId || 0,
-              currentUrl,
-              originalUrl: matchingWorkspaceItem.url || info.originalUrl,
-              isDiverted: true,
-              badge: badge || undefined,
-            };
-            assignedBrowserTabIds.add(matchingBrowserTab.id);
-            assignedTabItemIds.add(tabItemId);
-          }
+          const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
+          newAssociations[tabItemId] = {
+            tabItemId,
+            browserTabId: matchingBrowserTab.id,
+            windowId: matchingBrowserTab.windowId || 0,
+            currentUrl,
+            originalUrl: matchingWorkspaceItem.url || info.originalUrl,
+            isDiverted: true,
+            badge: badge || undefined,
+          };
+          assignedBrowserTabIds.add(matchingBrowserTab.id);
+          assignedTabItemIds.add(tabItemId);
         }
       }
 
@@ -504,12 +469,11 @@ class TabTracker {
       const associatedBrowserTabIds = new Set(Object.values(newAssociations).map((a) => a.browserTabId));
       const unmatchedBrowserTabs = allBrowserTabs.filter((bt) => {
         if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
-        const url = bt.url || bt.pendingUrl || '';
-        if (!url) return false;
+        const rawUrl = bt.url || bt.pendingUrl || '';
         if (
-          url.startsWith('chrome-extension://') ||
-          url.startsWith('moz-extension://') ||
-          url.startsWith('devtools://')
+          rawUrl.startsWith('chrome-extension://') ||
+          rawUrl.startsWith('moz-extension://') ||
+          rawUrl.startsWith('devtools://')
         ) {
           return false;
         }
@@ -522,7 +486,7 @@ class TabTracker {
       const usedCustomTitleIndices = new Set<number>();
 
       const newTmpTabs: TmpTab[] = unmatchedBrowserTabs.map((bt) => {
-        const currentUrl = bt.url || bt.pendingUrl || '';
+        const currentUrl = bt.url || bt.pendingUrl || 'about:blank';
         let matchedCustomTitle: string | undefined;
 
         // Rule 1: Match by exact tabId first (handles in-session tab navigation - user navigated URL!)
@@ -563,10 +527,16 @@ class TabTracker {
           }
         }
 
+        const isBlankNewTab =
+          currentUrl.startsWith('chrome://newtab') ||
+          currentUrl.startsWith('about:newtab') ||
+          currentUrl.startsWith('edge://newtab') ||
+          currentUrl === 'about:blank';
+
         return {
           id: `tmp_${bt.id}`,
           url: currentUrl,
-          title: bt.title || '',
+          title: bt.title || (isBlankNewTab ? 'New Tab' : ''),
           customTitle: matchedCustomTitle,
           favIconUrl: bt.favIconUrl,
           browserTabId: bt.id,
