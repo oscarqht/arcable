@@ -169,6 +169,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     onSearchChange?.(value);
   };
 
+  // Filter tmp tabs when search query is active
+  const filteredTmpTabs = useMemo(() => {
+    if (!tmpTabs || tmpTabs.length === 0) return [];
+    const search = activeSearchQuery.trim().toLowerCase();
+    if (!search) return tmpTabs;
+    return tmpTabs.filter((t) => {
+      const matchTitle = t.title && t.title.toLowerCase().includes(search);
+      const matchUrl = t.url && t.url.toLowerCase().includes(search);
+      return matchTitle || matchUrl;
+    });
+  }, [tmpTabs, activeSearchQuery]);
+
   // Space collapse map
   const [spaceCollapseMap, setSpaceCollapseMap] = useState<Record<string, boolean>>({});
   const [spacesMounted, setSpacesMounted] = useState(false);
@@ -1623,9 +1635,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           </div>
 
           {/* Tmp Tabs List in Grid View */}
-          {tmpTabs && tmpTabs.length > 0 && (
+          {filteredTmpTabs.length > 0 && (
             <TmpTabsList
-              tabs={tmpTabs}
+              tabs={filteredTmpTabs}
               compact={compact}
               alwaysShowActions={alwaysShowActions}
               highlightedTabId={highlightedTabId}
@@ -1731,9 +1743,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Tmp Tabs List (Single instance in focused/sidepanel view, flows directly below the active card) */}
-      {(viewMode === 'focused' || compact) && tmpTabs && tmpTabs.length > 0 && (
+      {(viewMode === 'focused' || compact) && filteredTmpTabs.length > 0 && (
         <TmpTabsList
-          tabs={tmpTabs}
+          tabs={filteredTmpTabs}
           compact={compact}
           alwaysShowActions={alwaysShowActions}
           highlightedTabId={highlightedTabId}
