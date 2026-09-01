@@ -18,6 +18,9 @@ import {
   deleteAllOtherRaindropDevices,
   getDefaultDeviceName,
   searchRaindrop,
+  createRaindropBackup,
+  fetchRaindropBackups,
+  restoreRaindropBackup,
 } from '@arcable/shared/utils';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -472,6 +475,95 @@ browser.runtime.onMessage.addListener(
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to delete other devices' };
+        }
+      }
+
+      // Raindrop: Create Manual Backup
+      case 'RAINDROP_CREATE_BACKUP': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { workspaceData?: ArcableWorkspaceData; deviceName?: string } | undefined;
+        try {
+          let wsData = payload?.workspaceData;
+          if (!wsData) {
+            const stored = await browser.storage.local.get('arcable_workspace_snapshot');
+            wsData = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+          }
+
+          if (!wsData) {
+            wsData = {
+              activeSpaceId: 'space_personal',
+              version: 1,
+              spaces: [],
+              folders: [],
+              tabs: [],
+            };
+          }
+
+          const effectiveDeviceName = payload?.deviceName || await getExtensionDeviceName();
+          const result = await createRaindropBackup(auth.accessToken, {
+            workspaceData: wsData,
+            deviceName: effectiveDeviceName,
+            deviceType: 'Ext',
+          });
+
+          return { success: result.success, data: result, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to create backup' };
+        }
+      }
+
+      // Raindrop: List Top 10 Backups
+      case 'RAINDROP_LIST_BACKUPS': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        try {
+          const result = await fetchRaindropBackups(auth.accessToken);
+          return { success: result.success, data: result.backups, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to list backups' };
+        }
+      }
+
+      // Raindrop: Restore Backup
+      case 'RAINDROP_RESTORE_BACKUP': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { backupId: number; deviceId?: string; deviceName?: string } | undefined;
+        if (!payload?.backupId) {
+          return { success: false, error: 'backupId is required' };
+        }
+
+        try {
+          const effectiveDeviceId = payload.deviceId || await getOrCreateExtensionDeviceId();
+          const effectiveDeviceName = payload.deviceName || await getExtensionDeviceName();
+
+          const result = await restoreRaindropBackup(auth.accessToken, payload.backupId, {
+            deviceId: effectiveDeviceId,
+            deviceName: effectiveDeviceName,
+          });
+
+          if (result.success && result.restoredSnapshot) {
+            // Update cached extension snapshot & clear pending ops
+            await browser.storage.local.set({
+              arcable_workspace_snapshot: result.restoredSnapshot,
+              arcable_last_synced_at: Date.now(),
+            });
+            await browser.storage.local.remove('arcable_pending_ops');
+          }
+
+          return { success: result.success, data: result, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to restore backup' };
         }
       }
 

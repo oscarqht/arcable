@@ -203,194 +203,194 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
       </div>
 
       {/* Right side action buttons */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '2px',
-          flexShrink: 0,
-          opacity: showActions ? 1 : 0,
-          transition: 'opacity 0.12s ease',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isEditing ? (
-          <>
-            {/* Save / Checkmark Button */}
-            <button
-              type="button"
-              onClick={handleSaveRename}
-              title="Save title"
-              aria-label="Save title"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: effectiveDark ? '#34d399' : '#059669',
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                transition: 'background-color 0.12s ease, color 0.12s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(52, 211, 153, 0.2)' : '#d1fae5';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <CheckIcon size={14} color={effectiveDark ? '#34d399' : '#059669'} />
-            </button>
+      {showActions && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            flexShrink: 0,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isEditing ? (
+            <>
+              {/* Save / Checkmark Button */}
+              <button
+                type="button"
+                onClick={handleSaveRename}
+                title="Save title"
+                aria-label="Save title"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#34d399' : '#059669',
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(52, 211, 153, 0.2)' : '#d1fae5';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <CheckIcon size={14} color={effectiveDark ? '#34d399' : '#059669'} />
+              </button>
 
-            {/* Cancel Button */}
-            <button
-              type="button"
-              onClick={handleCancelRename}
-              title="Cancel"
-              aria-label="Cancel"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: effectiveDark ? '#94a3b8' : textColor,
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                transition: 'background-color 0.12s ease, color 0.12s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
-                e.currentTarget.style.color = '#ef4444';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-              }}
-            >
-              <CloseIcon size={12} />
-            </button>
-          </>
-        ) : (
-          <>
-            {/* Rename Button */}
-            <button
-              type="button"
-              onClick={handleStartRename}
-              title="Rename tab"
-              aria-label="Rename tab"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: effectiveDark ? '#94a3b8' : textColor,
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                transition: 'background-color 0.12s ease, color 0.12s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                e.currentTarget.style.color = '#0284c7';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-              }}
-            >
-              <EditIcon size={13} />
-            </button>
+              {/* Cancel Button */}
+              <button
+                type="button"
+                onClick={handleCancelRename}
+                title="Cancel"
+                aria-label="Cancel"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#94a3b8' : textColor,
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                  e.currentTarget.style.color = '#ef4444';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                }}
+              >
+                <CloseIcon size={12} />
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Rename Button */}
+              <button
+                type="button"
+                onClick={handleStartRename}
+                title="Rename tab"
+                aria-label="Rename tab"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#94a3b8' : textColor,
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                  e.currentTarget.style.color = '#0284c7';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                }}
+              >
+                <EditIcon size={13} />
+              </button>
 
-            {/* "+" Button: Open Add Tab Modal prefilled */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onPromote(tab);
-              }}
-              title="Save to workspace"
-              aria-label="Save to workspace"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: effectiveDark ? '#94a3b8' : textColor,
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                transition: 'background-color 0.12s ease, color 0.12s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                e.currentTarget.style.color = '#0284c7';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-              }}
-            >
-              <PlusIcon size={14} />
-            </button>
+              {/* "+" Button: Open Add Tab Modal prefilled */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onPromote(tab);
+                }}
+                title="Save to workspace"
+                aria-label="Save to workspace"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#94a3b8' : textColor,
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                  e.currentTarget.style.color = '#0284c7';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                }}
+              >
+                <PlusIcon size={14} />
+              </button>
 
-            {/* "x" Button: Close browser tab */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onClose(tab);
-              }}
-              title="Close tab"
-              aria-label="Close tab"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '24px',
-                height: '24px',
-                borderRadius: '6px',
-                border: 'none',
-                background: 'transparent',
-                color: effectiveDark ? '#94a3b8' : textColor,
-                cursor: 'pointer',
-                padding: 0,
-                flexShrink: 0,
-                transition: 'background-color 0.12s ease, color 0.12s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
-                e.currentTarget.style.color = '#ef4444';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-              }}
-            >
-              <CloseIcon size={13} />
-            </button>
-          </>
-        )}
-      </div>
+              {/* "x" Button: Close browser tab */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onClose(tab);
+                }}
+                title="Close tab"
+                aria-label="Close tab"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#94a3b8' : textColor,
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                  e.currentTarget.style.color = '#ef4444';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                }}
+              >
+                <CloseIcon size={13} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

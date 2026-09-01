@@ -22,4 +22,5 @@ export * from './workspace/TmpTabRow';
 export * from './workspace/TmpTabsList';
 export * from './workspace/RaindropSearchInput';
 export * from './workspace/AudibleTabsWidget';
+export * from './workspace/BackupRestoreModal';
 

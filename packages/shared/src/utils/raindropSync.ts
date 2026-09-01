@@ -1,6 +1,6 @@
 import { ArcableWorkspaceData } from '../types/workspace';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
-import { RaindropCollectionItem, RaindropBookmarkItem } from '../types/raindrop';
+import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord } from '../types/raindrop';
 import {
   fetchRaindropCollections,
   createRaindropCollection,
@@ -9,11 +9,13 @@ import {
   deleteRaindropBookmark,
   uploadRaindropFile,
   fetchRaindropFileContent,
+  updateRaindropItem,
   cleanRaindropToken,
   RAINDROP_API_BASE,
 } from './raindropClient';
 import {
   getOrCreateDeviceId,
+  getStoredDeviceName,
   getStoredPendingOperations,
   clearStoredPendingOperations,
   compactSyncFile,
@@ -23,6 +25,7 @@ import {
   recomputeSyncFileOnDeleteOtherDevices,
   setStoredDeviceName,
   sortDevicesByLastSync,
+  replayOperations,
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
@@ -606,6 +609,385 @@ export async function deleteAllOtherRaindropDevices(
   } catch (err: any) {
     console.error('[RaindropSync] Error deleting other devices:', err);
     return { success: false, devices: [], error: err?.message || 'Failed to delete other devices.' };
+  }
+}
+
+/**
+ * Formats a Date object into 'YYYYMMDDHHmmss'.
+ */
+export function formatBackupTimestamp(date: Date = new Date()): string {
+  const yyyy = date.getFullYear();
+  const MM = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const HH = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}${MM}${dd}${HH}${mm}${ss}`;
+}
+
+/**
+ * Formats a backup file name: `backup-<device name>-<YYYYMMDDHHmmss>.json.txt`
+ * Sanitizes slashes and special characters so multipart FormData doesn't treat device names as path components.
+ */
+export function formatBackupFileName(deviceName: string, date: Date = new Date()): string {
+  const cleanDevice = (deviceName || 'Unknown Device')
+    .replace(/[/\\?%*:|"<>]/g, '-')
+    .replace(/\s*-\s*/g, ' - ')
+    .trim();
+  const timestamp = formatBackupTimestamp(date);
+  return `backup-${cleanDevice}-${timestamp}.json.txt`;
+}
+
+/**
+ * Parses a backup file name or title into device name and timestamp.
+ * Supports: `backup-<device name>-<YYYYMMDDHHmmss>.json.txt`, `.json`, `.txt`, or raw name.
+ */
+export function parseBackupFileName(fileNameOrTitle: string): {
+  deviceName: string;
+  timestampStr: string;
+  date: Date | null;
+} | null {
+  if (!fileNameOrTitle) return null;
+  const trimmed = fileNameOrTitle.trim();
+
+  // 1. Standard format: backup-<device name>-<YYYYMMDDHHmmss>
+  let match = trimmed.match(/^backup-(.+)-(\d{14})(?:\.json(?:\.txt)?|\.txt)?$/i);
+  if (!match) {
+    match = trimmed.match(/^backup-(.+)-(\d{8,14})(?:\.json(?:\.txt)?|\.txt)?$/i);
+  }
+  // 2. Fallback format (e.g. if previous upload stripped the backup- prefix): <device name>-<YYYYMMDDHHmmss>
+  if (!match && !trimmed.toLowerCase().includes('data.json') && !trimmed.toLowerCase().includes('data.txt')) {
+    match = trimmed.match(/^(.+)-(\d{14})(?:\.json(?:\.txt)?|\.txt)?$/i);
+  }
+  if (!match) return null;
+
+  const deviceName = match[1].trim();
+  const timestampStr = match[2];
+
+  let date: Date | null = null;
+  try {
+    const yyyy = parseInt(timestampStr.slice(0, 4), 10);
+    const MM = parseInt(timestampStr.slice(4, 6), 10) - 1;
+    const dd = parseInt(timestampStr.slice(6, 8), 10);
+    const HH = parseInt(timestampStr.slice(8, 10), 10);
+    const mm = parseInt(timestampStr.slice(10, 12), 10);
+    const ss = parseInt(timestampStr.slice(12, 14), 10);
+    date = new Date(yyyy, MM, dd, HH, mm, ss);
+  } catch {}
+
+  return {
+    deviceName,
+    timestampStr,
+    date,
+  };
+}
+
+/**
+ * Checks if a Raindrop bookmark/file item corresponds to an Arcable backup file.
+ */
+export function isBackupFileItem(item: RaindropBookmarkItem): boolean {
+  if (isDataJsonItem(item)) {
+    return false;
+  }
+
+  const title = (item.title || '').trim().toLowerCase();
+  const fileName = (item.file?.name || '').trim().toLowerCase();
+  const link = (item.link || '').toLowerCase();
+
+  const isBackupTitle = title.startsWith('backup-') && (title.includes('.json') || title.includes('.txt'));
+  const isBackupFile = fileName.startsWith('backup-') && (fileName.includes('.json') || fileName.includes('.txt'));
+  const isBackupLink = link.includes('backup-') && (link.includes('.json') || link.includes('.txt'));
+  const isTimestampedBackup = /\d{14}\.json(?:\.txt)?$/i.test(title) || /\d{14}\.json(?:\.txt)?$/i.test(fileName);
+
+  return isBackupTitle || isBackupFile || isBackupLink || isTimestampedBackup;
+}
+
+/**
+ * Creates a manual backup of current JSON data to the root "Arcable" collection.
+ * Target file name format: `backup-<device name>-<YYYYMMDDHHmmss>.json.txt`
+ */
+export async function createRaindropBackup(
+  token: string,
+  options: {
+    workspaceData: ArcableWorkspaceData;
+    deviceName?: string;
+    deviceType?: 'Web App' | 'Ext' | string;
+  }
+): Promise<{ success: boolean; backupItem?: RaindropBookmarkItem; fileName?: string; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+    }
+
+    const deviceName = options.deviceName || getStoredDeviceName(undefined, options.deviceType);
+    const fileName = formatBackupFileName(deviceName, new Date());
+    const fileContent = JSON.stringify(options.workspaceData, null, 2);
+
+    const uploadResult = await uploadRaindropFile(
+      clean,
+      collection._id,
+      fileName,
+      fileContent
+    );
+
+    const createdItem = uploadResult?.item;
+    if (createdItem?._id) {
+      // Explicitly set the title in Raindrop to ensure it matches fileName exactly
+      try {
+        await updateRaindropItem(clean, createdItem._id, { title: fileName });
+      } catch (updErr) {
+        console.warn('[RaindropSync] Warning updating backup title in Raindrop:', updErr);
+      }
+    }
+
+    return {
+      success: true,
+      fileName,
+      backupItem: createdItem,
+    };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error creating backup:', err);
+    return { success: false, error: err?.message || 'Failed to create backup in Raindrop.' };
+  }
+}
+
+/**
+ * Fetches all backups from the root "Arcable" collection.
+ * Returns the most recent backups on top, capped at the top 10.
+ */
+export async function fetchRaindropBackups(
+  token: string
+): Promise<{ success: boolean; backups: RaindropBackupRecord[]; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, backups: [], error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+    }
+
+    const items: RaindropBookmarkItem[] = [];
+
+    // 1. Search by term 'backup' with newest first
+    try {
+      const searchRes = await fetchRaindropItems(clean, collection._id, {
+        search: 'backup',
+        perpage: 50,
+        sort: '-lastUpdate',
+      });
+      for (const item of searchRes.items) {
+        if (isBackupFileItem(item) && !items.some((x) => x._id === item._id)) {
+          items.push(item);
+        }
+      }
+    } catch (err) {
+      console.warn('[RaindropSync] Search for backup files failed, falling back to full list:', err);
+    }
+
+    // 2. Fallback: list items in the collection
+    try {
+      const listRes = await fetchRaindropItems(clean, collection._id, {
+        perpage: 50,
+        sort: '-lastUpdate',
+      });
+      for (const item of listRes.items) {
+        if (isBackupFileItem(item) && !items.some((x) => x._id === item._id)) {
+          items.push(item);
+        }
+      }
+    } catch (err) {
+      console.error('[RaindropSync] Error listing items in collection:', err);
+    }
+
+    // Map items to RaindropBackupRecord
+    const backupRecords: RaindropBackupRecord[] = items.map((item) => {
+      const fileName = item.file?.name || item.title || 'backup.json.txt';
+      const parsed = parseBackupFileName(fileName) || parseBackupFileName(item.title || '');
+
+      let timestamp = 0;
+      if (parsed?.date) {
+        timestamp = parsed.date.getTime();
+      } else if (item.created) {
+        timestamp = new Date(item.created).getTime();
+      } else if (item.lastUpdate) {
+        timestamp = new Date(item.lastUpdate).getTime();
+      }
+
+      return {
+        id: item._id,
+        title: item.title || fileName,
+        fileName,
+        deviceName: parsed?.deviceName || 'Unknown Device',
+        timestampStr: parsed?.timestampStr,
+        timestamp,
+        date: parsed?.date ? parsed.date.toLocaleString() : (item.created ? new Date(item.created).toLocaleString() : undefined),
+        size: item.file?.size,
+        link: item.link,
+        created: item.created,
+        lastUpdate: item.lastUpdate,
+      };
+    });
+
+    // Guarantee descending sort: most recent backups first
+    backupRecords.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    // Cap at top 10
+    const cappedBackups = backupRecords.slice(0, 10);
+
+    return {
+      success: true,
+      backups: cappedBackups,
+    };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error fetching backups:', err);
+    return { success: false, backups: [], error: err?.message || 'Failed to fetch backups from Raindrop.' };
+  }
+}
+
+/**
+ * Restores a backup from the root "Arcable" collection by backup item ID:
+ * 1. Downloads the backup file content from Raindrop.
+ * 2. Parses and validates the JSON data.
+ * 3. Overrides local data.
+ * 4. Overrides the remote "Arcable" root collection > data.json.txt file.
+ */
+export async function restoreRaindropBackup(
+  token: string,
+  backupId: number,
+  options?: {
+    deviceId?: string;
+    deviceName?: string;
+  }
+): Promise<{ success: boolean; restoredSnapshot?: ArcableWorkspaceData; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) {
+    return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
+  }
+
+  if (!backupId) {
+    return { success: false, error: 'Backup ID is required.' };
+  }
+
+  const deviceId = options?.deviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : 'device_restore');
+  const deviceName = options?.deviceName || (typeof window !== 'undefined' ? getStoredDeviceName() : 'Restored Device');
+
+  try {
+    const collection = await getOrCreateArcableCollection(clean);
+    if (!collection || !collection._id) {
+      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+    }
+
+    // 1. Fetch the backup item detail
+    const backupItem = await fetchRaindropItem(clean, backupId);
+    if (!backupItem) {
+      throw new Error(`Backup item with ID ${backupId} not found in Raindrop.`);
+    }
+
+    // 2. Download backup content using candidate URLs
+    const urlCandidates: string[] = [];
+    if (backupItem.file?.path) {
+      urlCandidates.push(backupItem.file.path);
+    }
+    if (backupItem.link && !urlCandidates.includes(backupItem.link)) {
+      urlCandidates.push(backupItem.link);
+    }
+    urlCandidates.push(`${RAINDROP_API_BASE}/raindrop/${backupId}/file`);
+    urlCandidates.push(`${RAINDROP_API_BASE}/file/${backupId}`);
+
+    let rawContent = '';
+    for (const url of urlCandidates) {
+      if (url && typeof url === 'string') {
+        try {
+          const content = await fetchRaindropFileContent(clean, url);
+          if (content && content.trim() && !content.trim().startsWith('<')) {
+            rawContent = content.trim();
+            break;
+          }
+        } catch {
+          // Try next candidate
+        }
+      }
+    }
+
+    if (!rawContent || !rawContent.trim()) {
+      throw new Error(`Failed to download backup file content for backup item ${backupId}.`);
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      throw new Error('Backup file content is not valid JSON.');
+    }
+
+    // Extract valid ArcableWorkspaceData snapshot
+    let snapshot: ArcableWorkspaceData;
+    if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
+      // It's an ArcableSyncFile
+      snapshot = replayOperations(parsed.baselineSnapshot, parsed.operations);
+    } else if (parsed && Array.isArray(parsed.spaces)) {
+      // It's a direct ArcableWorkspaceData snapshot
+      snapshot = {
+        spaces: parsed.spaces,
+        folders: parsed.folders || [],
+        tabs: parsed.tabs || [],
+        activeSpaceId: parsed.activeSpaceId || parsed.spaces[0]?.id || 'space_personal',
+        version: parsed.version || 1,
+      };
+    } else {
+      throw new Error('Unrecognized backup file format: missing spaces data.');
+    }
+
+    // 3. Override local data & clear pending ops if in browser context
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snapshot));
+        clearStoredPendingOperations();
+      } catch (storageErr) {
+        console.warn('[RaindropSync] Warning saving restored data to localStorage:', storageErr);
+      }
+    }
+
+    // 4. Override remote data.json.txt in "Arcable" root collection
+    // Find and delete existing data.json.txt items
+    const existingDataItems = await findAllRaindropDataJsonItems(clean, collection._id);
+    for (const item of existingDataItems) {
+      if (item._id) {
+        try {
+          await deleteRaindropBookmark(clean, item._id);
+        } catch (delErr) {
+          console.warn('[RaindropSync] Warning deleting previous data.json during restore:', delErr);
+        }
+      }
+    }
+
+    // Construct fresh initial sync file from restored snapshot
+    const initialSyncFile = createInitialSyncFile(snapshot, deviceId);
+    initialSyncFile.devices[deviceId] = {
+      deviceId,
+      deviceName,
+      lastSyncAt: Date.now(),
+    };
+
+    const newFileContent = JSON.stringify(initialSyncFile, null, 2);
+    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, newFileContent);
+
+    return {
+      success: true,
+      restoredSnapshot: snapshot,
+    };
+  } catch (err: any) {
+    console.error('[RaindropSync] Error restoring backup:', err);
+    return { success: false, error: err?.message || 'Failed to restore backup from Raindrop.' };
   }
 }
 

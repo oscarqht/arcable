@@ -87,3 +87,17 @@ export interface RaindropSearchResult {
   items: RaindropSearchItem[];
   collections: RaindropCollectionItem[];
 }
+
+export interface RaindropBackupRecord {
+  id: number;
+  title: string;
+  fileName: string;
+  deviceName: string;
+  timestampStr?: string;
+  date?: string;
+  timestamp?: number;
+  size?: number;
+  link?: string;
+  created?: string;
+  lastUpdate?: string;
+}

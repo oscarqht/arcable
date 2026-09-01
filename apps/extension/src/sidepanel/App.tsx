@@ -3,6 +3,7 @@ import {
   WorkspaceManager,
   WorkspaceManagerHandle,
   DeviceModal,
+  BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
 import { TabAssociationMap, Tab, TmpTab, AudibleTab } from '@arcable/shared/types';
@@ -24,6 +25,7 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
@@ -292,6 +294,61 @@ export const App: React.FC = () => {
     return res.data || [];
   };
 
+  const handleCreateBackup = useCallback(async () => {
+    let wsData: any = null;
+    if (typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem('arcable_workspace_data');
+      if (raw) {
+        try {
+          wsData = JSON.parse(raw);
+        } catch {}
+      }
+    }
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_CREATE_BACKUP',
+      payload: {
+        workspaceData: wsData,
+        deviceName: getStoredDeviceName(undefined, 'Ext'),
+      },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to create backup');
+    }
+    return res.data;
+  }, []);
+
+  const handleFetchBackups = useCallback(async () => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_LIST_BACKUPS',
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to list backups');
+    }
+    return res.data || [];
+  }, []);
+
+  const handleRestoreBackup = useCallback(async (backupId: number) => {
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_RESTORE_BACKUP',
+      payload: {
+        backupId,
+        deviceName: getStoredDeviceName(undefined, 'Ext'),
+      },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to restore backup');
+    }
+    return res.data;
+  }, []);
+
+  const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
+    if (typeof window !== 'undefined' && restoredSnapshot) {
+      window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
+      syncTabsWithTracker();
+      window.location.reload();
+    }
+  }, [syncTabsWithTracker]);
+
   const handleOpenTab = async (url: string, tabId?: string) => {
     if (tabId) {
       setHighlightedTabId(tabId);
@@ -479,6 +536,12 @@ export const App: React.FC = () => {
       onClick: () => setIsDeviceModalOpen(true),
     },
     {
+      id: 'backup-restore',
+      label: 'Backup & Restore',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>💾</span>,
+      onClick: () => setIsBackupModalOpen(true),
+    },
+    {
       id: 'settings',
       label: 'Extension Settings',
       icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>⚙️</span>,
@@ -547,6 +610,15 @@ export const App: React.FC = () => {
         onRenameDevice={handleRenameDevice}
         onDeleteDevice={handleDeleteDevice}
         onDeleteOtherDevices={handleDeleteOtherDevices}
+      />
+
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        onBackup={hasRaindropAuth ? handleCreateBackup : undefined}
+        onFetchBackups={hasRaindropAuth ? handleFetchBackups : undefined}
+        onRestoreBackup={hasRaindropAuth ? handleRestoreBackup : undefined}
+        onRestoreComplete={handleRestoreComplete}
       />
     </div>
   );

@@ -37,7 +37,10 @@ export type ExtensionMessageType =
   | 'RAINDROP_GET_DEVICES'
   | 'RAINDROP_RENAME_DEVICE'
   | 'RAINDROP_DELETE_DEVICE'
-  | 'RAINDROP_DELETE_OTHER_DEVICES';
+  | 'RAINDROP_DELETE_OTHER_DEVICES'
+  | 'RAINDROP_CREATE_BACKUP'
+  | 'RAINDROP_LIST_BACKUPS'
+  | 'RAINDROP_RESTORE_BACKUP';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType;

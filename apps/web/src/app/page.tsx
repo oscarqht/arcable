@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Header,
   WorkspaceManager,
@@ -11,6 +11,7 @@ import {
   SearchIcon,
   CloseIcon,
   DeviceModal,
+  BackupRestoreModal,
   LogInIcon,
   LogOutIcon,
 } from '@arcable/shared/components';
@@ -23,6 +24,7 @@ export default function HomePage() {
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Raindrop Auth State
@@ -215,6 +217,83 @@ export default function HomePage() {
     }
   };
 
+  const handleCreateBackup = useCallback(async () => {
+    try {
+      let wsData: any = null;
+      if (typeof window !== 'undefined') {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) {
+          try {
+            wsData = JSON.parse(raw);
+          } catch {}
+        }
+      }
+      const res = await fetch('/api/raindrop/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: authState.accessToken,
+          workspaceData: wsData || { activeSpaceId: 'space_personal', version: 1, spaces: [], folders: [], tabs: [] },
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
+          deviceType: 'Web App',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create backup');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Create backup error:', err);
+      throw err;
+    }
+  }, [authState.accessToken]);
+
+  const handleFetchBackups = useCallback(async () => {
+    try {
+      const res = await fetch('/api/raindrop/backup', {
+        headers: authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : undefined,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch backups');
+      }
+      return data.backups || [];
+    } catch (err: any) {
+      console.error('Fetch backups error:', err);
+      throw err;
+    }
+  }, [authState.accessToken]);
+
+  const handleRestoreBackup = useCallback(async (backupId: number) => {
+    try {
+      const res = await fetch('/api/raindrop/backup', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: authState.accessToken,
+          backupId,
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to restore backup');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Restore backup error:', err);
+      throw err;
+    }
+  }, [authState.accessToken]);
+
+  const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
+    if (typeof window !== 'undefined' && restoredSnapshot) {
+      window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
+      window.location.reload();
+    }
+  }, []);
+
   return (
     <div
       style={{
@@ -335,6 +414,33 @@ export default function HomePage() {
               <span className="header-btn-text">Devices</span>
             </button>
 
+            {/* Backup & Restore Button */}
+            <button
+              type="button"
+              className="header-action-btn"
+              onClick={() => setIsBackupModalOpen(true)}
+              title="Backup & Restore workspace"
+              style={{
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
+              }}
+            >
+              <span style={{ fontSize: '13px', display: 'inline-flex' }}>💾</span>
+              <span className="header-btn-text">Backup</span>
+            </button>
+
             {authState.isAuthenticated ? (
               <button
                 type="button"
@@ -421,6 +527,16 @@ export default function HomePage() {
         onRenameDevice={authState.isAuthenticated ? handleRenameDevice : undefined}
         onDeleteDevice={authState.isAuthenticated ? handleDeleteDevice : undefined}
         onDeleteOtherDevices={authState.isAuthenticated ? handleDeleteOtherDevices : undefined}
+      />
+
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        raindropToken={authState.accessToken}
+        onBackup={authState.isAuthenticated ? handleCreateBackup : undefined}
+        onFetchBackups={authState.isAuthenticated ? handleFetchBackups : undefined}
+        onRestoreBackup={authState.isAuthenticated ? handleRestoreBackup : undefined}
+        onRestoreComplete={handleRestoreComplete}
       />
     </div>
   );
