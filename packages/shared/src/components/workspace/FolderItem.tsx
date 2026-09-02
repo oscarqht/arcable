@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Folder, Tab } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
-import { getAllFolderTabUrls } from '../../utils/treeUtils';
+import { getAllFolderTabUrls, isTabInFolder, findDirectChildForTab } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -99,7 +99,26 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
+  const isSemiExpanded =
+    !isExpanded &&
+    Boolean(highlightedTabId) &&
+    isTabInFolder(highlightedTabId!, folder.id, allFolders, allTabs);
   const totalItemCount = siblings.length;
+
+  const activeDirectChild = useMemo(() => {
+    if (!isSemiExpanded || !highlightedTabId) return null;
+    return findDirectChildForTab(highlightedTabId, folder.id, allFolders, allTabs);
+  }, [isSemiExpanded, highlightedTabId, folder.id, allFolders, allTabs]);
+
+  const visibleSiblings = useMemo(() => {
+    if (isExpanded) return siblings;
+    if (isSemiExpanded && activeDirectChild) {
+      return siblings.filter(
+        (s) => s.type === activeDirectChild.type && s.id === activeDirectChild.id
+      );
+    }
+    return [];
+  }, [isExpanded, isSemiExpanded, activeDirectChild, siblings]);
 
   const handleCopyFolder = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -322,7 +341,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           >
             {folder.customEmojiIcon ? (
               <span style={{ fontSize: '18px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
-            ) : isExpanded ? (
+            ) : isExpanded || isSemiExpanded ? (
               <FolderOpenIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             ) : (
               <FolderIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
@@ -379,19 +398,53 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           )}
         </div>
 
-        {/* Right Section: Folder Action Dropdown on Hover / Mobile */}
-        <ActionDropdown
-          items={folderMenuItems}
-          isDarkTheme={effectiveDark}
-          visible={isMobile || alwaysShowActions || isHovered}
-          hoverBg={activeIconHoverBg}
-          buttonTitle="Folder options"
-          size="sm"
-        />
+        {/* Right Section: Folder Action Dropdown on Hover / Mobile & Semi-expanded indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {isSemiExpanded && (
+            <div
+              title="Active tab inside"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 3px',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: '#10b981',
+                  boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.25)',
+                  display: 'inline-block',
+                  animation: 'arcable-pulse 2s infinite',
+                }}
+              />
+            </div>
+          )}
+
+          <ActionDropdown
+            items={folderMenuItems}
+            isDarkTheme={effectiveDark}
+            visible={isMobile || alwaysShowActions || isHovered}
+            hoverBg={activeIconHoverBg}
+            buttonTitle="Folder options"
+            size="sm"
+          />
+        </div>
       </div>
 
-      {/* Expanded Folder Contents */}
-      {isExpanded && (
+      <style>{`
+        @keyframes arcable-pulse {
+          0% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+          70% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+          100% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+      `}</style>
+
+      {/* Expanded / Semi-expanded Folder Contents */}
+      {(isExpanded || isSemiExpanded) && (
         <div
           style={{
             display: 'flex',
@@ -403,9 +456,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             marginTop: '4px',
           }}
         >
-          {siblings.map((item, index) => {
-            const hasPrev = index > 0;
-            const hasNext = index < siblings.length - 1;
+          {visibleSiblings.map((item, index) => {
+            const hasPrev = isExpanded && index > 0;
+            const hasNext = isExpanded && index < visibleSiblings.length - 1;
 
             if (item.type === 'folder') {
               return (
@@ -513,9 +566,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             );
           })}
 
-
           {/* Empty Folder State */}
-          {totalItemCount === 0 && (
+          {isExpanded && totalItemCount === 0 && (
             <div
               style={{
                 fontSize: '12.5px',

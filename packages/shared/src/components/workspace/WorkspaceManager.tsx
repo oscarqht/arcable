@@ -307,7 +307,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const prevHighlightedTabIdRef = useRef<string | null | undefined>(undefined);
 
-  // Auto-reveal and expand folder hierarchy when highlightedTabId genuinely changes
+  // Auto-switch to the space of the highlighted tab when highlightedTabId genuinely changes
   useEffect(() => {
     if (!highlightedTabId) {
       prevHighlightedTabIdRef.current = highlightedTabId;
@@ -324,22 +324,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     if (targetTab.parentSpaceId) {
       setActiveSpace(targetTab.parentSpaceId);
     }
-
-    if (targetTab.parentFolderId) {
-      let currentFolderId: string | undefined = targetTab.parentFolderId;
-      while (currentFolderId) {
-        const folder = data.folders.find((f) => f.id === currentFolderId);
-        if (folder) {
-          if (!folder.isExpanded) {
-            toggleFolderExpand(folder.id);
-          }
-          currentFolderId = folder.parentFolderId;
-        } else {
-          break;
-        }
-      }
-    }
-  }, [highlightedTabId, data.tabs, data.folders, setActiveSpace, toggleFolderExpand]);
+  }, [highlightedTabId, data.tabs, setActiveSpace]);
 
   const toggleSpaceCollapse = (spaceId: string) => {
 
@@ -997,20 +982,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         if (targetTab.parentSpaceId) {
           setActiveSpace(targetTab.parentSpaceId);
         }
-        if (targetTab.parentFolderId) {
-          let currentFolderId: string | undefined = targetTab.parentFolderId;
-          while (currentFolderId) {
-            const folder = data.folders.find((f) => f.id === currentFolderId);
-            if (folder) {
-              if (!folder.isExpanded) {
-                toggleFolderExpand(folder.id);
-              }
-              currentFolderId = folder.parentFolderId;
-            } else {
-              break;
-            }
-          }
-        }
       },
       getActiveSpace: () => activeSpace || null,
       getActiveSpaceTheme: () => activeSpaceTheme,
@@ -1021,9 +992,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       performSync,
       handleCaptureTab,
       data.tabs,
-      data.folders,
       setActiveSpace,
-      toggleFolderExpand,
       activeSpace,
       activeSpaceTheme,
     ]

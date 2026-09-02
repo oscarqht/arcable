@@ -311,3 +311,74 @@ export function getTreeOrderedFolders(folders: Folder[]): Folder[] {
 
   return result;
 }
+
+/**
+ * Checks whether a given tab is a direct child or a descendant of a specified folder.
+ */
+export function isTabInFolder(
+  tabId: string,
+  folderId: string,
+  allFolders: Folder[],
+  allTabs: Tab[]
+): boolean {
+  const targetTab = allTabs.find((t) => t.id === tabId);
+  if (!targetTab || !targetTab.parentFolderId) return false;
+
+  const folderMap = new Map<string, Folder>();
+  for (const f of allFolders) {
+    folderMap.set(f.id, f);
+  }
+
+  const visited = new Set<string>();
+  let currentFolderId: string | undefined = targetTab.parentFolderId;
+
+  while (currentFolderId && !visited.has(currentFolderId)) {
+    if (currentFolderId === folderId) {
+      return true;
+    }
+    visited.add(currentFolderId);
+    const folder = folderMap.get(currentFolderId);
+    currentFolderId = folder ? folder.parentFolderId : undefined;
+  }
+
+  return false;
+}
+
+/**
+ * Finds the immediate direct child item (either a subfolder or a direct tab) of folderId
+ * that is or contains the targetTabId.
+ */
+export function findDirectChildForTab(
+  targetTabId: string,
+  folderId: string,
+  allFolders: Folder[],
+  allTabs: Tab[]
+): { type: 'folder' | 'tab'; id: string } | null {
+  const targetTab = allTabs.find((t) => t.id === targetTabId);
+  if (!targetTab || !targetTab.parentFolderId) return null;
+
+  if (targetTab.parentFolderId === folderId) {
+    return { type: 'tab', id: targetTab.id };
+  }
+
+  const folderMap = new Map<string, Folder>();
+  for (const f of allFolders) {
+    folderMap.set(f.id, f);
+  }
+
+  const visited = new Set<string>();
+  let currentFolder = folderMap.get(targetTab.parentFolderId);
+
+  while (currentFolder && !visited.has(currentFolder.id)) {
+    visited.add(currentFolder.id);
+    if (currentFolder.parentFolderId === folderId) {
+      return { type: 'folder', id: currentFolder.id };
+    }
+    currentFolder = currentFolder.parentFolderId
+      ? folderMap.get(currentFolder.parentFolderId)
+      : undefined;
+  }
+
+  return null;
+}
+
