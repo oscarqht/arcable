@@ -8,7 +8,7 @@ import {
 } from '@arcable/shared/components';
 import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
 import { browser, getActiveTab } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
@@ -17,6 +17,31 @@ import { audioTracker } from '../utils/audioTracker';
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
+  const [currentSpaceTheme, setCurrentSpaceTheme] = useState<SpaceThemeTokens>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const activeId = parsed.activeSpaceId;
+          const space = parsed.spaces?.find((s: any) => s.id === activeId) || parsed.spaces?.[0];
+          if (space) {
+            return getSpaceThemeStyles(space.colors, isDark);
+          }
+        }
+      } catch {}
+    }
+    return getSpaceThemeStyles(null, isDark);
+  });
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.body.style.background = currentSpaceTheme.containerBg;
+      document.body.style.color = currentSpaceTheme.textColor;
+      document.body.style.transition = 'background 0.35s cubic-bezier(0.25, 1, 0.5, 1), color 0.35s ease';
+    }
+  }, [currentSpaceTheme]);
+
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
@@ -559,8 +584,9 @@ export const App: React.FC = () => {
         width: '100%',
         overflow: 'hidden',
         overscrollBehavior: 'none',
-        backgroundColor: isDark ? '#0b0f19' : '#f8fafc',
-        color: isDark ? '#f8fafc' : '#0f172a',
+        background: currentSpaceTheme.containerBg,
+        color: currentSpaceTheme.textColor,
+        transition: 'background 0.35s cubic-bezier(0.25, 1, 0.5, 1), color 0.35s ease',
       }}
     >
       <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -583,6 +609,7 @@ export const App: React.FC = () => {
           defaultViewMode="focused"
           headerTitle="Sidepanel Workspace"
           hideControlBarActions={true}
+          onThemeChange={setCurrentSpaceTheme}
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
           onCloseTmpTab={handleCloseTmpTab}

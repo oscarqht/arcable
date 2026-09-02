@@ -14,7 +14,7 @@ import {
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
-import { getSpaceThemeStyles, getSpacePrimaryColor } from '../../utils/spaceTheme';
+import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
@@ -47,6 +47,8 @@ export interface WorkspaceManagerHandle {
   triggerSync: () => Promise<void>;
   captureCurrentTab: () => Promise<void>;
   revealAndHighlightTab: (tabId: string) => void;
+  getActiveSpace: () => Space | null;
+  getActiveSpaceTheme: () => SpaceThemeTokens;
   isSyncing: boolean;
 }
 
@@ -84,6 +86,8 @@ export interface WorkspaceManagerProps {
   onSaveToRaindrop?: () => Promise<void>;
   autoSync?: boolean;
   defaultViewMode?: 'grid' | 'focused';
+  onActiveSpaceChange?: (activeSpace: Space | null) => void;
+  onThemeChange?: (themeTokens: SpaceThemeTokens) => void;
   onSyncRaindrop?: (params: {
     localState: ArcableWorkspaceData;
     deviceId: string;
@@ -127,6 +131,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onSaveToRaindrop,
       autoSync = true,
       defaultViewMode = 'grid',
+      onActiveSpaceChange,
+      onThemeChange,
       onSyncRaindrop,
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
@@ -165,6 +171,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     favouriteTabs,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
+
+  // Space theme tokens for the current active space
+  const activeSpaceTheme = useMemo(() => {
+    return getSpaceThemeStyles(activeSpace?.colors, isDark);
+  }, [activeSpace?.colors, isDark]);
+
+  useEffect(() => {
+    onActiveSpaceChange?.(activeSpace || null);
+    onThemeChange?.(activeSpaceTheme);
+  }, [activeSpace, activeSpaceTheme, onActiveSpaceChange, onThemeChange]);
 
   // Notify parent of tab changes (e.g. to associate newly created items with open browser tabs)
   useEffect(() => {
@@ -996,9 +1012,21 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           }
         }
       },
+      getActiveSpace: () => activeSpace || null,
+      getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
     }),
-    [isCurrentlySyncing, performSync, handleCaptureTab, data.tabs, data.folders, setActiveSpace, toggleFolderExpand]
+    [
+      isCurrentlySyncing,
+      performSync,
+      handleCaptureTab,
+      data.tabs,
+      data.folders,
+      setActiveSpace,
+      toggleFolderExpand,
+      activeSpace,
+      activeSpaceTheme,
+    ]
   );
 
 
@@ -1241,6 +1269,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tabs={favouriteTabs}
         tabAssociations={tabAssociations}
         highlightedTabId={highlightedTabId}
+        themeStyles={activeSpaceTheme}
         onOpenTab={handleOpenTabWithSearchClear}
         onEditTab={(tab) => {
           setEditingTab(tab);

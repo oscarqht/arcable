@@ -265,12 +265,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}
       style={{
-        background: themeStyles.containerBg,
+        background: isSingleColumn ? 'transparent' : themeStyles.containerBg,
         color: themeStyles.textColor,
         borderRadius: '24px',
-        border: themeStyles.cardBorder,
-        boxShadow: themeStyles.cardBoxShadow,
-        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '14px 12px' : '22px 14px'),
+        border: isSingleColumn ? 'none' : themeStyles.cardBorder,
+        boxShadow: isSingleColumn ? 'none' : themeStyles.cardBoxShadow,
+        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '8px 0' : '22px 14px'),
         display: 'flex',
         flexDirection: 'column',
         gap: isCollapsed ? '0' : (isSingleColumn ? '12px' : '16px'),
