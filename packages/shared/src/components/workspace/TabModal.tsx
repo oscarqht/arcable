@@ -319,10 +319,8 @@ export const TabModal: React.FC<TabModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm(`Delete tab "${customTitle || url}"?`)) {
-                    onDelete(tab.id);
-                    onClose();
-                  }
+                  onDelete(tab.id);
+                  onClose();
                 }}
                 style={{
                   border: 'none',

@@ -241,11 +241,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         label: 'Delete space',
         icon: <TrashIcon size={16} />,
         danger: true,
-        onClick: () => {
-          if (confirm(`Delete space "${space.name}" and all its folders & tabs?`)) {
-            onDeleteSpace(space.id);
-          }
-        },
+        onClick: () => onDeleteSpace(space.id),
       });
     }
 

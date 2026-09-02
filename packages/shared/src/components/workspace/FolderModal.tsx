@@ -260,10 +260,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm(`Delete folder "${name || folder.name}" and all its contents?`)) {
-                    onDelete(folder.id);
-                    onClose();
-                  }
+                  onDelete(folder.id);
+                  onClose();
                 }}
                 style={{
                   border: 'none',

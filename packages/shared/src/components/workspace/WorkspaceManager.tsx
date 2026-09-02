@@ -26,6 +26,9 @@ import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
+import { ConfirmModal } from './ConfirmModal';
+import { cleanUrl } from '../../utils/format';
+import { getDomain } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -248,6 +251,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // JSON viewer modal
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+
+  // Delete confirmation modal
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Sync state & notifications
   const [syncLoading, setSyncLoading] = useState(false);
@@ -1098,6 +1110,65 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setIsConvertSpaceModalOpen(true);
   };
 
+  const handleRequestDeleteTab = useCallback((tabId: string) => {
+    const tab = data.tabs.find((t) => t.id === tabId);
+    const tabTitle = tab?.customTitle || (tab?.url ? (getDomain(tab.url) || cleanUrl(tab.url)) : '') || 'this tab';
+    const isFav = Boolean(tab?.favourite);
+
+    setDeleteConfirmation({
+      isOpen: true,
+      title: isFav ? 'Delete Favourite Tab' : 'Delete Tab',
+      message: (
+        <span>
+          Are you sure you want to delete {isFav ? 'favourite tab' : 'tab'}{' '}
+          <strong>"{tabTitle}"</strong>?
+        </span>
+      ),
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        deleteTab(tabId);
+      },
+    });
+  }, [data.tabs, deleteTab]);
+
+  const handleRequestDeleteFolder = useCallback((folderId: string) => {
+    const folder = data.folders.find((f) => f.id === folderId);
+    const folderName = folder?.name || 'this folder';
+
+    setDeleteConfirmation({
+      isOpen: true,
+      title: 'Delete Folder',
+      message: (
+        <span>
+          Are you sure you want to delete folder <strong>"{folderName}"</strong> and all its contents?
+        </span>
+      ),
+      confirmLabel: 'Delete Folder',
+      onConfirm: () => {
+        deleteFolder(folderId, true);
+      },
+    });
+  }, [data.folders, deleteFolder]);
+
+  const handleRequestDeleteSpace = useCallback((spaceId: string) => {
+    const space = data.spaces.find((s) => s.id === spaceId);
+    const spaceName = space?.name || 'this space';
+
+    setDeleteConfirmation({
+      isOpen: true,
+      title: 'Delete Space',
+      message: (
+        <span>
+          Are you sure you want to delete space <strong>"{spaceName}"</strong> and all its folders &amp; tabs?
+        </span>
+      ),
+      confirmLabel: 'Delete Space',
+      onConfirm: () => {
+        deleteSpace(spaceId);
+      },
+    });
+  }, [data.spaces, deleteSpace]);
+
   // Split expanded and collapsed spaces for Synctable grid layout
   const { expandedSpaces, collapsedSpaces } = useMemo(() => {
     const expanded: Space[] = [];
@@ -1176,7 +1247,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setTargetSpaceIdForModal(tab.parentSpaceId);
           setIsTabModalOpen(true);
         }}
-        onDeleteTab={deleteTab}
+        onDeleteTab={handleRequestDeleteTab}
         onToggleFavouriteTab={toggleFavouriteTab}
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
         onReorderFavouriteTabs={reorderFavouriteTabs}
@@ -1567,7 +1638,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setIsSpaceModalOpen(true);
                   }}
 
-                  onDeleteSpace={deleteSpace}
+                  onDeleteSpace={handleRequestDeleteSpace}
                   onConvertSpace={handleOpenConvertSpaceModal}
                   onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
                   onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
@@ -1576,14 +1647,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setTargetSpaceIdForModal(space.id);
                     setIsFolderModalOpen(true);
                   }}
-                  onDeleteFolder={(fId) => deleteFolder(fId, true)}
+                  onDeleteFolder={handleRequestDeleteFolder}
                   onToggleFolderExpand={toggleFolderExpand}
                   onEditTab={(t) => {
                     setEditingTab(t);
                     setTargetSpaceIdForModal(space.id);
                     setIsTabModalOpen(true);
                   }}
-                  onDeleteTab={deleteTab}
+                  onDeleteTab={handleRequestDeleteTab}
                   onTogglePinTab={togglePinTab}
                   onToggleFavouriteTab={toggleFavouriteTab}
                   onMoveSiblingItem={moveSiblingItem}
@@ -1651,7 +1722,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setEditingSpace(sp);
                         setIsSpaceModalOpen(true);
                       }}
-                      onDeleteSpace={deleteSpace}
+                      onDeleteSpace={handleRequestDeleteSpace}
                       onConvertSpace={handleOpenConvertSpaceModal}
                       onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
                       onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
@@ -1660,14 +1731,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setTargetSpaceIdForModal(space.id);
                         setIsFolderModalOpen(true);
                       }}
-                      onDeleteFolder={(fId) => deleteFolder(fId, true)}
+                      onDeleteFolder={handleRequestDeleteFolder}
                       onToggleFolderExpand={toggleFolderExpand}
                       onEditTab={(t) => {
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
                       }}
-                      onDeleteTab={deleteTab}
+                      onDeleteTab={handleRequestDeleteTab}
                       onTogglePinTab={togglePinTab}
                       onToggleFavouriteTab={toggleFavouriteTab}
                       onMoveSiblingItem={moveSiblingItem}
@@ -1767,7 +1838,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       setEditingSpace(sp);
                       setIsSpaceModalOpen(true);
                     }}
-                    onDeleteSpace={deleteSpace}
+                    onDeleteSpace={handleRequestDeleteSpace}
                     onConvertSpace={handleOpenConvertSpaceModal}
                     onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
                     onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
@@ -1776,14 +1847,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       setTargetSpaceIdForModal(space.id);
                       setIsFolderModalOpen(true);
                     }}
-                    onDeleteFolder={(fId) => deleteFolder(fId, true)}
+                    onDeleteFolder={handleRequestDeleteFolder}
                     onToggleFolderExpand={toggleFolderExpand}
                     onEditTab={(t) => {
                       setEditingTab(t);
                       setTargetSpaceIdForModal(space.id);
                       setIsTabModalOpen(true);
                     }}
-                    onDeleteTab={deleteTab}
+                    onDeleteTab={handleRequestDeleteTab}
                     onTogglePinTab={togglePinTab}
                     onToggleFavouriteTab={toggleFavouriteTab}
                     onMoveSiblingItem={moveSiblingItem}
@@ -2012,7 +2083,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         allSpaces={data.spaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultParentFolderId={defaultFolderParentId}
-        onDelete={(fId) => deleteFolder(fId, true)}
+        onDelete={handleRequestDeleteFolder}
         onSave={(folderData) => {
           if (editingFolder) {
             updateFolder(editingFolder.id, folderData);
@@ -2038,7 +2109,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         initialTitle={initialTabTitle}
         initialPinned={defaultTabPinned}
         initialFavourite={defaultTabFavourite}
-        onDelete={deleteTab}
+        onDelete={handleRequestDeleteTab}
         onSave={(tabData) => {
           if (editingTab) {
             updateTab(editingTab.id, tabData);
@@ -2051,6 +2122,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           }
         }}
       />
+
+      {deleteConfirmation && (
+        <ConfirmModal
+          isOpen={deleteConfirmation.isOpen}
+          title={deleteConfirmation.title}
+          message={deleteConfirmation.message}
+          confirmLabel={deleteConfirmation.confirmLabel}
+          onConfirm={deleteConfirmation.onConfirm}
+          onClose={() => setDeleteConfirmation(null)}
+        />
+      )}
 
       {/* LocalStorage Single JSON Inspector Modal */}
       {isJsonModalOpen && (

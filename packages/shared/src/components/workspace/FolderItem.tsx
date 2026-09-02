@@ -167,11 +167,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         label: 'Delete folder',
         icon: <TrashIcon size={14} />,
         danger: true,
-        onClick: () => {
-          if (confirm(`Delete folder "${folder.name}" and all its contents?`)) {
-            onDeleteFolder(folder.id);
-          }
-        },
+        onClick: () => onDeleteFolder(folder.id),
       });
     }
 
