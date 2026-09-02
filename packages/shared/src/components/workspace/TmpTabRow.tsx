@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { TmpTab } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
-import { getDomain } from '../../utils/treeUtils';
+import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -85,7 +85,10 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     }
   }, [isEditing, tab.customTitle, tab.title]);
 
+  const isHttp = isValidHttpUrl(tab.url);
+
   const handleStartRename = (e: React.MouseEvent) => {
+    if (!isHttp) return;
     e.stopPropagation();
     e.preventDefault();
     setIsEditing(true);
@@ -210,7 +213,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         ) : (
           /* Title taking 100% available width */
           <span
-            onDoubleClick={handleStartRename}
+            onDoubleClick={isHttp ? handleStartRename : undefined}
             style={{
               fontSize: '14px',
               fontWeight: 500,
@@ -309,75 +312,79 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
                 </>
               ) : (
                 <>
-                  {/* Rename Button */}
-                  <button
-                    type="button"
-                    onClick={handleStartRename}
-                    title="Rename tab"
-                    aria-label="Rename tab"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: effectiveDark ? '#94a3b8' : textColor,
-                      cursor: 'pointer',
-                      padding: 0,
-                      flexShrink: 0,
-                      transition: 'background-color 0.12s ease, color 0.12s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                      e.currentTarget.style.color = '#0284c7';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-                    }}
-                  >
-                    <EditIcon size={13} />
-                  </button>
+                  {isHttp && (
+                    <>
+                      {/* Rename Button */}
+                      <button
+                        type="button"
+                        onClick={handleStartRename}
+                        title="Rename tab"
+                        aria-label="Rename tab"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: 'transparent',
+                          color: effectiveDark ? '#94a3b8' : textColor,
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0,
+                          transition: 'background-color 0.12s ease, color 0.12s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                          e.currentTarget.style.color = '#0284c7';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                        }}
+                      >
+                        <EditIcon size={13} />
+                      </button>
 
-                  {/* "+" Button: Open Add Tab Modal prefilled */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onPromote(tab);
-                    }}
-                    title="Save to workspace"
-                    aria-label="Save to workspace"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: effectiveDark ? '#94a3b8' : textColor,
-                      cursor: 'pointer',
-                      padding: 0,
-                      flexShrink: 0,
-                      transition: 'background-color 0.12s ease, color 0.12s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
-                      e.currentTarget.style.color = '#0284c7';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-                    }}
-                  >
-                    <PlusIcon size={14} />
-                  </button>
+                      {/* "+" Button: Open Add Tab Modal prefilled */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onPromote(tab);
+                        }}
+                        title="Save to workspace"
+                        aria-label="Save to workspace"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: 'transparent',
+                          color: effectiveDark ? '#94a3b8' : textColor,
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0,
+                          transition: 'background-color 0.12s ease, color 0.12s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe';
+                          e.currentTarget.style.color = '#0284c7';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                        }}
+                      >
+                        <PlusIcon size={14} />
+                      </button>
+                    </>
+                  )}
 
                   {/* "x" Button: Close browser tab */}
                   <button

@@ -64,6 +64,7 @@ export interface WorkspaceManagerProps {
   onCloseTmpTab?: (tab: TmpTab) => void;
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
+  onTabPromoted?: (newTab: Tab, tmpTab: TmpTab) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -106,6 +107,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onCloseTmpTab,
       onPromoteTmpTab,
       onRenameTmpTab,
+      onTabPromoted,
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
@@ -236,6 +238,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const [isTabModalOpen, setIsTabModalOpen] = useState(false);
   const [editingTab, setEditingTab] = useState<Tab | null>(null);
+  const [promotingTmpTab, setPromotingTmpTab] = useState<TmpTab | null>(null);
   const [defaultTabFolderId, setDefaultTabFolderId] = useState<string | undefined>();
   const [defaultTabPinned, setDefaultTabPinned] = useState(false);
   const [defaultTabFavourite, setDefaultTabFavourite] = useState(false);
@@ -926,6 +929,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     try {
       const activeTabInfo = await onCaptureCurrentTab();
       if (activeTabInfo && activeTabInfo.url) {
+        setPromotingTmpTab(null);
         setEditingTab(null);
         setTargetSpaceIdForModal(activeSpace?.id);
         setDefaultTabFolderId(undefined);
@@ -1054,6 +1058,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     pinned: boolean = false,
     favourite: boolean = false
   ) => {
+    setPromotingTmpTab(null);
     setEditingTab(null);
     setTargetSpaceIdForModal(spaceId || activeSpace?.id);
     setDefaultTabFolderId(folderId);
@@ -1069,6 +1074,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onPromoteTmpTab(tmpTab);
       return;
     }
+    setPromotingTmpTab(tmpTab);
     setEditingTab(null);
     setTargetSpaceIdForModal(activeSpace?.id);
     setDefaultTabFolderId(undefined);
@@ -2021,6 +2027,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onClose={() => {
           setIsTabModalOpen(false);
           setEditingTab(null);
+          setPromotingTmpTab(null);
         }}
         tab={editingTab}
         allFolders={data.folders}
@@ -2036,7 +2043,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (editingTab) {
             updateTab(editingTab.id, tabData);
           } else {
-            createTab(tabData);
+            const newTab = createTab(tabData);
+            if (promotingTmpTab) {
+              onTabPromoted?.(newTab, promotingTmpTab);
+              setPromotingTmpTab(null);
+            }
           }
         }}
       />

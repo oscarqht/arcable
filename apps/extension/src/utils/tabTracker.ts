@@ -667,6 +667,79 @@ class TabTracker {
     }
   }
 
+  // Associate an existing open browser tab with a workspace tab item (e.g. when promoting a tmp tab)
+  public async associateExistingBrowserTab(
+    tabItemId: string,
+    browserTabId: number,
+    originalUrl: string,
+    windowId?: number
+  ): Promise<void> {
+    return this.runWithLock(async () => {
+      try {
+        let currentUrl = originalUrl;
+        let finalWindowId = windowId || 0;
+        let title = '';
+
+        try {
+          if (typeof browser !== 'undefined' && browser.tabs && browser.tabs.get) {
+            const bt = await browser.tabs.get(browserTabId);
+            if (bt) {
+              currentUrl = bt.url || (bt as any).pendingUrl || originalUrl;
+              finalWindowId = bt.windowId || finalWindowId;
+              title = bt.title || (bt as any).pendingTitle || '';
+            }
+          } else if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.get) {
+            const bt = await chrome.tabs.get(browserTabId);
+            if (bt) {
+              currentUrl = bt.url || (bt as any).pendingUrl || originalUrl;
+              finalWindowId = bt.windowId || finalWindowId;
+              title = bt.title || (bt as any).pendingTitle || '';
+            }
+          }
+        } catch (err) {
+          console.warn('[TabTracker] Could not get tab details for browserTabId:', browserTabId, err);
+        }
+
+        const badge = extractTabNotificationBadge(title);
+        const associations = await this.getAssociations();
+
+        // Strictly 1-to-1: clear any existing association tied to this browserTabId or tabItemId
+        for (const [id, info] of Object.entries(associations)) {
+          if (info.browserTabId === browserTabId || id === tabItemId) {
+            delete associations[id];
+          }
+        }
+
+        const isDiverted = Boolean(currentUrl && originalUrl && !areUrlsMatching(currentUrl, originalUrl));
+
+        associations[tabItemId] = {
+          tabItemId,
+          browserTabId,
+          windowId: finalWindowId,
+          currentUrl: currentUrl || originalUrl,
+          originalUrl,
+          isDiverted,
+          badge: badge || undefined,
+        };
+
+        await this.saveAssociations(associations);
+
+        // Remove custom title record for this tab if one existed
+        await this.removeTmpTabCustomTitle(browserTabId);
+
+        // Remove from tmp tabs list immediately
+        const currentTmpTabs = await this.getTmpTabs();
+        const updatedTmpTabs = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+        await this.saveTmpTabs(updatedTmpTabs);
+
+        // Notify active listener so UI highlights the newly created tab item
+        this.notifyActivated(tabItemId);
+      } catch (err) {
+        console.warn('[TabTracker] Error associating existing browser tab:', err);
+      }
+    });
+  }
+
   // Setup browser event listeners
   private setupListeners() {
     if (this.isInitialized) return;

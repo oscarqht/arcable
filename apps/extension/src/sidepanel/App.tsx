@@ -395,6 +395,17 @@ export const App: React.FC = () => {
     await tabTracker.setTmpTabCustomTitle(tab.browserTabId, tab.url, newTitle);
   };
 
+  const handleTabPromoted = async (newTab: Tab, tmpTab: TmpTab) => {
+    if (tmpTab.browserTabId !== undefined) {
+      await tabTracker.associateExistingBrowserTab(
+        newTab.id,
+        tmpTab.browserTabId,
+        newTab.url,
+        tmpTab.windowId
+      );
+    }
+  };
+
 
 
 
@@ -576,6 +587,7 @@ export const App: React.FC = () => {
           tmpTabs={tmpTabs}
           onCloseTmpTab={handleCloseTmpTab}
           onRenameTmpTab={handleRenameTmpTab}
+          onTabPromoted={handleTabPromoted}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
           onCloseAssociatedTab={handleCloseAssociatedTab}
