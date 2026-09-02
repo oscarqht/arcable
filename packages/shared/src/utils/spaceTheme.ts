@@ -538,6 +538,125 @@ export function getSpacePrimaryColor(color?: string | null): string {
 /**
  * Generates comprehensive theme tokens for space rendering (supporting soft smooth gradients and solid colors)
  */
+/**
+ * Parses a hex color string into [r, g, b] (0-255)
+ */
+function parseHexColor(hex: string): [number, number, number] | null {
+  const clean = hex.replace('#', '').trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return [r, g, b];
+  }
+  if (clean.length === 6) {
+    const r = parseInt(clean.substring(0, 2), 16);
+    const g = parseInt(clean.substring(2, 4), 16);
+    const b = parseInt(clean.substring(4, 6), 16);
+    return [r, g, b];
+  }
+  return null;
+}
+
+/**
+ * Converts RGB to HSL ([0..360], [0..1], [0..1])
+ */
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return [h * 360, s, l];
+}
+
+/**
+ * Converts HSL to Hex
+ */
+function hslToHex(h: number, s: number, l: number): string {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s));
+  l = Math.max(0, Math.min(1, l));
+
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (0 <= h && h < 60) {
+    r = c; g = x; b = 0;
+  } else if (60 <= h && h < 120) {
+    r = x; g = c; b = 0;
+  } else if (120 <= h && h < 180) {
+    r = 0; g = c; b = x;
+  } else if (180 <= h && h < 240) {
+    r = 0; g = x; b = c;
+  } else if (240 <= h && h < 300) {
+    r = x; g = 0; b = c;
+  } else if (300 <= h && h < 360) {
+    r = c; g = 0; b = x;
+  }
+
+  const toHex = (n: number) => {
+    const hex = Math.round((n + m) * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * Dims a single hex color for dark mode while retaining its distinctive tint/hue
+ */
+export function dimHexForDarkMode(hex: string): string {
+  const rgb = parseHexColor(hex);
+  if (!rgb) return hex;
+  const [h, s, l] = rgbToHsl(...rgb);
+
+  // Map lightness to comfortable dark mode background range (12% to 20%) and preserve saturation
+  const targetL = Math.max(0.11, Math.min(0.22, 0.12 + l * 0.08));
+  const targetS = Math.min(1, Math.max(0.35, s * 1.15));
+
+  return hslToHex(h, targetS, targetL);
+}
+
+/**
+ * Dims a gradient or color string for dark mode
+ */
+export function dimColorStringForDarkMode(colorStr: string): string {
+  if (!colorStr || typeof colorStr !== 'string') return colorStr;
+  const trimmed = colorStr.trim();
+
+  // Replace all hex codes inside the string (works for gradients and single hex colors)
+  return trimmed.replace(/#(?:[0-9a-fA-F]{3}){1,2}\b/g, (match) => dimHexForDarkMode(match));
+}
+
+/**
+ * Generates comprehensive theme tokens for space rendering (supporting soft smooth gradients and solid colors)
+ */
 export function getSpaceThemeStyles(
   color?: string | null,
   isSystemDark: boolean = false
@@ -581,22 +700,21 @@ export function getSpaceThemeStyles(
   }
 
   const trimmed = color.trim();
+  let baseStyles: SpaceThemeTokens;
 
   // 1. Check exact preset gradient
   const matchedGradient = PRESET_GRADIENTS.find((g) => g.value === trimmed || g.id === trimmed);
   if (matchedGradient) {
-    return {
+    baseStyles = {
       containerBg: matchedGradient.value,
       primaryColor: matchedGradient.primary,
       ...matchedGradient.tokens,
     };
-  }
-
-  // 2. Check custom gradient string
-  if (trimmed.includes('gradient')) {
+  } else if (trimmed.includes('gradient')) {
+    // 2. Check custom gradient string
     const primary = getSpacePrimaryColor(trimmed);
     const isDark = isDarkColor(primary);
-    return {
+    baseStyles = {
       containerBg: trimmed,
       primaryColor: primary,
       isDark,
@@ -614,37 +732,58 @@ export function getSpaceThemeStyles(
         : 'inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)',
       shelfBg: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.3)',
     };
+  } else {
+    // 3. Check known solid presets or custom solid hex
+    const lower = trimmed.toLowerCase();
+    if (SOLID_PALETTE_MAP[lower]) {
+      const preset = SOLID_PALETTE_MAP[lower];
+      baseStyles = {
+        containerBg: trimmed,
+        primaryColor: preset.primary,
+        ...preset.tokens,
+      };
+    } else {
+      const isDark = isDarkColor(trimmed);
+      baseStyles = {
+        containerBg: trimmed,
+        primaryColor: trimmed,
+        isDark,
+        textColor: isDark ? '#ffffff' : '#191c1b',
+        subtextColor: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(25, 28, 27, 0.75)',
+        badgeBg: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.08)',
+        badgeText: isDark ? '#ffffff' : '#191c1b',
+        inputBg: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.05)',
+        inputPlaceholder: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.55)',
+        actionHoverBg: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)',
+        borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+        cardBorder: 'none',
+        cardBoxShadow: isDark
+          ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)'
+          : 'inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)',
+        shelfBg: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.04)',
+      };
+    }
   }
 
-  // 3. Check known solid presets
-  const lower = trimmed.toLowerCase();
-  if (SOLID_PALETTE_MAP[lower]) {
-    const preset = SOLID_PALETTE_MAP[lower];
+  // When in dark mode, dim the brightness of the space theme color/gradient
+  if (isSystemDark) {
     return {
-      containerBg: trimmed,
-      primaryColor: preset.primary,
-      ...preset.tokens,
+      ...baseStyles,
+      containerBg: dimColorStringForDarkMode(baseStyles.containerBg),
+      isDark: true,
+      textColor: '#ffffff',
+      subtextColor: 'rgba(255, 255, 255, 0.75)',
+      badgeBg: 'rgba(255, 255, 255, 0.16)',
+      badgeText: '#ffffff',
+      inputBg: 'rgba(255, 255, 255, 0.12)',
+      inputPlaceholder: 'rgba(255, 255, 255, 0.6)',
+      actionHoverBg: 'rgba(255, 255, 255, 0.18)',
+      borderColor: 'rgba(255, 255, 255, 0.14)',
+      cardBorder: 'none',
+      cardBoxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)',
+      shelfBg: 'rgba(255, 255, 255, 0.12)',
     };
   }
 
-  // 4. Custom solid hex
-  const isDark = isDarkColor(trimmed);
-  return {
-    containerBg: trimmed,
-    primaryColor: trimmed,
-    isDark,
-    textColor: isDark ? '#ffffff' : '#191c1b',
-    subtextColor: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(25, 28, 27, 0.75)',
-    badgeBg: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.08)',
-    badgeText: isDark ? '#ffffff' : '#191c1b',
-    inputBg: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.05)',
-    inputPlaceholder: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.55)',
-    actionHoverBg: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.08)',
-    borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
-    cardBorder: 'none',
-    cardBoxShadow: isDark
-      ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)'
-      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 16px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02)',
-    shelfBg: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.04)',
-  };
+  return baseStyles;
 }
