@@ -1,6 +1,5 @@
-'use client';
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Folder, Tab } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
@@ -9,6 +8,7 @@ import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
+import { TabFavicon } from './TabFavicon';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   CopyIcon,
@@ -97,6 +97,21 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
 
+  const [showHoverPopup, setShowHoverPopup] = useState(false);
+  const [popupCoords, setPopupCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    left?: number;
+    width?: number;
+    maxHeight?: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
+
+  const headerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
   const isSemiExpanded =
@@ -104,6 +119,166 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     Boolean(highlightedTabId) &&
     isTabInFolder(highlightedTabId!, folder.id, allFolders, allTabs);
   const totalItemCount = siblings.length;
+
+  const updatePopupPosition = useCallback(() => {
+    if (!headerRef.current) return;
+    const rect = headerRef.current.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    const popupEl = popupRef.current;
+    const estimatedHeight = popupEl ? popupEl.offsetHeight : Math.min(300, siblings.length * 36 + 40);
+
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    const fitsBelow = spaceBelow >= estimatedHeight + 8;
+    const fitsAbove = spaceAbove >= estimatedHeight + 8;
+
+    let placement: 'top' | 'bottom' = 'bottom';
+    if (!fitsBelow && (fitsAbove || spaceAbove > spaceBelow)) {
+      placement = 'top';
+    } else {
+      placement = 'bottom';
+    }
+
+    let top: number | undefined;
+    let bottom: number | undefined;
+    let maxHeight: number;
+
+    if (placement === 'bottom') {
+      top = rect.bottom + 4;
+      maxHeight = Math.max(120, viewportHeight - top - 12);
+    } else {
+      bottom = viewportHeight - rect.top + 4;
+      maxHeight = Math.max(120, rect.top - 12);
+    }
+
+    const popupWidth = Math.min(Math.max(rect.width, 220), viewportWidth - 16);
+    let left = rect.left;
+    if (left + popupWidth > viewportWidth - 8) {
+      left = Math.max(8, viewportWidth - popupWidth - 8);
+    } else if (left < 8) {
+      left = 8;
+    }
+
+    setPopupCoords({
+      top,
+      bottom,
+      left,
+      width: popupWidth,
+      maxHeight,
+      placement,
+    });
+  }, [siblings.length]);
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const handleMouseEnterHeader = () => {
+    setIsHovered(true);
+    clearCloseTimer();
+    if (!isExpanded && siblings.length > 0) {
+      clearHoverTimer();
+      hoverTimerRef.current = setTimeout(() => {
+        updatePopupPosition();
+        setShowHoverPopup(true);
+      }, 1000);
+    }
+  };
+
+  const handleMouseLeaveHeader = () => {
+    setIsHovered(false);
+    clearHoverTimer();
+    setDropIndicator(null);
+    if (showHoverPopup) {
+      closeTimerRef.current = setTimeout(() => {
+        setShowHoverPopup(false);
+      }, 200);
+    }
+  };
+
+  const handleMouseEnterPopup = () => {
+    clearCloseTimer();
+  };
+
+  const handleMouseLeavePopup = () => {
+    closeTimerRef.current = setTimeout(() => {
+      setShowHoverPopup(false);
+    }, 200);
+  };
+
+  useEffect(() => {
+    if (!showHoverPopup) return;
+
+    updatePopupPosition();
+    const rafId = requestAnimationFrame(() => {
+      updatePopupPosition();
+    });
+
+    const handleScrollOrResize = () => {
+      updatePopupPosition();
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        headerRef.current &&
+        !headerRef.current.contains(target) &&
+        popupRef.current &&
+        !popupRef.current.contains(target)
+      ) {
+        setShowHoverPopup(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowHoverPopup(false);
+      }
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showHoverPopup, updatePopupPosition]);
+
+  useEffect(() => {
+    return () => {
+      clearHoverTimer();
+      clearCloseTimer();
+    };
+  }, [clearHoverTimer, clearCloseTimer]);
+
+  useEffect(() => {
+    if (isExpanded) {
+      clearHoverTimer();
+      clearCloseTimer();
+      setShowHoverPopup(false);
+    }
+  }, [isExpanded, clearHoverTimer, clearCloseTimer]);
 
   const activeDirectChild = useMemo(() => {
     if (!isSemiExpanded || !highlightedTabId) return null;
@@ -205,6 +380,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
+    clearHoverTimer();
+    clearCloseTimer();
+    setShowHoverPopup(false);
     startDrag(e, {
       id: folder.id,
       type: 'folder',
@@ -280,6 +458,242 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
   const subtextColor = effectiveDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(25, 28, 27, 0.6)';
   const guideLineColor = effectiveDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.1)';
+  const popupBg = effectiveDark ? '#1e293b' : '#ffffff';
+  const popupBorder = effectiveDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.1)';
+  const itemHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)';
+
+  const hoverMenuContent =
+    showHoverPopup && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={popupRef}
+            onMouseEnter={handleMouseEnterPopup}
+            onMouseLeave={handleMouseLeavePopup}
+            style={{
+              position: 'fixed',
+              top: popupCoords?.top !== undefined ? `${popupCoords.top}px` : 'auto',
+              bottom: popupCoords?.bottom !== undefined ? `${popupCoords.bottom}px` : 'auto',
+              left: popupCoords?.left !== undefined ? `${popupCoords.left}px` : 'auto',
+              width: popupCoords?.width !== undefined ? `${popupCoords.width}px` : 'auto',
+              maxHeight: popupCoords?.maxHeight !== undefined ? `${popupCoords.maxHeight}px` : 'calc(100vh - 40px)',
+              backgroundColor: popupBg,
+              borderRadius: '12px',
+              border: `1px solid ${popupBorder}`,
+              boxShadow: effectiveDark
+                ? popupCoords?.placement === 'top'
+                  ? '0 -12px 32px rgba(0, 0, 0, 0.6), 0 -2px 8px rgba(0, 0, 0, 0.4)'
+                  : '0 12px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4)'
+                : popupCoords?.placement === 'top'
+                  ? '0 -12px 32px rgba(0, 0, 0, 0.15), 0 -2px 8px rgba(0, 0, 0, 0.08)'
+                  : '0 12px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08)',
+              padding: '5px',
+              overflowY: 'auto',
+              zIndex: 99999,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              userSelect: 'none',
+              animation: 'dropdownFadeIn 0.15s ease-out',
+              transformOrigin: popupCoords?.placement === 'top' ? 'bottom center' : 'top center',
+              boxSizing: 'border-box',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with folder name and total items */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 8px 6px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: subtextColor,
+                borderBottom: `1px solid ${effectiveDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                marginBottom: '2px',
+                userSelect: 'none',
+              }}
+            >
+              <span style={{ fontSize: '12px' }}>📂</span>
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flex: 1,
+                }}
+                title={folder.name}
+              >
+                {folder.name}
+              </span>
+              <span>
+                {totalItemCount} {totalItemCount === 1 ? 'item' : 'items'}
+              </span>
+            </div>
+
+            {/* Sibling Items */}
+            {siblings.map((item) => {
+              if (item.type === 'folder') {
+                const subfolder = item.data;
+                const subSiblings = getSortedSiblings(allFolders, allTabs, subfolder.parentSpaceId, subfolder.id);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setShowHoverPopup(false);
+                      onToggleExpand(subfolder.id);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 8px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      backgroundColor: 'transparent',
+                      color: textColor,
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      transition: 'background-color 0.12s ease',
+                      userSelect: 'none',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = itemHoverBg;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                    title={`Folder: ${subfolder.name}`}
+                  >
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {subfolder.customEmojiIcon ? (
+                        <span style={{ fontSize: '15px', lineHeight: 1 }}>{subfolder.customEmojiIcon}</span>
+                      ) : (
+                        <FolderIcon size={16} color={effectiveDark ? '#a5c4b5' : '#4b7593'} />
+                      )}
+                    </div>
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                    >
+                      {subfolder.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        backgroundColor: effectiveDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.08)',
+                        color: 'inherit',
+                        borderRadius: '8px',
+                        padding: '1px 6px',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {subSiblings.length}
+                    </span>
+                  </div>
+                );
+              }
+
+              const tab = item.data;
+              const assoc = tabAssociations?.[tab.id];
+              const isHighlighted = highlightedTabId === tab.id;
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setShowHoverPopup(false);
+                    if (onOpenTab) {
+                      onOpenTab(tab.url, tab.id);
+                    } else {
+                      window.open(tab.url, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 8px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    backgroundColor: isHighlighted
+                      ? effectiveDark
+                        ? 'rgba(255, 255, 255, 0.18)'
+                        : 'rgba(0, 0, 0, 0.08)'
+                      : 'transparent',
+                    color: textColor,
+                    fontSize: '13px',
+                    fontWeight: isHighlighted ? 600 : 500,
+                    transition: 'background-color 0.12s ease',
+                    userSelect: 'none',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = itemHoverBg;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = isHighlighted
+                      ? effectiveDark
+                        ? 'rgba(255, 255, 255, 0.18)'
+                        : 'rgba(0, 0, 0, 0.08)'
+                      : 'transparent';
+                  }}
+                  title={tab.customTitle || tab.url}
+                >
+                  <TabFavicon
+                    url={tab.url}
+                    customEmojiIcon={tab.customEmojiIcon}
+                    size={16}
+                    isDarkTheme={effectiveDark}
+                    showDomainFallback={true}
+                    badge={assoc?.badge}
+                  />
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flex: 1,
+                    }}
+                  >
+                    {tab.customTitle || tab.url}
+                  </span>
+                  {Boolean(assoc) && (
+                    <span
+                      title="Open tab in browser"
+                      style={{
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        backgroundColor: '#10b981',
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
     <div
@@ -291,18 +705,21 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     >
       {/* Folder Header Row */}
       <div
+        ref={headerRef}
         draggable
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => {
-          setIsHovered(false);
-          setDropIndicator(null);
+        onMouseEnter={handleMouseEnterHeader}
+        onMouseLeave={handleMouseLeaveHeader}
+        onClick={() => {
+          clearHoverTimer();
+          clearCloseTimer();
+          setShowHoverPopup(false);
+          onToggleExpand(folder.id);
         }}
-        onClick={() => onToggleExpand(folder.id)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -441,7 +858,20 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           70% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
           100% { transform: scale(0.95); opacity: 0.85; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
+        @keyframes dropdownFadeIn {
+          from {
+            opacity: 0;
+            transform: scale(0.96);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
       `}</style>
+
+      {/* Collapsed Folder Hover Popup Portal */}
+      {hoverMenuContent}
 
       {/* Expanded / Semi-expanded Folder Contents */}
       {(isExpanded || isSemiExpanded) && (
