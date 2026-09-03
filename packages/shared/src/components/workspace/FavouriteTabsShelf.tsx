@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Tab } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
@@ -10,11 +10,16 @@ import { TabFavicon } from './TabFavicon';
 import { SpaceThemeTokens, getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   StarIcon,
   PlusIcon,
   EditIcon,
   TrashIcon,
+  CopyIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  MoreHorizontalIcon,
 } from '../Icons';
 
 export interface FavouriteTabsShelfProps {
@@ -50,10 +55,29 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   }, [themeStyles, isDark]);
 
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
+  const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
+  const [openMenuTabId, setOpenMenuTabId] = useState<string | null>(null);
+  const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
 
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setMenuVisibleTabId(null);
+    setOpenMenuTabId(null);
     startDrag(e, { id: tabId, type: 'favTab' });
   };
 
@@ -110,6 +134,39 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     endDrag();
   };
 
+  const handleItemMouseEnter = (tabId: string) => {
+    setHoveredTabId(tabId);
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    // If menu is already open for this tab, keep it visible
+    if (openMenuTabId === tabId) {
+      setMenuVisibleTabId(tabId);
+    } else {
+      // 1-second hover delay before showing the ... menu button
+      hoverTimerRef.current = setTimeout(() => {
+        setMenuVisibleTabId(tabId);
+      }, 1000);
+    }
+  };
+
+  const handleItemMouseLeave = (tabId: string) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoveredTabId(null);
+    if (dragOverTabId === tabId) {
+      setDragOverTabId(null);
+      setDropPosition(null);
+    }
+    // Only hide button if menu is not currently open
+    if (openMenuTabId !== tabId) {
+      setMenuVisibleTabId(null);
+    }
+  };
+
   return (
     <div
       className="favourite-tabs-shelf"
@@ -137,6 +194,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       >
         {tabs.map((tab) => {
             const isHovered = hoveredTabId === tab.id;
+            const isMenuVisible = !isMobile && (menuVisibleTabId === tab.id || openMenuTabId === tab.id);
             const isDragTarget = dragOverTabId === tab.id;
             const isAssociated = Boolean(tabAssociations && tabAssociations[tab.id]);
             const badge = tabAssociations?.[tab.id]?.badge;
@@ -144,6 +202,60 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
             const tooltipText = tab.url ? `${displayTitle}\n${tab.url}` : displayTitle;
+
+            const menuItems: ActionDropdownItem[] = [
+              ...(tab.url
+                ? [
+                    {
+                      id: 'open-tab',
+                      label: 'Open in new tab',
+                      icon: <ExternalLinkIcon size={14} />,
+                      onClick: () => {
+                        if (onOpenTab) {
+                          onOpenTab(tab.url, tab.id);
+                        } else {
+                          window.open(tab.url, '_blank', 'noopener,noreferrer');
+                        }
+                      },
+                    },
+                    {
+                      id: 'copy-url',
+                      label: copiedTabId === tab.id ? 'Copied URL!' : 'Copy URL',
+                      icon: copiedTabId === tab.id ? <CheckIcon size={14} color="#10b981" /> : <CopyIcon size={14} />,
+                      onClick: () => {
+                        if (tab.url && typeof navigator !== 'undefined') {
+                          navigator.clipboard.writeText(tab.url);
+                          setCopiedTabId(tab.id);
+                          setTimeout(() => {
+                            setCopiedTabId((prev) => (prev === tab.id ? null : prev));
+                          }, 1500);
+                        }
+                      },
+                      dividerAfter: true,
+                    },
+                  ]
+                : []),
+              {
+                id: 'remove-favourite',
+                label: 'Remove from favourites',
+                icon: <StarIcon size={14} filled={true} color="#eab308" />,
+                onClick: () => onToggleFavouriteTab(tab.id),
+                dividerAfter: Boolean(onEditTab || onDeleteTab),
+              },
+              {
+                id: 'edit-tab',
+                label: 'Edit tab',
+                icon: <EditIcon size={14} />,
+                onClick: () => onEditTab(tab),
+              },
+              {
+                id: 'delete-tab',
+                label: 'Delete tab',
+                icon: <TrashIcon size={14} />,
+                danger: true,
+                onClick: () => onDeleteTab(tab.id),
+              },
+            ];
 
             return (
               <div
@@ -154,14 +266,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, tab.id)}
                 onDragEnd={handleDragEnd}
-                onMouseEnter={() => setHoveredTabId(tab.id)}
-                onMouseLeave={() => {
-                  setHoveredTabId(null);
-                  if (dragOverTabId === tab.id) {
-                    setDragOverTabId(null);
-                    setDropPosition(null);
-                  }
-                }}
+                onMouseEnter={() => handleItemMouseEnter(tab.id)}
+                onMouseLeave={() => handleItemMouseLeave(tab.id)}
                 onClick={() => {
                   if (tab.url) {
                     if (onOpenTab) {
@@ -235,88 +341,48 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   />
                 </div>
 
-                {/* Action buttons on hover (desktop only, hidden on mobile) */}
-                {!isMobile && isHovered && (
+                {/* ... menu button on item's top right corner, shown after hover for 1 second */}
+                {isMenuVisible && (
                   <div
                     style={{
                       position: 'absolute',
-                      top: '-6px',
-                      right: '-6px',
-                      backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
-                      border: `1px solid ${shelfTheme.borderColor}`,
-                      borderRadius: '16px',
-                      padding: '2px 4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '2px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+                      top: '2px',
+                      right: '2px',
                       zIndex: 10,
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button
-                      type="button"
-                      title="Remove from favourites"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleFavouriteTab(tab.id);
+                    <ActionDropdown
+                      items={menuItems}
+                      isDarkTheme={shelfTheme.isDark}
+                      visible={true}
+                      buttonTitle="Tab options"
+                      align="right"
+                      size="sm"
+                      triggerIcon={<MoreHorizontalIcon size={14} />}
+                      hoverBg={shelfTheme.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'}
+                      buttonStyle={{
+                        width: '20px',
+                        height: '20px',
+                        padding: 0,
+                        borderRadius: '6px',
+                        backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
+                        border: `1px solid ${shelfTheme.borderColor}`,
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                        color: shelfTheme.textColor,
                       }}
-                      style={{
-                        border: 'none',
-                        background: 'none',
-                        color: '#eab308',
-                        cursor: 'pointer',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px',
+                      onOpenChange={(isOpen) => {
+                        if (isOpen) {
+                          setOpenMenuTabId(tab.id);
+                          setMenuVisibleTabId(tab.id);
+                        } else {
+                          setOpenMenuTabId(null);
+                          if (hoveredTabId !== tab.id) {
+                            setMenuVisibleTabId(null);
+                          }
+                        }
                       }}
-                    >
-                      <StarIcon size={12} filled={true} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Edit tab"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditTab(tab);
-                      }}
-                      style={{
-                        border: 'none',
-                        background: 'none',
-                        color: shelfTheme.isDark ? '#94a3b8' : '#64748b',
-                        cursor: 'pointer',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px',
-                      }}
-                    >
-                      <EditIcon size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      title="Delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteTab(tab.id);
-                      }}
-                      style={{
-                        border: 'none',
-                        background: 'none',
-                        color: '#ef4444',
-                        cursor: 'pointer',
-                        padding: '2px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px',
-                      }}
-                    >
-                      <TrashIcon size={11} />
-                    </button>
+                    />
                   </div>
                 )}
               </div>

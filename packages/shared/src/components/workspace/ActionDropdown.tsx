@@ -26,6 +26,7 @@ export interface ActionDropdownProps {
   hoverBg?: string;
   buttonStyle?: React.CSSProperties;
   className?: string;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 interface MenuCoords {
@@ -47,6 +48,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   hoverBg,
   buttonStyle,
   className,
+  onOpenChange,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
@@ -57,6 +59,10 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   const activeItems = items.filter(Boolean);
 
@@ -374,7 +380,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
         aria-expanded={isOpen}
         style={{
           border: 'none',
-          background: isOpen ? defaultHoverBg : 'transparent',
+          background: isOpen ? defaultHoverBg : ((buttonStyle?.backgroundColor as string) || 'transparent'),
           color: 'inherit',
           padding,
           borderRadius: '8px',
@@ -393,7 +399,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
         }}
         onMouseLeave={(e) => {
           if (!isOpen) {
-            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.backgroundColor = (buttonStyle?.backgroundColor as string) || 'transparent';
             e.currentTarget.style.opacity = '0.85';
           }
         }}
