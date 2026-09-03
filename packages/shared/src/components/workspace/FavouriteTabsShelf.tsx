@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Tab } from '../../types/workspace';
-import { TabAssociationMap } from '../../types/tabTracker';
+import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
@@ -20,6 +20,8 @@ import {
   CheckIcon,
   ExternalLinkIcon,
   MoreHorizontalIcon,
+  MinusIcon,
+  SlashIcon,
 } from '../Icons';
 
 export interface FavouriteTabsShelfProps {
@@ -27,6 +29,10 @@ export interface FavouriteTabsShelfProps {
   tabAssociations?: TabAssociationMap;
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string) => void;
+  onCloseAssociatedTab?: (tabId: string) => void;
+  onResetDivertedUrl?: (tabId: string) => void;
+  audibleTabs?: AudibleTab[];
+  onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   onEditTab: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
@@ -40,6 +46,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   tabAssociations,
   highlightedTabId,
   onOpenTab,
+  onCloseAssociatedTab,
+  onResetDivertedUrl,
+  audibleTabs,
+  onToggleTabMute,
   onEditTab,
   onDeleteTab,
   onToggleFavouriteTab,
@@ -144,10 +154,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     if (openMenuTabId === tabId) {
       setMenuVisibleTabId(tabId);
     } else {
-      // 1-second hover delay before showing the ... menu button
+      // 250ms hover delay before showing the ... menu button
       hoverTimerRef.current = setTimeout(() => {
         setMenuVisibleTabId(tabId);
-      }, 1000);
+      }, 250);
     }
   };
 
@@ -196,19 +206,54 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isHovered = hoveredTabId === tab.id;
             const isMenuVisible = !isMobile && (menuVisibleTabId === tab.id || openMenuTabId === tab.id);
             const isDragTarget = dragOverTabId === tab.id;
-            const isAssociated = Boolean(tabAssociations && tabAssociations[tab.id]);
-            const badge = tabAssociations?.[tab.id]?.badge;
+            const assoc = tabAssociations ? tabAssociations[tab.id] : undefined;
+            const isAssociated = Boolean(assoc);
+            const isDiverted = Boolean(assoc?.isDiverted);
+            const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
+            const isAudible = Boolean(audibleInfo);
+            const isMuted = audibleInfo?.muted === true;
+            const badge = assoc?.badge;
             const isHighlighted = highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
-            const tooltipText = tab.url ? `${displayTitle}\n${tab.url}` : displayTitle;
+
+            const statusSuffix = isAssociated
+              ? isHighlighted
+                ? ' • Open in browser (Active)'
+                : ' • Open in browser'
+              : ' • Closed (Click to open)';
+            const divertedSuffix = isDiverted ? ' (Navigated away from original URL)' : '';
+            const tooltipText = tab.url ? `${displayTitle}\n${tab.url}${statusSuffix}${divertedSuffix}` : displayTitle;
 
             const menuItems: ActionDropdownItem[] = [
+              ...(isAssociated && onCloseAssociatedTab
+                ? [
+                    {
+                      id: 'close-browser-tab',
+                      label: 'Close browser tab',
+                      icon: <MinusIcon size={14} />,
+                      danger: true,
+                      onClick: () => onCloseAssociatedTab(tab.id),
+                      dividerAfter: !isDiverted && !tab.url,
+                    },
+                  ]
+                : []),
+              ...(isDiverted && onResetDivertedUrl
+                ? [
+                    {
+                      id: 'restore-diverted-url',
+                      label: 'Restore original URL',
+                      icon: <SlashIcon size={14} />,
+                      onClick: () => onResetDivertedUrl(tab.id),
+                      dividerAfter: true,
+                    },
+                  ]
+                : []),
               ...(tab.url
                 ? [
                     {
                       id: 'open-tab',
-                      label: 'Open in new tab',
+                      label: isAssociated ? 'Switch to tab' : 'Open in new tab',
                       icon: <ExternalLinkIcon size={14} />,
                       onClick: () => {
                         if (onOpenTab) {
@@ -257,6 +302,32 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               },
             ];
 
+            const cardBg = isHovered
+              ? (isAssociated
+                  ? (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.85)')
+                  : shelfTheme.actionHoverBg)
+              : isAssociated
+              ? (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(255, 255, 255, 0.70)')
+              : (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)');
+
+            const cardBorder = isHovered
+              ? `1px solid ${shelfTheme.primaryColor}`
+              : isAssociated
+              ? (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid rgba(0, 0, 0, 0.1)')
+              : (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.07)' : '1px solid rgba(0, 0, 0, 0.06)');
+
+            const cardShadow = isHighlighted
+              ? `inset 0 0 0 1px ${shelfTheme.primaryColor}99, 0 0 10px ${shelfTheme.primaryColor}55`
+              : isHovered
+              ? (isAssociated
+                  ? (shelfTheme.isDark ? '0 3px 10px rgba(0, 0, 0, 0.35)' : '0 3px 10px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06)')
+                  : '0 2px 8px rgba(0, 0, 0, 0.12)')
+              : isAssociated
+              ? (shelfTheme.isDark
+                  ? '0 1px 4px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.12)'
+                  : '0 1.5px 4px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.70)')
+              : 'none';
+
             return (
               <div
                 key={tab.id}
@@ -284,16 +355,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   width: '100%',
                   minWidth: 0,
                   height: '48px',
-                  backgroundColor: isHovered
-                    ? shelfTheme.actionHoverBg
-                    : isAssociated
-                    ? shelfTheme.badgeBg
-                    : shelfTheme.inputBg,
-                  border: isHovered
-                    ? `1px solid ${shelfTheme.primaryColor}`
-                    : isAssociated
-                    ? `1px solid ${shelfTheme.borderColor}`
-                    : `1px solid ${shelfTheme.borderColor}`,
+                  backgroundColor: cardBg,
+                  border: cardBorder,
                   borderLeft: isDragTarget && dropPosition === 'before'
                     ? `3px solid ${shelfTheme.primaryColor}`
                     : undefined,
@@ -301,32 +364,34 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     ? `3px solid ${shelfTheme.primaryColor}`
                     : undefined,
                   outline: isHighlighted ? `2px solid ${shelfTheme.primaryColor}` : 'none',
-                  outlineOffset: isHighlighted ? '-2px' : undefined,
+                  outlineOffset: isHighlighted ? '-1.5px' : undefined,
                   borderRadius: '12px',
                   cursor: 'grab',
-                  transition: 'all 0.12s ease',
+                  transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, outline 0.15s ease',
                   position: 'relative',
                   userSelect: 'none',
-                  boxShadow: isHighlighted
-                    ? `inset 0 0 0 1px ${shelfTheme.primaryColor}99, 0 0 8px ${shelfTheme.primaryColor}66`
-                    : isHovered
-                    ? '0 2px 8px rgba(0,0,0,0.15)'
-                    : 'none',
+                  boxShadow: cardShadow,
                   boxSizing: 'border-box',
                 }}
                 title={tooltipText}
               >
+                {/* Favicon or Custom Emoji */}
                 <div
                   style={{
                     width: '24px',
                     height: '24px',
                     borderRadius: '6px',
-                    backgroundColor: isHovered ? (shelfTheme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.3)') : 'transparent',
+                    backgroundColor: isHovered
+                      ? (shelfTheme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.3)')
+                      : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
                     position: 'relative',
+                    opacity: isAssociated || isHovered ? 1 : 0.72,
+                    transform: isHovered ? 'scale(1.04)' : 'scale(1)',
+                    transition: 'opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease',
                   }}
                 >
                   <TabFavicon
@@ -341,7 +406,119 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   />
                 </div>
 
-                {/* ... menu button on item's top right corner, shown after hover for 1 second */}
+                {/* Arc-style active running indicator pill at bottom center */}
+                {isAssociated && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '4px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: isHighlighted ? '18px' : isHovered ? '14px' : '10px',
+                      height: '3px',
+                      borderRadius: '9999px',
+                      backgroundColor: isHighlighted
+                        ? shelfTheme.primaryColor
+                        : isHovered
+                        ? (shelfTheme.isDark ? '#ffffff' : 'rgba(0, 0, 0, 0.85)')
+                        : (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.6)'),
+                      boxShadow: isHighlighted ? `0 0 6px ${shelfTheme.primaryColor}` : 'none',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
+
+                {/* Audio playing / mute badge */}
+                {isAudible && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (assoc?.browserTabId) {
+                        onToggleTabMute?.(assoc.browserTabId, !isMuted);
+                      }
+                    }}
+                    title={isMuted ? 'Muted (Click to unmute)' : 'Playing audio (Click to mute)'}
+                    aria-label={isMuted ? 'Unmute tab' : 'Mute tab'}
+                    style={{
+                      position: 'absolute',
+                      bottom: '3px',
+                      left: '3px',
+                      outline: 'none',
+                      backgroundColor: isMuted ? '#ef4444' : '#10b981',
+                      color: '#ffffff',
+                      width: '13px',
+                      height: '13px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                      border: `1.5px solid ${shelfTheme.isDark ? '#1e293b' : '#ffffff'}`,
+                      zIndex: 4,
+                      transition: 'transform 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'scale(1.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    {isMuted ? (
+                      <span style={{ fontSize: '7px', lineHeight: 1, fontWeight: 700 }}>✕</span>
+                    ) : (
+                      <span style={{ fontSize: '7.5px', lineHeight: 1 }}>♪</span>
+                    )}
+                  </button>
+                )}
+
+                {/* Diverted URL badge */}
+                {isDiverted && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onResetDivertedUrl?.(tab.id);
+                    }}
+                    title="Tab navigated away from original URL. Click to restore original URL"
+                    aria-label="Restore original URL"
+                    style={{
+                      position: 'absolute',
+                      top: '2px',
+                      left: '2px',
+                      width: '13px',
+                      height: '13px',
+                      borderRadius: '3.5px',
+                      border: `1px solid ${shelfTheme.isDark ? 'rgba(234, 179, 8, 0.45)' : '#fde047'}`,
+                      backgroundColor: shelfTheme.isDark ? 'rgba(234, 179, 8, 0.25)' : '#fef08a',
+                      color: shelfTheme.isDark ? '#fde047' : '#a16207',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      padding: 0,
+                      zIndex: 4,
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                      transition: 'transform 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'scale(1.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    <SlashIcon size={8} />
+                  </button>
+                )}
+
+                {/* ... menu button on item's top right corner */}
                 {isMenuVisible && (
                   <div
                     style={{

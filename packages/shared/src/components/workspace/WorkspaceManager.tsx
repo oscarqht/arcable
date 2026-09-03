@@ -1240,6 +1240,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         highlightedTabId={highlightedTabId}
         themeStyles={activeSpaceTheme}
         onOpenTab={handleOpenTabWithSearchClear}
+        onCloseAssociatedTab={onCloseAssociatedTab}
+        onResetDivertedUrl={onResetDivertedUrl}
+        audibleTabs={audibleTabs}
+        onToggleTabMute={onToggleTabMute}
         onEditTab={(tab) => {
           setEditingTab(tab);
           setTargetSpaceIdForModal(tab.parentSpaceId);
