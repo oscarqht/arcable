@@ -8,6 +8,8 @@
     "build": "node build.mjs all",
     "build:chrome": "node build.mjs chrome",
     "build:firefox": "node build.mjs firefox",
+    "lint:firefox": "npx web-ext lint --source-dir dist/firefox",
+    "package:firefox": "npx web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --overwrite-dest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

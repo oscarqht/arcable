@@ -76,6 +76,9 @@ const BROWSER_OPTIONS: RenameOption[] = [
 const OS_OPTIONS: RenameOption[] = [
   { value: 'macOS', label: 'macOS', icon: osMacSrc },
   { value: 'Windows', label: 'Windows', icon: osWindowsSrc },
+  { value: 'Android', label: 'Android' },
+  { value: 'iOS', label: 'iOS' },
+  { value: 'Linux', label: 'Linux' },
 ];
 
 const LOCATION_OPTIONS: RenameOption[] = [

@@ -71,29 +71,6 @@
         background: rgba(148, 163, 184, 0.55);
       }
     </style>
-    <script>
-      (function() {
-        try {
-          var isDark = false;
-          var stored = localStorage.getItem('arcable_config');
-          if (stored) {
-            var cfg = JSON.parse(stored);
-            if (cfg.theme === 'dark') isDark = true;
-            else if (cfg.theme === 'light') isDark = false;
-            else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) isDark = true;
-          } else if (localStorage.getItem('arcable_theme') === 'dark') {
-            isDark = true;
-          } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            isDark = true;
-          }
-          if (isDark) {
-            document.documentElement.classList.add('dark');
-            document.documentElement.setAttribute('data-theme', 'dark');
-            document.documentElement.style.colorScheme = 'dark';
-          }
-        } catch(e) {}
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>
