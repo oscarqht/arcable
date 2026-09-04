@@ -660,8 +660,29 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// Detect Android / mobile environment and configure action popup appropriately
+async function initPlatformBehavior(): Promise<void> {
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime?.getPlatformInfo) {
+      const platformInfo = await browser.runtime.getPlatformInfo();
+      if (platformInfo.os === 'android') {
+        // On Firefox for Android, there is no sidebarAction or sidePanel.
+        // Dynamically set action popup to popup/index.html so tapping Arcable opens the mobile popup sheet.
+        if (browser.action && typeof browser.action.setPopup === 'function') {
+          await browser.action.setPopup({ popup: 'popup/index.html' });
+          console.log('[Arcable Background] Firefox for Android detected: set action popup to popup/index.html');
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Arcable Background] Error setting platform behavior:', err);
+  }
+}
+void initPlatformBehavior();
+
 browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
+  void initPlatformBehavior();
   void syncSidePanelBehavior();
   void triggerBackgroundSync();
 });
@@ -669,9 +690,9 @@ browser.runtime.onInstalled.addListener(() => {
 // Initial side panel behavior synchronization on service worker load
 void syncSidePanelBehavior();
 
-// Handle extension toolbar action click (instantly open side panel)
+// Handle extension toolbar action click (instantly open side panel on desktop, or popup/workspace on mobile)
 function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
-  // Firefox: sidebarAction.open()
+  // Firefox Desktop: sidebarAction.open()
   if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
     try {
       void (browser as any).sidebarAction.open();
@@ -691,20 +712,23 @@ function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
         void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
       });
     } else {
-      chrome.windows.getCurrent((win) => {
-        if (win?.id !== undefined) {
-          void chrome.sidePanel.open({ windowId: win.id }).catch((openErr) => {
-            console.warn('[Arcable Background] chrome.sidePanel.open() failed:', openErr);
-            void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
-          });
-        }
-      });
+      if (chrome.windows && chrome.windows.getCurrent) {
+        chrome.windows.getCurrent((win) => {
+          if (win?.id !== undefined) {
+            void chrome.sidePanel.open({ windowId: win.id }).catch((openErr) => {
+              console.warn('[Arcable Background] chrome.sidePanel.open() failed:', openErr);
+              void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+            });
+          }
+        });
+      }
     }
     return;
   }
 
-  // Last resort fallback: open as a tab
-  void browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+  // Fallback for Firefox Android or environments without native sidebar:
+  // Open popup in a tab if action was clicked directly
+  void browser.tabs.create({ url: browser.runtime.getURL('popup/index.html') });
 }
 
 if (browser.action && browser.action.onClicked) {

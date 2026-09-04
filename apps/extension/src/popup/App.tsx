@@ -13,7 +13,7 @@ import {
   replayOperations,
 } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
-import { browser, getActiveTab } from '../utils/browser';
+import { browser, getActiveTab, openOptionsPageSafely, openWorkspaceSafely } from '../utils/browser';
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -377,22 +377,13 @@ export const App: React.FC = () => {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.open) {
-                  chrome.windows.getCurrent((win) => {
-                    if (win.id) chrome.sidePanel.open({ windowId: win.id });
-                  });
-                } else {
-                  // Fallback: open sidepanel page in a tab or window
-                  browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
-                }
-              }}
-              title="Open Arcable Sidepanel"
-              style={{ fontSize: '11px', padding: '2px 6px', height: '24px' }}
+              onClick={() => void openWorkspaceSafely()}
+              title="Open Arcable Workspace"
+              style={{ fontSize: '11px', padding: '2px 8px', height: '24px' }}
             >
-              📑 Sidepanel
+              📑 Workspace
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => browser.runtime.openOptionsPage()} title="Settings">
+            <Button size="sm" variant="ghost" onClick={() => void openOptionsPageSafely()} title="Settings">
               ⚙️
             </Button>
           </div>
@@ -434,7 +425,7 @@ export const App: React.FC = () => {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => browser.runtime.openOptionsPage()}
+              onClick={() => void openOptionsPageSafely()}
               style={{ fontSize: '11px', padding: '2px 8px', height: '22px' }}
             >
               Connect
