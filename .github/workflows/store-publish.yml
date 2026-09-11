@@ -110,7 +110,7 @@ jobs:
 
     - name: Build Chrome extension package
       if: steps.release_meta.outputs.skip != 'true'
-      run: ./.github/scripts/build-extension.sh dist "arcable-chrome-${{ steps.release_meta.outputs.tag }}.zip" chrome
+      run: bash ./.github/scripts/build-extension.sh dist "arcable-chrome-${{ steps.release_meta.outputs.tag }}.zip" chrome
 
     - name: Upload Chrome build artifact
       if: steps.release_meta.outputs.skip != 'true'
@@ -136,7 +136,7 @@ jobs:
         CWS_ACCESS_TOKEN: ${{ steps.google_auth.outputs.access_token }}
         CWS_PUBLISH_TARGET: ${{ secrets.CWS_PUBLISH_TARGET }}
         CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-      run: ./.github/scripts/publish-to-cws.sh "dist/arcable-chrome-${{ steps.release_meta.outputs.tag }}.zip"
+      run: bash ./.github/scripts/publish-to-cws.sh "dist/arcable-chrome-${{ steps.release_meta.outputs.tag }}.zip"
 
   publish-to-firefox-addons:
     name: Publish to Firefox Add-ons
@@ -224,7 +224,7 @@ jobs:
 
     - name: Build Firefox extension package
       if: steps.release_meta.outputs.skip != 'true'
-      run: ./.github/scripts/build-extension.sh dist "arcable-firefox-${{ steps.release_meta.outputs.tag }}.zip" firefox
+      run: bash ./.github/scripts/build-extension.sh dist "arcable-firefox-${{ steps.release_meta.outputs.tag }}.zip" firefox
 
     - name: Upload Firefox build artifact
       if: steps.release_meta.outputs.skip != 'true'
@@ -241,4 +241,4 @@ jobs:
         AMO_API_SECRET: ${{ secrets.AMO_API_SECRET || secrets.AMO_JWT_SECRET }}
         AMO_CHANNEL: ${{ secrets.AMO_CHANNEL || 'listed' }}
         AMO_EXTENSION_ID: ${{ secrets.AMO_EXTENSION_ID }}
-      run: ./.github/scripts/publish-to-amo.sh "dist/arcable-firefox-${{ steps.release_meta.outputs.tag }}.zip"
+      run: bash ./.github/scripts/publish-to-amo.sh "dist/arcable-firefox-${{ steps.release_meta.outputs.tag }}.zip"
