@@ -26,7 +26,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PUSH_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Warn when release PAT is missing
+        env:
+          RELEASE_PUSH_TOKEN: ${{ secrets.RELEASE_PUSH_TOKEN }}
+        run: |
+          if [ -z "${RELEASE_PUSH_TOKEN}" ]; then
+            echo "::warning::RELEASE_PUSH_TOKEN is not set. Tag-push triggers may not run, but store publish will still run via workflow_run after Bump Version and Tag completes on main."
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
