@@ -39,6 +39,7 @@ export interface ArcableWorkspaceData {
   spaces: Space[];
   folders: Folder[];
   tabs: Tab[];
+  tmpTabs?: TmpTab[];
   activeSpaceId: string;
   version?: number;
 }
@@ -52,7 +53,11 @@ export interface TmpTab {
   browserTabId?: number;
   windowId?: number;
   badge?: string | number | null;
+  deviceId?: string;
+  deviceName?: string;
+  deviceType?: 'Web App' | 'Ext';
   createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface TmpTabCustomTitleRecord {

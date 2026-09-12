@@ -382,3 +382,28 @@ export function findDirectChildForTab(
   return null;
 }
 
+/**
+ * Recursively retrieves all descendant folder IDs for a given folder ID.
+ */
+export function getDescendantFolderIds(
+  folderId: string,
+  allFolders: Folder[]
+): Set<string> {
+  const descendants = new Set<string>();
+  let added = true;
+  while (added) {
+    added = false;
+    for (const f of allFolders) {
+      if (
+        f.parentFolderId &&
+        (f.parentFolderId === folderId || descendants.has(f.parentFolderId)) &&
+        !descendants.has(f.id)
+      ) {
+        descendants.add(f.id);
+        added = true;
+      }
+    }
+  }
+  return descendants;
+}
+

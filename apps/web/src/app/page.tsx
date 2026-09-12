@@ -16,7 +16,7 @@ import {
   LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName } from '@arcable/shared/utils';
+import { getStoredDeviceName, setStoredDeviceName, getOrCreateDeviceId } from '@arcable/shared/utils';
 import { RaindropAuthState } from '@arcable/shared/types';
 
 export default function HomePage() {
@@ -512,6 +512,7 @@ export default function HomePage() {
           showJsonInspector={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
+          currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
           onOpenTab={(url) => {
             if (typeof window !== 'undefined' && url) {
               window.open(url, '_blank', 'noopener,noreferrer');

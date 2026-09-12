@@ -289,6 +289,7 @@ export async function syncWorkspaceWithRaindrop(
       spaces: [],
       folders: [],
       tabs: [],
+      tmpTabs: [],
     };
 
     // 2. Fetch remote sync file & existing items
@@ -310,7 +311,8 @@ export async function syncWorkspaceWithRaindrop(
       deviceId,
       pendingOps,
       deviceName,
-      Date.now()
+      Date.now(),
+      options?.localState?.tmpTabs
     );
 
     // 5. Delete existing data.json items if present
@@ -380,7 +382,7 @@ export async function fetchRaindropDevices(
     const { syncFile } = await fetchRaindropSyncFile(
       clean,
       collection._id,
-      { activeSpaceId: 'space_personal', version: 1, spaces: [], folders: [], tabs: [] },
+      { activeSpaceId: 'space_personal', version: 1, spaces: [], folders: [], tabs: [], tmpTabs: [] },
       currId
     );
 
@@ -425,6 +427,7 @@ export async function renameRaindropDevice(
       spaces: [],
       folders: [],
       tabs: [],
+      tmpTabs: [],
     };
 
     const { syncFile, existingItems } = await fetchRaindropSyncFile(

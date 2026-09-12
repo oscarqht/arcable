@@ -21,9 +21,30 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
+  private cachedDeviceId: string = '';
+  private cachedDeviceName: string = '';
 
   constructor() {
     this.setupListeners();
+    void this.loadDeviceInfo();
+  }
+
+  public async loadDeviceInfo(): Promise<{ deviceId: string; deviceName: string }> {
+    if (this.cachedDeviceId && this.cachedDeviceName) {
+      return { deviceId: this.cachedDeviceId, deviceName: this.cachedDeviceName };
+    }
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        const res = (await browser.storage.local.get(['arcable_device_id', 'arcable_device_name'])) as Record<string, any>;
+        if (typeof res.arcable_device_id === 'string') this.cachedDeviceId = res.arcable_device_id;
+        if (typeof res.arcable_device_name === 'string') this.cachedDeviceName = res.arcable_device_name;
+      }
+      if (!this.cachedDeviceId && typeof window !== 'undefined') {
+        this.cachedDeviceId = window.localStorage.getItem('arcable_device_id') || '';
+        this.cachedDeviceName = window.localStorage.getItem('arcable_device_name') || '';
+      }
+    } catch {}
+    return { deviceId: this.cachedDeviceId, deviceName: this.cachedDeviceName };
   }
 
   public subscribe(listener: ChangeListener): () => void {
@@ -533,6 +554,9 @@ class TabTracker {
           currentUrl.startsWith('edge://newtab') ||
           currentUrl === 'about:blank';
 
+        const existingTmp = memoryTmpTabs.find((t) => t.browserTabId === bt.id || t.id === `tmp_${bt.id}`);
+        const createdAt = existingTmp?.createdAt || Date.now();
+
         return {
           id: `tmp_${bt.id}`,
           url: currentUrl,
@@ -542,7 +566,11 @@ class TabTracker {
           browserTabId: bt.id,
           windowId: bt.windowId || 0,
           badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
-          createdAt: Date.now(),
+          deviceId: this.cachedDeviceId || undefined,
+          deviceName: this.cachedDeviceName || undefined,
+          deviceType: 'Ext',
+          createdAt,
+          updatedAt: Date.now(),
         };
       });
 

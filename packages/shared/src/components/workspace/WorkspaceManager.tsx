@@ -66,6 +66,7 @@ export interface WorkspaceManagerProps {
   searchQuery?: string;
   tabAssociations?: TabAssociationMap;
   tmpTabs?: TmpTab[];
+  currentDeviceId?: string;
   onCloseTmpTab?: (tab: TmpTab) => void;
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
@@ -111,6 +112,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       searchQuery: externalSearchQuery,
       tabAssociations,
       tmpTabs,
+      currentDeviceId,
       onCloseTmpTab,
       onPromoteTmpTab,
       onRenameTmpTab,
@@ -169,6 +171,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     resetToDefault,
     applyLatestSnapshot,
     favouriteTabs,
+    updateTmpTab,
+    deleteTmpTab,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -222,17 +226,40 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
   );
 
-  // Filter tmp tabs when search query is active
-  const filteredTmpTabs = useMemo(() => {
-    if (!tmpTabs || tmpTabs.length === 0) return [];
-    const search = activeSearchQuery.trim().toLowerCase();
-    if (!search) return tmpTabs;
-    return tmpTabs.filter((t) => {
-      const matchTitle = t.title && t.title.toLowerCase().includes(search);
-      const matchUrl = t.url && t.url.toLowerCase().includes(search);
-      return matchTitle || matchUrl;
+  // Combine local tmpTabs (passed via prop) and remote tmpTabs (from synced workspace data.tmpTabs)
+  const effectiveTmpTabs = useMemo(() => {
+    const hasLocalTabTracker = tmpTabs !== undefined;
+    const localList = tmpTabs || [];
+    const localTabIds = new Set(localList.map((t) => t.id));
+
+    const remoteList = (data.tmpTabs || []).filter((remote) => {
+      // Don't duplicate if already present in local list
+      if (localTabIds.has(remote.id)) return false;
+      // If belongs to this device but not in localList, it was closed locally (only if host runs a local tab tracker)
+      if (hasLocalTabTracker && currentDeviceId && remote.deviceId === currentDeviceId) return false;
+      return true;
     });
-  }, [tmpTabs, activeSearchQuery]);
+
+    return [...localList, ...remoteList];
+  }, [tmpTabs, data.tmpTabs, currentDeviceId]);
+
+  // Filter tmp tabs when search query is active and sort chronologically
+  const filteredTmpTabs = useMemo(() => {
+    if (!effectiveTmpTabs || effectiveTmpTabs.length === 0) return [];
+    const search = activeSearchQuery.trim().toLowerCase();
+    const list = !search
+      ? [...effectiveTmpTabs]
+      : effectiveTmpTabs.filter((t) => {
+          const matchTitle = t.title && t.title.toLowerCase().includes(search);
+          const matchCustomTitle = t.customTitle && t.customTitle.toLowerCase().includes(search);
+          const matchUrl = t.url && t.url.toLowerCase().includes(search);
+          return matchTitle || matchCustomTitle || matchUrl;
+        });
+
+    return list.sort(
+      (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+    );
+  }, [effectiveTmpTabs, activeSearchQuery]);
 
   // Space collapse map
   const [spaceCollapseMap, setSpaceCollapseMap] = useState<Record<string, boolean>>({});
@@ -1094,6 +1121,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setIsTabModalOpen(true);
   };
 
+  const handleCloseTmpTab = useCallback((tab: TmpTab) => {
+    deleteTmpTab(tab.id);
+    onCloseTmpTab?.(tab);
+  }, [deleteTmpTab, onCloseTmpTab]);
+
+  const handleRenameTmpTab = useCallback((tab: TmpTab, newTitle: string) => {
+    updateTmpTab(tab.id, { customTitle: newTitle });
+    onRenameTmpTab?.(tab, newTitle);
+  }, [updateTmpTab, onRenameTmpTab]);
+
   const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
 
     setEditingFolder(null);
@@ -1756,18 +1793,28 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
           {/* Tmp Tabs List in Grid View */}
           {filteredTmpTabs.length > 0 && (
-            <TmpTabsList
-              tabs={filteredTmpTabs}
-              compact={compact}
-              alwaysShowActions={alwaysShowActions}
-              highlightedTabId={highlightedTabId}
-              audibleTabs={audibleTabs}
-              onOpen={handleOpenTabWithSearchClear}
-              onPromote={handlePromoteTmpTab}
-              onClose={(t) => onCloseTmpTab?.(t)}
-              onRename={onRenameTmpTab}
-              onMediaControl={onMediaControl}
-            />
+            <div
+              style={{
+                marginTop: '36px',
+                paddingTop: '20px',
+                borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
+                width: '100%',
+              }}
+            >
+              <TmpTabsList
+                tabs={filteredTmpTabs}
+                currentDeviceId={currentDeviceId}
+                compact={compact}
+                alwaysShowActions={alwaysShowActions}
+                highlightedTabId={highlightedTabId}
+                audibleTabs={audibleTabs}
+                onOpen={handleOpenTabWithSearchClear}
+                onPromote={handlePromoteTmpTab}
+                onClose={handleCloseTmpTab}
+                onRename={handleRenameTmpTab}
+                onMediaControl={onMediaControl}
+              />
+            </div>
           )}
 
         </>
@@ -1875,14 +1922,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       {(viewMode === 'focused' || compact) && filteredTmpTabs.length > 0 && (
         <TmpTabsList
           tabs={filteredTmpTabs}
+          currentDeviceId={currentDeviceId}
           compact={compact}
           alwaysShowActions={alwaysShowActions}
           highlightedTabId={highlightedTabId}
           audibleTabs={audibleTabs}
           onOpen={handleOpenTabWithSearchClear}
           onPromote={handlePromoteTmpTab}
-          onClose={(t) => onCloseTmpTab?.(t)}
-          onRename={onRenameTmpTab}
+          onClose={handleCloseTmpTab}
+          onRename={handleRenameTmpTab}
           onMediaControl={onMediaControl}
         />
       )}
@@ -2118,6 +2166,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           } else {
             const newTab = createTab(tabData);
             if (promotingTmpTab) {
+              deleteTmpTab(promotingTmpTab.id);
               onTabPromoted?.(newTab, promotingTmpTab);
               setPromotingTmpTab(null);
             }

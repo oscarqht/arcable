@@ -6,6 +6,7 @@ import {
   RaindropAuthState,
   RaindropCreateItemInput,
   ArcableWorkspaceData,
+  TmpTab,
 } from '@arcable/shared/types';
 import {
   fetchRaindropUser,
@@ -366,8 +367,34 @@ browser.runtime.onMessage.addListener(
             arcable_device_name: effectiveDeviceName,
           });
 
+          const stored = await browser.storage.local.get(['arcable_tmp_tabs']);
+          const localTmp = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+          const taggedTmp = localTmp.map((t) => ({
+            ...t,
+            deviceId: t.deviceId || effectiveDeviceId,
+            deviceName: t.deviceName || effectiveDeviceName,
+            deviceType: 'Ext' as const,
+          }));
+
+          let stateToSync = payload?.localState;
+          if (stateToSync) {
+            stateToSync = {
+              ...stateToSync,
+              tmpTabs: taggedTmp.length > 0 ? taggedTmp : (stateToSync.tmpTabs || []),
+            };
+          } else if (taggedTmp.length > 0) {
+            stateToSync = {
+              activeSpaceId: 'space_personal',
+              version: 1,
+              spaces: [],
+              folders: [],
+              tabs: [],
+              tmpTabs: taggedTmp,
+            };
+          }
+
           const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
-            localState: payload?.localState,
+            localState: stateToSync,
             deviceId: effectiveDeviceId,
             deviceName: effectiveDeviceName,
             pendingOps: payload?.pendingOps,
@@ -589,17 +616,57 @@ async function getExtensionDeviceName(): Promise<string> {
   return (res.arcable_device_name as string) || getDefaultDeviceName('Ext');
 }
 
+let isBackgroundSyncInFlight = false;
+let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function triggerDebouncedBackgroundSync(delayMs: number = 20000): void {
+  if (debouncedSyncTimer) {
+    clearTimeout(debouncedSyncTimer);
+  }
+  debouncedSyncTimer = setTimeout(() => {
+    debouncedSyncTimer = null;
+    void triggerBackgroundSync();
+  }, delayMs);
+}
+
 // Helper for periodic background sync
 async function triggerBackgroundSync(): Promise<void> {
+  if (isBackgroundSyncInFlight) return;
+  isBackgroundSyncInFlight = true;
+
   try {
     const auth = await getStoredAuthState();
     if (!auth.isAuthenticated || !auth.accessToken) return;
 
-    const storedSnapshotRes = await browser.storage.local.get('arcable_workspace_snapshot');
-    const localState = storedSnapshotRes.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+    const storedData = await browser.storage.local.get(['arcable_workspace_snapshot', 'arcable_tmp_tabs']);
+    let localState = storedData.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+    const localTmpTabs = (storedData.arcable_tmp_tabs as TmpTab[]) || [];
 
     const deviceId = await getOrCreateExtensionDeviceId();
     const deviceName = await getExtensionDeviceName();
+
+    const taggedTmpTabs = localTmpTabs.map((t) => ({
+      ...t,
+      deviceId: t.deviceId || deviceId,
+      deviceName: t.deviceName || deviceName,
+      deviceType: 'Ext' as const,
+    }));
+
+    if (localState) {
+      localState = {
+        ...localState,
+        tmpTabs: taggedTmpTabs,
+      };
+    } else {
+      localState = {
+        activeSpaceId: 'space_personal',
+        version: 1,
+        spaces: [],
+        folders: [],
+        tabs: [],
+        tmpTabs: taggedTmpTabs,
+      };
+    }
 
     const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
       localState,
@@ -608,14 +675,37 @@ async function triggerBackgroundSync(): Promise<void> {
     });
 
     if (result.success && result.latestSnapshot) {
+      // Reconcile remote tab closures against local open browser tabs.
+      // CRITICAL: ONLY close local browser tabs if an explicit TMP_TAB_DELETE operation was received.
+      // NEVER close tabs simply because remoteTmpTabIds is empty or transiently desynchronized!
+      const deletedOpIds = new Set(
+        (result.syncFile?.operations || [])
+          .filter((op: any) => op.type === 'TMP_TAB_DELETE')
+          .map((op: any) => op.entityId)
+      );
+
+      for (const localTab of localTmpTabs) {
+        if (
+          localTab.browserTabId !== undefined &&
+          deletedOpIds.has(localTab.id)
+        ) {
+          try {
+            await browser.tabs.remove(localTab.browserTabId);
+            console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
+          } catch {}
+        }
+      }
+
       await browser.storage.local.set({
         arcable_workspace_snapshot: result.latestSnapshot,
         arcable_last_synced_at: result.syncedAt,
       });
-      console.log('[Arcable Background] Periodic workspace sync completed successfully.');
+      console.log('[Arcable Background] Workspace sync completed successfully.');
     }
   } catch (err) {
     console.warn('[Arcable Background] Periodic sync error:', err);
+  } finally {
+    isBackgroundSyncInFlight = false;
   }
 }
 
@@ -656,6 +746,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       void getStoredAuthState(true).then((auth) => {
         void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
       });
+    }
+
+    if (changes.arcable_tmp_tabs || changes.arcable_pending_ops) {
+      triggerDebouncedBackgroundSync(20000);
     }
   }
 });

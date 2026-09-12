@@ -21,6 +21,7 @@ import {
 
 export interface TmpTabRowProps {
   tab: TmpTab;
+  currentDeviceId?: string;
   isDarkTheme?: boolean;
   compact?: boolean;
   alwaysShowActions?: boolean;
@@ -38,6 +39,7 @@ export interface TmpTabRowProps {
 
 export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   tab,
+  currentDeviceId,
   isDarkTheme,
   compact = false,
   alwaysShowActions = false,
@@ -72,6 +74,12 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
 
   const domain = getDomain(tab.url);
   const displayTitle = tab.customTitle || tab.title || domain || cleanUrl(tab.url) || 'Untitled Tab';
+
+  const isFromCurrentDevice = Boolean(
+    tab.browserTabId !== undefined ||
+    (currentDeviceId && tab.deviceId && tab.deviceId === currentDeviceId) ||
+    (!tab.deviceId && currentDeviceId)
+  );
 
   useEffect(() => {
     if (isEditing) {
@@ -227,6 +235,31 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
             title={tab.customTitle ? `${tab.customTitle} (Original: ${tab.title || domain})` : displayTitle}
           >
             {displayTitle}
+          </span>
+        )}
+
+        {/* Device indicator badge (only shown for remote devices) */}
+        {!isFromCurrentDevice && tab.deviceName && !isEditing && (
+          <span
+            title={tab.deviceId ? `Open on ${tab.deviceName} (${tab.deviceId})` : `Open on ${tab.deviceName}`}
+            style={{
+              fontSize: '10px',
+              fontWeight: 500,
+              padding: '1px 5px',
+              borderRadius: '4px',
+              backgroundColor: effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              color: effectiveDark ? '#94a3b8' : '#64748b',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              lineHeight: '14px',
+              userSelect: 'none',
+            }}
+          >
+            <span style={{ fontSize: '9px' }}>{tab.deviceType === 'Web App' ? '🌐' : '💻'}</span>
+            <span>{tab.deviceName}</span>
           </span>
         )}
       </div>

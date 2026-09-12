@@ -1,6 +1,7 @@
-import { ArcableWorkspaceData, Space, Folder, Tab } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
+import { getDescendantFolderIds } from './treeUtils';
 
 export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
 export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (device registry retention)
@@ -351,6 +352,7 @@ export function applyOperation(
     spaces: [...state.spaces],
     folders: [...state.folders],
     tabs: [...state.tabs],
+    tmpTabs: [...(state.tmpTabs || [])],
     activeSpaceId: state.activeSpaceId,
     version: (state.version || 1) + 1,
   };
@@ -456,21 +458,33 @@ export function applyOperation(
         }
 
         cloned.folders[existingIdx] = updated;
+
+        // If parentSpaceId changed, cascade space change to all descendant folders and tabs
+        if (op.payload?.parentSpaceId && op.payload.parentSpaceId !== current.parentSpaceId) {
+          const newSpaceId = op.payload.parentSpaceId;
+          const descendantFolderIds = getDescendantFolderIds(op.entityId, cloned.folders);
+
+          cloned.folders = cloned.folders.map((f) =>
+            descendantFolderIds.has(f.id) ? { ...f, parentSpaceId: newSpaceId, updatedAt: op.timestamp } : f
+          );
+
+          cloned.tabs = cloned.tabs.map((t) =>
+            !t.favourite && (t.parentFolderId === op.entityId || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId)))
+              ? { ...t, parentSpaceId: newSpaceId, updatedAt: op.timestamp }
+              : t
+          );
+        }
       }
       break;
     }
 
     case 'FOLDER_DELETE': {
-      const deletedFolder = cloned.folders.find((f) => f.id === op.entityId);
-      const fallbackParent = deletedFolder?.parentFolderId;
-      cloned.folders = cloned.folders.filter((f) => f.id !== op.entityId);
+      const descendantFolderIds = getDescendantFolderIds(op.entityId, cloned.folders);
+      const folderIdsToDelete = new Set<string>([op.entityId, ...descendantFolderIds]);
 
-      // Reparent children to prevent loss
-      cloned.folders = cloned.folders.map((f) =>
-        f.parentFolderId === op.entityId ? { ...f, parentFolderId: fallbackParent } : f
-      );
-      cloned.tabs = cloned.tabs.map((t) =>
-        t.parentFolderId === op.entityId ? { ...t, parentFolderId: fallbackParent } : t
+      cloned.folders = cloned.folders.filter((f) => !folderIdsToDelete.has(f.id));
+      cloned.tabs = cloned.tabs.filter(
+        (t) => !t.parentFolderId || !folderIdsToDelete.has(t.parentFolderId)
       );
       break;
     }
@@ -550,6 +564,54 @@ export function applyOperation(
       cloned.tabs = cloned.tabs.filter((t) => t.id !== op.entityId);
       break;
     }
+
+    // ================= Tmp Tab Operations =================
+    case 'TMP_TAB_CREATE': {
+      const tmpTabs = cloned.tmpTabs || (cloned.tmpTabs = []);
+      const existingIdx = tmpTabs.findIndex((t) => t.id === op.entityId);
+      const tmpData: TmpTab = {
+        id: op.entityId,
+        url: op.payload?.url || 'about:blank',
+        title: op.payload?.title,
+        customTitle: op.payload?.customTitle,
+        favIconUrl: op.payload?.favIconUrl,
+        browserTabId: op.payload?.browserTabId,
+        windowId: op.payload?.windowId,
+        badge: op.payload?.badge,
+        deviceId: op.payload?.deviceId || op.deviceId,
+        deviceName: op.payload?.deviceName,
+        deviceType: op.payload?.deviceType,
+        createdAt: op.payload?.createdAt || op.timestamp,
+        updatedAt: op.timestamp,
+      };
+
+      if (existingIdx >= 0) {
+        tmpTabs[existingIdx] = { ...tmpTabs[existingIdx], ...tmpData };
+      } else {
+        tmpTabs.push(tmpData);
+      }
+      break;
+    }
+
+    case 'TMP_TAB_UPDATE': {
+      const tmpTabs = cloned.tmpTabs || (cloned.tmpTabs = []);
+      const existingIdx = tmpTabs.findIndex((t) => t.id === op.entityId);
+      if (existingIdx >= 0) {
+        const current = tmpTabs[existingIdx];
+        tmpTabs[existingIdx] = {
+          ...current,
+          ...op.payload,
+          updatedAt: op.timestamp,
+        };
+      }
+      break;
+    }
+
+    case 'TMP_TAB_DELETE': {
+      const tmpTabs = cloned.tmpTabs || (cloned.tmpTabs = []);
+      cloned.tmpTabs = tmpTabs.filter((t) => t.id !== op.entityId);
+      break;
+    }
   }
 
   return cloned;
@@ -587,6 +649,7 @@ export function replayOperations(
     spaces: [...baseline.spaces],
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],
+    tmpTabs: [...(baseline.tmpTabs || [])],
     activeSpaceId: baseline.activeSpaceId,
     version: baseline.version || 1,
   };
@@ -629,6 +692,25 @@ export function replayOperations(
     };
   });
 
+  // Self-heal: propagate parentSpaceId from parent folders to child folders
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const fMap = new Map<string, Folder>(state.folders.map((f) => [f.id, f]));
+    state.folders = state.folders.map((f) => {
+      if (f.parentFolderId && fMap.has(f.parentFolderId)) {
+        const parent = fMap.get(f.parentFolderId)!;
+        if (parent.parentSpaceId && f.parentSpaceId !== parent.parentSpaceId) {
+          changed = true;
+          return { ...f, parentSpaceId: parent.parentSpaceId };
+        }
+      }
+      return f;
+    });
+  }
+
+  const updatedFolderMap = new Map<string, Folder>(state.folders.map((f) => [f.id, f]));
+
   // Repair tabs
   state.tabs = state.tabs.map((t) => {
     if (t.favourite) {
@@ -640,10 +722,11 @@ export function replayOperations(
         parentFolderId: undefined,
       };
     }
-    const validSpace = spaceIds.has(t.parentSpaceId || '') ? t.parentSpaceId : state.activeSpaceId;
     const validParentFolder = !t.pinned && t.parentFolderId && folderIds.has(t.parentFolderId)
       ? t.parentFolderId
       : undefined;
+    const folderSpace = validParentFolder ? updatedFolderMap.get(validParentFolder)?.parentSpaceId : undefined;
+    const validSpace = folderSpace || (spaceIds.has(t.parentSpaceId || '') ? t.parentSpaceId : state.activeSpaceId);
     return {
       ...t,
       favourite: false,
@@ -651,6 +734,15 @@ export function replayOperations(
       parentFolderId: validParentFolder,
     };
   });
+
+  // Chronological sort for tmpTabs (newest first)
+  if (state.tmpTabs && state.tmpTabs.length > 0) {
+    state.tmpTabs.sort(
+      (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+    );
+  } else {
+    state.tmpTabs = [];
+  }
 
   return state;
 }
@@ -669,7 +761,8 @@ export function compactSyncFile(
   currentDeviceId: string,
   pendingOps: WorkspaceOperation[],
   deviceName?: string,
-  now: number = Date.now()
+  now: number = Date.now(),
+  localTmpTabs?: TmpTab[]
 ): { syncFile: ArcableSyncFile; latestSnapshot: ArcableWorkspaceData } {
   // 1. Ensure devices map exists
   const devices: Record<string, DeviceSyncRecord> = { ...(syncFile.devices || {}) };
@@ -731,8 +824,61 @@ export function compactSyncFile(
   // 7. Fold ops into baseline
   const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
 
-  // 8. Replay remaining ops on top of new baseline to get latest state
+  // 8. Reconcile tmpTabs across devices:
+  // - Tabs belonging to other active devices (t.deviceId !== currentDeviceId) are preserved.
+  // - Tabs belonging to currentDeviceId are updated from localTmpTabs (if provided), omitting any deleted tabs.
+  const deletedTmpOpIds = new Set<string>(
+    allOps.filter((op) => op.type === 'TMP_TAB_DELETE').map((op) => op.entityId)
+  );
+
+  const otherDeviceMap = new Map<string, TmpTab>();
+  for (const t of newBaseline.tmpTabs || []) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !deletedTmpOpIds.has(t.id)) {
+      otherDeviceMap.set(t.id, t);
+    }
+  }
+  // Also preserve any non-current-device tabs passed in localTmpTabs (if not deleted)
+  for (const t of localTmpTabs || []) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !otherDeviceMap.has(t.id) && !deletedTmpOpIds.has(t.id)) {
+      otherDeviceMap.set(t.id, t);
+    }
+  }
+
+  if (localTmpTabs !== undefined) {
+    const currentDeviceTabs = localTmpTabs
+      .filter((t) => !t.deviceId || t.deviceId === currentDeviceId)
+      .map((t) => ({
+        ...t,
+        deviceId: currentDeviceId,
+        deviceName: t.deviceName || deviceName || devices[currentDeviceId]?.deviceName,
+        deviceType: t.deviceType || (deviceName?.includes('Web App') ? 'Web App' : 'Ext'),
+      }))
+      .filter((t) => !deletedTmpOpIds.has(t.id));
+
+    newBaseline.tmpTabs = [...Array.from(otherDeviceMap.values()), ...currentDeviceTabs];
+  } else {
+    // Keep baseline's current-device tabs if not deleted
+    const currentDeviceTabs = (newBaseline.tmpTabs || []).filter(
+      (t) => (!t.deviceId || t.deviceId === currentDeviceId) && !deletedTmpOpIds.has(t.id)
+    );
+    newBaseline.tmpTabs = [...Array.from(otherDeviceMap.values()), ...currentDeviceTabs];
+  }
+
+  // 9. Replay remaining ops on top of new baseline to get latest state
   const latestSnapshot = replayOperations(newBaseline, remainingOps);
+
+  // 10. Prune tmpTabs belonging to devices that are inactive for > 7 days (or removed from registry)
+  const isTabActive = (t: TmpTab) =>
+    !t.deviceId || t.deviceId === currentDeviceId || prunedDevices[t.deviceId] !== undefined;
+
+  if (newBaseline.tmpTabs) {
+    newBaseline.tmpTabs = newBaseline.tmpTabs.filter(isTabActive);
+    newBaseline.tmpTabs.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  }
+  if (latestSnapshot.tmpTabs) {
+    latestSnapshot.tmpTabs = latestSnapshot.tmpTabs.filter(isTabActive);
+    latestSnapshot.tmpTabs.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  }
 
   const updatedSyncFile: ArcableSyncFile = {
     version: (syncFile.version || 1) + 1,
@@ -807,6 +953,13 @@ export function recomputeSyncFileOnDeviceRemoval(
   const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
   const latestSnapshot = replayOperations(newBaseline, remainingOps);
 
+  if (newBaseline.tmpTabs) {
+    newBaseline.tmpTabs = newBaseline.tmpTabs.filter((t) => t.deviceId !== removedDeviceId);
+  }
+  if (latestSnapshot.tmpTabs) {
+    latestSnapshot.tmpTabs = latestSnapshot.tmpTabs.filter((t) => t.deviceId !== removedDeviceId);
+  }
+
   const updatedSyncFile: ArcableSyncFile = {
     version: (syncFile.version || 1) + 1,
     devices: validDevices,
@@ -865,6 +1018,13 @@ export function recomputeSyncFileOnDeleteOtherDevices(
   const newBaseline = replayOperations(syncFile.baselineSnapshot, opsToFold);
   const latestSnapshot = replayOperations(newBaseline, remainingOps);
 
+  if (newBaseline.tmpTabs) {
+    newBaseline.tmpTabs = newBaseline.tmpTabs.filter((t) => !t.deviceId || t.deviceId === keepDeviceId);
+  }
+  if (latestSnapshot.tmpTabs) {
+    latestSnapshot.tmpTabs = latestSnapshot.tmpTabs.filter((t) => !t.deviceId || t.deviceId === keepDeviceId);
+  }
+
   const updatedSyncFile: ArcableSyncFile = {
     version: (syncFile.version || 1) + 1,
     devices: validDevices,
@@ -914,7 +1074,10 @@ export function createInitialSyncFile(
         lastSyncAt: now,
       },
     },
-    baselineSnapshot: initialState,
+    baselineSnapshot: {
+      ...initialState,
+      tmpTabs: initialState.tmpTabs || [],
+    },
     operations: [],
   };
 }

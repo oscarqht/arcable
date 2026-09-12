@@ -48,6 +48,7 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -105,7 +106,10 @@ export const App: React.FC = () => {
 
 
     // Check initial Raindrop auth & cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot']).then((res: any) => {
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id']).then((res: any) => {
+      if (res.arcable_device_id) {
+        setCurrentDeviceId(res.arcable_device_id);
+      }
       const auth = res.arcable_raindrop_auth;
       if (auth && auth.isAuthenticated) {
         setHasRaindropAuth(true);
@@ -386,6 +390,10 @@ export const App: React.FC = () => {
         if (matchingTmp && matchingTmp.browserTabId !== undefined) {
           await tabTracker.activateTab(matchingTmp.browserTabId, matchingTmp.windowId);
           return;
+        } else {
+          // Remote tmp tab from another device: open in local browser
+          await browser.tabs.create({ url, active: true });
+          return;
         }
       }
 
@@ -612,6 +620,7 @@ export const App: React.FC = () => {
           onThemeChange={setCurrentSpaceTheme}
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
+          currentDeviceId={currentDeviceId}
           onCloseTmpTab={handleCloseTmpTab}
           onRenameTmpTab={handleRenameTmpTab}
           onTabPromoted={handleTabPromoted}

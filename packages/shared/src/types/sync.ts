@@ -9,7 +9,10 @@ export type OperationType =
   | 'FOLDER_DELETE'
   | 'TAB_CREATE'
   | 'TAB_UPDATE'
-  | 'TAB_DELETE';
+  | 'TAB_DELETE'
+  | 'TMP_TAB_CREATE'
+  | 'TMP_TAB_UPDATE'
+  | 'TMP_TAB_DELETE';
 
 export interface WorkspaceOperation {
   id: string;              // Unique operation ID (e.g. op_1700000000_abc)

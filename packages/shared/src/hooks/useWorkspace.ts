@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Space, Folder, Tab, ArcableWorkspaceData, WorkspaceSiblingItem } from '../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -14,6 +14,7 @@ import {
   getOrCreateDeviceId,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
+import { getDescendantFolderIds } from '../utils/treeUtils';
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
 export const FOLDER_COLLAPSE_STORAGE_PREFIX = 'arcable_collapse_folder_';
@@ -33,17 +34,21 @@ export function getLocalFolderExpanded(folderId: string, defaultExpanded: boolea
 }
 
 /**
- * Saves folder expanded/collapsed state to localStorage locally.
+ * Persists folder expanded state to localStorage.
  */
 export function setLocalFolderExpanded(folderId: string, isExpanded: boolean): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${folderId}`, String(!isExpanded));
+    if (!isExpanded) {
+      window.localStorage.setItem(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${folderId}`, 'true');
+    } else {
+      window.localStorage.removeItem(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${folderId}`);
+    }
   } catch {}
 }
 
 /**
- * Cleans up folder expanded/collapsed state from localStorage.
+ * Clears folder expanded state from localStorage when folder is deleted.
  */
 export function removeLocalFolderExpanded(folderId: string): void {
   if (typeof window === 'undefined') return;
@@ -79,10 +84,10 @@ export function getSortedSiblings(
   const normFolderParentId = parentFolderId || undefined;
 
   const matchingFolders = folders
-    .filter(
-      (f) =>
-        f.parentSpaceId === parentSpaceId &&
-        (f.parentFolderId || undefined) === normFolderParentId
+    .filter((f) =>
+      normFolderParentId
+        ? (f.parentFolderId || undefined) === normFolderParentId
+        : f.parentSpaceId === parentSpaceId && !f.parentFolderId
     )
     .map((f) => ({
       type: 'folder' as const,
@@ -96,8 +101,9 @@ export function getSortedSiblings(
       (t) =>
         !t.favourite &&
         !t.pinned &&
-        t.parentSpaceId === parentSpaceId &&
-        (t.parentFolderId || undefined) === normFolderParentId
+        (normFolderParentId
+          ? (t.parentFolderId || undefined) === normFolderParentId
+          : t.parentSpaceId === parentSpaceId && !t.parentFolderId)
     )
     .map((t) => ({
       type: 'tab' as const,
@@ -250,6 +256,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
       updatedAt: 1700000011000,
     },
   ],
+  tmpTabs: [],
 };
 
 function readWorkspaceFromStorage(): ArcableWorkspaceData {
@@ -286,6 +293,7 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
         };
       }),
       tabs: parsed.tabs || [],
+      tmpTabs: parsed.tmpTabs || [],
       activeSpaceId: parsed.activeSpaceId || parsed.spaces[0]?.id || 'space_personal',
       version: parsed.version || 1,
     };
@@ -630,26 +638,106 @@ export function useWorkspace() {
   }, [data.folders, data.tabs, saveWorkspaceData]);
 
   const updateFolder = useCallback((id: string, updates: Partial<Omit<Folder, 'id'>>) => {
-    const opPayload: Record<string, any> = { ...updates };
-    if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updates.customEmojiIcon ?? null;
-    if ('parentFolderId' in updates) opPayload.parentFolderId = updates.parentFolderId ?? null;
-    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
-    if ('isExpanded' in updates) {
-      opPayload.isExpanded = updates.isExpanded;
-      if (typeof updates.isExpanded === 'boolean') {
-        setLocalFolderExpanded(id, updates.isExpanded);
+    saveWorkspaceData((prev) => {
+      const currentFolder = prev.folders.find((f) => f.id === id);
+      if (!currentFolder) return prev;
+
+      // Determine effective targetSpaceId
+      let targetSpaceId = updates.parentSpaceId || currentFolder.parentSpaceId;
+      const targetParentFolderId =
+        'parentFolderId' in updates
+          ? updates.parentFolderId || undefined
+          : currentFolder.parentFolderId;
+
+      if (targetParentFolderId) {
+        const parentFolder = prev.folders.find((f) => f.id === targetParentFolderId);
+        if (parentFolder) {
+          targetSpaceId = parentFolder.parentSpaceId;
+        }
       }
-    }
 
-    savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, opPayload));
+      // Check if folder is moving to another space or parent folder
+      const currentSpaceId = currentFolder.parentSpaceId;
+      const currentParentFolderId = currentFolder.parentFolderId || undefined;
+      const isLocationChanged =
+        targetSpaceId !== currentSpaceId || targetParentFolderId !== currentParentFolderId;
 
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      folders: prev.folders.map((f) =>
-        f.id === id ? { ...f, ...updates, updatedAt: Date.now() } : f
-      ),
-    }));
+      let destinationOrder = currentFolder.order;
+      if (isLocationChanged && updates.order === undefined) {
+        const destinationSiblings = getSortedSiblings(
+          prev.folders,
+          prev.tabs,
+          targetSpaceId,
+          targetParentFolderId
+        ).filter((s) => s.id !== id);
+        const maxOrder = destinationSiblings.reduce((max, s) => Math.max(max, s.order), 0);
+        destinationOrder = maxOrder + 1000;
+      }
+
+      const finalUpdates: Partial<Omit<Folder, 'id'>> = {
+        ...updates,
+        parentSpaceId: targetSpaceId,
+        parentFolderId: targetParentFolderId,
+        order: destinationOrder,
+      };
+
+      const opPayload: Record<string, any> = { ...finalUpdates };
+      if ('customEmojiIcon' in finalUpdates) opPayload.customEmojiIcon = finalUpdates.customEmojiIcon ?? null;
+      if ('parentFolderId' in finalUpdates) opPayload.parentFolderId = finalUpdates.parentFolderId ?? null;
+      if ('colors' in finalUpdates) opPayload.colors = finalUpdates.colors ?? null;
+      if ('isExpanded' in finalUpdates) {
+        opPayload.isExpanded = finalUpdates.isExpanded;
+        if (typeof finalUpdates.isExpanded === 'boolean') {
+          setLocalFolderExpanded(id, finalUpdates.isExpanded);
+        }
+      }
+      if (destinationOrder !== currentFolder.order) {
+        opPayload.order = destinationOrder;
+      }
+
+      savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, opPayload));
+
+      // Find all descendant folder IDs
+      const descendantFolderIds = getDescendantFolderIds(id, prev.folders);
+
+      // Cascade parentSpaceId to any descendant folders whose space changed
+      const updatedFolders = prev.folders.map((f) => {
+        if (f.id === id) {
+          return { ...f, ...finalUpdates, updatedAt: Date.now() };
+        }
+        if (descendantFolderIds.has(f.id) && f.parentSpaceId !== targetSpaceId) {
+          savePendingOperation(
+            createWorkspaceOperation('FOLDER_UPDATE', f.id, { parentSpaceId: targetSpaceId })
+          );
+          return { ...f, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
+        }
+        return f;
+      });
+
+      // Cascade parentSpaceId to any tabs in this folder or descendant folders whose space changed
+      const updatedTabs = prev.tabs.map((t) => {
+        if (
+          !t.favourite &&
+          (t.parentFolderId === id || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId)))
+        ) {
+          if (t.parentSpaceId !== targetSpaceId) {
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', t.id, { parentSpaceId: targetSpaceId })
+            );
+            return { ...t, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
+          }
+        }
+        return t;
+      });
+
+      return {
+        ...prev,
+        folders: updatedFolders,
+        tabs: updatedTabs,
+      };
+    });
   }, [saveWorkspaceData]);
+
 
   const toggleFolderExpand = useCallback((id: string) => {
     saveWorkspaceData((prev) => {
@@ -672,24 +760,21 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteFolder = useCallback((id: string, recursive: boolean = true) => {
-    savePendingOperation(createWorkspaceOperation('FOLDER_DELETE', id));
-    removeLocalFolderExpanded(id);
-
     saveWorkspaceData((prev) => {
-      // Find all descendant folder IDs if recursive
-      const folderIdsToDelete = new Set<string>([id]);
+      const descendantIds = recursive ? getDescendantFolderIds(id, prev.folders) : new Set<string>();
+      const folderIdsToDelete = new Set<string>([id, ...descendantIds]);
+
+      folderIdsToDelete.forEach((fId) => {
+        removeLocalFolderExpanded(fId);
+        savePendingOperation(createWorkspaceOperation('FOLDER_DELETE', fId));
+      });
+
       if (recursive) {
-        let addedNew = true;
-        while (addedNew) {
-          addedNew = false;
-          for (const f of prev.folders) {
-            if (f.parentFolderId && folderIdsToDelete.has(f.parentFolderId) && !folderIdsToDelete.has(f.id)) {
-              folderIdsToDelete.add(f.id);
-              removeLocalFolderExpanded(f.id);
-              addedNew = true;
-            }
+        prev.tabs.forEach((t) => {
+          if (t.parentFolderId && folderIdsToDelete.has(t.parentFolderId)) {
+            savePendingOperation(createWorkspaceOperation('TAB_DELETE', t.id));
           }
-        }
+        });
       }
 
       const deletedFolder = prev.folders.find((f) => f.id === id);
@@ -770,41 +855,83 @@ export function useWorkspace() {
   }, [activeSpace, data.folders, data.tabs, saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
-    const opPayload: Record<string, any> = { ...updates };
-    if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updates.customEmojiIcon ?? null;
-    if ('customTitle' in updates) opPayload.customTitle = updates.customTitle ?? null;
-    if ('parentFolderId' in updates) opPayload.parentFolderId = updates.parentFolderId ?? null;
-    if ('parentSpaceId' in updates) opPayload.parentSpaceId = updates.parentSpaceId ?? null;
-    if ('favourite' in updates) opPayload.favourite = Boolean(updates.favourite);
-    if ('pinned' in updates) opPayload.pinned = Boolean(updates.pinned);
+    saveWorkspaceData((prev) => {
+      const currentTab = prev.tabs.find((t) => t.id === id);
+      if (!currentTab) return prev;
 
-    savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, opPayload));
+      const updated = { ...currentTab, ...updates, updatedAt: Date.now() };
 
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      tabs: prev.tabs.map((t) => {
-        if (t.id !== id) return t;
-        const updated = { ...t, ...updates, updatedAt: Date.now() };
+      // If favourite is true, tab stops belonging to any space or folder and cannot be pinned
+      if (updated.favourite) {
+        updated.parentSpaceId = undefined;
+        updated.parentFolderId = undefined;
+        updated.pinned = false;
+      } else if (updates.favourite === false && !updated.parentSpaceId) {
+        // If un-favourited, attach back to current active space
+        updated.parentSpaceId = prev.activeSpaceId || prev.spaces[0]?.id;
+      }
 
-        // If favourite is true, tab stops belonging to any space or folder and cannot be pinned
-        if (updated.favourite) {
-          updated.parentSpaceId = undefined;
-          updated.parentFolderId = undefined;
-          updated.pinned = false;
-        } else if (updates.favourite === false && !updated.parentSpaceId) {
-          // If un-favourited, attach back to current active space
-          updated.parentSpaceId = prev.activeSpaceId || prev.spaces[0]?.id;
+      // If pinned is true, tab shouldn't have parentFolderId and cannot be favourite
+      if (updated.pinned) {
+        updated.parentFolderId = undefined;
+        updated.favourite = false;
+      }
+
+      // If parentFolderId is specified, ensure parentSpaceId matches parent folder's space
+      if (!updated.favourite && !updated.pinned && updated.parentFolderId) {
+        const parentFolder = prev.folders.find((f) => f.id === updated.parentFolderId);
+        if (parentFolder) {
+          updated.parentSpaceId = parentFolder.parentSpaceId;
         }
+      }
 
-        // If pinned is true, tab shouldn't have parentFolderId and cannot be favourite
-        if (updated.pinned) {
-          updated.parentFolderId = undefined;
-          updated.favourite = false;
+      // Check if tab is moving to another space or parent folder, or changing pinned status
+      const prevSpaceId = currentTab.parentSpaceId;
+      const prevFolderId = currentTab.parentFolderId || undefined;
+      const nextSpaceId = updated.parentSpaceId;
+      const nextFolderId = updated.parentFolderId || undefined;
+
+      const isLocationChanged =
+        !updated.favourite &&
+        (nextSpaceId !== prevSpaceId ||
+          nextFolderId !== prevFolderId ||
+          Boolean(updated.pinned) !== Boolean(currentTab.pinned));
+
+      if (isLocationChanged && updates.order === undefined) {
+        if (updated.pinned && nextSpaceId) {
+          const destinationPinned = prev.tabs.filter(
+            (t) => !t.favourite && t.pinned && t.parentSpaceId === nextSpaceId && t.id !== id
+          );
+          const maxOrder = destinationPinned.reduce((max, t) => Math.max(max, t.order ?? 0), 0);
+          updated.order = maxOrder + 1000;
+        } else if (nextSpaceId) {
+          const destinationSiblings = getSortedSiblings(
+            prev.folders,
+            prev.tabs,
+            nextSpaceId,
+            nextFolderId
+          ).filter((s) => s.id !== id);
+          const maxOrder = destinationSiblings.reduce((max, s) => Math.max(max, s.order), 0);
+          updated.order = maxOrder + 1000;
         }
+      }
 
-        return updated;
-      }),
-    }));
+      const opPayload: Record<string, any> = { ...updates };
+      if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updated.customEmojiIcon ?? null;
+      if ('customTitle' in updates) opPayload.customTitle = updated.customTitle ?? null;
+      if ('parentFolderId' in updates || isLocationChanged) opPayload.parentFolderId = updated.parentFolderId ?? null;
+      if ('parentSpaceId' in updates || isLocationChanged) opPayload.parentSpaceId = updated.parentSpaceId ?? null;
+      if ('favourite' in updates) opPayload.favourite = Boolean(updated.favourite);
+      if ('pinned' in updates) opPayload.pinned = Boolean(updated.pinned);
+      if (updated.order !== currentTab.order) opPayload.order = updated.order;
+
+      savePendingOperation(createWorkspaceOperation('TAB_UPDATE', id, opPayload));
+
+      return {
+        ...prev,
+        tabs: prev.tabs.map((t) => (t.id === id ? updated : t)),
+      };
+    });
   }, [saveWorkspaceData]);
 
   const deleteTab = useCallback((id: string) => {
@@ -879,6 +1006,82 @@ export function useWorkspace() {
       tabs: prev.tabs.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t)),
     }));
   }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
+
+  // ================= Tmp Tab Operations =================
+  const createTmpTab = useCallback((tabInput: Partial<TmpTab> & { url: string; id?: string }) => {
+    const newTmpTab: TmpTab = {
+      id: tabInput.id || generateId('tmp'),
+      url: tabInput.url,
+      title: tabInput.title,
+      customTitle: tabInput.customTitle,
+      favIconUrl: tabInput.favIconUrl,
+      browserTabId: tabInput.browserTabId,
+      windowId: tabInput.windowId,
+      badge: tabInput.badge,
+      deviceId: tabInput.deviceId || getOrCreateDeviceId(),
+      deviceName: tabInput.deviceName,
+      deviceType: tabInput.deviceType,
+      createdAt: tabInput.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    savePendingOperation(createWorkspaceOperation('TMP_TAB_CREATE', newTmpTab.id, newTmpTab));
+
+    saveWorkspaceData((prev) => {
+      const existingIdx = (prev.tmpTabs || []).findIndex((t) => t.id === newTmpTab.id);
+      let updatedTmp: TmpTab[];
+      if (existingIdx >= 0) {
+        updatedTmp = [...(prev.tmpTabs || [])];
+        updatedTmp[existingIdx] = { ...updatedTmp[existingIdx], ...newTmpTab };
+      } else {
+        updatedTmp = [...(prev.tmpTabs || []), newTmpTab];
+      }
+      return {
+        ...prev,
+        tmpTabs: updatedTmp,
+      };
+    });
+
+    return newTmpTab;
+  }, [saveWorkspaceData]);
+
+  const updateTmpTab = useCallback((id: string, updates: Partial<Omit<TmpTab, 'id'>>) => {
+    savePendingOperation(createWorkspaceOperation('TMP_TAB_UPDATE', id, updates));
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      tmpTabs: (prev.tmpTabs || []).map((t) => {
+        if (t.id !== id) return t;
+        return {
+          ...t,
+          ...updates,
+          updatedAt: Date.now(),
+        };
+      }),
+    }));
+  }, [saveWorkspaceData]);
+
+  const deleteTmpTab = useCallback((id: string) => {
+    savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', id));
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      tmpTabs: (prev.tmpTabs || []).filter((t) => t.id !== id),
+    }));
+  }, [saveWorkspaceData]);
+
+  const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string) => {
+    const savedTab = createTab({
+      url: tmpTab.url,
+      customTitle: tmpTab.customTitle || tmpTab.title,
+      parentSpaceId: targetSpaceId || activeSpace?.id,
+      parentFolderId: targetFolderId,
+    });
+
+    deleteTmpTab(tmpTab.id);
+
+    return savedTab;
+  }, [activeSpace, createTab, deleteTmpTab]);
 
   // ================= Reordering Operations =================
   const reorderSpaces = useCallback(
@@ -1021,27 +1224,64 @@ export function useWorkspace() {
           }));
           return;
         } else {
+          const targetSpaceId = targetFolder.parentSpaceId;
+          const descendantFolderIds = getDescendantFolderIds(sourceId, data.folders);
+
           savePendingOperation(
             createWorkspaceOperation('FOLDER_UPDATE', sourceId, {
-              parentSpaceId: targetFolder.parentSpaceId,
+              parentSpaceId: targetSpaceId,
               parentFolderId: targetFolder.id,
               order: newOrder,
             })
           );
 
+          data.folders.forEach((f) => {
+            if (descendantFolderIds.has(f.id) && f.parentSpaceId !== targetSpaceId) {
+              savePendingOperation(
+                createWorkspaceOperation('FOLDER_UPDATE', f.id, { parentSpaceId: targetSpaceId })
+              );
+            }
+          });
+
+          data.tabs.forEach((t) => {
+            if (
+              !t.favourite &&
+              (t.parentFolderId === sourceId || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId))) &&
+              t.parentSpaceId !== targetSpaceId
+            ) {
+              savePendingOperation(
+                createWorkspaceOperation('TAB_UPDATE', t.id, { parentSpaceId: targetSpaceId })
+              );
+            }
+          });
+
           saveWorkspaceData((prev) => ({
             ...prev,
-            folders: prev.folders.map((f) =>
-              f.id === sourceId
-                ? {
-                    ...f,
-                    parentSpaceId: targetFolder.parentSpaceId,
-                    parentFolderId: targetFolder.id,
-                    order: newOrder,
-                    updatedAt: Date.now(),
-                  }
-                : f
-            ),
+            folders: prev.folders.map((f) => {
+              if (f.id === sourceId) {
+                return {
+                  ...f,
+                  parentSpaceId: targetSpaceId,
+                  parentFolderId: targetFolder.id,
+                  order: newOrder,
+                  updatedAt: Date.now(),
+                };
+              }
+              if (descendantFolderIds.has(f.id) && f.parentSpaceId !== targetSpaceId) {
+                return { ...f, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
+              }
+              return f;
+            }),
+            tabs: prev.tabs.map((t) => {
+              if (
+                !t.favourite &&
+                (t.parentFolderId === sourceId || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId))) &&
+                t.parentSpaceId !== targetSpaceId
+              ) {
+                return { ...t, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
+              }
+              return t;
+            }),
           }));
           return;
         }
@@ -1083,6 +1323,11 @@ export function useWorkspace() {
         updatedOrderMap.set(s.id, (idx + 1) * 1000);
       });
 
+      const descendantFolderIds =
+        sourceType === 'folder'
+          ? getDescendantFolderIds(sourceId, data.folders)
+          : new Set<string>();
+
       const updatedFolders = data.folders.map((f) => {
         if (f.id === sourceId) {
           return {
@@ -1090,6 +1335,13 @@ export function useWorkspace() {
             parentSpaceId,
             parentFolderId: parentFolderId || undefined,
             order: updatedOrderMap.get(f.id) ?? f.order ?? 1000,
+            updatedAt: Date.now(),
+          };
+        }
+        if (sourceType === 'folder' && descendantFolderIds.has(f.id) && f.parentSpaceId !== parentSpaceId) {
+          return {
+            ...f,
+            parentSpaceId,
             updatedAt: Date.now(),
           };
         }
@@ -1108,6 +1360,18 @@ export function useWorkspace() {
             pinned: false,
             favourite: false,
             order: updatedOrderMap.get(t.id) ?? t.order ?? 1000,
+            updatedAt: Date.now(),
+          };
+        }
+        if (
+          sourceType === 'folder' &&
+          !t.favourite &&
+          (t.parentFolderId === sourceId || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId))) &&
+          t.parentSpaceId !== parentSpaceId
+        ) {
+          return {
+            ...t,
+            parentSpaceId,
             updatedAt: Date.now(),
           };
         }
@@ -1347,6 +1611,7 @@ export function useWorkspace() {
           spaces: resolvedSnapshot.spaces,
           folders: mergedFolders,
           tabs: resolvedSnapshot.tabs || [],
+          tmpTabs: resolvedSnapshot.tmpTabs || [],
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : resolvedSnapshot.spaces[0]?.id || 'space_personal',
@@ -1492,6 +1757,12 @@ export function useWorkspace() {
     deleteTab,
     togglePinTab,
     toggleFavouriteTab,
+    // Tmp Tab operations
+    tmpTabs: data.tmpTabs || [],
+    createTmpTab,
+    updateTmpTab,
+    deleteTmpTab,
+    promoteTmpTab,
     // Sibling reordering
     reorderSiblingItem,
     moveSiblingItem,
