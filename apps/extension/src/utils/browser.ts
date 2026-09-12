@@ -118,9 +118,18 @@ export async function openWorkspaceSafely(): Promise<void> {
     }
   }
 
-  // 3. Firefox for Android or fallback: open workspace in a tab
+  // 3. Firefox for Android or fallback: open workspace in a tab (or focus existing tab)
   try {
-    await browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
+    const sidepanelUrl = browser.runtime.getURL('sidepanel/index.html');
+    const tabs = await browser.tabs.query({});
+    const existingTab = tabs.find(
+      (t) => t.url === sidepanelUrl || (t.url && t.url.startsWith(sidepanelUrl))
+    );
+    if (existingTab && existingTab.id !== undefined) {
+      await browser.tabs.update(existingTab.id, { active: true });
+      return;
+    }
+    await browser.tabs.create({ url: sidepanelUrl });
   } catch (tabErr) {
     console.error('[Arcable] Failed to open workspace tab:', tabErr);
   }

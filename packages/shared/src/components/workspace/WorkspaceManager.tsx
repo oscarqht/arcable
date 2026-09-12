@@ -53,7 +53,7 @@ export interface WorkspaceManagerHandle {
 }
 
 export interface WorkspaceManagerProps {
-  onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
@@ -224,6 +224,39 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }
     },
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
+  );
+
+  const handleOpenTmpTab = useCallback(
+    (url: string, tabId?: string, tab?: TmpTab) => {
+      if (activeSearchQuery) {
+        handleUpdateSearch('');
+      }
+
+      // If this is a remote tmp tab from another device, and the current host runs a local
+      // browser tab tracker (tmpTabs !== undefined, e.g. the browser extension):
+      // Taking over the remote tab means:
+      // 1. We remove the remote tab item from data.tmpTabs via deleteTmpTab(tab.id),
+      //    which authors a TMP_TAB_DELETE operation so the originating device closes it.
+      // 2. We open the URL locally via onOpenTab(url, tabId, tab), which creates a local
+      //    browser tab that tabTracker immediately tracks as the local replacement.
+      const hasLocalTabTracker = tmpTabs !== undefined;
+      const isRemote =
+        hasLocalTabTracker &&
+        tab &&
+        (tab.browserTabId === undefined ||
+          (tab.deviceId && currentDeviceId && tab.deviceId !== currentDeviceId));
+
+      if (isRemote && tab) {
+        deleteTmpTab(tab.id);
+      }
+
+      if (onOpenTab) {
+        onOpenTab(url, tabId, tab);
+      } else if (typeof window !== 'undefined' && url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    },
+    [activeSearchQuery, handleUpdateSearch, tmpTabs, currentDeviceId, deleteTmpTab, onOpenTab]
   );
 
   // Combine local tmpTabs (passed via prop) and remote tmpTabs (from synced workspace data.tmpTabs)
@@ -1808,7 +1841,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 alwaysShowActions={alwaysShowActions}
                 highlightedTabId={highlightedTabId}
                 audibleTabs={audibleTabs}
-                onOpen={handleOpenTabWithSearchClear}
+                onOpen={handleOpenTmpTab}
                 onPromote={handlePromoteTmpTab}
                 onClose={handleCloseTmpTab}
                 onRename={handleRenameTmpTab}
@@ -1927,7 +1960,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           alwaysShowActions={alwaysShowActions}
           highlightedTabId={highlightedTabId}
           audibleTabs={audibleTabs}
-          onOpen={handleOpenTabWithSearchClear}
+          onOpen={handleOpenTmpTab}
           onPromote={handlePromoteTmpTab}
           onClose={handleCloseTmpTab}
           onRename={handleRenameTmpTab}

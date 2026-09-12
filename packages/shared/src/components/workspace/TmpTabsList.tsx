@@ -15,7 +15,7 @@ export interface TmpTabsListProps {
   highlightedTabId?: string | null;
   activeBrowserTabId?: number;
   audibleTabs?: AudibleTab[];
-  onOpen?: (url: string, tabId?: string) => void;
+  onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;

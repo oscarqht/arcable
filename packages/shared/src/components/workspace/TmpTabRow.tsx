@@ -30,7 +30,7 @@ export interface TmpTabRowProps {
   isAudible?: boolean;
   isMuted?: boolean;
   badge?: string | number | null;
-  onOpen?: (url: string, tabId?: string) => void;
+  onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
@@ -121,7 +121,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     e.preventDefault();
     if (tab.url) {
       if (onOpen) {
-        onOpen(tab.url, tab.id);
+        onOpen(tab.url, tab.id, tab);
       } else {
         window.open(tab.url, '_blank', 'noopener,noreferrer');
       }

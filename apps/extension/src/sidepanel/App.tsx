@@ -379,20 +379,23 @@ export const App: React.FC = () => {
     }
   }, [syncTabsWithTracker]);
 
-  const handleOpenTab = async (url: string, tabId?: string) => {
+  const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab) => {
     if (tabId) {
       setHighlightedTabId(tabId);
     }
     try {
       // Check if this is a tmp tab
-      if (tabId && tabId.startsWith('tmp_')) {
-        const matchingTmp = tmpTabs.find((t) => t.id === tabId || areUrlsMatching(t.url, url));
-        if (matchingTmp && matchingTmp.browserTabId !== undefined) {
-          await tabTracker.activateTab(matchingTmp.browserTabId, matchingTmp.windowId);
+      if (tmpTabInfo || (tabId && tabId.startsWith('tmp_'))) {
+        const localTmp = tmpTabs.find((t) => t.id === tabId || (tmpTabInfo && t.id === tmpTabInfo.id));
+        if (localTmp && localTmp.browserTabId !== undefined) {
+          await tabTracker.activateTab(localTmp.browserTabId, localTmp.windowId);
           return;
         } else {
-          // Remote tmp tab from another device: open in local browser
-          await browser.tabs.create({ url, active: true });
+          // Remote tmp tab from another device: open in local browser and inherit any custom title
+          const newTab = await browser.tabs.create({ url, active: true });
+          if (newTab && newTab.id !== undefined && tmpTabInfo?.customTitle) {
+            await tabTracker.setTmpTabCustomTitle(newTab.id, url, tmpTabInfo.customTitle);
+          }
           return;
         }
       }
