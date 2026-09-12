@@ -9,7 +9,7 @@ import {
 import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
-import { browser, getActiveTab } from '../utils/browser';
+import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
 
@@ -509,12 +509,24 @@ export const App: React.FC = () => {
     if (!tab || !tab.url) {
       throw new Error('No active tab URL detected.');
     }
+
+    let coverDataUrl: string | undefined;
+    try {
+      const screenshot = await captureActiveTabScreenshot(tab.windowId);
+      if (screenshot) {
+        coverDataUrl = screenshot;
+      }
+    } catch (e) {
+      console.warn('[Arcable] Failed to capture active tab screenshot for cover:', e);
+    }
+
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SAVE_BOOKMARK',
       payload: {
         link: tab.url,
         title: tab.title || tab.url,
         collectionId: -1,
+        coverDataUrl,
         pleaseParse: {},
       },
     });

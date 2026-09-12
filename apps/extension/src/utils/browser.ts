@@ -7,12 +7,62 @@ export { browser };
  */
 export async function getActiveTab(): Promise<browser.Tabs.Tab | undefined> {
   try {
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    let tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    if (!tabs || tabs.length === 0) {
+      tabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    }
     return tabs[0];
   } catch (error) {
     console.error('Error getting active tab:', error);
     return undefined;
   }
+}
+
+/**
+ * Captures a screenshot of the visible area of the active tab.
+ * Returns a data URL (e.g. "data:image/jpeg;base64,...") or null if capture fails.
+ */
+export async function captureActiveTabScreenshot(windowId?: number): Promise<string | null> {
+  const options = { format: 'jpeg' as const, quality: 85 };
+
+  // 1. Try webextension-polyfill browser.tabs.captureVisibleTab
+  try {
+    if (typeof browser !== 'undefined' && typeof (browser.tabs as any)?.captureVisibleTab === 'function') {
+      const dataUrl = windowId !== undefined
+        ? await (browser.tabs as any).captureVisibleTab(windowId, options)
+        : await (browser.tabs as any).captureVisibleTab(options);
+      if (dataUrl) return dataUrl;
+    }
+  } catch (err) {
+    console.warn('[Arcable] browser.tabs.captureVisibleTab failed, trying chrome fallback:', err);
+  }
+
+  // 2. Try chrome.tabs.captureVisibleTab directly
+  if (typeof chrome !== 'undefined' && typeof (chrome.tabs as any)?.captureVisibleTab === 'function') {
+    return new Promise((resolve) => {
+      try {
+        const callback = (dataUrl?: string) => {
+          if (chrome.runtime.lastError || !dataUrl) {
+            console.warn('[Arcable] chrome.tabs.captureVisibleTab failed:', chrome.runtime.lastError?.message);
+            resolve(null);
+          } else {
+            resolve(dataUrl);
+          }
+        };
+
+        if (windowId !== undefined) {
+          chrome.tabs.captureVisibleTab(windowId, options, callback);
+        } else {
+          chrome.tabs.captureVisibleTab(options, callback);
+        }
+      } catch (e) {
+        console.warn('[Arcable] chrome.tabs.captureVisibleTab threw:', e);
+        resolve(null);
+      }
+    });
+  }
+
+  return null;
 }
 
 /**

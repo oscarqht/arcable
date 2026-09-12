@@ -13,7 +13,7 @@ import {
   replayOperations,
 } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
-import { browser, getActiveTab, openOptionsPageSafely, openWorkspaceSafely } from '../utils/browser';
+import { browser, getActiveTab, captureActiveTabScreenshot, openOptionsPageSafely, openWorkspaceSafely } from '../utils/browser';
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -166,12 +166,26 @@ export const App: React.FC = () => {
     setRaindropSuccess(false);
 
     try {
+      const tab = await getActiveTab();
+      let coverDataUrl: string | undefined;
+      try {
+        const screenshot = await captureActiveTabScreenshot(tab?.windowId);
+        if (screenshot) {
+          coverDataUrl = screenshot;
+        }
+      } catch (e) {
+        console.warn('[Arcable] Failed to capture active tab screenshot in popup:', e);
+      }
+
       const rawRes = await browser.runtime.sendMessage({
         type: 'RAINDROP_SAVE_BOOKMARK',
         payload: {
           title: currentTab.title || currentTab.url,
           link: currentTab.url,
+          collectionId: -1,
+          coverDataUrl,
           tags: ['Arcable', 'Extension'],
+          pleaseParse: {},
         },
       });
       const response = rawRes as ExtensionResponse;

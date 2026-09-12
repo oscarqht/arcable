@@ -75,6 +75,7 @@ export interface RaindropCreateItemInput {
   tags?: string[];
   collectionId?: number;
   cover?: string;
+  coverDataUrl?: string;
   pleaseParse?: Record<string, any>;
 }
 

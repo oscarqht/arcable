@@ -122,6 +122,79 @@ export async function fetchRaindropCollections(token: string): Promise<RaindropC
 }
 
 /**
+ * Converts a data URL (e.g. "data:image/jpeg;base64,...") to a Blob.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(',');
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const base64Data = parts[1] || '';
+
+  if (typeof atob === 'function') {
+    const binaryStr = atob(base64Data);
+    const len = binaryStr.length;
+    const u8arr = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      u8arr[i] = binaryStr.charCodeAt(i);
+    }
+    return new Blob([u8arr], { type: mime });
+  } else if (typeof Buffer !== 'undefined') {
+    const buffer = Buffer.from(base64Data, 'base64');
+    return new Blob([buffer], { type: mime });
+  }
+
+  throw new Error('Unable to convert dataUrl to Blob: neither atob nor Buffer available.');
+}
+
+/**
+ * Uploads a cover image for an existing Raindrop bookmark.
+ * Uses Raindrop's PUT /raindrop/{id}/cover endpoint with multipart/form-data.
+ */
+export async function uploadRaindropCover(
+  token: string,
+  raindropId: number,
+  cover: Blob | string
+): Promise<string | null> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken) {
+    throw new Error('Missing Raindrop authorization token.');
+  }
+
+  let blob: Blob;
+  if (typeof cover === 'string') {
+    if (cover.startsWith('data:')) {
+      blob = dataUrlToBlob(cover);
+    } else {
+      return null;
+    }
+  } else {
+    blob = cover;
+  }
+
+  const formData = new FormData();
+  const ext = blob.type.includes('png') ? 'png' : 'jpeg';
+  formData.append('cover', blob, `cover.${ext}`);
+
+  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}/cover`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      Accept: 'application/json',
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    console.warn(`[RaindropClient] Failed to upload cover (${res.status}): ${errorText}`);
+    return null;
+  }
+
+  const data = (await res.json()) as { result?: boolean; item?: { cover?: string } };
+  return data.item?.cover || null;
+}
+
+/**
  * Creates a bookmark in Raindrop.io.
  */
 export async function createRaindropBookmark(
@@ -155,7 +228,7 @@ export async function createRaindropBookmark(
     payload.collection = { $id: input.collectionId };
   }
 
-  if (input.cover) {
+  if (input.cover && !input.cover.startsWith('data:')) {
     payload.cover = input.cover;
   }
 
@@ -177,12 +250,26 @@ export async function createRaindropBookmark(
   const data = (await res.json()) as { item: any };
   const created = data.item;
 
+  let finalCover = created.cover;
+  const coverToUpload = input.coverDataUrl || (input.cover?.startsWith('data:') ? input.cover : undefined);
+
+  if (coverToUpload && created._id) {
+    try {
+      const uploadedCover = await uploadRaindropCover(cleanToken, created._id, coverToUpload);
+      if (uploadedCover) {
+        finalCover = uploadedCover;
+      }
+    } catch (coverErr) {
+      console.warn('[RaindropClient] Error uploading cover for bookmark:', coverErr);
+    }
+  }
+
   return {
     _id: created._id,
     title: created.title,
     excerpt: created.excerpt,
     link: created.link,
-    cover: created.cover,
+    cover: finalCover,
     tags: created.tags,
     collectionId: created.collection?.$id,
     created: created.created,

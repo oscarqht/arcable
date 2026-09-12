@@ -304,7 +304,30 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Not authenticated with Raindrop' };
         }
 
-        const input = message.payload as RaindropCreateItemInput;
+        const input = (message.payload || {}) as RaindropCreateItemInput;
+
+        // Fallback: if coverDataUrl wasn't provided, attempt to capture active tab screenshot
+        if (!input.coverDataUrl && !input.cover?.startsWith('data:')) {
+          try {
+            if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.captureVisibleTab) {
+              const fallbackCover = await new Promise<string | undefined>((resolve) => {
+                chrome.tabs.captureVisibleTab({ format: 'jpeg', quality: 85 }, (dataUrl) => {
+                  if (chrome.runtime.lastError || !dataUrl) {
+                    resolve(undefined);
+                  } else {
+                    resolve(dataUrl);
+                  }
+                });
+              });
+              if (fallbackCover) {
+                input.coverDataUrl = fallbackCover;
+              }
+            }
+          } catch {
+            // Ignore capture failure in background
+          }
+        }
+
         try {
           const bookmark = await createRaindropBookmark(auth.accessToken, input);
           return { success: true, data: bookmark };
