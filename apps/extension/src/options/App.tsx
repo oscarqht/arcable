@@ -18,7 +18,7 @@ import {
   setStoredDeviceName,
   formatDate,
 } from '@arcable/shared/utils';
-import { browser } from '../utils/browser';
+import { browser, openWorkspaceSafely } from '../utils/browser';
 
 type OptionsTab = 'sync' | 'device' | 'about';
 
@@ -346,15 +346,7 @@ export const App: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                if (typeof chrome !== 'undefined' && chrome.sidePanel && chrome.sidePanel.open) {
-                  chrome.windows.getCurrent((win) => {
-                    if (win.id) chrome.sidePanel.open({ windowId: win.id });
-                  });
-                } else {
-                  browser.tabs.create({ url: browser.runtime.getURL('sidepanel/index.html') });
-                }
-              }}
+              onClick={() => void openWorkspaceSafely()}
               style={{
                 borderRadius: '8px',
                 padding: '6px 14px',
@@ -363,7 +355,7 @@ export const App: React.FC = () => {
                 gap: '6px',
               }}
             >
-              📑 Open Sidepanel
+              📑 Open Workspace
             </Button>
           </div>
         </div>
