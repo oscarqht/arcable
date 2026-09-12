@@ -19,6 +19,9 @@ import {
   formatDate,
 } from '@arcable/shared/utils';
 import { browser, openWorkspaceSafely } from '../utils/browser';
+import packageJson from '../../package.json';
+
+const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
 
 type OptionsTab = 'sync' | 'device' | 'about';
 
@@ -328,7 +331,7 @@ export const App: React.FC = () => {
                 >
                   Arcable Settings
                 </h1>
-                <Badge variant="info">v0.1.0</Badge>
+                <Badge variant="info">v{extensionVersion}</Badge>
               </div>
               <p
                 style={{
@@ -625,7 +628,7 @@ export const App: React.FC = () => {
                 >
                   <div>
                     <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Version</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>0.1.0 (Beta)</div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{extensionVersion} (Beta)</div>
                   </div>
                   <div>
                     <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Platform</div>
