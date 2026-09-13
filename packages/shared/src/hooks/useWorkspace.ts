@@ -282,6 +282,12 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       parsed = replayOperations(parsed, pendingOps);
     }
 
+    const sorted = getSortedSpaces(parsed.spaces || []);
+    const activeSpaceExists = sorted.some((s) => s.id === parsed.activeSpaceId);
+    const resolvedActiveSpaceId = activeSpaceExists
+      ? parsed.activeSpaceId
+      : (sorted[0]?.id || 'space_personal');
+
     const initial: ArcableWorkspaceData = {
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
@@ -294,7 +300,7 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       }),
       tabs: parsed.tabs || [],
       tmpTabs: parsed.tmpTabs || [],
-      activeSpaceId: parsed.activeSpaceId || parsed.spaces[0]?.id || 'space_personal',
+      activeSpaceId: resolvedActiveSpaceId,
       version: parsed.version || 1,
     };
 
@@ -488,8 +494,9 @@ export function useWorkspace() {
         };
       }
 
+      const sortedRemaining = getSortedSpaces(remaining);
       const nextActiveSpaceId =
-        prev.activeSpaceId === id ? remaining[0].id : prev.activeSpaceId;
+        prev.activeSpaceId === id ? sortedRemaining[0].id : prev.activeSpaceId;
 
       return {
         ...prev,
@@ -1635,7 +1642,7 @@ export function useWorkspace() {
           tmpTabs: resolvedSnapshot.tmpTabs || [],
           activeSpaceId: activeSpaceStillExists
             ? currentActive
-            : resolvedSnapshot.spaces[0]?.id || 'space_personal',
+            : (getSortedSpaces(resolvedSnapshot.spaces)[0]?.id || 'space_personal'),
           version: resolvedSnapshot.version || 1,
         };
       });

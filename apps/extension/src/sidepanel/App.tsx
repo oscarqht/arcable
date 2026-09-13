@@ -6,13 +6,34 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction } from '@arcable/shared/types';
-import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space } from '@arcable/shared/types';
+import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
 import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
 
+export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
+
+export function getStoredLastSpaceId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(SIDEPANEL_LAST_SPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredLastSpaceId(spaceId: string): void {
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, spaceId);
+    } catch {}
+  }
+  try {
+    void browser.storage.local.set({ [SIDEPANEL_LAST_SPACE_KEY]: spaceId });
+  } catch {}
+}
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -23,10 +44,28 @@ export const App: React.FC = () => {
         const raw = window.localStorage.getItem('arcable_workspace_data');
         if (raw) {
           const parsed = JSON.parse(raw);
-          const activeId = parsed.activeSpaceId;
-          const space = parsed.spaces?.find((s: any) => s.id === activeId) || parsed.spaces?.[0];
-          if (space) {
-            return getSpaceThemeStyles(space.colors, isDark);
+          const sorted = getSortedSpaces(parsed.spaces || []);
+          const lastSpaceId = getStoredLastSpaceId();
+          let activeId: string | undefined;
+
+          if (lastSpaceId && sorted.some((s: any) => s.id === lastSpaceId)) {
+            activeId = lastSpaceId;
+          } else if (sorted.some((s: any) => s.id === parsed.activeSpaceId)) {
+            activeId = parsed.activeSpaceId;
+          } else {
+            activeId = sorted[0]?.id;
+          }
+
+          if (activeId) {
+            setStoredLastSpaceId(activeId);
+            if (parsed.activeSpaceId !== activeId) {
+              parsed.activeSpaceId = activeId;
+              window.localStorage.setItem('arcable_workspace_data', JSON.stringify(parsed));
+            }
+            const space = sorted.find((s: any) => s.id === activeId) || sorted[0];
+            if (space) {
+              return getSpaceThemeStyles(space.colors, isDark);
+            }
           }
         }
       } catch {}
@@ -106,7 +145,7 @@ export const App: React.FC = () => {
 
 
     // Check initial Raindrop auth & cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id']).then((res: any) => {
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
@@ -118,14 +157,28 @@ export const App: React.FC = () => {
       if (auth && auth.isAuthenticated) {
         setHasRaindropAuth(true);
       }
+      if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
+        setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
+      }
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         let snapshot = res.arcable_workspace_snapshot;
         const remainingOps = getStoredPendingOperations();
         if (remainingOps.length > 0) {
           snapshot = replayOperations(snapshot, remainingOps);
         }
+
+        const sorted = getSortedSpaces(snapshot.spaces || []);
+        const lastSelected = getStoredLastSpaceId() || res[SIDEPANEL_LAST_SPACE_KEY];
+        const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
+        const resolvedActiveSpaceId = spaceStillExists
+          ? lastSelected
+          : (sorted[0]?.id || 'space_personal');
+
+        setStoredLastSpaceId(resolvedActiveSpaceId);
+
         const merged = {
           ...snapshot,
+          activeSpaceId: resolvedActiveSpaceId,
           folders: (snapshot.folders || []).map((f: any) => {
             const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
             setLocalFolderExpanded(f.id, isExp);
@@ -138,6 +191,7 @@ export const App: React.FC = () => {
         window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
         workspaceRef.current?.applySnapshot?.(merged);
+        workspaceRef.current?.setActiveSpace?.(resolvedActiveSpaceId);
       }
       // Perform initial tab tracking sync once local snapshot is processed
       syncTabsWithTracker();
@@ -158,52 +212,46 @@ export const App: React.FC = () => {
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
         }
+        if (changes[SIDEPANEL_LAST_SPACE_KEY]?.newValue) {
+          const newId = changes[SIDEPANEL_LAST_SPACE_KEY].newValue;
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, newId);
+            } catch {}
+          }
+          workspaceRef.current?.setActiveSpace?.(newId);
+        }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           let snapshot = changes.arcable_workspace_snapshot.newValue;
           const remainingOps = getStoredPendingOperations();
           if (remainingOps.length > 0) {
             snapshot = replayOperations(snapshot, remainingOps);
           }
-          let merged: any;
-          try {
-            const raw = window.localStorage.getItem('arcable_workspace_data');
-            const current = raw ? JSON.parse(raw) : null;
-            const currentActive = current?.activeSpaceId;
-            const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
-            merged = {
-              ...snapshot,
-              folders: (snapshot.folders || []).map((f: any) => {
-                const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
-                setLocalFolderExpanded(f.id, isExp);
-                return {
-                  ...f,
-                  isExpanded: isExp,
-                };
-              }),
-              activeSpaceId: activeSpaceStillExists
-                ? currentActive
-                : (snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal'),
-            };
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
-          } catch {
-            merged = {
-              ...snapshot,
-              folders: (snapshot.folders || []).map((f: any) => {
-                const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
-                setLocalFolderExpanded(f.id, isExp);
-                return {
-                  ...f,
-                  isExpanded: isExp,
-                };
-              }),
-            };
-            window.localStorage.setItem(
-              'arcable_workspace_data',
-              JSON.stringify(merged)
-            );
-          }
+          const sorted = getSortedSpaces(snapshot.spaces || []);
+          const lastSelected = getStoredLastSpaceId();
+          const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
+          const resolvedActiveSpaceId = spaceStillExists
+            ? lastSelected
+            : (sorted[0]?.id || 'space_personal');
+
+          setStoredLastSpaceId(resolvedActiveSpaceId);
+
+          const merged = {
+            ...snapshot,
+            activeSpaceId: resolvedActiveSpaceId,
+            folders: (snapshot.folders || []).map((f: any) => {
+              const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
+              setLocalFolderExpanded(f.id, isExp);
+              return {
+                ...f,
+                isExpanded: isExp,
+              };
+            }),
+          };
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
           workspaceRef.current?.applySnapshot?.(merged);
+          workspaceRef.current?.setActiveSpace?.(resolvedActiveSpaceId);
           syncTabsWithTracker();
         }
       }
@@ -382,11 +430,28 @@ export const App: React.FC = () => {
 
   const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
-      window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
+      const sorted = getSortedSpaces(restoredSnapshot.spaces || []);
+      const lastSelected = getStoredLastSpaceId();
+      const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
+      const resolvedActiveSpaceId = spaceStillExists
+        ? lastSelected
+        : (sorted[0]?.id || 'space_personal');
+      setStoredLastSpaceId(resolvedActiveSpaceId);
+      const toSave = {
+        ...restoredSnapshot,
+        activeSpaceId: resolvedActiveSpaceId,
+      };
+      window.localStorage.setItem('arcable_workspace_data', JSON.stringify(toSave));
       syncTabsWithTracker();
       window.location.reload();
     }
   }, [syncTabsWithTracker]);
+
+  const handleActiveSpaceChange = useCallback((activeSpace: Space | null) => {
+    if (activeSpace?.id) {
+      setStoredLastSpaceId(activeSpace.id);
+    }
+  }, []);
 
   const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab) => {
     if (tabId) {
@@ -649,6 +714,7 @@ export const App: React.FC = () => {
           headerTitle="Sidepanel Workspace"
           hideControlBarActions={true}
           onThemeChange={setCurrentSpaceTheme}
+          onActiveSpaceChange={handleActiveSpaceChange}
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
           currentDeviceId={currentDeviceId}

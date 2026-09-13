@@ -51,6 +51,7 @@ export interface WorkspaceManagerHandle {
   getActiveSpaceTheme: () => SpaceThemeTokens;
   isSyncing: boolean;
   applySnapshot?: (snapshot: ArcableWorkspaceData) => void;
+  setActiveSpace?: (spaceId: string) => void;
 }
 
 export interface WorkspaceManagerProps {
@@ -1066,6 +1067,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       isSyncing: isCurrentlySyncing,
       applySnapshot: (snapshot: ArcableWorkspaceData) => {
         applyLatestSnapshot(snapshot);
+      },
+      setActiveSpace: (spaceId: string) => {
+        setActiveSpace(spaceId);
       },
     }),
     [
