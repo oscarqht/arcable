@@ -21,6 +21,7 @@ import { TabFavicon } from './TabFavicon';
 import { SpaceThemeTokens, getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   StarIcon,
@@ -138,6 +139,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   const [mounted, setMounted] = useState(false);
   const [now, setNow] = useState(() => new Date());
+
+  // Auto-fetch weather widget updates: every hour when visible, and when page becomes visible if last fetch was >= 1 hour ago
+  useWeatherAutoFetch({
+    widgets,
+    onUpdateWidget,
+  });
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);

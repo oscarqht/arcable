@@ -10,6 +10,7 @@ import {
   WeatherData,
   GeocodingResult,
   getWeatherInterpretation,
+  WEATHER_REFRESH_INTERVAL_MS,
 } from '../../../utils/weatherService';
 import { CloudSunIcon, SearchIcon, RotateCcwIcon } from '../../Icons';
 
@@ -74,10 +75,8 @@ export const WeatherPopover: React.FC<WeatherPopoverProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      // If we don't have weather data or cached data is older than 30 mins, fetch fresh
-      if (!weatherData || (config.lastFetched && Date.now() - config.lastFetched > 30 * 60 * 1000)) {
-        loadWeather();
-      } else if (!weatherData && config.cachedTemp !== undefined) {
+      const isStale = !config.lastFetched || Date.now() - config.lastFetched >= WEATHER_REFRESH_INTERVAL_MS;
+      if (config.cachedTemp !== undefined && !isStale) {
         const { text, emoji } = getWeatherInterpretation(config.cachedCode || 0);
         setWeatherData({
           temperature: config.cachedTemp,
@@ -89,9 +88,29 @@ export const WeatherPopover: React.FC<WeatherPopoverProps> = ({
           city: config.city || 'London',
           fetchedAt: config.lastFetched || Date.now(),
         });
+      } else {
+        loadWeather();
       }
     }
   }, [isOpen]);
+
+  // Sync state if background auto-fetch updates the config while popover is open
+  useEffect(() => {
+    if (!isOpen || !config.lastFetched || config.cachedTemp === undefined) return;
+    if (!weatherData || config.lastFetched > weatherData.fetchedAt) {
+      const { text, emoji } = getWeatherInterpretation(config.cachedCode || 0);
+      setWeatherData({
+        temperature: config.cachedTemp,
+        tempUnit,
+        weatherCode: config.cachedCode || 0,
+        weatherText: text,
+        weatherEmoji: emoji,
+        isDay: true,
+        city: config.city || 'London',
+        fetchedAt: config.lastFetched,
+      });
+    }
+  }, [isOpen, config.cachedTemp, config.cachedCode, config.lastFetched, tempUnit, config.city, weatherData]);
 
   // Click outside to close
   useEffect(() => {
