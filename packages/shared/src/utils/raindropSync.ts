@@ -777,7 +777,7 @@ export async function deleteRaindropDevice(
 }
 
 /**
- * Deletes all registered devices from the Raindrop data-v2.json.txt sync file except `keepDeviceId`,
+ * Deletes all registered devices from the Raindrop data-v3.json.txt sync file except `keepDeviceId`,
  * and re-compacts baselineSnapshot + operations.
  */
 export async function deleteAllOtherRaindropDevices(

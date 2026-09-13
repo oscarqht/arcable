@@ -11,15 +11,18 @@ export interface TmpTabsListProps {
   currentDeviceId?: string;
   isDarkTheme?: boolean;
   compact?: boolean;
+  showEmptyState?: boolean;
   alwaysShowActions?: boolean;
   highlightedTabId?: string | null;
   activeBrowserTabId?: number;
   audibleTabs?: AudibleTab[];
+  showDeviceBadge?: boolean;
   onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
+  onAddTmpTab?: () => void;
 }
 
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
@@ -27,20 +30,25 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   currentDeviceId,
   isDarkTheme,
   compact = false,
+  showEmptyState = false,
   alwaysShowActions = false,
   highlightedTabId,
   audibleTabs,
+  showDeviceBadge = true,
   onOpen,
   onPromote,
   onClose,
   onRename,
   onMediaControl,
+  onAddTmpTab,
 }) => {
   const { isDark: isSystemDark } = useSystemTheme();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
 
   if (!tabs || tabs.length === 0) {
-    return null;
+    if (!showEmptyState || compact) {
+      return null;
+    }
   }
 
   return (
@@ -135,7 +143,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
                   fontWeight: 600,
                 }}
               >
-                {tabs.length}
+                {tabs ? tabs.length : 0}
               </span>
             </div>
             <span
@@ -148,19 +156,44 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
               Open tabs synced across your connected devices. Click to open or save to workspace.
             </span>
           </div>
+
+          {onAddTmpTab && (
+            <button
+              type="button"
+              onClick={onAddTmpTab}
+              style={{
+                height: '28px',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)'}`,
+                backgroundColor: effectiveDark ? '#1e293b' : '#ffffff',
+                color: effectiveDark ? '#f1f5f9' : '#0f172a',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <span style={{ fontSize: '14px', lineHeight: 1 }}>+</span>
+              <span>Open Link</span>
+            </button>
+          )}
         </div>
       )}
 
-      {/* Tab Rows */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: compact ? '4px' : '6px',
-          width: '100%',
-        }}
-      >
-        {tabs.map((tab) => {
+      {/* Tab Rows or Empty State */}
+      {tabs && tabs.length > 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: compact ? '4px' : '6px',
+            width: '100%',
+          }}
+        >
+          {tabs.map((tab) => {
           const audibleInfo =
             tab.browserTabId !== undefined
               ? audibleTabs?.find((a) => a.id === tab.browserTabId)
@@ -177,6 +210,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
               compact={compact}
               alwaysShowActions={alwaysShowActions}
               isHighlighted={highlightedTabId === tab.id}
+              showDeviceBadge={showDeviceBadge}
               isAudible={isAudible}
               isMuted={isMuted}
               onOpen={onOpen}
@@ -192,6 +226,26 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
           );
         })}
       </div>
+      ) : (
+        <div
+          style={{
+            padding: '24px 16px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 600, color: effectiveDark ? '#cbd5e1' : '#334155' }}>
+            No active synced tabs from connected devices
+          </span>
+          <span style={{ fontSize: '12px', color: effectiveDark ? '#94a3b8' : '#64748b', maxWidth: '440px', lineHeight: 1.5 }}>
+            Tabs you open in the Arcable browser extension sync live across all your devices via Raindrop.
+          </span>
+        </div>
+      )}
     </div>
   );
 };

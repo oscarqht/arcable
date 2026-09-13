@@ -8,6 +8,7 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import {
   getOrCreateDeviceId,
+  getStoredDeviceName,
   getStoredPendingOperations,
   clearStoredPendingOperations,
   removeStoredPendingOperations,
@@ -17,8 +18,8 @@ import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
+import { VirtualSyncedSpaceCard } from './VirtualSyncedSpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
-import { WidgetsSection } from './WidgetsSection';
 import { RaindropSearchInput } from './RaindropSearchInput';
 import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
@@ -41,6 +42,8 @@ import {
   EditIcon,
   TrashIcon,
 } from '../Icons';
+
+export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
 
 export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
@@ -174,9 +177,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     moveSiblingItem,
     reorderPinnedTabs,
     reorderFavouriteTabs,
+    reorderFavouriteItem,
     resetToDefault,
     applyLatestSnapshot,
     favouriteTabs,
+    createTmpTab,
     updateTmpTab,
     deleteTmpTab,
     widgets,
@@ -186,15 +191,39 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
+  const virtualSyncedSpace: Space = useMemo(
+    () => ({
+      id: VIRTUAL_SYNCED_TABS_SPACE_ID,
+      name: 'Synced Open Tabs',
+      emojiIcon: '📑',
+      colors: undefined,
+      order: Number.MAX_SAFE_INTEGER,
+      createdAt: 0,
+      updatedAt: 0,
+    }),
+    []
+  );
+
+  const sortedSpacesWithVirtual = useMemo(() => {
+    return [...sortedSpaces, virtualSyncedSpace];
+  }, [sortedSpaces, virtualSyncedSpace]);
+
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
+    if (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      return getSpaceThemeStyles(undefined, isDark);
+    }
     return getSpaceThemeStyles(activeSpace?.colors, isDark);
-  }, [activeSpace?.colors, isDark]);
+  }, [data.activeSpaceId, activeSpace?.colors, isDark]);
 
   useEffect(() => {
-    onActiveSpaceChange?.(activeSpace || null);
+    if (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      onActiveSpaceChange?.(virtualSyncedSpace);
+    } else {
+      onActiveSpaceChange?.(activeSpace || null);
+    }
     onThemeChange?.(activeSpaceTheme);
-  }, [activeSpace, activeSpaceTheme, onActiveSpaceChange, onThemeChange]);
+  }, [data.activeSpaceId, activeSpace, virtualSyncedSpace, activeSpaceTheme, onActiveSpaceChange, onThemeChange]);
 
   // Notify parent of tab changes (e.g. to associate newly created items with open browser tabs)
   useEffect(() => {
@@ -367,6 +396,35 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
 
+  // Add Synced Tmp Tab modal
+  const [isAddTmpTabModalOpen, setIsAddTmpTabModalOpen] = useState(false);
+  const [newTmpTabUrl, setNewTmpTabUrl] = useState('');
+  const [newTmpTabTitle, setNewTmpTabTitle] = useState('');
+
+  const handleCreateTmpTabSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTmpTabUrl.trim()) return;
+    let url = newTmpTabUrl.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      url = `https://${url}`;
+    }
+    createTmpTab({
+      url,
+      title: newTmpTabTitle.trim() || cleanUrl(url),
+      deviceId: effectiveCurrentDeviceId,
+      deviceName: getStoredDeviceName(undefined, 'Web App'),
+      deviceType: 'Web App',
+    });
+    if (onOpenTab) {
+      onOpenTab(url);
+    } else if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    setNewTmpTabUrl('');
+    setNewTmpTabTitle('');
+    setIsAddTmpTabModalOpen(false);
+  };
+
   const isCurrentlySyncing = syncLoading || hookIsSyncing;
 
   // Load persistent space collapse state
@@ -375,7 +433,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setSpaceCollapseMap((prev) => {
       let changed = false;
       const nextMap: Record<string, boolean> = { ...prev };
-      for (const sp of sortedSpaces) {
+      const allSpacesToCheck = [...sortedSpaces, virtualSyncedSpace];
+      for (const sp of allSpacesToCheck) {
         if (nextMap[sp.id] === undefined) {
           const key = `arcable_collapse_space_${sp.id}`;
           try {
@@ -389,7 +448,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }
       return changed ? nextMap : prev;
     });
-  }, [sortedSpaces]);
+  }, [sortedSpaces, virtualSyncedSpace]);
 
   const prevHighlightedTabIdRef = useRef<string | null | undefined>(undefined);
 
@@ -467,46 +526,53 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }
   }, [activeSpace?.id]);
 
+  const isVirtualSpaceCollapsed = spacesMounted
+    ? (spaceCollapseMap[VIRTUAL_SYNCED_TABS_SPACE_ID] ?? false)
+    : false;
+
   const displaySpaces = useMemo(() => {
-    if (sortedSpaces.length <= 1) {
-      return sortedSpaces.map((s) => ({ space: s, isClone: false, cloneKey: s.id }));
+    const list = sortedSpacesWithVirtual;
+    if (list.length <= 1) {
+      return list.map((s) => ({ space: s, isClone: false, cloneKey: s.id }));
     }
-    const lastSpace = sortedSpaces[sortedSpaces.length - 1];
-    const firstSpace = sortedSpaces[0];
+    const lastSpace = list[list.length - 1];
+    const firstSpace = list[0];
     return [
       { space: lastSpace, isClone: true, cloneKey: `${lastSpace.id}-clone-start` },
-      ...sortedSpaces.map((s) => ({ space: s, isClone: false, cloneKey: s.id })),
+      ...list.map((s) => ({ space: s, isClone: false, cloneKey: s.id })),
       { space: firstSpace, isClone: true, cloneKey: `${firstSpace.id}-clone-end` },
     ];
-  }, [sortedSpaces]);
+  }, [sortedSpacesWithVirtual]);
 
   const [displayIndex, setDisplayIndex] = useState<number>(() => {
-    if (sortedSpaces.length <= 1) return 0;
-    const idx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+    if (sortedSpacesWithVirtual.length <= 1) return 0;
+    const currentActiveId = data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID ? VIRTUAL_SYNCED_TABS_SPACE_ID : activeSpace?.id;
+    const idx = sortedSpacesWithVirtual.findIndex((s) => s.id === currentActiveId);
     return idx === -1 ? 1 : idx + 1;
   });
   const [isTransitioning, setIsTransitioning] = useState(true);
 
   // Sync displayIndex when activeSpace changes from external interactions (like pill clicks)
   useEffect(() => {
-    const activeIdx = sortedSpaces.findIndex((s) => s.id === activeSpace?.id);
+    const currentActiveId = data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID ? VIRTUAL_SYNCED_TABS_SPACE_ID : activeSpace?.id;
+    const activeIdx = sortedSpacesWithVirtual.findIndex((s) => s.id === currentActiveId);
     if (activeIdx === -1) return;
-    if (sortedSpaces.length <= 1) {
+    if (sortedSpacesWithVirtual.length <= 1) {
       setDisplayIndex(0);
       return;
     }
     // If currently animating at clone boundaries for this space, do not interrupt
-    if (displayIndex === 0 && activeIdx === sortedSpaces.length - 1) {
+    if (displayIndex === 0 && activeIdx === sortedSpacesWithVirtual.length - 1) {
       return;
     }
-    if (displayIndex === sortedSpaces.length + 1 && activeIdx === 0) {
+    if (displayIndex === sortedSpacesWithVirtual.length + 1 && activeIdx === 0) {
       return;
     }
     if (displayIndex !== activeIdx + 1) {
       setDisplayIndex(activeIdx + 1);
       setIsTransitioning(true);
     }
-  }, [activeSpace?.id, sortedSpaces]);
+  }, [data.activeSpaceId, activeSpace?.id, sortedSpacesWithVirtual, displayIndex]);
 
   // Re-enable transition after silent snap
   useEffect(() => {
@@ -523,33 +589,33 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Fallback safety timer for boundary clone snaps
   useEffect(() => {
-    if (sortedSpaces.length >= 2) {
-      if (displayIndex === 0 || displayIndex === sortedSpaces.length + 1) {
+    if (sortedSpacesWithVirtual.length >= 2) {
+      if (displayIndex === 0 || displayIndex === sortedSpacesWithVirtual.length + 1) {
         const timer = setTimeout(() => {
           setIsTransitioning(false);
-          setDisplayIndex(displayIndex === 0 ? sortedSpaces.length : 1);
+          setDisplayIndex(displayIndex === 0 ? sortedSpacesWithVirtual.length : 1);
         }, 400);
         return () => clearTimeout(timer);
       }
     }
-  }, [displayIndex, sortedSpaces.length]);
+  }, [displayIndex, sortedSpacesWithVirtual.length]);
 
   const handleTrackTransitionEnd = useCallback(
     (e: React.TransitionEvent<HTMLDivElement>) => {
       if (e.target !== e.currentTarget || e.propertyName !== 'transform') {
         return;
       }
-      if (sortedSpaces.length >= 2) {
-        if (displayIndex === sortedSpaces.length + 1) {
+      if (sortedSpacesWithVirtual.length >= 2) {
+        if (displayIndex === sortedSpacesWithVirtual.length + 1) {
           setIsTransitioning(false);
           setDisplayIndex(1);
         } else if (displayIndex === 0) {
           setIsTransitioning(false);
-          setDisplayIndex(sortedSpaces.length);
+          setDisplayIndex(sortedSpacesWithVirtual.length);
         }
       }
     },
-    [sortedSpaces.length, displayIndex]
+    [sortedSpacesWithVirtual.length, displayIndex]
   );
 
   const activeSpaceIdRef = useRef(activeSpace?.id);
@@ -1095,6 +1161,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Space DnD Handlers
   const handleSpaceDragStart = (e: React.DragEvent, spaceId: string) => {
+    // Virtual space cannot be dragged to reorder
+    if (spaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      e.preventDefault();
+      return;
+    }
     startDrag(e, { id: spaceId, type: 'space' });
     setDraggingSpaceId(spaceId);
   };
@@ -1107,8 +1178,21 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     if (activeDrag && activeDrag.id === spaceId) {
       return;
     }
+    // Virtual space cannot be dragged
+    if (activeDrag && activeDrag.id === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
+
+    // CRITICAL CONSTRAINT: Normal spaces can NEVER be dragged behind the virtual space!
+    // If hovering over virtual space, drop position is ALWAYS forced to 'before'.
+    if (spaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      setDragOverSpaceId(spaceId);
+      setSpaceDropPos('before');
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const midX = rect.left + rect.width / 2;
     const pos = e.clientX < midX ? 'before' : 'after';
@@ -1130,17 +1214,44 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }
     e.preventDefault();
     e.stopPropagation();
+
+    const raw = e.dataTransfer.getData('application/json');
+    const activeDrag = getActiveDrag();
+    const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
+
+    // Virtual space cannot be dragged to reorder
+    if (!sourceId || sourceId === VIRTUAL_SYNCED_TABS_SPACE_ID || sourceId === targetSpaceId) {
+      endDrag();
+      setDragOverSpaceId(null);
+      setSpaceDropPos(null);
+      setDraggingSpaceId(null);
+      return;
+    }
+
+    // CRITICAL CONSTRAINT: Normal spaces cannot be dragged behind the virtual space.
+    // Dropping onto the virtual space places it strictly BEFORE the virtual space
+    // (i.e. at the end of the normal spaces list).
+    if (targetSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      setDragOverSpaceId(null);
+      setSpaceDropPos(null);
+      setDraggingSpaceId(null);
+      try {
+        const lastNormalSpace = sortedSpaces[sortedSpaces.length - 1];
+        if (lastNormalSpace && lastNormalSpace.id !== sourceId) {
+          reorderSpaces(sourceId, lastNormalSpace.id, 'after');
+        }
+      } catch {} finally {
+        endDrag();
+      }
+      return;
+    }
+
     const pos = spaceDropPos || 'after';
     setDragOverSpaceId(null);
     setSpaceDropPos(null);
     setDraggingSpaceId(null);
 
     try {
-      const raw = e.dataTransfer.getData('application/json');
-      const activeDrag = getActiveDrag();
-      const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
-      if (!sourceId || sourceId === targetSpaceId) return;
-
       reorderSpaces(sourceId, targetSpaceId, pos);
     } catch {} finally {
       endDrag();
@@ -1342,32 +1453,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     >
 
 
-      {/* Pinned Date & Time Widgets Section (sidepanel only, stays pinned above the scrolling content) */}
-      {showWidgets && (
-        <div
-          style={{
-            // Bleed over the sidepanel container's 12px padding so the frosted band spans edge-to-edge,
-            // and stick to the top of the scroll container while the rest of the panel scrolls.
-            position: 'sticky',
-            // -12px compensates the negative top margin so the band pins flush with the scrollport top
-            top: compact ? '-12px' : 0,
-            zIndex: 35,
-            margin: compact ? '-12px -12px 0 -12px' : undefined,
-          }}
-        >
-          <WidgetsSection
-            widgets={widgets}
-            themeStyles={activeSpaceTheme}
-            onAddWidget={addWidget}
-            onRemoveWidget={removeWidget}
-            onReorderWidget={reorderWidget}
-          />
-        </div>
-      )}
-
-      {/* Global Favourite Tabs Shelf */}
+      {/* Global Favourite Tabs Shelf (Unified with Draggable Widgets) */}
       <FavouriteTabsShelf
         tabs={favouriteTabs}
+        widgets={widgets}
+        onAddWidget={addWidget}
+        onRemoveWidget={removeWidget}
         tabAssociations={tabAssociations}
         highlightedTabId={highlightedTabId}
         themeStyles={activeSpaceTheme}
@@ -1384,6 +1475,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onDeleteTab={handleRequestDeleteTab}
         onToggleFavouriteTab={toggleFavouriteTab}
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
+        onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
       />
 
@@ -1697,6 +1789,64 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 </div>
               );
             })}
+            {/* Synced Open Tabs Virtual Space Pill (Always at the end, not draggable, cannot be dragged behind) */}
+            {(() => {
+              const isActive = (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) || (activeSpace?.id === VIRTUAL_SYNCED_TABS_SPACE_ID);
+              const isDragTarget = dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID;
+              const neutralTheme = getSpaceThemeStyles(undefined, isDark);
+
+              return (
+                <div
+                  key={VIRTUAL_SYNCED_TABS_SPACE_ID}
+                  ref={isActive ? (el) => { activePillRef.current = el; } : null}
+                  draggable={false}
+                  onDragOver={(e) => handleSpaceDragOver(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                  onDragLeave={() => {
+                    if (dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+                      setDragOverSpaceId(null);
+                      setSpaceDropPos(null);
+                    }
+                  }}
+                  onDrop={(e) => handleSpaceDrop(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                  onClick={() => setActiveSpace(VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 14px',
+                    borderRadius: '24px',
+                    background: isActive ? neutralTheme.containerBg : (isDark ? '#1e293b' : '#f8fafc'),
+                    color: isActive ? neutralTheme.textColor : (isDark ? '#e2e8f0' : '#334155'),
+                    border: `1px solid ${isActive ? (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)') : (isDark ? '#334155' : '#e2e8f0')}`,
+                    borderLeft: isDragTarget ? '3px solid #0284c7' : undefined,
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: isActive ? 600 : 500,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    transition: 'all 0.15s ease',
+                    boxShadow: isActive ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                    userSelect: 'none',
+                  }}
+                  title="Synced Open Tabs (Virtual Space - always sorted to end)"
+                >
+                  <span>📑</span>
+                  <span>Synced Open Tabs</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      backgroundColor: isActive ? neutralTheme.badgeBg : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                      color: isActive ? neutralTheme.badgeText : (isDark ? '#94a3b8' : '#64748b'),
+                      fontWeight: 600,
+                    }}
+                  >
+                    {filteredTmpTabs.length}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1799,8 +1949,58 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               </div>
             ))}
 
+            {/* Virtual Synced Tabs Space Card (Always at the end, not draggable, cannot be dragged behind) */}
+            {!isVirtualSpaceCollapsed && (
+              <div
+                key={VIRTUAL_SYNCED_TABS_SPACE_ID}
+                draggable={false}
+                onDragOver={(e) => handleSpaceDragOver(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                onDragLeave={(e) => handleSpaceDragLeave(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                onDrop={(e) => handleSpaceDrop(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                style={{
+                  position: 'relative',
+                  cursor: 'default',
+                  width: '100%',
+                }}
+              >
+                {/* Drop Position Indicator: STRICTLY 'before' */}
+                {dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      width: '4px',
+                      backgroundColor: '#0284c7',
+                      borderRadius: '4px',
+                      zIndex: 20,
+                      pointerEvents: 'none',
+                      left: '-12px',
+                      boxShadow: '0 0 10px rgba(2, 132, 199, 0.7)',
+                    }}
+                  />
+                )}
+                <VirtualSyncedSpaceCard
+                  tabs={filteredTmpTabs}
+                  currentDeviceId={currentDeviceId}
+                  searchQuery={activeSearchQuery}
+                  isCollapsed={false}
+                  alwaysShowActions={alwaysShowActions}
+                  highlightedTabId={highlightedTabId}
+                  audibleTabs={audibleTabs}
+                  onToggleCollapse={() => toggleSpaceCollapse(VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                  onOpenTab={handleOpenTmpTab}
+                  onPromoteTab={handlePromoteTmpTab}
+                  onCloseTab={handleCloseTmpTab}
+                  onRenameTab={handleRenameTmpTab}
+                  onMediaControl={onMediaControl}
+                  onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
+                />
+              </div>
+            )}
+
             {/* Stacked Collapsed Space Cards Column (matching Synctable) */}
-            {collapsedSpaces.length > 0 && (
+            {(collapsedSpaces.length > 0 || isVirtualSpaceCollapsed) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0, width: '100%' }}>
                 {collapsedSpaces.map((space, idx) => (
                   <div
@@ -1882,36 +2082,58 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     />
                   </div>
                 ))}
+
+                {/* Virtual Synced Tabs Space Card (Collapsed, always at the end of collapsed column) */}
+                {isVirtualSpaceCollapsed && (
+                  <div
+                    key={VIRTUAL_SYNCED_TABS_SPACE_ID}
+                    draggable={false}
+                    onDragOver={(e) => handleSpaceDragOver(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                    onDragLeave={(e) => handleSpaceDragLeave(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                    onDrop={(e) => handleSpaceDrop(e, VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                    style={{
+                      position: 'relative',
+                      cursor: 'default',
+                      width: '100%',
+                    }}
+                  >
+                    {dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          height: '4px',
+                          backgroundColor: '#0284c7',
+                          borderRadius: '4px',
+                          zIndex: 20,
+                          pointerEvents: 'none',
+                          top: '-6px',
+                          boxShadow: '0 0 10px rgba(2, 132, 199, 0.7)',
+                        }}
+                      />
+                    )}
+                    <VirtualSyncedSpaceCard
+                      tabs={filteredTmpTabs}
+                      currentDeviceId={currentDeviceId}
+                      searchQuery={activeSearchQuery}
+                      isCollapsed={true}
+                      alwaysShowActions={alwaysShowActions}
+                      highlightedTabId={highlightedTabId}
+                      audibleTabs={audibleTabs}
+                      onToggleCollapse={() => toggleSpaceCollapse(VIRTUAL_SYNCED_TABS_SPACE_ID)}
+                      onOpenTab={handleOpenTmpTab}
+                      onPromoteTab={handlePromoteTmpTab}
+                      onCloseTab={handleCloseTmpTab}
+                      onRenameTab={handleRenameTmpTab}
+                      onMediaControl={onMediaControl}
+                      onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
-
-          {/* Tmp Tabs List in Grid View */}
-          {filteredTmpTabs.length > 0 && (
-            <div
-              style={{
-                marginTop: '36px',
-                paddingTop: '20px',
-                borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'}`,
-                width: '100%',
-              }}
-            >
-              <TmpTabsList
-                tabs={filteredTmpTabs}
-                currentDeviceId={currentDeviceId}
-                compact={compact}
-                alwaysShowActions={alwaysShowActions}
-                highlightedTabId={highlightedTabId}
-                audibleTabs={audibleTabs}
-                onOpen={handleOpenTmpTab}
-                onPromote={handlePromoteTmpTab}
-                onClose={handleCloseTmpTab}
-                onRename={handleRenameTmpTab}
-                onMediaControl={onMediaControl}
-              />
-            </div>
-          )}
-
         </>
       ) : (
         /* Focused Space View / Sidepanel View with Horizontal Sliding Carousel */
@@ -1962,50 +2184,68 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     pointerEvents: isClone ? 'none' : 'auto',
                   }}
                 >
-                  <SpaceCard
-                    space={space}
-                    allSpaces={sortedSpaces}
-                    allFolders={data.folders}
-                    allTabs={data.tabs}
-                    searchQuery={activeSearchQuery}
-                    isSingleColumn={compact}
-                    alwaysShowActions={alwaysShowActions}
-                    isCollapsed={false}
-                    tabAssociations={tabAssociations}
-                    audibleTabs={audibleTabs}
-                    highlightedTabId={highlightedTabId}
-                    onOpenTab={handleOpenTabWithSearchClear}
-                    onCloseAssociatedTab={onCloseAssociatedTab}
-                    onResetDivertedUrl={onResetDivertedUrl}
-                    onMediaControl={onMediaControl}
-                    onEditSpace={(sp) => {
-                      setEditingSpace(sp);
-                      setIsSpaceModalOpen(true);
-                    }}
-                    onDeleteSpace={handleRequestDeleteSpace}
-                    onConvertSpace={handleOpenConvertSpaceModal}
-                    onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
-                    onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
-                    onEditFolder={(f) => {
-                      setEditingFolder(f);
-                      setTargetSpaceIdForModal(space.id);
-                      setIsFolderModalOpen(true);
-                    }}
-                    onDeleteFolder={handleRequestDeleteFolder}
-                    onToggleFolderExpand={toggleFolderExpand}
-                    onEditTab={(t) => {
-                      setEditingTab(t);
-                      setTargetSpaceIdForModal(space.id);
-                      setIsTabModalOpen(true);
-                    }}
-                    onDeleteTab={handleRequestDeleteTab}
-                    onTogglePinTab={togglePinTab}
-                    onToggleFavouriteTab={toggleFavouriteTab}
-                    onMoveSiblingItem={moveSiblingItem}
-                    onReorderSiblingItem={reorderSiblingItem}
-                    onReorderPinnedTabs={reorderPinnedTabs}
-                    onMoveSpace={moveSpace}
-                  />
+                  {space.id === VIRTUAL_SYNCED_TABS_SPACE_ID ? (
+                    <VirtualSyncedSpaceCard
+                      tabs={filteredTmpTabs}
+                      currentDeviceId={currentDeviceId}
+                      searchQuery={activeSearchQuery}
+                      isSingleColumn={compact}
+                      alwaysShowActions={alwaysShowActions}
+                      highlightedTabId={highlightedTabId}
+                      audibleTabs={audibleTabs}
+                      onOpenTab={handleOpenTmpTab}
+                      onPromoteTab={handlePromoteTmpTab}
+                      onCloseTab={handleCloseTmpTab}
+                      onRenameTab={handleRenameTmpTab}
+                      onMediaControl={onMediaControl}
+                      onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
+                    />
+                  ) : (
+                    <SpaceCard
+                      space={space}
+                      allSpaces={sortedSpaces}
+                      allFolders={data.folders}
+                      allTabs={data.tabs}
+                      searchQuery={activeSearchQuery}
+                      isSingleColumn={compact}
+                      alwaysShowActions={alwaysShowActions}
+                      isCollapsed={false}
+                      tabAssociations={tabAssociations}
+                      audibleTabs={audibleTabs}
+                      highlightedTabId={highlightedTabId}
+                      onOpenTab={handleOpenTabWithSearchClear}
+                      onCloseAssociatedTab={onCloseAssociatedTab}
+                      onResetDivertedUrl={onResetDivertedUrl}
+                      onMediaControl={onMediaControl}
+                      onEditSpace={(sp) => {
+                        setEditingSpace(sp);
+                        setIsSpaceModalOpen(true);
+                      }}
+                      onDeleteSpace={handleRequestDeleteSpace}
+                      onConvertSpace={handleOpenConvertSpaceModal}
+                      onAddTab={(folderId, pinned) => handleOpenNewTabModal(space.id, folderId, pinned)}
+                      onAddFolder={(pFolderId) => handleOpenNewFolderModal(space.id, pFolderId)}
+                      onEditFolder={(f) => {
+                        setEditingFolder(f);
+                        setTargetSpaceIdForModal(space.id);
+                        setIsFolderModalOpen(true);
+                      }}
+                      onDeleteFolder={handleRequestDeleteFolder}
+                      onToggleFolderExpand={toggleFolderExpand}
+                      onEditTab={(t) => {
+                        setEditingTab(t);
+                        setTargetSpaceIdForModal(space.id);
+                        setIsTabModalOpen(true);
+                      }}
+                      onDeleteTab={handleRequestDeleteTab}
+                      onTogglePinTab={togglePinTab}
+                      onToggleFavouriteTab={toggleFavouriteTab}
+                      onMoveSiblingItem={moveSiblingItem}
+                      onReorderSiblingItem={reorderSiblingItem}
+                      onReorderPinnedTabs={reorderPinnedTabs}
+                      onMoveSpace={moveSpace}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -2013,21 +2253,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         )
       )}
 
-      {/* Tmp Tabs List (Single instance in focused/sidepanel view, flows directly below the active card) */}
-      {(viewMode === 'focused' || compact) && filteredTmpTabs.length > 0 && (
-        <TmpTabsList
-          tabs={filteredTmpTabs}
-          currentDeviceId={currentDeviceId}
-          compact={compact}
-          alwaysShowActions={alwaysShowActions}
-          highlightedTabId={highlightedTabId}
-          audibleTabs={audibleTabs}
-          onOpen={handleOpenTmpTab}
-          onPromote={handlePromoteTmpTab}
-          onClose={handleCloseTmpTab}
-          onRename={handleRenameTmpTab}
-          onMediaControl={onMediaControl}
-        />
+      {/* Tmp Tabs List (Single instance in compact extension view, flows directly below the active card) */}
+      {compact && filteredTmpTabs.length > 0 && (
+        <div style={{ marginTop: '4px', width: '100%' }}>
+          <TmpTabsList
+            tabs={filteredTmpTabs}
+            currentDeviceId={currentDeviceId}
+            compact={compact}
+            showEmptyState={!compact}
+            alwaysShowActions={alwaysShowActions}
+            highlightedTabId={highlightedTabId}
+            audibleTabs={audibleTabs}
+            onOpen={handleOpenTmpTab}
+            onPromote={handlePromoteTmpTab}
+            onClose={handleCloseTmpTab}
+            onRename={handleRenameTmpTab}
+            onMediaControl={onMediaControl}
+            onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
+          />
+        </div>
       )}
 
 
@@ -2398,6 +2642,165 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Synced Tmp Tab Modal */}
+      {isAddTmpTabModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+            boxSizing: 'border-box',
+          }}
+          onClick={() => setIsAddTmpTabModalOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: isDark ? '#151e2e' : '#ffffff',
+              borderRadius: '16px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '440px',
+              boxShadow: isDark ? '0 20px 25px -5px rgba(0, 0, 0, 0.5)' : '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              border: `1px solid ${isDark ? '#243247' : '#e2e8f0'}`,
+              boxSizing: 'border-box',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                Open &amp; Sync Tab
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddTmpTabModalOpen(false)}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  color: isDark ? '#94a3b8' : '#64748b',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.4 }}>
+              Add a URL to open it immediately and sync it across all your connected devices.
+            </p>
+            <form onSubmit={handleCreateTmpTabSubmit}>
+              <div style={{ marginBottom: '14px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    marginBottom: '6px',
+                    color: isDark ? '#cbd5e1' : '#334155',
+                  }}
+                >
+                  URL *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  placeholder="https://example.com"
+                  value={newTmpTabUrl}
+                  onChange={(e) => setNewTmpTabUrl(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: '20px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    marginBottom: '6px',
+                    color: isDark ? '#cbd5e1' : '#334155',
+                  }}
+                >
+                  Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Custom label..."
+                  value={newTmpTabTitle}
+                  onChange={(e) => setNewTmpTabTitle(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddTmpTabModalOpen(false)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                    backgroundColor: 'transparent',
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#0284c7',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Open &amp; Sync
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

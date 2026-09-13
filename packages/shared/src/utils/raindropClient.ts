@@ -138,8 +138,8 @@ export function dataUrlToBlob(dataUrl: string): Blob {
       u8arr[i] = binaryStr.charCodeAt(i);
     }
     return new Blob([u8arr], { type: mime });
-  } else if (typeof Buffer !== 'undefined') {
-    const buffer = Buffer.from(base64Data, 'base64');
+  } else if (typeof (globalThis as Record<string, unknown>).Buffer !== 'undefined') {
+    const buffer = ((globalThis as Record<string, unknown>).Buffer as { from: (str: string, enc: string) => ArrayBuffer }).from(base64Data, 'base64');
     return new Blob([buffer], { type: mime });
   }
 

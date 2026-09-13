@@ -510,10 +510,11 @@ export default function HomePage() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           showJsonInspector={true}
+          showWidgets={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
           currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
-          onOpenTab={(url) => {
+          onOpenTab={(url: string) => {
             if (typeof window !== 'undefined' && url) {
               window.open(url, '_blank', 'noopener,noreferrer');
             }

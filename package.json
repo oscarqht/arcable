@@ -11,7 +11,7 @@
     "dev": "npm run dev --workspace=@arcable/web",
     "dev:web": "npm run dev --workspace=@arcable/web",
     "dev:extension": "npm run dev --workspace=@arcable/extension",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:shared && npm run build:web && npm run build:extension",
     "build:shared": "npm run build --workspace=@arcable/shared",
     "build:web": "npm run build --workspace=@arcable/web",
     "build:extension": "npm run build --workspace=@arcable/extension",

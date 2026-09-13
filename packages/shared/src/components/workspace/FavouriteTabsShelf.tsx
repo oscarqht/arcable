@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Tab } from '../../types/workspace';
+import { createPortal } from 'react-dom';
+import { Tab, WorkspaceWidget, WidgetStyle, WidgetSize } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
@@ -22,10 +23,13 @@ import {
   MoreHorizontalIcon,
   MinusIcon,
   SlashIcon,
+  CalendarIcon,
+  ClockIcon,
 } from '../Icons';
 
 export interface FavouriteTabsShelfProps {
   tabs: Tab[];
+  widgets?: WorkspaceWidget[];
   tabAssociations?: TabAssociationMap;
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string) => void;
@@ -37,12 +41,53 @@ export interface FavouriteTabsShelfProps {
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
+  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize }) => void;
+  onRemoveWidget?: (id: string) => void;
+  onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   themeStyles?: SpaceThemeTokens;
 }
 
+export type ShelfItem =
+  | { type: 'tab'; id: string; tab: Tab; order?: number; createdAt?: number }
+  | { type: 'widget'; id: string; widget: WorkspaceWidget; order?: number; createdAt?: number };
+
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+interface ClockInfo {
+  timeMain: string;
+  timeAmpm: string;
+  weekdayShort: string;
+  monthShort: string;
+  day: number;
+  hourAngle: number;
+  minuteAngle: number;
+}
+
+function pad(n: number): string {
+  return n < 10 ? '0' + n : '' + n;
+}
+
+function buildClockInfo(now: Date): ClockInfo {
+  const h24 = now.getHours();
+  const h12 = ((h24 + 11) % 12) + 1;
+  const m = now.getMinutes();
+  const s = now.getSeconds();
+  return {
+    timeMain: h12 + ':' + pad(m),
+    timeAmpm: h24 >= 12 ? 'PM' : 'AM',
+    weekdayShort: WEEKDAY_SHORT[now.getDay()],
+    monthShort: MONTH_SHORT[now.getMonth()],
+    day: now.getDate(),
+    hourAngle: ((h24 % 12) + m / 60) * 30,
+    minuteAngle: m * 6 + s * 0.1,
+  };
+}
+
 export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   tabs,
+  widgets = [],
   tabAssociations,
   highlightedTabId,
   onOpenTab,
@@ -54,24 +99,45 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onDeleteTab,
   onToggleFavouriteTab,
   onAddFavouriteTab,
+  onAddWidget,
+  onRemoveWidget,
+  onReorderFavouriteItem,
   onReorderFavouriteTabs,
   themeStyles,
 }) => {
-
   const { isDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const shelfTheme = useMemo(() => {
     return themeStyles || getSpaceThemeStyles(undefined, isDark);
   }, [themeStyles, isDark]);
 
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
+  const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
   const [openMenuTabId, setOpenMenuTabId] = useState<string | null>(null);
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
 
+  // Add Button Popover State
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [addMenuCoords, setAddMenuCoords] = useState<{ top: number; left: number } | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // 1-second live clock update for widgets
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -81,22 +147,79 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     };
   }, []);
 
-  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+  // Close add menu on outside click or scroll
+  useEffect(() => {
+    if (!isAddMenuOpen) return;
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (addButtonRef.current?.contains(target)) return;
+      if (addMenuRef.current?.contains(target)) return;
+      setIsAddMenuOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsAddMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('touchstart', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('touchstart', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAddMenuOpen]);
+
+  const clockInfo = useMemo(() => buildClockInfo(now), [now]);
+
+  // Combined sorted list of tabs and widgets
+  const shelfItems = useMemo<ShelfItem[]>(() => {
+    const tabItems: ShelfItem[] = tabs.map((t) => ({
+      type: 'tab',
+      id: t.id,
+      tab: t,
+      order: t.order,
+      createdAt: t.createdAt,
+    }));
+    const widgetItems: ShelfItem[] = widgets.map((w) => ({
+      type: 'widget',
+      id: w.id,
+      widget: w,
+      order: w.order,
+      createdAt: w.createdAt,
+    }));
+
+    return [...tabItems, ...widgetItems].sort((a, b) => {
+      if (a.order !== undefined && b.order !== undefined) {
+        return a.order - b.order;
+      }
+      if (a.order !== undefined) return -1;
+      if (b.order !== undefined) return 1;
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    });
+  }, [tabs, widgets]);
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
     setMenuVisibleTabId(null);
     setOpenMenuTabId(null);
-    startDrag(e, { id: tabId, type: 'favTab' });
+    setIsAddMenuOpen(false);
+    startDrag(e, { id, type: 'favTab' });
   };
 
-  const handleDragOver = (e: React.DragEvent, tabId: string) => {
-    if (!isDragAcceptable(e, ['favTab'])) {
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem'])) {
       return;
     }
     const activeDrag = getActiveDrag();
-    if (activeDrag && activeDrag.id === tabId) {
+    if (activeDrag && activeDrag.id === id) {
       return;
     }
     e.preventDefault();
@@ -104,7 +227,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     const rect = e.currentTarget.getBoundingClientRect();
     const midX = rect.left + rect.width / 2;
     const pos = e.clientX < midX ? 'before' : 'after';
-    setDragOverTabId(tabId);
+    setDragOverTabId(id);
     setDropPosition(pos);
   };
 
@@ -113,8 +236,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     setDropPosition(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetTabId: string) => {
-    if (!isDragAcceptable(e, ['favTab'])) {
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem'])) {
       setDragOverTabId(null);
       setDropPosition(null);
       endDrag();
@@ -130,9 +253,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       const raw = e.dataTransfer.getData('application/json');
       const activeDrag = getActiveDrag();
       const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
-      if (!sourceId || sourceId === targetTabId) return;
+      if (!sourceId || sourceId === targetId) return;
 
-      onReorderFavouriteTabs?.(sourceId, targetTabId, pos);
+      if (onReorderFavouriteItem) {
+        onReorderFavouriteItem(sourceId, targetId, pos);
+      } else if (onReorderFavouriteTabs) {
+        onReorderFavouriteTabs(sourceId, targetId, pos);
+      }
     } catch {} finally {
       endDrag();
     }
@@ -150,11 +277,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-    // If menu is already open for this tab, keep it visible
     if (openMenuTabId === tabId) {
       setMenuVisibleTabId(tabId);
     } else {
-      // 250ms hover delay before showing the ... menu button
       hoverTimerRef.current = setTimeout(() => {
         setMenuVisibleTabId(tabId);
       }, 250);
@@ -171,10 +296,38 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       setDragOverTabId(null);
       setDropPosition(null);
     }
-    // Only hide button if menu is not currently open
     if (openMenuTabId !== tabId) {
       setMenuVisibleTabId(null);
     }
+  };
+
+  const handleToggleAddMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isAddMenuOpen) {
+      setIsAddMenuOpen(false);
+      return;
+    }
+    if (addButtonRef.current) {
+      const rect = addButtonRef.current.getBoundingClientRect();
+      const menuHeight = 224;
+      const menuWidth = 192;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const fitsBelow = spaceBelow >= menuHeight + 10;
+      const top = fitsBelow ? rect.bottom + 6 : Math.max(10, rect.top - menuHeight - 6);
+      const left = Math.min(Math.max(10, rect.left), Math.max(10, window.innerWidth - menuWidth - 10));
+      setAddMenuCoords({ top, left });
+      setIsAddMenuOpen(true);
+    }
+  };
+
+  const handleSelectAddTab = () => {
+    setIsAddMenuOpen(false);
+    onAddFavouriteTab();
+  };
+
+  const handleSelectAddWidget = (style: WidgetStyle) => {
+    setIsAddMenuOpen(false);
+    onAddWidget?.({ style, size: 'small' });
   };
 
   return (
@@ -197,15 +350,18 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(48px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
           gap: '8px',
           width: '100%',
         }}
       >
-        {tabs.map((tab) => {
+        {shelfItems.map((item) => {
+          const isDragTarget = dragOverTabId === item.id;
+
+          if (item.type === 'tab') {
+            const tab = item.tab;
             const isHovered = hoveredTabId === tab.id;
             const isMenuVisible = !isMobile && (menuVisibleTabId === tab.id || openMenuTabId === tab.id);
-            const isDragTarget = dragOverTabId === tab.id;
             const assoc = tabAssociations ? tabAssociations[tab.id] : undefined;
             const isAssociated = Boolean(assoc);
             const isDiverted = Boolean(assoc?.isDiverted);
@@ -354,7 +510,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   justifyContent: 'center',
                   width: '100%',
                   minWidth: 0,
-                  height: '48px',
+                  height: '56px',
                   backgroundColor: cardBg,
                   border: cardBorder,
                   borderLeft: isDragTarget && dropPosition === 'before'
@@ -365,7 +521,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     : undefined,
                   outline: isHighlighted ? `2px solid ${shelfTheme.primaryColor}` : 'none',
                   outlineOffset: isHighlighted ? '-1.5px' : undefined,
-                  borderRadius: '12px',
+                  borderRadius: '14px',
                   cursor: 'grab',
                   transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, outline 0.15s ease',
                   position: 'relative',
@@ -378,9 +534,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 {/* Favicon or Custom Emoji */}
                 <div
                   style={{
-                    width: '24px',
-                    height: '24px',
-                    borderRadius: '6px',
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '7px',
                     backgroundColor: isHovered
                       ? (shelfTheme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.3)')
                       : 'transparent',
@@ -389,7 +545,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     justifyContent: 'center',
                     flexShrink: 0,
                     position: 'relative',
-                    opacity: isAssociated || isHovered ? 1 : 0.72,
+                    opacity: isAssociated || isHovered ? 1 : 0.75,
                     transform: isHovered ? 'scale(1.04)' : 'scale(1)',
                     transition: 'opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease',
                   }}
@@ -397,9 +553,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   <TabFavicon
                     url={tab.url}
                     customEmojiIcon={tab.customEmojiIcon}
-                    size={24}
-                    emojiSize={24}
-                    globeIconSize={24}
+                    size={26}
+                    emojiSize={26}
+                    globeIconSize={26}
                     globeIconColor={shelfTheme.subtextColor}
                     showDomainFallback={true}
                     badge={badge}
@@ -414,7 +570,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       bottom: '4px',
                       left: '50%',
                       transform: 'translateX(-50%)',
-                      width: isHighlighted ? '18px' : isHovered ? '14px' : '10px',
+                      width: isHighlighted ? '20px' : isHovered ? '16px' : '12px',
                       height: '3px',
                       borderRadius: '9999px',
                       backgroundColor: isHighlighted
@@ -444,13 +600,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     aria-label={isMuted ? 'Unmute tab' : 'Mute tab'}
                     style={{
                       position: 'absolute',
-                      bottom: '3px',
-                      left: '3px',
+                      bottom: '4px',
+                      left: '4px',
                       outline: 'none',
                       backgroundColor: isMuted ? '#ef4444' : '#10b981',
                       color: '#ffffff',
-                      width: '13px',
-                      height: '13px',
+                      width: '14px',
+                      height: '14px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
@@ -470,9 +626,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     }}
                   >
                     {isMuted ? (
-                      <span style={{ fontSize: '7px', lineHeight: 1, fontWeight: 700 }}>✕</span>
+                      <span style={{ fontSize: '7.5px', lineHeight: 1, fontWeight: 700 }}>✕</span>
                     ) : (
-                      <span style={{ fontSize: '7.5px', lineHeight: 1 }}>♪</span>
+                      <span style={{ fontSize: '8px', lineHeight: 1 }}>♪</span>
                     )}
                   </button>
                 )}
@@ -490,11 +646,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     aria-label="Restore original URL"
                     style={{
                       position: 'absolute',
-                      top: '2px',
-                      left: '2px',
-                      width: '13px',
-                      height: '13px',
-                      borderRadius: '3.5px',
+                      top: '3px',
+                      left: '3px',
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '4px',
                       border: `1px solid ${shelfTheme.isDark ? 'rgba(234, 179, 8, 0.45)' : '#fde047'}`,
                       backgroundColor: shelfTheme.isDark ? 'rgba(234, 179, 8, 0.25)' : '#fef08a',
                       color: shelfTheme.isDark ? '#fde047' : '#a16207',
@@ -523,8 +679,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   <div
                     style={{
                       position: 'absolute',
-                      top: '2px',
-                      right: '2px',
+                      top: '3px',
+                      right: '3px',
                       zIndex: 10,
                     }}
                     onClick={(e) => e.stopPropagation()}
@@ -564,44 +720,630 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 )}
               </div>
             );
-          })}
+          }
 
-          <button
-            type="button"
-            onClick={onAddFavouriteTab}
-            title="Add favourite tab"
-            aria-label="Add favourite tab"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              minWidth: 0,
-              height: '48px',
-              backgroundColor: shelfTheme.inputBg,
-              border: `1px dashed ${shelfTheme.borderColor}`,
-              borderRadius: '12px',
-              cursor: 'pointer',
-              color: shelfTheme.subtextColor,
-              transition: 'all 0.15s ease',
-              outline: 'none',
-              padding: 0,
-              boxSizing: 'border-box',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = shelfTheme.actionHoverBg;
-              e.currentTarget.style.borderColor = shelfTheme.primaryColor;
-              e.currentTarget.style.color = shelfTheme.textColor;
-            }}
-            onMouseLeave={(e) => {
+          // Render Widget Item
+          const widget = item.widget;
+          const isWidgetHovered = hoveredWidgetId === widget.id;
+
+          const widgetBg = isWidgetHovered
+            ? shelfTheme.actionHoverBg
+            : shelfTheme.isDark
+            ? 'rgba(255, 255, 255, 0.04)'
+            : 'rgba(0, 0, 0, 0.035)';
+
+          const widgetBorder = isWidgetHovered
+            ? `1px solid ${shelfTheme.primaryColor}`
+            : shelfTheme.isDark
+            ? '1px solid rgba(255, 255, 255, 0.07)'
+            : '1px solid rgba(0, 0, 0, 0.06)';
+
+          const widgetShadow = isWidgetHovered ? '0 2px 8px rgba(0, 0, 0, 0.12)' : 'none';
+
+          const widgetTooltip =
+            widget.style === 'calendar'
+              ? 'Calendar Widget'
+              : widget.style === 'digital'
+              ? 'Digital Clock Widget'
+              : widget.style === 'analog'
+              ? 'Analog Clock Widget'
+              : 'Date & Time Widget';
+
+          return (
+            <div
+              key={widget.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, widget.id)}
+              onDragOver={(e) => handleDragOver(e, widget.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, widget.id)}
+              onDragEnd={handleDragEnd}
+              onMouseEnter={() => setHoveredWidgetId(widget.id)}
+              onMouseLeave={() => setHoveredWidgetId(null)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100%',
+                minWidth: 0,
+                height: '56px',
+                backgroundColor: widgetBg,
+                border: widgetBorder,
+                borderLeft: isDragTarget && dropPosition === 'before'
+                  ? `3px solid ${shelfTheme.primaryColor}`
+                  : undefined,
+                borderRight: isDragTarget && dropPosition === 'after'
+                  ? `3px solid ${shelfTheme.primaryColor}`
+                  : undefined,
+                borderRadius: '14px',
+                cursor: 'grab',
+                transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+                position: 'relative',
+                userSelect: 'none',
+                boxShadow: widgetShadow,
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+              }}
+              title={widgetTooltip}
+            >
+              {/* Delete button on hover */}
+              {isWidgetHovered && onRemoveWidget && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onRemoveWidget(widget.id);
+                  }}
+                  title="Remove widget"
+                  aria-label="Remove widget"
+                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    right: '3px',
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '5px',
+                    backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
+                    border: `1px solid ${shelfTheme.borderColor}`,
+                    color: '#ef4444',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    padding: 0,
+                    zIndex: 10,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+                    outline: 'none',
+                  }}
+                >
+                  <TrashIcon size={11} />
+                </button>
+              )}
+
+              {/* 1. Calendar Widget */}
+              {widget.style === 'calendar' && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                    borderRadius: '13px',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '17px',
+                      backgroundColor: '#ef4444',
+                      color: '#ffffff',
+                      fontSize: '9px',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {clockInfo.monthShort}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingBottom: '2px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '19px',
+                        fontWeight: 800,
+                        lineHeight: 1,
+                        color: shelfTheme.textColor,
+                        letterSpacing: '-0.5px',
+                      }}
+                    >
+                      {clockInfo.day}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '8.5px',
+                        fontWeight: 600,
+                        color: shelfTheme.subtextColor || shelfTheme.textColor,
+                        opacity: 0.65,
+                        marginTop: '1px',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {clockInfo.weekdayShort}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 2. Digital Clock Widget */}
+              {widget.style === 'digital' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    width: '100%',
+                    userSelect: 'none',
+                    padding: '4px 2px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '13.5px',
+                      fontWeight: 700,
+                      letterSpacing: '-0.3px',
+                      color: shelfTheme.textColor,
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                      lineHeight: 1.2,
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <span>{clockInfo.timeMain}</span>
+                    <span
+                      style={{
+                        fontSize: '8.5px',
+                        fontWeight: 700,
+                        opacity: 0.65,
+                        marginLeft: '2px',
+                      }}
+                    >
+                      {clockInfo.timeAmpm}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      color: shelfTheme.primaryColor,
+                      letterSpacing: '0.03em',
+                      marginTop: '3px',
+                      lineHeight: 1,
+                      textTransform: 'uppercase',
+                      opacity: 0.95,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {clockInfo.weekdayShort} {clockInfo.day}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Analog Clock Widget */}
+              {widget.style === 'analog' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    width: '100%',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      minWidth: '38px',
+                      minHeight: '38px',
+                      borderRadius: '999px',
+                      background: shelfTheme.isDark ? 'rgba(255, 255, 255, 0.08)' : '#ffffff',
+                      border: `1.5px solid ${shelfTheme.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.15)'}`,
+                      boxShadow: shelfTheme.isDark ? 'inset 0 1px 2px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.08)',
+                      position: 'relative',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <div style={{ position: 'absolute', top: '3px', left: '50%', width: '1.5px', height: '3px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateX(-50%)' }} />
+                    <div style={{ position: 'absolute', bottom: '3px', left: '50%', width: '1.5px', height: '3px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateX(-50%)' }} />
+                    <div style={{ position: 'absolute', left: '3px', top: '50%', width: '3px', height: '1.5px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateY(-50%)' }} />
+                    <div style={{ position: 'absolute', right: '3px', top: '50%', width: '3px', height: '1.5px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateY(-50%)' }} />
+
+                    {/* Hour Hand */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '2px',
+                        height: '10px',
+                        background: shelfTheme.textColor,
+                        borderRadius: '1px',
+                        transformOrigin: 'bottom center',
+                        transform: `translate(-50%, -100%) rotate(${clockInfo.hourAngle}deg)`,
+                      }}
+                    />
+
+                    {/* Minute Hand */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '1.5px',
+                        height: '14px',
+                        background: shelfTheme.primaryColor || shelfTheme.textColor,
+                        borderRadius: '1px',
+                        transformOrigin: 'bottom center',
+                        transform: `translate(-50%, -100%) rotate(${clockInfo.minuteAngle}deg)`,
+                      }}
+                    />
+
+                    {/* Center Dot */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: '4px',
+                        height: '4px',
+                        borderRadius: '999px',
+                        background: shelfTheme.textColor,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Date & Time (Combo) Widget */}
+              {widget.style === 'combo' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    width: '100%',
+                    userSelect: 'none',
+                    padding: '4px 2px',
+                    boxSizing: 'border-box',
+                    gap: '2px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '8.5px',
+                      fontWeight: 800,
+                      color: shelfTheme.primaryColor,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      lineHeight: 1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {clockInfo.weekdayShort} {clockInfo.monthShort} {clockInfo.day}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      letterSpacing: '-0.3px',
+                      color: shelfTheme.textColor,
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                      lineHeight: 1.2,
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <span>{clockInfo.timeMain}</span>
+                    <span
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 700,
+                        opacity: 0.65,
+                        marginLeft: '2px',
+                      }}
+                    >
+                      {clockInfo.timeAmpm}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Plus Button: Add Tab or Add Widget */}
+        <button
+          ref={addButtonRef}
+          type="button"
+          onClick={handleToggleAddMenu}
+          title="Add favourite tab or widget"
+          aria-label="Add favourite tab or widget"
+          aria-haspopup="menu"
+          aria-expanded={isAddMenuOpen}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            minWidth: 0,
+            height: '56px',
+            backgroundColor: isAddMenuOpen ? shelfTheme.actionHoverBg : shelfTheme.inputBg,
+            border: isAddMenuOpen ? `1px solid ${shelfTheme.primaryColor}` : `1px dashed ${shelfTheme.borderColor}`,
+            borderRadius: '14px',
+            cursor: 'pointer',
+            color: isAddMenuOpen ? shelfTheme.textColor : shelfTheme.subtextColor,
+            transition: 'all 0.15s ease',
+            outline: 'none',
+            padding: 0,
+            boxSizing: 'border-box',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = shelfTheme.actionHoverBg;
+            e.currentTarget.style.borderColor = shelfTheme.primaryColor;
+            e.currentTarget.style.color = shelfTheme.textColor;
+          }}
+          onMouseLeave={(e) => {
+            if (!isAddMenuOpen) {
               e.currentTarget.style.backgroundColor = shelfTheme.inputBg;
               e.currentTarget.style.borderColor = shelfTheme.borderColor;
               e.currentTarget.style.color = shelfTheme.subtextColor;
+            }
+          }}
+        >
+          <PlusIcon size={20} />
+        </button>
+      </div>
+
+      {/* Floating Add Menu Portal */}
+      {mounted && isAddMenuOpen && addMenuCoords && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={addMenuRef}
+          style={{
+            position: 'fixed',
+            top: `${addMenuCoords.top}px`,
+            left: `${addMenuCoords.left}px`,
+            width: '192px',
+            backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
+            border: `1px solid ${shelfTheme.borderColor}`,
+            borderRadius: '12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.22)',
+            padding: '5px',
+            zIndex: 99999,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px',
+            boxSizing: 'border-box',
+            animation: 'fadeIn 0.12s ease',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* 1. Add Tab */}
+          <button
+            type="button"
+            onClick={handleSelectAddTab}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '7px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <PlusIcon size={18} />
+            <StarIcon size={15} filled={false} color={shelfTheme.primaryColor} />
+            <span>Add Tab</span>
           </button>
-        </div>
+
+          {/* Section Divider */}
+          <div
+            style={{
+              height: '1px',
+              backgroundColor: shelfTheme.borderColor,
+              margin: '3px 0',
+              opacity: 0.8,
+            }}
+          />
+
+          <div
+            style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              color: shelfTheme.subtextColor || shelfTheme.textColor,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              padding: '3px 8px 2px 8px',
+              opacity: 0.65,
+            }}
+          >
+            Add Widget
+          </div>
+
+          {/* 2. Calendar Widget */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('calendar')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <CalendarIcon size={14} color="#ef4444" />
+            <span>Calendar</span>
+          </button>
+
+          {/* 3. Digital Clock Widget */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('digital')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <ClockIcon size={14} color={shelfTheme.primaryColor} />
+            <span>Digital Clock</span>
+          </button>
+
+          {/* 4. Analog Clock Widget */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('analog')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <ClockIcon size={14} color={shelfTheme.textColor} />
+            <span>Analog Clock</span>
+          </button>
+
+          {/* 5. Date & Time Widget */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('combo')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <CalendarIcon size={14} color={shelfTheme.primaryColor} />
+            <span>Date & Time</span>
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

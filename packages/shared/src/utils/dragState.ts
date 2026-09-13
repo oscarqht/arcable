@@ -1,4 +1,4 @@
-export type DragItemType = 'space' | 'folder' | 'tab' | 'pinnedTab' | 'favTab';
+export type DragItemType = 'space' | 'folder' | 'tab' | 'pinnedTab' | 'favTab' | 'widget' | 'favItem';
 
 export interface DragItemData {
   id: string;

@@ -30,6 +30,7 @@ export interface TmpTabRowProps {
   isAudible?: boolean;
   isMuted?: boolean;
   badge?: string | number | null;
+  showDeviceBadge?: boolean;
   onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
@@ -48,6 +49,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   isAudible = false,
   isMuted = false,
   badge,
+  showDeviceBadge = true,
   onOpen,
   onPromote,
   onClose,
@@ -239,8 +241,8 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
           </span>
         )}
 
-        {/* Device indicator badge (only shown for remote devices) */}
-        {!isFromCurrentDevice && !isEditing && (
+        {/* Device indicator badge (only shown for remote devices when showDeviceBadge is enabled) */}
+        {showDeviceBadge && !isFromCurrentDevice && !isEditing && (
           <span
             title={tab.deviceId ? `Open on ${badgeDeviceName} (${tab.deviceId})` : `Open on ${badgeDeviceName}`}
             style={{

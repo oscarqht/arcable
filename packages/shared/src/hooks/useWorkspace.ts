@@ -12,6 +12,7 @@ import {
   removeStoredPendingOperations,
   replayOperations,
   getOrCreateDeviceId,
+  detectDeviceType,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
@@ -1127,17 +1128,19 @@ export function useWorkspace() {
   }, [activeSpace, createTab, deleteTmpTab]);
 
   // ================= Widget Operations =================
-  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size: WidgetSize }) => {
+  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size?: WidgetSize }) => {
     const existing = data.widgets || [];
-    const maxOrder = existing.reduce(
-      (max, w) => Math.max(max, w.order !== undefined ? w.order : w.createdAt || 0),
-      0
+    const favTabs = data.tabs.filter((t) => Boolean(t.favourite));
+    const maxOrder = Math.max(
+      0,
+      ...existing.map((w) => (w.order !== undefined ? w.order : w.createdAt || 0)),
+      ...favTabs.map((t) => (t.order !== undefined ? t.order : t.createdAt || 0))
     );
 
     const newWidget: WorkspaceWidget = {
       id: generateId('widget'),
       style: widgetInput.style,
-      size: widgetInput.size,
+      size: widgetInput.size || 'small',
       order: maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1156,7 +1159,7 @@ export function useWorkspace() {
     });
 
     return newWidget;
-  }, [data.widgets, saveWorkspaceData]);
+  }, [data.widgets, data.tabs, saveWorkspaceData]);
 
   const removeWidget = useCallback((id: string) => {
     savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', id));
@@ -1653,25 +1656,49 @@ export function useWorkspace() {
     [activeSpace, data.activeSpaceId, data.tabs, saveWorkspaceData]
   );
 
-  const reorderFavouriteTabs = useCallback(
-    (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
-      if (sourceTabId === targetTabId) return;
-      const favs = getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite)));
-      const sourceIdx = favs.findIndex((t) => t.id === sourceTabId);
-      const targetIdx = favs.findIndex((t) => t.id === targetTabId);
+  const reorderFavouriteItem = useCallback(
+    (sourceId: string, targetId: string, position: 'before' | 'after') => {
+      if (sourceId === targetId) return;
+
+      type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
+      const favTabs: FavItem[] = getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite))).map((t) => ({
+        id: t.id,
+        type: 'tab' as const,
+        order: t.order,
+        createdAt: t.createdAt,
+      }));
+      const currentWidgets: FavItem[] = getSortedWidgets(data.widgets || []).map((w) => ({
+        id: w.id,
+        type: 'widget' as const,
+        order: w.order,
+        createdAt: w.createdAt,
+      }));
+
+      const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+        if (a.order !== undefined) return -1;
+        if (b.order !== undefined) return 1;
+        return (a.createdAt || 0) - (b.createdAt || 0);
+      });
+
+      const sourceIdx = allItems.findIndex((i) => i.id === sourceId);
+      const targetIdx = allItems.findIndex((i) => i.id === targetId);
       if (sourceIdx < 0 || targetIdx < 0) return;
 
-      const [moved] = favs.splice(sourceIdx, 1);
-      const newTargetIdx = favs.findIndex((t) => t.id === targetTabId);
+      const [moved] = allItems.splice(sourceIdx, 1);
+      const newTargetIdx = allItems.findIndex((i) => i.id === targetId);
       const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
-      favs.splice(insertIdx, 0, moved);
+      allItems.splice(insertIdx, 0, moved);
 
       const orderMap = new Map<string, number>();
-      favs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+      allItems.forEach((item, idx) => {
+        orderMap.set(item.id, (idx + 1) * 1000);
+      });
 
+      // Update tabs
       const updatedTabs = data.tabs.map((t) =>
         orderMap.has(t.id)
-          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
+          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceId ? Date.now() : t.updatedAt }
           : t
       );
 
@@ -1684,9 +1711,36 @@ export function useWorkspace() {
         }
       });
 
-      saveWorkspaceData((prev) => ({ ...prev, tabs: updatedTabs }));
+      // Update widgets
+      const updatedWidgets = (data.widgets || []).map((w) =>
+        orderMap.has(w.id)
+          ? { ...w, order: orderMap.get(w.id)!, updatedAt: w.id === sourceId ? Date.now() : w.updatedAt }
+          : w
+      );
+
+      updatedWidgets.forEach((w) => {
+        const oldWidget = (data.widgets || []).find((orig) => orig.id === w.id);
+        if (oldWidget && oldWidget.order !== w.order) {
+          savePendingOperation(
+            createWorkspaceOperation('WIDGET_UPDATE', w.id, { order: w.order })
+          );
+        }
+      });
+
+      saveWorkspaceData((prev) => ({
+        ...prev,
+        tabs: updatedTabs,
+        widgets: updatedWidgets,
+      }));
     },
-    [data.tabs, saveWorkspaceData]
+    [data.tabs, data.widgets, saveWorkspaceData]
+  );
+
+  const reorderFavouriteTabs = useCallback(
+    (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
+      reorderFavouriteItem(sourceTabId, targetTabId, position);
+    },
+    [reorderFavouriteItem]
   );
 
   const resetToDefault = useCallback(() => {
@@ -1748,15 +1802,20 @@ export function useWorkspace() {
             .map((op) => op.entityId)
         );
 
+        const localDevId = typeof window !== 'undefined' ? getOrCreateDeviceId() : '';
+        const isExt = detectDeviceType() === 'Ext';
+
         const filteredTmpTabs = (resolvedSnapshot.tmpTabs || []).filter((t) => {
           // Explicit pending delete → always suppress
           if (pendingDeletedTmpIds.has(t.id)) return false;
           // Already in local state → keep (no change)
           if (prevTmpIds.has(t.id)) return true;
-          // Tab is absent from prev.tmpTabs.
-          // If it has a browserTabId it's a local browser tab that we track ourselves —
-          // the tabTracker's subscribeTmpTabs will supply it via the tmpTabs prop instead.
-          // Suppress it from data.tmpTabs to avoid duplication/resurrection.
+          // If tab is from another device → genuine remote tab from another device → keep it!
+          if (t.deviceId && t.deviceId !== localDevId) return true;
+          // In web environment (no browser extension tabTracker), keep all incoming synced tmp tabs
+          if (!isExt) return true;
+          // For the local extension: if absent from prev and has browserTabId,
+          // it's a local browser tab tracked by tabTracker (suppress to avoid duplication/resurrection)
           if (t.browserTabId !== undefined) return false;
           // No browserTabId: genuine remote tab from another device — keep it.
           return true;
@@ -1941,6 +2000,7 @@ export function useWorkspace() {
     moveSiblingItem,
     reorderPinnedTabs,
     reorderFavouriteTabs,
+    reorderFavouriteItem,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,

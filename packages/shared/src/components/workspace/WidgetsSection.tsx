@@ -9,6 +9,7 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 export interface WidgetsSectionProps {
   widgets: WorkspaceWidget[];
   themeStyles?: SpaceThemeTokens;
+  compact?: boolean;
   onAddWidget: (widget: { style: WidgetStyle; size: WidgetSize }) => void;
   onRemoveWidget: (id: string) => void;
   /** Moves sourceId before targetId; when targetId is omitted, moves it to the end. */
@@ -239,6 +240,7 @@ function WidgetFace({
 export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
   widgets,
   themeStyles,
+  compact = false,
   onAddWidget,
   onRemoveWidget,
   onReorderWidget,
@@ -383,11 +385,13 @@ export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
       onTouchEnd={hasWidgets ? cancelPress : undefined}
       title={hasWidgets && !editMode ? 'Long-press to edit widgets' : undefined}
       style={{
-        padding: hasWidgets ? '14px 14px 12px 14px' : '8px 14px',
-        background: hasWidgets ? theme.shelfBg : 'transparent',
+        padding: hasWidgets ? (compact ? '14px 14px 12px 14px' : '16px 18px') : (compact ? '8px 14px' : '12px 18px'),
+        background: hasWidgets ? theme.shelfBg : (compact ? 'transparent' : (theme.isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)')),
         backdropFilter: hasWidgets ? 'blur(18px)' : 'none',
         WebkitBackdropFilter: hasWidgets ? 'blur(18px)' : 'none',
-        borderBottom: hasWidgets ? `1px solid ${theme.borderColor}` : 'none',
+        borderBottom: compact && hasWidgets ? `1px solid ${theme.borderColor}` : 'none',
+        border: !compact ? `1px solid ${theme.borderColor}` : undefined,
+        borderRadius: !compact ? '16px' : undefined,
         position: 'relative',
         boxSizing: 'border-box',
       }}
@@ -397,24 +401,80 @@ export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
         @keyframes arcable-widget-sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
       `}</style>
 
-      {editMode && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', height: '24px', marginBottom: '10px' }}>
-          <button
-            type="button"
-            onClick={handleDone}
-            style={{
-              border: 'none',
-              background: theme.badgeBg,
-              color: theme.badgeText,
-              fontSize: '12px',
-              fontWeight: 700,
-              padding: '4px 11px',
-              borderRadius: '999px',
-              cursor: 'pointer',
-            }}
-          >
-            Done
-          </button>
+      {(editMode || (!compact && hasWidgets)) && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '26px', marginBottom: '10px' }}>
+          {!compact && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '14px' }}>🕒</span>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: theme.textColor, opacity: 0.9 }}>
+                Widgets
+              </span>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+            {editMode ? (
+              <button
+                type="button"
+                onClick={handleDone}
+                style={{
+                  border: 'none',
+                  background: theme.badgeBg,
+                  color: theme.badgeText,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  padding: '4px 12px',
+                  borderRadius: '999px',
+                  cursor: 'pointer',
+                }}
+              >
+                Done
+              </button>
+            ) : (
+              hasWidgets && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    title="Add a widget"
+                    style={{
+                      border: `1px solid ${theme.borderColor}`,
+                      background: theme.badgeBg,
+                      color: theme.textColor,
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '3px 9px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>+</span>
+                    <span>Add</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(true)}
+                    title="Edit widgets"
+                    style={{
+                      border: `1px solid ${theme.borderColor}`,
+                      background: 'transparent',
+                      color: theme.textColor,
+                      opacity: 0.8,
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      padding: '3px 9px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Edit
+                  </button>
+                </>
+              )
+            )}
+          </div>
         </div>
       )}
 
@@ -526,29 +586,43 @@ export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
           )}
         </div>
       ) : (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '32px' }}>
+          {!compact && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '15px' }}>🕒</span>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: theme.textColor, opacity: 0.9 }}>
+                Widgets
+              </span>
+              <span style={{ fontSize: '12px', color: theme.textColor, opacity: 0.55 }}>
+                Add clocks &amp; calendar widgets to your workspace
+              </span>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
             title="Add a widget"
             style={{
-              width: '26px',
-              height: '26px',
+              height: compact ? '26px' : '28px',
+              padding: compact ? '0' : '0 12px',
+              width: compact ? '26px' : 'auto',
               borderRadius: '999px',
               background: theme.badgeBg,
               border: `1.5px solid ${theme.borderColor}`,
               color: theme.textColor,
-              fontSize: '15px',
-              fontWeight: 400,
+              fontSize: compact ? '15px' : '12px',
+              fontWeight: 600,
               lineHeight: 1,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: 0,
+              gap: '4px',
+              marginLeft: 'auto',
             }}
           >
-            +
+            <span style={{ fontSize: compact ? '15px' : '14px', lineHeight: 1 }}>+</span>
+            {!compact && <span>Add Widget</span>}
           </button>
         </div>
       )}
