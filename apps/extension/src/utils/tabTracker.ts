@@ -378,6 +378,9 @@ class TabTracker {
 
   private lockPromise: Promise<any> = Promise.resolve();
   private pendingCreations: Map<string, { tabItemId: string; url: string; timestamp: number }> = new Map();
+  /** Browser tab IDs that are in the process of being closed — excluded from syncWithWorkspace queries */
+  private closingTabIds: Set<number> = new Set();
+  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private runWithLock<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lockPromise.then(
@@ -402,7 +405,22 @@ class TabTracker {
     this.pendingCreations.delete(tabItemId);
   }
 
-  // Full synchronization between open browser tabs and workspace items (strictly 1-to-1)
+  /**
+   * Debounced wrapper around syncWithWorkspace for tab event listeners.
+   * Prevents rapid-fire syncs (e.g. onCreated → onUpdated bursts) from
+   * racing with an in-progress closeTmpTab and resurrecting closing tabs.
+   */
+  private scheduleSync(delayMs: number = 350): void {
+    if (this.syncDebounceTimer !== null) {
+      clearTimeout(this.syncDebounceTimer);
+    }
+    this.syncDebounceTimer = setTimeout(() => {
+      this.syncDebounceTimer = null;
+      void this.syncWithWorkspace(this.currentWorkspaceTabs);
+    }, delayMs);
+  }
+
+
   public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
     return this.runWithLock(async () => {
       this.currentWorkspaceTabs = workspaceTabs;
@@ -411,6 +429,12 @@ class TabTracker {
         allBrowserTabs = await browser.tabs.query({});
       } catch (err) {
         console.warn('[TabTracker] tabs.query failed:', err);
+      }
+
+      // Exclude tabs that are actively being closed — they may still appear
+      // in browser.tabs.query() briefly while the close is in flight.
+      if (this.closingTabIds.size > 0) {
+        allBrowserTabs = allBrowserTabs.filter((bt) => !this.closingTabIds.has(bt.id));
       }
 
       const currentAssociations = await this.getAssociations();
@@ -666,6 +690,14 @@ class TabTracker {
 
   // Close a temporary tab
   public async closeTmpTab(browserTabId: number): Promise<void> {
+    // Mark this tab as closing immediately so syncWithWorkspace (triggered by
+    // onRemoved / onUpdated events) never re-adds it to the tmp tabs list.
+    this.closingTabIds.add(browserTabId);
+    // Also prune from in-memory list immediately so subscribers see the removal
+    // before the async storage write completes.
+    memoryTmpTabs = memoryTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+    this.notifyTmpTabs(memoryTmpTabs);
+
     return this.runWithLock(async () => {
       try {
         await browser.tabs.remove(browserTabId).catch(() => {});
@@ -680,9 +712,13 @@ class TabTracker {
         }
       } catch (err) {
         console.warn('[TabTracker] Error closing tmp tab:', err);
+      } finally {
+        // Remove closing flag after all writes are done (onRemoved fires by now)
+        this.closingTabIds.delete(browserTabId);
       }
     });
   }
+
 
   // Open a new browser tab and associate it with tab item (strictly 1-to-1)
   public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
@@ -823,19 +859,22 @@ class TabTracker {
 
     const tabsApi = typeof browser !== 'undefined' && browser.tabs ? browser.tabs : (typeof chrome !== 'undefined' ? chrome.tabs : null);
     
-    // 1. Tab created
+    // 1. Tab created — debounce so we don't race with close operations
     if (tabsApi && tabsApi.onCreated) {
-      tabsApi.onCreated.addListener(async () => {
-        await this.syncWithWorkspace(this.currentWorkspaceTabs);
+      tabsApi.onCreated.addListener(() => {
+        this.scheduleSync(350);
       });
     }
 
-    // 2. Tab updated (URL changes / navigation / title load)
+    // 2. Tab updated (URL changes / navigation / title load) — debounce and
+    //    skip if this tab is actively being closed (avoids resurrection).
     if (tabsApi && tabsApi.onUpdated) {
-      tabsApi.onUpdated.addListener(async (tabId: number, changeInfo: any, tab: any) => {
-        await this.syncWithWorkspace(this.currentWorkspaceTabs);
+      tabsApi.onUpdated.addListener((tabId: number, _changeInfo: any, _tab: any) => {
+        if (this.closingTabIds.has(tabId)) return;
+        this.scheduleSync(350);
       });
     }
+
 
     // 3. Tab removed (closed)
     if (tabsApi && tabsApi.onRemoved) {

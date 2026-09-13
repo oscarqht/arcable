@@ -1183,8 +1183,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleCloseTmpTab = useCallback((tab: TmpTab) => {
     deleteTmpTab(tab.id);
     onCloseTmpTab?.(tab);
-    void performSync(true);
-  }, [deleteTmpTab, onCloseTmpTab, performSync]);
+    // Note: do NOT call performSync() here directly.
+    // deleteTmpTab() already records a TMP_TAB_DELETE pending operation,
+    // which the debounced auto-sync effect (5 s) will pick up automatically.
+    // Calling performSync(true) immediately races with tabTracker's async
+    // closeTmpTab write, causing the deleted tab to be re-uploaded.
+  }, [deleteTmpTab, onCloseTmpTab]);
 
   const handleRenameTmpTab = useCallback((tab: TmpTab, newTitle: string) => {
     updateTmpTab(tab.id, { customTitle: newTitle });

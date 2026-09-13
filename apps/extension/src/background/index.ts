@@ -462,18 +462,46 @@ browser.runtime.onMessage.addListener(
           const localRunRules = (stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
           const storedPendingOps = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
 
-          const taggedTmp = localTmp.map((t) => ({
-            ...t,
-            deviceId: t.deviceId || effectiveDeviceId,
-            deviceName: t.deviceName || effectiveDeviceName,
-            deviceType: 'Ext' as const,
-          }));
+          // Merge payload pending ops with stored pending ops first, so we
+          // know which tmp tab IDs have been deleted by the time we build
+          // stateToSync. This prevents a race where the UI deletes a tab but
+          // storage hasn't flushed yet and background re-injects the stale entry.
+          const opMap = new Map<string, WorkspaceOperation>();
+          for (const op of storedPendingOps) {
+            opMap.set(op.id, op);
+          }
+          for (const op of (payload?.pendingOps || [])) {
+            opMap.set(op.id, op);
+          }
+          const combinedPendingOps = Array.from(opMap.values());
+          const syncedOpIds = new Set(combinedPendingOps.map((op) => op.id));
+
+          // Collect all tmp tab IDs pending deletion (from UI or stored ops)
+          const pendingDeletedTmpIds = new Set<string>(
+            combinedPendingOps
+              .filter((op) => op.type === 'TMP_TAB_DELETE')
+              .map((op) => op.entityId)
+          );
+
+          const taggedTmp = localTmp
+            // Drop tabs that are pending deletion — they should not be re-uploaded
+            .filter((t) => !pendingDeletedTmpIds.has(t.id))
+            .map((t) => ({
+              ...t,
+              deviceId: t.deviceId || effectiveDeviceId,
+              deviceName: t.deviceName || effectiveDeviceName,
+              deviceType: 'Ext' as const,
+            }));
 
           let stateToSync = payload?.localState;
           if (stateToSync) {
+            // Also filter deletions from the localState tmpTabs supplied by the UI
+            const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
+              (t: TmpTab) => !pendingDeletedTmpIds.has(t.id)
+            );
             stateToSync = {
               ...stateToSync,
-              tmpTabs: taggedTmp.length > 0 ? taggedTmp : (stateToSync.tmpTabs || []),
+              tmpTabs: taggedTmp.length > 0 ? taggedTmp : filteredStateTmpTabs,
               customCodeRules: stateToSync.customCodeRules || localCustomRules,
               runCodeInPageRules: stateToSync.runCodeInPageRules || localRunRules,
             };
@@ -490,16 +518,6 @@ browser.runtime.onMessage.addListener(
             };
           }
 
-          // Combine payload pending ops with stored pending ops
-          const opMap = new Map<string, WorkspaceOperation>();
-          for (const op of storedPendingOps) {
-            opMap.set(op.id, op);
-          }
-          for (const op of (payload?.pendingOps || [])) {
-            opMap.set(op.id, op);
-          }
-          const combinedPendingOps = Array.from(opMap.values());
-          const syncedOpIds = new Set(combinedPendingOps.map((op) => op.id));
 
           const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
             localState: stateToSync,
