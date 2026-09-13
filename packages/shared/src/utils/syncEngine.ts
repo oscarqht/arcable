@@ -626,6 +626,7 @@ export function applyOperation(
         style: op.payload?.style || 'digital',
         size: op.payload?.size || 'medium',
         order: op.payload?.order !== undefined ? op.payload.order : undefined,
+        config: op.payload?.config,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };

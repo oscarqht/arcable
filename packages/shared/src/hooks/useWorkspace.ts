@@ -1128,7 +1128,7 @@ export function useWorkspace() {
   }, [activeSpace, createTab, deleteTmpTab]);
 
   // ================= Widget Operations =================
-  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size?: WidgetSize }) => {
+  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size?: WidgetSize; config?: Record<string, any> }) => {
     const existing = data.widgets || [];
     const favTabs = data.tabs.filter((t) => Boolean(t.favourite));
     const maxOrder = Math.max(
@@ -1141,6 +1141,7 @@ export function useWorkspace() {
       id: generateId('widget'),
       style: widgetInput.style,
       size: widgetInput.size || 'small',
+      config: widgetInput.config,
       order: maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1160,6 +1161,28 @@ export function useWorkspace() {
 
     return newWidget;
   }, [data.widgets, data.tabs, saveWorkspaceData]);
+
+  const updateWidget = useCallback((id: string, updates: Partial<WorkspaceWidget>) => {
+    savePendingOperation(createWorkspaceOperation('WIDGET_UPDATE', id, updates));
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      widgets: (prev.widgets || []).map((w) => {
+        if (w.id === id) {
+          return {
+            ...w,
+            ...updates,
+            config: {
+              ...(w.config || {}),
+              ...(updates.config || {}),
+            },
+            updatedAt: Date.now(),
+          };
+        }
+        return w;
+      }),
+    }));
+  }, [saveWorkspaceData]);
 
   const removeWidget = useCallback((id: string) => {
     savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', id));
@@ -1993,6 +2016,7 @@ export function useWorkspace() {
     // Widget operations
     widgets,
     addWidget,
+    updateWidget,
     removeWidget,
     reorderWidget,
     // Sibling reordering

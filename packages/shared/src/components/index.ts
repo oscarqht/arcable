@@ -26,4 +26,6 @@ export * from './workspace/AudibleTabsWidget';
 export * from './workspace/BackupRestoreModal';
 export * from './workspace/ConfirmModal';
 export * from './workspace/VirtualSyncedSpaceCard';
+export * from './workspace/widgets';
+
 

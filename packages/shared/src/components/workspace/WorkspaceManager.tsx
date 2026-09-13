@@ -186,6 +186,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     deleteTmpTab,
     widgets,
     addWidget,
+    updateWidget,
     removeWidget,
     reorderWidget,
     isSyncing: hookIsSyncing,
@@ -1458,6 +1459,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tabs={favouriteTabs}
         widgets={widgets}
         onAddWidget={addWidget}
+        onUpdateWidget={updateWidget}
         onRemoveWidget={removeWidget}
         tabAssociations={tabAssociations}
         highlightedTabId={highlightedTabId}

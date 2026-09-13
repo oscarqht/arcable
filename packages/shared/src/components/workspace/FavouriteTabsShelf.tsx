@@ -2,7 +2,17 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Tab, WorkspaceWidget, WidgetStyle, WidgetSize } from '../../types/workspace';
+import {
+  Tab,
+  WorkspaceWidget,
+  WidgetStyle,
+  WidgetSize,
+  PomodoroConfig,
+  CountdownConfig,
+  NoteConfig,
+  WeatherConfig,
+  SearchConfig,
+} from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
@@ -25,7 +35,20 @@ import {
   SlashIcon,
   CalendarIcon,
   ClockIcon,
+  SearchIcon,
+  CloudSunIcon,
+  StickyNoteIcon,
+  HourglassIcon,
 } from '../Icons';
+import {
+  PomodoroPopover,
+  CountdownPopover,
+  StickyNotePopover,
+  WeatherPopover,
+  QuickSearchPopover,
+  NOTE_COLORS,
+} from './widgets';
+import { getWeatherInterpretation } from '../../utils/weatherService';
 
 export interface FavouriteTabsShelfProps {
   tabs: Tab[];
@@ -41,7 +64,8 @@ export interface FavouriteTabsShelfProps {
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
-  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize }) => void;
+  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => void;
+  onUpdateWidget?: (id: string, updates: Partial<WorkspaceWidget>) => void;
   onRemoveWidget?: (id: string) => void;
   onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
@@ -100,6 +124,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onToggleFavouriteTab,
   onAddFavouriteTab,
   onAddWidget,
+  onUpdateWidget,
   onRemoveWidget,
   onReorderFavouriteItem,
   onReorderFavouriteTabs,
@@ -120,6 +145,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+
+  // Active Widget Popover State (for interactive widgets)
+  const [activeWidgetPopover, setActiveWidgetPopover] = useState<{
+    id: string;
+    anchorRect: DOMRect;
+  } | null>(null);
 
   // Add Button Popover State
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -309,7 +340,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     }
     if (addButtonRef.current) {
       const rect = addButtonRef.current.getBoundingClientRect();
-      const menuHeight = 224;
+      const menuHeight = 360;
       const menuWidth = 192;
       const spaceBelow = window.innerHeight - rect.bottom;
       const fitsBelow = spaceBelow >= menuHeight + 10;
@@ -325,9 +356,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     onAddFavouriteTab();
   };
 
-  const handleSelectAddWidget = (style: WidgetStyle) => {
+  const handleSelectAddWidget = (style: WidgetStyle, initialConfig?: Record<string, any>) => {
     setIsAddMenuOpen(false);
-    onAddWidget?.({ style, size: 'small' });
+    onAddWidget?.({ style, size: 'small', config: initialConfig });
   };
 
   return (
@@ -726,13 +757,21 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           const widget = item.widget;
           const isWidgetHovered = hoveredWidgetId === widget.id;
 
-          const widgetBg = isWidgetHovered
+          const noteColorConfig = widget.style === 'note'
+            ? NOTE_COLORS.find((c) => c.key === (widget.config as NoteConfig)?.colorTheme) || NOTE_COLORS[0]
+            : null;
+
+          const widgetBg = noteColorConfig
+            ? (shelfTheme.isDark ? noteColorConfig.bgDark : noteColorConfig.bgLight)
+            : isWidgetHovered
             ? shelfTheme.actionHoverBg
             : shelfTheme.isDark
             ? 'rgba(255, 255, 255, 0.04)'
             : 'rgba(0, 0, 0, 0.035)';
 
-          const widgetBorder = isWidgetHovered
+          const widgetBorder = noteColorConfig
+            ? (shelfTheme.isDark ? `1px solid ${noteColorConfig.borderDark}` : `1px solid ${noteColorConfig.borderLight}`)
+            : isWidgetHovered
             ? `1px solid ${shelfTheme.primaryColor}`
             : shelfTheme.isDark
             ? '1px solid rgba(255, 255, 255, 0.07)'
@@ -747,7 +786,21 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               ? 'Digital Clock Widget'
               : widget.style === 'analog'
               ? 'Analog Clock Widget'
-              : 'Date & Time Widget';
+              : widget.style === 'combo'
+              ? 'Date & Time Widget'
+              : widget.style === 'pomodoro'
+              ? 'Pomodoro Timer (Click to open)'
+              : widget.style === 'countdown'
+              ? 'Countdown Timer (Click to open)'
+              : widget.style === 'note'
+              ? 'Sticky Note (Click to edit)'
+              : widget.style === 'weather'
+              ? 'Weather & Temperature (Click to open)'
+              : widget.style === 'search'
+              ? 'Quick Search (Click to search)'
+              : 'Widget';
+
+          const isInteractiveWidget = ['pomodoro', 'countdown', 'note', 'weather', 'search'].includes(widget.style);
 
           return (
             <div
@@ -760,6 +813,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               onDragEnd={handleDragEnd}
               onMouseEnter={() => setHoveredWidgetId(widget.id)}
               onMouseLeave={() => setHoveredWidgetId(null)}
+              onClick={(e) => {
+                if (isInteractiveWidget) {
+                  e.stopPropagation();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setActiveWidgetPopover({
+                    id: widget.id,
+                    anchorRect: rect,
+                  });
+                }
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -776,7 +839,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   ? `3px solid ${shelfTheme.primaryColor}`
                   : undefined,
                 borderRadius: '14px',
-                cursor: 'grab',
+                cursor: isInteractiveWidget ? 'pointer' : 'grab',
                 transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
                 position: 'relative',
                 userSelect: 'none',
@@ -1083,6 +1146,371 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* 5. Pomodoro Widget */}
+              {widget.style === 'pomodoro' && (() => {
+                const pomoConfig = (widget.config as PomodoroConfig) || {};
+                const isRunning = Boolean(pomoConfig.isRunning);
+                const mode = pomoConfig.mode || 'work';
+                const defaultSeconds = (mode === 'work' ? (pomoConfig.workMinutes ?? 25) : (pomoConfig.breakMinutes ?? 5)) * 60;
+                let remaining = pomoConfig.remainingSeconds ?? defaultSeconds;
+                if (isRunning && pomoConfig.targetTimestamp) {
+                  remaining = Math.max(0, Math.ceil((pomoConfig.targetTimestamp - now.getTime()) / 1000));
+                }
+                const min = Math.floor(remaining / 60);
+                const sec = remaining % 60;
+                const timeStr = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+                const accentColor = mode === 'work' ? '#ef4444' : '#10b981';
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      width: '100%',
+                      userSelect: 'none',
+                      padding: '4px 2px',
+                      boxSizing: 'border-box',
+                      gap: '2px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <span style={{ fontSize: '11px', lineHeight: 1 }}>{mode === 'work' ? '🍅' : '☕'}</span>
+                      {isRunning && (
+                        <div
+                          style={{
+                            width: '4px',
+                            height: '4px',
+                            borderRadius: '999px',
+                            backgroundColor: accentColor,
+                            boxShadow: `0 0 4px ${accentColor}`,
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        letterSpacing: '-0.3px',
+                        color: isRunning ? accentColor : shelfTheme.textColor,
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {timeStr}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 700,
+                        color: accentColor,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        opacity: 0.9,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {mode === 'work' ? 'Focus' : 'Break'}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 6. Countdown Widget */}
+              {widget.style === 'countdown' && (() => {
+                const countConfig = (widget.config as CountdownConfig) || {};
+                const targetStr = countConfig.targetDate;
+                const title = countConfig.title || 'Event';
+
+                let displayNum = '--';
+                let displayUnit = '';
+                if (targetStr) {
+                  const diffMs = Math.max(0, new Date(targetStr).getTime() - now.getTime());
+                  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                  const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+                  if (diffMs <= 0) {
+                    displayNum = '🎉';
+                    displayUnit = 'Done';
+                  } else if (days > 0) {
+                    displayNum = `${days}d`;
+                    displayUnit = `${hours}h left`;
+                  } else if (hours > 0) {
+                    displayNum = `${hours}h`;
+                    displayUnit = `${mins}m left`;
+                  } else {
+                    displayNum = `${mins}m`;
+                    displayUnit = 'left';
+                  }
+                }
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      width: '100%',
+                      userSelect: 'none',
+                      padding: '4px 3px',
+                      boxSizing: 'border-box',
+                      gap: '2px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 700,
+                        color: shelfTheme.primaryColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        maxWidth: '48px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {title}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '13.5px',
+                        fontWeight: 800,
+                        letterSpacing: '-0.3px',
+                        color: shelfTheme.textColor,
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {displayNum}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '8px',
+                        color: shelfTheme.subtextColor,
+                        opacity: 0.75,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {displayUnit || 'Set date'}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 7. Sticky Note Widget */}
+              {widget.style === 'note' && (() => {
+                const noteConfig = (widget.config as NoteConfig) || {};
+                const text = noteConfig.text || '';
+                const lines = text.split('\n').filter((l) => l.trim().length > 0);
+                const firstLine = lines[0] || '';
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      justifyContent: text ? 'flex-start' : 'center',
+                      height: '100%',
+                      width: '100%',
+                      userSelect: 'none',
+                      padding: '6px 5px',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {text ? (
+                      <>
+                        <div
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            lineHeight: 1.25,
+                            maxHeight: '34px',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                            color: shelfTheme.isDark ? '#f1f5f9' : '#1e293b',
+                          }}
+                        >
+                          {firstLine}
+                        </div>
+                        {lines[1] && (
+                          <div
+                            style={{
+                              fontSize: '8px',
+                              opacity: 0.7,
+                              lineHeight: 1.2,
+                              maxHeight: '12px',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              color: shelfTheme.isDark ? '#cbd5e1' : '#475569',
+                            }}
+                          >
+                            {lines[1]}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '100%',
+                          gap: '2px',
+                        }}
+                      >
+                        <span style={{ fontSize: '14px', lineHeight: 1 }}>📝</span>
+                        <span
+                          style={{
+                            fontSize: '8.5px',
+                            fontWeight: 600,
+                            opacity: 0.7,
+                            color: shelfTheme.isDark ? '#e2e8f0' : '#475569',
+                          }}
+                        >
+                          + Note
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 8. Weather Widget */}
+              {widget.style === 'weather' && (() => {
+                const weatherConfig = (widget.config as WeatherConfig) || {};
+                const temp = weatherConfig.cachedTemp;
+                const code = weatherConfig.cachedCode;
+                const unit = (weatherConfig.tempUnit || 'c').toUpperCase();
+                const { emoji } = getWeatherInterpretation(code ?? 0);
+                const city = weatherConfig.city || 'Weather';
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      width: '100%',
+                      userSelect: 'none',
+                      padding: '4px 2px',
+                      boxSizing: 'border-box',
+                      gap: '2px',
+                    }}
+                  >
+                    <span style={{ fontSize: '15px', lineHeight: 1 }}>{emoji}</span>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        letterSpacing: '-0.3px',
+                        color: shelfTheme.textColor,
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {temp !== undefined ? `${temp}°${unit}` : '--°'}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '8px',
+                        fontWeight: 600,
+                        color: shelfTheme.subtextColor,
+                        maxWidth: '48px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {city}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 9. Quick Search Widget */}
+              {widget.style === 'search' && (() => {
+                const searchConfig = (widget.config as SearchConfig) || {};
+                const engine = searchConfig.engine || 'google';
+                const engineIcon =
+                  engine === 'google'
+                    ? '🔍'
+                    : engine === 'perplexity'
+                    ? '⚡'
+                    : engine === 'duckduckgo'
+                    ? '🦆'
+                    : engine === 'bing'
+                    ? '🌐'
+                    : '⚙️';
+                const engineName =
+                  engine === 'google'
+                    ? 'Google'
+                    : engine === 'perplexity'
+                    ? 'Perplexity'
+                    : engine === 'duckduckgo'
+                    ? 'DuckDuckGo'
+                    : engine === 'bing'
+                    ? 'Bing'
+                    : 'Search';
+
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      width: '100%',
+                      userSelect: 'none',
+                      padding: '4px 2px',
+                      boxSizing: 'border-box',
+                      gap: '3px',
+                    }}
+                  >
+                    <span style={{ fontSize: '15px', lineHeight: 1 }}>{engineIcon}</span>
+                    <div
+                      style={{
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        color: shelfTheme.textColor,
+                        maxWidth: '48px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {engineName}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: '7.5px',
+                        fontWeight: 600,
+                        color: shelfTheme.primaryColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        lineHeight: 1,
+                      }}
+                    >
+                      Quick
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
@@ -1341,9 +1769,246 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             <CalendarIcon size={14} color={shelfTheme.primaryColor} />
             <span>Date & Time</span>
           </button>
+
+          {/* 6. Pomodoro Timer */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('pomodoro', { workMinutes: 25, breakMinutes: 5, mode: 'work' })}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <span style={{ fontSize: '13px', lineHeight: 1 }}>🍅</span>
+            <span>Pomodoro Timer</span>
+          </button>
+
+          {/* 7. Countdown Timer */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('countdown', { title: 'My Event' })}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <HourglassIcon size={14} color="#6366f1" />
+            <span>Countdown</span>
+          </button>
+
+          {/* 8. Sticky Note */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('note', { colorTheme: 'yellow', text: '' })}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <StickyNoteIcon size={14} color="#f59e0b" />
+            <span>Sticky Note</span>
+          </button>
+
+          {/* 9. Weather & Temperature */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('weather', { city: 'London', tempUnit: 'c' })}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <CloudSunIcon size={14} color="#0284c7" />
+            <span>Weather & Temp</span>
+          </button>
+
+          {/* 10. Quick Search */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('search', { engine: 'google' })}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <SearchIcon size={14} color="#10b981" />
+            <span>Quick Search</span>
+          </button>
         </div>,
         document.body
       )}
+
+      {/* Active Widget Popover */}
+      {activeWidgetPopover && (() => {
+        const targetWidget = widgets.find((w) => w.id === activeWidgetPopover.id);
+        if (!targetWidget) return null;
+
+        const handleClose = () => setActiveWidgetPopover(null);
+        const handleUpdate = (cfg: Record<string, any>) => {
+          onUpdateWidget?.(targetWidget.id, { config: cfg });
+        };
+
+        switch (targetWidget.style) {
+          case 'pomodoro':
+            return (
+              <PomodoroPopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
+                theme={shelfTheme}
+              />
+            );
+          case 'countdown':
+            return (
+              <CountdownPopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
+                theme={shelfTheme}
+              />
+            );
+          case 'note':
+            return (
+              <StickyNotePopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
+                theme={shelfTheme}
+              />
+            );
+          case 'weather':
+            return (
+              <WeatherPopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
+                theme={shelfTheme}
+              />
+            );
+          case 'search':
+            return (
+              <QuickSearchPopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
+                onOpenTab={onOpenTab}
+                theme={shelfTheme}
+              />
+            );
+          default:
+            return null;
+        }
+      })()}
     </div>
   );
 };
