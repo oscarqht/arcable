@@ -38,11 +38,24 @@ export interface Space {
   updatedAt?: number;
 }
 
+export type WidgetStyle = 'digital' | 'calendar' | 'analog' | 'combo';
+export type WidgetSize = 'small' | 'medium' | 'large';
+
+export interface WorkspaceWidget {
+  id: string;
+  style: WidgetStyle;
+  size: WidgetSize;
+  order?: number;          // Optional: custom sorting order
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface ArcableWorkspaceData {
   spaces: Space[];
   folders: Folder[];
   tabs: Tab[];
   tmpTabs?: TmpTab[];
+  widgets?: WorkspaceWidget[];
   customCodeRules?: CustomCodeRule[];
   runCodeInPageRules?: RunCodeRule[];
   activeSpaceId: string;

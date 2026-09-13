@@ -12,6 +12,7 @@ export * from './workspace/TabRow';
 export * from './workspace/FolderItem';
 export * from './workspace/PinnedTabsShelf';
 export * from './workspace/FavouriteTabsShelf';
+export * from './workspace/WidgetsSection';
 export * from './workspace/SpaceCard';
 export * from './workspace/WorkspaceManager';
 export * from './EmojiPicker';

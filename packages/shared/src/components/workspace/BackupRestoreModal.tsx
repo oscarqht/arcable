@@ -742,7 +742,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                 maxWidth: '380px',
               }}
             >
-              Restoring will <strong style={{ color: isDark ? '#f87171' : '#dc2626' }}>override both local data and remote cloud data (data-v2.json.txt)</strong> in your Raindrop "Arcable" collection.
+              Restoring will <strong style={{ color: isDark ? '#f87171' : '#dc2626' }}>override both local data and remote cloud data (data-v3.json.txt)</strong> in your Raindrop "Arcable" collection.
             </p>
 
             <div

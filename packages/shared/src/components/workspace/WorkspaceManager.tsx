@@ -18,6 +18,7 @@ import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
+import { WidgetsSection } from './WidgetsSection';
 import { RaindropSearchInput } from './RaindropSearchInput';
 import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
@@ -59,6 +60,8 @@ export interface WorkspaceManagerProps {
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
+  /** Renders the pinned date & time widgets section at the top (sidepanel). */
+  showWidgets?: boolean;
   alwaysShowActions?: boolean;
   headerTitle?: string;
   showJsonInspector?: boolean;
@@ -105,6 +108,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onOpenTab,
       onCaptureCurrentTab,
       compact = false,
+      showWidgets = false,
       alwaysShowActions = false,
       headerTitle = 'Arcable Workspace',
       showJsonInspector = true,
@@ -175,6 +179,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     favouriteTabs,
     updateTmpTab,
     deleteTmpTab,
+    widgets,
+    addWidget,
+    removeWidget,
+    reorderWidget,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -1333,6 +1341,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }}
     >
 
+
+      {/* Pinned Date & Time Widgets Section (sidepanel only, stays pinned above the scrolling content) */}
+      {showWidgets && (
+        <div
+          style={{
+            // Bleed over the sidepanel container's 12px padding so the frosted band spans edge-to-edge,
+            // and stick to the top of the scroll container while the rest of the panel scrolls.
+            position: 'sticky',
+            // -12px compensates the negative top margin so the band pins flush with the scrollport top
+            top: compact ? '-12px' : 0,
+            zIndex: 35,
+            margin: compact ? '-12px -12px 0 -12px' : undefined,
+          }}
+        >
+          <WidgetsSection
+            widgets={widgets}
+            themeStyles={activeSpaceTheme}
+            onAddWidget={addWidget}
+            onRemoveWidget={removeWidget}
+            onReorderWidget={reorderWidget}
+          />
+        </div>
+      )}
 
       {/* Global Favourite Tabs Shelf */}
       <FavouriteTabsShelf

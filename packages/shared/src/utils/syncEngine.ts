@@ -1,4 +1,4 @@
-import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab, CustomCodeRule, RunCodeRule } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 import { getDescendantFolderIds } from './treeUtils';
@@ -354,6 +354,7 @@ export function applyOperation(
     folders: [...state.folders],
     tabs: [...state.tabs],
     tmpTabs: [...(state.tmpTabs || [])],
+    widgets: [...(state.widgets || [])],
     customCodeRules: [...(state.customCodeRules || [])],
     runCodeInPageRules: [...(state.runCodeInPageRules || [])],
     activeSpaceId: state.activeSpaceId,
@@ -616,6 +617,46 @@ export function applyOperation(
       break;
     }
 
+    // ================= Widget Operations =================
+    case 'WIDGET_CREATE': {
+      const widgets = cloned.widgets || (cloned.widgets = []);
+      const existingIdx = widgets.findIndex((w) => w.id === op.entityId);
+      const widgetData: WorkspaceWidget = {
+        id: op.entityId,
+        style: op.payload?.style || 'digital',
+        size: op.payload?.size || 'medium',
+        order: op.payload?.order !== undefined ? op.payload.order : undefined,
+        createdAt: op.payload?.createdAt || op.timestamp,
+        updatedAt: op.timestamp,
+      };
+
+      if (existingIdx >= 0) {
+        widgets[existingIdx] = { ...widgets[existingIdx], ...widgetData };
+      } else {
+        widgets.push(widgetData);
+      }
+      break;
+    }
+
+    case 'WIDGET_UPDATE': {
+      const widgets = cloned.widgets || (cloned.widgets = []);
+      const existingIdx = widgets.findIndex((w) => w.id === op.entityId);
+      if (existingIdx >= 0) {
+        widgets[existingIdx] = {
+          ...widgets[existingIdx],
+          ...op.payload,
+          updatedAt: op.timestamp,
+        };
+      }
+      break;
+    }
+
+    case 'WIDGET_DELETE': {
+      const widgets = cloned.widgets || (cloned.widgets = []);
+      cloned.widgets = widgets.filter((w) => w.id !== op.entityId);
+      break;
+    }
+
     // ================= Custom Code Operations =================
     case 'CUSTOM_CODE_CREATE': {
       const rules = cloned.customCodeRules || (cloned.customCodeRules = []);
@@ -737,6 +778,7 @@ export function replayOperations(
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],
     tmpTabs: [...(baseline.tmpTabs || [])],
+    widgets: [...(baseline.widgets || [])],
     customCodeRules: [...(baseline.customCodeRules || [])],
     runCodeInPageRules: [...(baseline.runCodeInPageRules || [])],
     activeSpaceId: baseline.activeSpaceId,
@@ -831,6 +873,18 @@ export function replayOperations(
     );
   } else {
     state.tmpTabs = [];
+  }
+
+  // Deterministic sort for widgets (order, then createdAt, then id)
+  if (state.widgets && state.widgets.length > 0) {
+    state.widgets = [...state.widgets].sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+      const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.id.localeCompare(b.id);
+    });
+  } else {
+    state.widgets = [];
   }
 
   // Deterministic sort for custom code and run code rules
@@ -1194,6 +1248,7 @@ export function createInitialSyncFile(
     baselineSnapshot: {
       ...initialState,
       tmpTabs: initialState.tmpTabs || [],
+      widgets: initialState.widgets || [],
       customCodeRules: initialState.customCodeRules || [],
       runCodeInPageRules: initialState.runCodeInPageRules || [],
     },

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem } from '../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -59,6 +59,15 @@ export function removeLocalFolderExpanded(folderId: string): void {
 
 export function getSortedSpaces(spaces: Space[]): Space[] {
   return [...spaces].sort((a, b) => {
+    const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+    const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function getSortedWidgets(widgets: WorkspaceWidget[]): WorkspaceWidget[] {
+  return [...widgets].sort((a, b) => {
     const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
     const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
     if (orderA !== orderB) return orderA - orderB;
@@ -257,6 +266,7 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
     },
   ],
   tmpTabs: [],
+  widgets: [],
   customCodeRules: [],
   runCodeInPageRules: [],
 };
@@ -302,6 +312,7 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       }),
       tabs: parsed.tabs || [],
       tmpTabs: parsed.tmpTabs || [],
+      widgets: parsed.widgets || [],
       customCodeRules: parsed.customCodeRules || [],
       runCodeInPageRules: parsed.runCodeInPageRules || [],
       activeSpaceId: resolvedActiveSpaceId,
@@ -1115,6 +1126,85 @@ export function useWorkspace() {
     return savedTab;
   }, [activeSpace, createTab, deleteTmpTab]);
 
+  // ================= Widget Operations =================
+  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size: WidgetSize }) => {
+    const existing = data.widgets || [];
+    const maxOrder = existing.reduce(
+      (max, w) => Math.max(max, w.order !== undefined ? w.order : w.createdAt || 0),
+      0
+    );
+
+    const newWidget: WorkspaceWidget = {
+      id: generateId('widget'),
+      style: widgetInput.style,
+      size: widgetInput.size,
+      order: maxOrder + 1000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    savePendingOperation(createWorkspaceOperation('WIDGET_CREATE', newWidget.id, newWidget));
+
+    saveWorkspaceData((prev) => {
+      if ((prev.widgets || []).some((w) => w.id === newWidget.id)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        widgets: [...(prev.widgets || []), newWidget],
+      };
+    });
+
+    return newWidget;
+  }, [data.widgets, saveWorkspaceData]);
+
+  const removeWidget = useCallback((id: string) => {
+    savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', id));
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      widgets: (prev.widgets || []).filter((w) => w.id !== id),
+    }));
+  }, [saveWorkspaceData]);
+
+  // Reorders a widget before the target widget; when targetId is omitted, moves it to the end.
+  const reorderWidget = useCallback((sourceId: string, targetId?: string) => {
+    if (sourceId === targetId) return;
+
+    const sorted = getSortedWidgets(data.widgets || []);
+    const sourceIdx = sorted.findIndex((w) => w.id === sourceId);
+    if (sourceIdx < 0) return;
+
+    const [moved] = sorted.splice(sourceIdx, 1);
+    if (targetId) {
+      const targetIdx = sorted.findIndex((w) => w.id === targetId);
+      if (targetIdx < 0) return;
+      sorted.splice(targetIdx, 0, moved);
+    } else {
+      sorted.push(moved);
+    }
+
+    const reindexed = sorted.map((w, idx) => ({
+      ...w,
+      order: (idx + 1) * 1000,
+      updatedAt: w.id === sourceId ? Date.now() : w.updatedAt,
+    }));
+
+    reindexed.forEach((w) => {
+      const oldWidget = (data.widgets || []).find((orig) => orig.id === w.id);
+      if (oldWidget && oldWidget.order !== w.order) {
+        savePendingOperation(
+          createWorkspaceOperation('WIDGET_UPDATE', w.id, { order: w.order })
+        );
+      }
+    });
+
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      widgets: reindexed,
+    }));
+  }, [data.widgets, saveWorkspaceData]);
+
   // ================= Reordering Operations =================
   const reorderSpaces = useCallback(
     (sourceSpaceId: string, targetSpaceId: string, position: 'before' | 'after') => {
@@ -1677,6 +1767,7 @@ export function useWorkspace() {
           folders: mergedFolders,
           tabs: resolvedSnapshot.tabs || [],
           tmpTabs: filteredTmpTabs,
+          widgets: resolvedSnapshot.widgets || prev.widgets || [],
           customCodeRules: resolvedSnapshot.customCodeRules || prev.customCodeRules || [],
           runCodeInPageRules: resolvedSnapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
           activeSpaceId: activeSpaceStillExists
@@ -1741,6 +1832,7 @@ export function useWorkspace() {
           folders: mergedFolders,
           tabs: imported.tabs || [],
           tmpTabs: imported.tmpTabs || prev.tmpTabs || [],
+          widgets: imported.widgets || prev.widgets || [],
           customCodeRules: imported.customCodeRules || prev.customCodeRules || [],
           runCodeInPageRules: imported.runCodeInPageRules || prev.runCodeInPageRules || [],
           activeSpaceId: activeSpaceStillExists
@@ -1758,6 +1850,12 @@ export function useWorkspace() {
   const favouriteTabs = useMemo(
     () => getSortedTabs(data.tabs.filter((t) => Boolean(t.favourite))),
     [data.tabs]
+  );
+
+  // Global widgets (visible across all spaces, sorted)
+  const widgets = useMemo(
+    () => getSortedWidgets(data.widgets || []),
+    [data.widgets]
   );
 
   // Helpers for filtering items by active space
@@ -1833,6 +1931,11 @@ export function useWorkspace() {
     updateTmpTab,
     deleteTmpTab,
     promoteTmpTab,
+    // Widget operations
+    widgets,
+    addWidget,
+    removeWidget,
+    reorderWidget,
     // Sibling reordering
     reorderSiblingItem,
     moveSiblingItem,
