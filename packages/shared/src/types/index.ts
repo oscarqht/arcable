@@ -40,10 +40,12 @@ export type ExtensionMessageType =
   | 'RAINDROP_DELETE_OTHER_DEVICES'
   | 'RAINDROP_CREATE_BACKUP'
   | 'RAINDROP_LIST_BACKUPS'
-  | 'RAINDROP_RESTORE_BACKUP';
+  | 'RAINDROP_RESTORE_BACKUP'
+  | 'INJECT_CUSTOM_JS'
+  | 'RUN_CODE_IN_PAGE_EXECUTE';
 
 export interface ExtensionMessage<T = unknown> {
-  type: ExtensionMessageType;
+  type: ExtensionMessageType | string;
   payload?: T;
   source?: PlatformType;
 }
@@ -58,4 +60,5 @@ export * from './raindrop';
 export * from './workspace';
 export * from './sync';
 export * from './tabTracker';
+export * from './customCode';
 

@@ -1,7 +1,8 @@
-import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 import { getDescendantFolderIds } from './treeUtils';
+import { sortCustomCodeRules, sortRunCodeRules } from './customCodeUtils';
 
 export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
 export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (device registry retention)
@@ -353,6 +354,8 @@ export function applyOperation(
     folders: [...state.folders],
     tabs: [...state.tabs],
     tmpTabs: [...(state.tmpTabs || [])],
+    customCodeRules: [...(state.customCodeRules || [])],
+    runCodeInPageRules: [...(state.runCodeInPageRules || [])],
     activeSpaceId: state.activeSpaceId,
     version: (state.version || 1) + 1,
   };
@@ -612,6 +615,90 @@ export function applyOperation(
       cloned.tmpTabs = tmpTabs.filter((t) => t.id !== op.entityId);
       break;
     }
+
+    // ================= Custom Code Operations =================
+    case 'CUSTOM_CODE_CREATE': {
+      const rules = cloned.customCodeRules || (cloned.customCodeRules = []);
+      const existingIdx = rules.findIndex((r) => r.id === op.entityId);
+      const ruleData: CustomCodeRule = {
+        id: op.entityId,
+        pattern: op.payload?.pattern || '*://*/*',
+        css: typeof op.payload?.css === 'string' ? op.payload.css : '',
+        js: typeof op.payload?.js === 'string' ? op.payload.js : '',
+        disabled: Boolean(op.payload?.disabled),
+        createdAt: op.payload?.createdAt || new Date(op.timestamp).toISOString(),
+        updatedAt: new Date(op.timestamp).toISOString(),
+      };
+
+      if (existingIdx >= 0) {
+        rules[existingIdx] = { ...rules[existingIdx], ...ruleData };
+      } else {
+        rules.push(ruleData);
+      }
+      break;
+    }
+
+    case 'CUSTOM_CODE_UPDATE': {
+      const rules = cloned.customCodeRules || (cloned.customCodeRules = []);
+      const existingIdx = rules.findIndex((r) => r.id === op.entityId);
+      if (existingIdx >= 0) {
+        const current = rules[existingIdx];
+        rules[existingIdx] = {
+          ...current,
+          ...op.payload,
+          updatedAt: new Date(op.timestamp).toISOString(),
+        };
+      }
+      break;
+    }
+
+    case 'CUSTOM_CODE_DELETE': {
+      const rules = cloned.customCodeRules || (cloned.customCodeRules = []);
+      cloned.customCodeRules = rules.filter((r) => r.id !== op.entityId);
+      break;
+    }
+
+    // ================= Run Code Operations =================
+    case 'RUN_CODE_CREATE': {
+      const rules = cloned.runCodeInPageRules || (cloned.runCodeInPageRules = []);
+      const existingIdx = rules.findIndex((r) => r.id === op.entityId);
+      const ruleData: RunCodeRule = {
+        id: op.entityId,
+        title: op.payload?.title || 'Untitled Snippet',
+        patterns: Array.isArray(op.payload?.patterns) ? op.payload.patterns : [],
+        code: typeof op.payload?.code === 'string' ? op.payload.code : '',
+        disabled: Boolean(op.payload?.disabled),
+        createdAt: op.payload?.createdAt || new Date(op.timestamp).toISOString(),
+        updatedAt: new Date(op.timestamp).toISOString(),
+      };
+
+      if (existingIdx >= 0) {
+        rules[existingIdx] = { ...rules[existingIdx], ...ruleData };
+      } else {
+        rules.push(ruleData);
+      }
+      break;
+    }
+
+    case 'RUN_CODE_UPDATE': {
+      const rules = cloned.runCodeInPageRules || (cloned.runCodeInPageRules = []);
+      const existingIdx = rules.findIndex((r) => r.id === op.entityId);
+      if (existingIdx >= 0) {
+        const current = rules[existingIdx];
+        rules[existingIdx] = {
+          ...current,
+          ...op.payload,
+          updatedAt: new Date(op.timestamp).toISOString(),
+        };
+      }
+      break;
+    }
+
+    case 'RUN_CODE_DELETE': {
+      const rules = cloned.runCodeInPageRules || (cloned.runCodeInPageRules = []);
+      cloned.runCodeInPageRules = rules.filter((r) => r.id !== op.entityId);
+      break;
+    }
   }
 
   return cloned;
@@ -650,6 +737,8 @@ export function replayOperations(
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],
     tmpTabs: [...(baseline.tmpTabs || [])],
+    customCodeRules: [...(baseline.customCodeRules || [])],
+    runCodeInPageRules: [...(baseline.runCodeInPageRules || [])],
     activeSpaceId: baseline.activeSpaceId,
     version: baseline.version || 1,
   };
@@ -742,6 +831,19 @@ export function replayOperations(
     );
   } else {
     state.tmpTabs = [];
+  }
+
+  // Deterministic sort for custom code and run code rules
+  if (state.customCodeRules && state.customCodeRules.length > 0) {
+    state.customCodeRules = sortCustomCodeRules(state.customCodeRules);
+  } else {
+    state.customCodeRules = [];
+  }
+
+  if (state.runCodeInPageRules && state.runCodeInPageRules.length > 0) {
+    state.runCodeInPageRules = sortRunCodeRules(state.runCodeInPageRules);
+  } else {
+    state.runCodeInPageRules = [];
   }
 
   return state;
@@ -1092,6 +1194,8 @@ export function createInitialSyncFile(
     baselineSnapshot: {
       ...initialState,
       tmpTabs: initialState.tmpTabs || [],
+      customCodeRules: initialState.customCodeRules || [],
+      runCodeInPageRules: initialState.runCodeInPageRules || [],
     },
     operations: [],
   };

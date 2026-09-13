@@ -5,3 +5,4 @@ export * from './raindropSync';
 export * from './treeUtils';
 export * from './dragState';
 export * from './spaceTheme';
+export * from './customCodeUtils';

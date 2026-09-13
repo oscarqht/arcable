@@ -12,7 +12,13 @@ export type OperationType =
   | 'TAB_DELETE'
   | 'TMP_TAB_CREATE'
   | 'TMP_TAB_UPDATE'
-  | 'TMP_TAB_DELETE';
+  | 'TMP_TAB_DELETE'
+  | 'CUSTOM_CODE_CREATE'
+  | 'CUSTOM_CODE_UPDATE'
+  | 'CUSTOM_CODE_DELETE'
+  | 'RUN_CODE_CREATE'
+  | 'RUN_CODE_UPDATE'
+  | 'RUN_CODE_DELETE';
 
 export interface WorkspaceOperation {
   id: string;              // Unique operation ID (e.g. op_1700000000_abc)

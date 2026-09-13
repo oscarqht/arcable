@@ -257,6 +257,8 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
     },
   ],
   tmpTabs: [],
+  customCodeRules: [],
+  runCodeInPageRules: [],
 };
 
 function readWorkspaceFromStorage(): ArcableWorkspaceData {
@@ -300,6 +302,8 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       }),
       tabs: parsed.tabs || [],
       tmpTabs: parsed.tmpTabs || [],
+      customCodeRules: parsed.customCodeRules || [],
+      runCodeInPageRules: parsed.runCodeInPageRules || [],
       activeSpaceId: resolvedActiveSpaceId,
       version: parsed.version || 1,
     };
@@ -1640,6 +1644,8 @@ export function useWorkspace() {
           folders: mergedFolders,
           tabs: resolvedSnapshot.tabs || [],
           tmpTabs: resolvedSnapshot.tmpTabs || [],
+          customCodeRules: resolvedSnapshot.customCodeRules || prev.customCodeRules || [],
+          runCodeInPageRules: resolvedSnapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : (getSortedSpaces(resolvedSnapshot.spaces)[0]?.id || 'space_personal'),
@@ -1701,6 +1707,9 @@ export function useWorkspace() {
           spaces: imported.spaces,
           folders: mergedFolders,
           tabs: imported.tabs || [],
+          tmpTabs: imported.tmpTabs || prev.tmpTabs || [],
+          customCodeRules: imported.customCodeRules || prev.customCodeRules || [],
+          runCodeInPageRules: imported.runCodeInPageRules || prev.runCodeInPageRules || [],
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : imported.spaces[0].id,

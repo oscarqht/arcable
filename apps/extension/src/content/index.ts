@@ -1,6 +1,16 @@
 import browser from 'webextension-polyfill';
+import { initCustomCodeInjector } from './custom-js-css';
 
 console.log('[Arcable Extension] Content script loaded on:', window.location.href);
+
+// Initialize Custom JS & CSS automatic injector for matching sites
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    initCustomCodeInjector();
+  });
+} else {
+  initCustomCodeInjector();
+}
 
 function executeMediaAction(action: 'prev' | 'next' | 'playPause' | 'play' | 'pause'): boolean {
   const host = window.location.hostname.toLowerCase();

@@ -17,13 +17,20 @@ import {
   getStoredDeviceName,
   setStoredDeviceName,
   formatDate,
+  extractRulesFromNenyaExport,
+  mergeCustomCodeRules,
+  mergeRunCodeRules,
+  createWorkspaceOperation,
 } from '@arcable/shared/utils';
+import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely } from '../utils/browser';
+import { CustomCodeTab } from './components/CustomCodeTab';
+import { RunCodeTab } from './components/RunCodeTab';
 import packageJson from '../../package.json';
 
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
 
-type OptionsTab = 'sync' | 'device' | 'about';
+type OptionsTab = 'sync' | 'device' | 'custom-code' | 'run-code' | 'about';
 
 interface ToastInfo {
   message: string;
@@ -54,6 +61,9 @@ export const App: React.FC = () => {
   // Toast feedback
   const [toast, setToast] = useState<ToastInfo | null>(null);
 
+  // Custom code prefill pattern (from popup/sidepanel quick trigger)
+  const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
+
   const showToast = useCallback((message: string, type: 'info' | 'success' | 'warning' = 'success') => {
     setToast({ message, type });
     setTimeout(() => {
@@ -62,6 +72,15 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Check for prefill URL (e.g. from "Customize this site" action)
+    browser.storage.local.get('customCodePrefillUrl').then((res: any) => {
+      if (res.customCodePrefillUrl) {
+        setActiveTab('custom-code');
+        setInitialCustomCodePattern(res.customCodePrefillUrl);
+        void browser.storage.local.remove('customCodePrefillUrl');
+      }
+    });
+
     // 1. Load Raindrop auth state
     fetchAuthState();
 
@@ -243,6 +262,75 @@ export const App: React.FC = () => {
     }
   };
 
+  const fileInputNenyaRef = React.useRef<HTMLInputElement>(null);
+
+  const handleGlobalNenyaImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = String(event.target?.result || '');
+        const parsed = JSON.parse(text);
+        const { customCodeRules: extractedCustom, runCodeRules: extractedRun } =
+          extractRulesFromNenyaExport(parsed);
+
+        if (extractedCustom.length === 0 && extractedRun.length === 0) {
+          showToast('No valid Custom JS/CSS or Run Code rules found in Nenya file.', 'warning');
+          return;
+        }
+
+        let customAdded = 0;
+        let runAdded = 0;
+        const opsToQueue: WorkspaceOperation[] = [];
+
+        if (extractedCustom.length > 0) {
+          const stored = await browser.storage.local.get('customCodeRules');
+          const existing = (stored.customCodeRules as any[]) || [];
+          const { merged, addedCount, addedRules } = mergeCustomCodeRules(existing, extractedCustom);
+          await browser.storage.local.set({ customCodeRules: merged });
+          customAdded = addedCount;
+          for (const r of addedRules) {
+            opsToQueue.push(createWorkspaceOperation('CUSTOM_CODE_CREATE', r.id, r));
+          }
+        }
+
+        if (extractedRun.length > 0) {
+          const storedRun = await browser.storage.local.get('runCodeInPageRules');
+          const existingRun = (storedRun.runCodeInPageRules as any[]) || [];
+          const { merged: mergedRun, addedCount, addedRules } = mergeRunCodeRules(existingRun, extractedRun);
+          await browser.storage.local.set({ runCodeInPageRules: mergedRun });
+          runAdded = addedCount;
+          for (const r of addedRules) {
+            opsToQueue.push(createWorkspaceOperation('RUN_CODE_CREATE', r.id, r));
+          }
+        }
+
+        if (opsToQueue.length > 0) {
+          try {
+            const curStored = await browser.storage.local.get('arcable_pending_ops');
+            const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
+            curOps.push(...opsToQueue);
+            await browser.storage.local.set({ arcable_pending_ops: curOps });
+          } catch (e) {
+            console.warn('Failed to queue Nenya import operations:', e);
+          }
+        }
+
+        showToast(
+          `Imported from Nenya: ${customAdded} Custom JS/CSS rule(s), ${runAdded} Run Code snippet(s)!`,
+          'success'
+        );
+      } catch (err: any) {
+        showToast(`Nenya import failed: ${err.message}`, 'warning');
+      } finally {
+        if (fileInputNenyaRef.current) fileInputNenyaRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleClearCache = async () => {
     if (window.confirm('Are you sure you want to clear extension cache? Your cloud bookmarks in Raindrop will remain safe.')) {
       await browser.storage.local.remove(['arcable_items', 'arcable_workspace_snapshot', 'arcable_pending_ops']);
@@ -346,6 +434,28 @@ export const App: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="file"
+              ref={fileInputNenyaRef}
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={handleGlobalNenyaImport}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputNenyaRef.current?.click()}
+              title="Import custom code rules and snippets from a full Nenya export JSON file"
+              style={{
+                borderRadius: '8px',
+                padding: '6px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              📥 Import from Nenya JSON
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -378,6 +488,8 @@ export const App: React.FC = () => {
           {[
             { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
             { id: 'device', label: 'Device & Identity', icon: '💻' },
+            { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
+            { id: 'run-code', label: 'Run Code', icon: '⚡' },
             { id: 'about', label: 'About', icon: 'ℹ️' },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
@@ -602,7 +714,25 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: ABOUT */}
+        {/* TAB 3: CUSTOM JS & CSS */}
+        {activeTab === 'custom-code' && (
+          <CustomCodeTab
+            isDark={isDark}
+            showToast={showToast}
+            initialPattern={initialCustomCodePattern}
+            onClearInitialPattern={() => setInitialCustomCodePattern(undefined)}
+          />
+        )}
+
+        {/* TAB 4: RUN CODE IN PAGE */}
+        {activeTab === 'run-code' && (
+          <RunCodeTab
+            isDark={isDark}
+            showToast={showToast}
+          />
+        )}
+
+        {/* TAB 5: ABOUT */}
         {activeTab === 'about' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <Card

@@ -290,6 +290,8 @@ export async function syncWorkspaceWithRaindrop(
       folders: [],
       tabs: [],
       tmpTabs: [],
+      customCodeRules: [],
+      runCodeInPageRules: [],
     };
 
     // 2. Fetch remote sync file & existing items
@@ -428,6 +430,8 @@ export async function renameRaindropDevice(
       folders: [],
       tabs: [],
       tmpTabs: [],
+      customCodeRules: [],
+      runCodeInPageRules: [],
     };
 
     const { syncFile, existingItems } = await fetchRaindropSyncFile(
@@ -511,6 +515,8 @@ export async function deleteRaindropDevice(
       spaces: [],
       folders: [],
       tabs: [],
+      customCodeRules: [],
+      runCodeInPageRules: [],
     };
 
     const { syncFile, existingItems } = await fetchRaindropSyncFile(
@@ -576,6 +582,8 @@ export async function deleteAllOtherRaindropDevices(
       spaces: [],
       folders: [],
       tabs: [],
+      customCodeRules: [],
+      runCodeInPageRules: [],
     };
 
     const { syncFile, existingItems } = await fetchRaindropSyncFile(

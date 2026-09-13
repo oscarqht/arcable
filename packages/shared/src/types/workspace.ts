@@ -1,3 +1,6 @@
+import { CustomCodeRule, RunCodeRule } from './customCode';
+export type { CustomCodeRule, RunCodeRule };
+
 export interface Tab {
   id: string;
   url: string;
@@ -40,6 +43,8 @@ export interface ArcableWorkspaceData {
   folders: Folder[];
   tabs: Tab[];
   tmpTabs?: TmpTab[];
+  customCodeRules?: CustomCodeRule[];
+  runCodeInPageRules?: RunCodeRule[];
   activeSpaceId: string;
   version?: number;
 }

@@ -22,15 +22,32 @@
     "activeTab",
     "tabs",
     "identity",
-    "alarms"
+    "alarms",
+    "scripting",
+    "contextMenus"
+  ],
+  "optional_permissions": [
+    "userScripts"
   ],
   "host_permissions": [
+    "<all_urls>",
     "https://api.raindrop.io/*",
     "https://raindrop.io/*",
     "https://oh-auth.vercel.app/*",
     "http://localhost:3000/*",
     "https://*.arcable.dev/*",
     "https://cdn.jsdelivr.net/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "libs/*",
+        "src/libs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ],
   "icons": {
     "16": "icons/icon16.png",

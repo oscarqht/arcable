@@ -670,6 +670,25 @@ export const App: React.FC = () => {
       label: 'Backup & Restore',
       icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>💾</span>,
       onClick: () => setIsBackupModalOpen(true),
+      dividerAfter: true,
+    },
+    {
+      id: 'customize-site',
+      label: 'Customize Site (JS/CSS)',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>🎨</span>,
+      onClick: async () => {
+        const tab = await getActiveTab();
+        if (tab?.url) {
+          await browser.storage.local.set({ customCodePrefillUrl: tab.url });
+        }
+        void browser.runtime.openOptionsPage();
+      },
+    },
+    {
+      id: 'run-code',
+      label: 'Run Code in Page...',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>⚡</span>,
+      onClick: () => void browser.runtime.openOptionsPage(),
     },
     {
       id: 'settings',

@@ -7,6 +7,9 @@ import {
   RaindropCreateItemInput,
   ArcableWorkspaceData,
   TmpTab,
+  WorkspaceOperation,
+  CustomCodeRule,
+  RunCodeRule,
 } from '@arcable/shared/types';
 import {
   fetchRaindropUser,
@@ -23,8 +26,23 @@ import {
   fetchRaindropBackups,
   restoreRaindropBackup,
 } from '@arcable/shared/utils';
+import {
+  initRunCodeBackgroundListeners,
+  executeAutomaticCustomCode,
+  runCodeInPageRule,
+  CUSTOM_CODE_STORAGE_KEY,
+  RUN_CODE_IN_PAGE_STORAGE_KEY,
+} from './runCodeRunner';
+import {
+  initContextMenuListeners,
+  getMatchingCodeRules,
+} from './contextMenus';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
+
+// Initialize user scripts and context menu listeners
+initRunCodeBackgroundListeners();
+initContextMenuListeners();
 
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
 const STORAGE_KEY_ITEMS = 'arcable_items';
@@ -136,7 +154,7 @@ async function processOAuthTokens(tokens: {
 
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
-  async (rawMessage: any): Promise<ExtensionResponse> => {
+  async (rawMessage: any, sender: any): Promise<ExtensionResponse> => {
     const message = rawMessage as ExtensionMessage;
 
     // Handle OAuth bridge event from content script
@@ -146,6 +164,49 @@ browser.runtime.onMessage.addListener(
     }
 
     switch (message.type) {
+      case 'INJECT_CUSTOM_JS': {
+        const payload = (message.payload || rawMessage) as { ruleId: string; code: string; tabId?: number };
+        const tabId = payload?.tabId ?? sender?.tab?.id;
+        if (!payload?.code || typeof tabId !== 'number') {
+          return { success: false, error: 'Valid tabId and code are required' };
+        }
+        try {
+          await executeAutomaticCustomCode(tabId, payload.code, `[Arcable CustomCode: ${payload.ruleId}]`);
+          return { success: true };
+        } catch (err: any) {
+          return { success: false, error: err?.message || String(err) };
+        }
+      }
+
+      case 'RUN_CODE_IN_PAGE_EXECUTE': {
+        const payload = (message.payload || rawMessage) as { ruleId: string; tabId?: number };
+        let targetTabId = payload?.tabId;
+        if (typeof targetTabId !== 'number') {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          targetTabId = tabs[0]?.id;
+        }
+        if (typeof targetTabId !== 'number' || !payload?.ruleId) {
+          return { success: false, error: 'Valid tab and ruleId are required' };
+        }
+        try {
+          const result = await runCodeInPageRule(payload.ruleId, targetTabId);
+          return { success: true, data: result };
+        } catch (err: any) {
+          return { success: false, error: err?.message || String(err) };
+        }
+      }
+
+      case 'GET_MATCHING_RUN_CODE_RULES': {
+        const payload = message.payload as { url?: string } | undefined;
+        let targetUrl = payload?.url;
+        if (!targetUrl) {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          targetUrl = tabs[0]?.url;
+        }
+        const matching = targetUrl ? await getMatchingCodeRules(targetUrl) : [];
+        return { success: true, data: matching };
+      }
+
       case 'PING':
         return { success: true, data: 'PONG from Arcable Background' };
 
@@ -390,8 +451,17 @@ browser.runtime.onMessage.addListener(
             arcable_device_name: effectiveDeviceName,
           });
 
-          const stored = await browser.storage.local.get(['arcable_tmp_tabs']);
+          const stored = await browser.storage.local.get([
+            'arcable_tmp_tabs',
+            CUSTOM_CODE_STORAGE_KEY,
+            RUN_CODE_IN_PAGE_STORAGE_KEY,
+            'arcable_pending_ops',
+          ]);
           const localTmp = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+          const localCustomRules = (stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
+          const localRunRules = (stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+          const storedPendingOps = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
+
           const taggedTmp = localTmp.map((t) => ({
             ...t,
             deviceId: t.deviceId || effectiveDeviceId,
@@ -404,8 +474,10 @@ browser.runtime.onMessage.addListener(
             stateToSync = {
               ...stateToSync,
               tmpTabs: taggedTmp.length > 0 ? taggedTmp : (stateToSync.tmpTabs || []),
+              customCodeRules: stateToSync.customCodeRules || localCustomRules,
+              runCodeInPageRules: stateToSync.runCodeInPageRules || localRunRules,
             };
-          } else if (taggedTmp.length > 0) {
+          } else {
             stateToSync = {
               activeSpaceId: 'space_personal',
               version: 1,
@@ -413,14 +485,27 @@ browser.runtime.onMessage.addListener(
               folders: [],
               tabs: [],
               tmpTabs: taggedTmp,
+              customCodeRules: localCustomRules,
+              runCodeInPageRules: localRunRules,
             };
           }
+
+          // Combine payload pending ops with stored pending ops
+          const opMap = new Map<string, WorkspaceOperation>();
+          for (const op of storedPendingOps) {
+            opMap.set(op.id, op);
+          }
+          for (const op of (payload?.pendingOps || [])) {
+            opMap.set(op.id, op);
+          }
+          const combinedPendingOps = Array.from(opMap.values());
+          const syncedOpIds = new Set(combinedPendingOps.map((op) => op.id));
 
           const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
             localState: stateToSync,
             deviceId: effectiveDeviceId,
             deviceName: effectiveDeviceName,
-            pendingOps: payload?.pendingOps,
+            pendingOps: combinedPendingOps,
           });
 
           if (result.success && result.latestSnapshot) {
@@ -452,11 +537,24 @@ browser.runtime.onMessage.addListener(
               await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmp });
             }
 
-            // Cache latest snapshot in extension storage for instant access across popup and sidepanel
-            await browser.storage.local.set({
+            // Cache latest snapshot and custom code rules in extension storage
+            const updates: Record<string, any> = {
               arcable_workspace_snapshot: result.latestSnapshot,
               arcable_last_synced_at: result.syncedAt,
-            });
+            };
+            if (result.latestSnapshot.customCodeRules) {
+              updates[CUSTOM_CODE_STORAGE_KEY] = result.latestSnapshot.customCodeRules;
+            }
+            if (result.latestSnapshot.runCodeInPageRules) {
+              updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
+            }
+            if (syncedOpIds.size > 0) {
+              const curStored = await browser.storage.local.get('arcable_pending_ops');
+              const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
+              updates.arcable_pending_ops = curOps.filter((op) => !syncedOpIds.has(op.id));
+            }
+
+            await browser.storage.local.set(updates);
           }
 
           return { success: result.success, data: result, error: result.error };
@@ -581,6 +679,17 @@ browser.runtime.onMessage.addListener(
             };
           }
 
+          const customCodeStored = await browser.storage.local.get([
+            CUSTOM_CODE_STORAGE_KEY,
+            RUN_CODE_IN_PAGE_STORAGE_KEY,
+          ]);
+          if (customCodeStored[CUSTOM_CODE_STORAGE_KEY]) {
+            (wsData as any).customCodeRules = customCodeStored[CUSTOM_CODE_STORAGE_KEY];
+          }
+          if (customCodeStored[RUN_CODE_IN_PAGE_STORAGE_KEY]) {
+            (wsData as any).runCodeInPageRules = customCodeStored[RUN_CODE_IN_PAGE_STORAGE_KEY];
+          }
+
           const effectiveDeviceName = payload?.deviceName || await getExtensionDeviceName();
           const result = await createRaindropBackup(auth.accessToken, {
             workspaceData: wsData,
@@ -631,11 +740,18 @@ browser.runtime.onMessage.addListener(
           });
 
           if (result.success && result.restoredSnapshot) {
-            // Update cached extension snapshot & clear pending ops
-            await browser.storage.local.set({
+            const updates: Record<string, any> = {
               arcable_workspace_snapshot: result.restoredSnapshot,
               arcable_last_synced_at: Date.now(),
-            });
+            };
+            if ((result.restoredSnapshot as any).customCodeRules) {
+              updates[CUSTOM_CODE_STORAGE_KEY] = (result.restoredSnapshot as any).customCodeRules;
+            }
+            if ((result.restoredSnapshot as any).runCodeInPageRules) {
+              updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = (result.restoredSnapshot as any).runCodeInPageRules;
+            }
+            // Update cached extension snapshot & clear pending ops
+            await browser.storage.local.set(updates);
             await browser.storage.local.remove('arcable_pending_ops');
           }
 
@@ -689,9 +805,19 @@ async function triggerBackgroundSync(): Promise<void> {
     const auth = await getStoredAuthState();
     if (!auth.isAuthenticated || !auth.accessToken) return;
 
-    const storedData = await browser.storage.local.get(['arcable_workspace_snapshot', 'arcable_tmp_tabs']);
+    const storedData = await browser.storage.local.get([
+      'arcable_workspace_snapshot',
+      'arcable_tmp_tabs',
+      CUSTOM_CODE_STORAGE_KEY,
+      RUN_CODE_IN_PAGE_STORAGE_KEY,
+      'arcable_pending_ops',
+    ]);
     let localState = storedData.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
     const localTmpTabs = (storedData.arcable_tmp_tabs as TmpTab[]) || [];
+    const localCustomRules = (storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
+    const localRunRules = (storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+    const pendingOps = (storedData.arcable_pending_ops as WorkspaceOperation[]) || [];
+    const syncedOpIds = new Set(pendingOps.map((op) => op.id));
 
     const deviceId = await getOrCreateExtensionDeviceId();
     const deviceName = await getExtensionDeviceName();
@@ -707,6 +833,8 @@ async function triggerBackgroundSync(): Promise<void> {
       localState = {
         ...localState,
         tmpTabs: taggedTmpTabs,
+        customCodeRules: localState.customCodeRules || localCustomRules,
+        runCodeInPageRules: localState.runCodeInPageRules || localRunRules,
       };
     } else {
       localState = {
@@ -716,6 +844,8 @@ async function triggerBackgroundSync(): Promise<void> {
         folders: [],
         tabs: [],
         tmpTabs: taggedTmpTabs,
+        customCodeRules: localCustomRules,
+        runCodeInPageRules: localRunRules,
       };
     }
 
@@ -723,6 +853,7 @@ async function triggerBackgroundSync(): Promise<void> {
       localState,
       deviceId,
       deviceName,
+      pendingOps,
     });
 
     if (result.success && result.latestSnapshot) {
@@ -753,10 +884,23 @@ async function triggerBackgroundSync(): Promise<void> {
         await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmpTabs });
       }
 
-      await browser.storage.local.set({
+      const updates: Record<string, any> = {
         arcable_workspace_snapshot: result.latestSnapshot,
         arcable_last_synced_at: result.syncedAt,
-      });
+      };
+      if (result.latestSnapshot.customCodeRules) {
+        updates[CUSTOM_CODE_STORAGE_KEY] = result.latestSnapshot.customCodeRules;
+      }
+      if (result.latestSnapshot.runCodeInPageRules) {
+        updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
+      }
+      if (syncedOpIds.size > 0) {
+        const curStored = await browser.storage.local.get('arcable_pending_ops');
+        const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
+        updates.arcable_pending_ops = curOps.filter((op) => !syncedOpIds.has(op.id));
+      }
+
+      await browser.storage.local.set(updates);
       console.log('[Arcable Background] Workspace sync completed successfully.');
     }
   } catch (err) {

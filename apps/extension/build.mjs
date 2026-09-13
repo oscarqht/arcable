@@ -163,9 +163,23 @@ async function buildTarget(browserName) {
     fs.writeFileSync(resolve(outDir, 'sidepanel/index.html'), sidepanelHtml);
   }
 
+  // 4.6. Copy libs directory (Ace editor, workers)
+  const libsSrc = resolve(__dirname, 'src/libs');
+  const libsDest = resolve(outDir, 'libs');
+  if (fs.existsSync(libsSrc)) {
+    fs.cpSync(libsSrc, libsDest, { recursive: true });
+  }
+
   // Clean up temporary src directory in dist
   if (fs.existsSync(resolve(outDir, 'src'))) {
     fs.rmSync(resolve(outDir, 'src'), { recursive: true, force: true });
+  }
+
+  // Ensure src/libs also exists so both libs/ and src/libs/ URLs resolve
+  if (fs.existsSync(libsSrc)) {
+    const srcLibsDest = resolve(outDir, 'src/libs');
+    fs.mkdirSync(resolve(outDir, 'src'), { recursive: true });
+    fs.cpSync(libsSrc, srcLibsDest, { recursive: true });
   }
 
   console.log(`✅ ${browserName.toUpperCase()} extension build complete in dist/${browserName}`);

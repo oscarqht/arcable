@@ -26,11 +26,25 @@ export const App: React.FC = () => {
   // Raindrop Auth
   const [authState, setAuthState] = useState<RaindropAuthState>({ isAuthenticated: false });
 
+  // Matching Run Code Snippets for current page
+  const [matchingSnippets, setMatchingSnippets] = useState<Array<{ id: string; title: string }>>([]);
+  const [runningSnippetId, setRunningSnippetId] = useState<string | null>(null);
+
   useEffect(() => {
     // Load current active tab info
     getActiveTab().then((tab) => {
       if (tab) {
         setCurrentTab({ title: tab.title, url: tab.url });
+        if (tab.url) {
+          browser.runtime.sendMessage({
+            type: 'GET_MATCHING_RUN_CODE_RULES',
+            payload: { url: tab.url },
+          }).then((rawRes: any) => {
+            if (rawRes?.success && Array.isArray(rawRes.data)) {
+              setMatchingSnippets(rawRes.data);
+            }
+          }).catch(() => {});
+        }
       }
     });
 
@@ -488,8 +502,84 @@ export const App: React.FC = () => {
                 {workspaceSyncSuccess ? '✓ Workspace Synced!' : '☁️ Sync Workspace to Raindrop'}
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              style={{ width: '100%' }}
+              onClick={async () => {
+                if (!currentTab.url) return;
+                await browser.storage.local.set({ customCodePrefillUrl: currentTab.url });
+                void openOptionsPageSafely();
+              }}
+              disabled={!currentTab.url}
+            >
+              🎨 Customize Site (JS/CSS)
+            </Button>
           </div>
         </Card>
+
+        {/* Matching Run Code Snippets for Active Tab */}
+        {matchingSnippets.length > 0 && (
+          <Card
+            title="Page Snippets (Run Code)"
+            subtitle={`${matchingSnippets.length} snippet(s) available for this site`}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {matchingSnippets.map((rule) => {
+                const isRunning = runningSnippetId === rule.id;
+                return (
+                  <div
+                    key={rule.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: isDark ? '#151e2e' : '#f1f5f9',
+                      border: isDark ? '1px solid #243247' : '1px solid #e2e8f0',
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                      {rule.title}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={async () => {
+                        setRunningSnippetId(rule.id);
+                        try {
+                          const tab = await getActiveTab();
+                          if (!tab?.id) return;
+                          await browser.runtime.sendMessage({
+                            type: 'RUN_CODE_IN_PAGE_EXECUTE',
+                            payload: { ruleId: rule.id, tabId: tab.id },
+                          });
+                        } catch (err) {
+                          console.warn('Run code error:', err);
+                        } finally {
+                          setTimeout(() => setRunningSnippetId(null), 1200);
+                        }
+                      }}
+                      disabled={isRunning}
+                      style={{
+                        height: '26px',
+                        padding: '0 10px',
+                        fontSize: '12px',
+                        backgroundColor: '#10b981',
+                        borderColor: '#10b981',
+                        color: '#ffffff',
+                      }}
+                    >
+                      {isRunning ? 'Ran ✓' : '▶ Run'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
