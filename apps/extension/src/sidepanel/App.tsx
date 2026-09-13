@@ -502,11 +502,29 @@ export const App: React.FC = () => {
   };
 
   const handleCloseTmpTab = async (tab: TmpTab) => {
-    const isLocal = tab.deviceId ? tab.deviceId === currentDeviceId : tab.browserTabId !== undefined;
-    if (isLocal && tab.browserTabId !== undefined) {
+    // Always remove this tab from arcable_tmp_tabs in browser.storage.local.
+    // This prevents resurrection: even if the deviceId mismatch causes isLocal=false,
+    // the background sync reads arcable_tmp_tabs and would re-upload the deleted tab.
+    try {
+      const stored = await browser.storage.local.get('arcable_tmp_tabs');
+      const currentTmpTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+      const updated = currentTmpTabs.filter((t) => t.id !== tab.id);
+      if (updated.length !== currentTmpTabs.length) {
+        await browser.storage.local.set({ arcable_tmp_tabs: updated });
+      }
+    } catch (err) {
+      console.warn('[Sidepanel] Could not clean up arcable_tmp_tabs on delete:', err);
+    }
+
+    // Close the actual browser tab if it's a local tab (has a browserTabId).
+    // We check browserTabId directly rather than relying on deviceId matching,
+    // since the device ID stored on the tab may differ from currentDeviceId on
+    // Firefox Mobile where storage contexts are separate.
+    if (tab.browserTabId !== undefined) {
       await tabTracker.closeTmpTab(tab.browserTabId);
     }
   };
+
 
   const handleRenameTmpTab = async (tab: TmpTab, newTitle: string) => {
     await tabTracker.setTmpTabCustomTitle(tab.browserTabId, tab.url, newTitle);

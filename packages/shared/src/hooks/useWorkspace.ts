@@ -1639,11 +1639,44 @@ export function useWorkspace() {
           };
         });
 
+        // Guard against resurrection: if the incoming snapshot contains tmp tabs
+        // that were already locally deleted (not in prev.tmpTabs), suppress them.
+        // This handles device-ID-mismatch scenarios where the Raindrop baseline
+        // still holds the tab under a stale deviceId but the user deleted it locally.
+        //
+        // Rules:
+        //  - If the tab is already in prev.tmpTabs → keep it (unchanged).
+        //  - If the tab has a deviceId that differs from any known local ID → it's
+        //    a genuine remote tab from another device → keep it.
+        //  - Otherwise (same-device tab absent from prev) → it was deleted → suppress.
+        const prevTmpIds = new Set((prev.tmpTabs || []).map((t) => t.id));
+        // Also check pending delete ops for tabs whose op may not have been synced yet
+        const latestPendingOps = getStoredPendingOperations();
+        const pendingDeletedTmpIds = new Set<string>(
+          latestPendingOps
+            .filter((op) => op.type === 'TMP_TAB_DELETE')
+            .map((op) => op.entityId)
+        );
+
+        const filteredTmpTabs = (resolvedSnapshot.tmpTabs || []).filter((t) => {
+          // Explicit pending delete → always suppress
+          if (pendingDeletedTmpIds.has(t.id)) return false;
+          // Already in local state → keep (no change)
+          if (prevTmpIds.has(t.id)) return true;
+          // Tab is absent from prev.tmpTabs.
+          // If it has a browserTabId it's a local browser tab that we track ourselves —
+          // the tabTracker's subscribeTmpTabs will supply it via the tmpTabs prop instead.
+          // Suppress it from data.tmpTabs to avoid duplication/resurrection.
+          if (t.browserTabId !== undefined) return false;
+          // No browserTabId: genuine remote tab from another device — keep it.
+          return true;
+        });
+
         return {
           spaces: resolvedSnapshot.spaces,
           folders: mergedFolders,
           tabs: resolvedSnapshot.tabs || [],
-          tmpTabs: resolvedSnapshot.tmpTabs || [],
+          tmpTabs: filteredTmpTabs,
           customCodeRules: resolvedSnapshot.customCodeRules || prev.customCodeRules || [],
           runCodeInPageRules: resolvedSnapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
           activeSpaceId: activeSpaceStillExists
