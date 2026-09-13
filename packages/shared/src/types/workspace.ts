@@ -38,14 +38,59 @@ export interface Space {
   updatedAt?: number;
 }
 
-export type WidgetStyle = 'digital' | 'calendar' | 'analog' | 'combo';
+export type WidgetStyle =
+  | 'digital'
+  | 'calendar'
+  | 'analog'
+  | 'combo'
+  | 'pomodoro'
+  | 'countdown'
+  | 'note'
+  | 'weather'
+  | 'search';
+
 export type WidgetSize = 'small' | 'medium' | 'large';
+
+export interface PomodoroConfig {
+  workMinutes?: number;
+  breakMinutes?: number;
+  mode?: 'work' | 'break';
+  isRunning?: boolean;
+  targetTimestamp?: number;
+  remainingSeconds?: number;
+}
+
+export interface CountdownConfig {
+  title?: string;
+  targetDate?: string;
+}
+
+export interface NoteConfig {
+  text?: string;
+  colorTheme?: 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'slate';
+}
+
+export interface WeatherConfig {
+  city?: string;
+  latitude?: number;
+  longitude?: number;
+  tempUnit?: 'c' | 'f';
+  cachedTemp?: number;
+  cachedCode?: number;
+  lastFetched?: number;
+}
+
+export interface SearchConfig {
+  engine?: 'google' | 'perplexity' | 'duckduckgo' | 'bing' | 'custom';
+  customUrl?: string;
+}
 
 export interface WorkspaceWidget {
   id: string;
   style: WidgetStyle;
   size: WidgetSize;
   order?: number;          // Optional: custom sorting order
+  config?: Record<string, any>;
   createdAt?: number;
   updatedAt?: number;
 }
