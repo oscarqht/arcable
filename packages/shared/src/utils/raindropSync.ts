@@ -29,15 +29,38 @@ import {
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
-export const DATA_JSON_FILE_NAME = 'data.json.txt';
+export const DATA_JSON_FILE_NAME = 'data-v2.json.txt';
+export const LEGACY_DATA_JSON_FILE_NAME = 'data.json.txt';
 
 /**
- * Checks if a Raindrop item corresponds to the Arcable data json file.
+ * Checks if a Raindrop item corresponds to the Arcable v2 data json file.
  */
-export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
+export function isDataV2JsonItem(item: RaindropBookmarkItem): boolean {
   const title = (item.title || '').trim().toLowerCase();
   const fileName = (item.file?.name || '').trim().toLowerCase();
   const link = (item.link || '').toLowerCase();
+
+  return (
+    title.includes('data-v2.json') ||
+    title.includes('data-v2.txt') ||
+    fileName.includes('data-v2.json') ||
+    fileName.includes('data-v2.txt') ||
+    link.includes('data-v2.json') ||
+    link.includes('data-v2.txt')
+  );
+}
+
+/**
+ * Checks if a Raindrop item corresponds to the legacy Arcable v1 data json file.
+ */
+export function isLegacyDataJsonItem(item: RaindropBookmarkItem): boolean {
+  const title = (item.title || '').trim().toLowerCase();
+  const fileName = (item.file?.name || '').trim().toLowerCase();
+  const link = (item.link || '').toLowerCase();
+
+  if (isDataV2JsonItem(item)) {
+    return false;
+  }
 
   return (
     title.includes('data.json') ||
@@ -47,6 +70,13 @@ export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
     link.includes('data.json') ||
     link.includes('data.txt')
   );
+}
+
+/**
+ * Checks if a Raindrop item corresponds to any Arcable data json file (v2 or legacy).
+ */
+export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
+  return isDataV2JsonItem(item) || isLegacyDataJsonItem(item);
 }
 
 /**
@@ -72,30 +102,30 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
 }
 
 /**
- * Finds all existing "data.json" / "data.json.txt" raindrop items under the specified collection,
+ * Finds all existing "data-v2.json.txt" raindrop items under the specified collection,
  * sorted so that the most recently updated item is always first.
  * Never relies on cached IDs, always queries Raindrop live.
  */
-export async function findAllRaindropDataJsonItems(
+export async function findAllRaindropDataV2JsonItems(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem[]> {
   const items: RaindropBookmarkItem[] = [];
 
-  // 1. Search by term 'data' with newest first
+  // 1. Search by term 'data-v2' with newest first
   try {
     const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'data',
+      search: 'data-v2',
       perpage: 50,
       sort: '-lastUpdate',
     });
     for (const item of searchRes.items) {
-      if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+      if (isDataV2JsonItem(item) && !items.some((x) => x._id === item._id)) {
         items.push(item);
       }
     }
   } catch (err) {
-    console.warn('[RaindropSync] Search for data file failed, falling back to full list:', err);
+    console.warn('[RaindropSync] Search for data-v2 file failed, falling back to full list:', err);
   }
 
   // 2. Fallback: list items in the collection with newest first
@@ -105,7 +135,7 @@ export async function findAllRaindropDataJsonItems(
       sort: '-lastUpdate',
     });
     for (const item of listRes.items) {
-      if (isDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+      if (isDataV2JsonItem(item) && !items.some((x) => x._id === item._id)) {
         items.push(item);
       }
     }
@@ -124,47 +154,88 @@ export async function findAllRaindropDataJsonItems(
 }
 
 /**
- * Searches for the latest "data.json" / "data.json.txt" raindrop item under the specified collection.
+ * Finds all existing legacy "data.json" / "data.json.txt" raindrop items under the specified collection.
+ */
+export async function findAllRaindropLegacyDataJsonItems(
+  token: string,
+  collectionId: number
+): Promise<RaindropBookmarkItem[]> {
+  const items: RaindropBookmarkItem[] = [];
+
+  // 1. Search by term 'data' with newest first
+  try {
+    const searchRes = await fetchRaindropItems(token, collectionId, {
+      search: 'data',
+      perpage: 50,
+      sort: '-lastUpdate',
+    });
+    for (const item of searchRes.items) {
+      if (isLegacyDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+        items.push(item);
+      }
+    }
+  } catch (err) {
+    console.warn('[RaindropSync] Search for legacy data file failed:', err);
+  }
+
+  // 2. Fallback: list items in the collection
+  try {
+    const listRes = await fetchRaindropItems(token, collectionId, {
+      perpage: 50,
+      sort: '-lastUpdate',
+    });
+    for (const item of listRes.items) {
+      if (isLegacyDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
+        items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error('[RaindropSync] Error listing legacy items in collection:', err);
+  }
+
+  items.sort((a, b) => {
+    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
+    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
+    return timeB - timeA;
+  });
+
+  return items;
+}
+
+/**
+ * Finds all existing data json items (defaults to data-v2 items).
+ */
+export async function findAllRaindropDataJsonItems(
+  token: string,
+  collectionId: number
+): Promise<RaindropBookmarkItem[]> {
+  return findAllRaindropDataV2JsonItems(token, collectionId);
+}
+
+/**
+ * Searches for the latest "data-v2.json.txt" raindrop item under the specified collection.
  */
 export async function findRaindropDataJsonItem(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem | null> {
-  const all = await findAllRaindropDataJsonItems(token, collectionId);
+  const all = await findAllRaindropDataV2JsonItems(token, collectionId);
   return all.length > 0 ? all[0] : null;
 }
 
 /**
- * Fetches and parses the ArcableSyncFile from Raindrop file content.
- * If data.json does not exist, bootstraps a valid ArcableSyncFile from local state.
- * If data.json exists but cannot be downloaded/parsed, aborts with an error to prevent overwriting remote data.
+ * Downloads and parses an ArcableSyncFile from a Raindrop bookmark item.
  */
-export async function fetchRaindropSyncFile(
+export async function downloadAndParseSyncFile(
   token: string,
-  collectionId: number,
-  localFallback: ArcableWorkspaceData,
+  item: RaindropBookmarkItem,
   deviceId: string
-): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
-  const existingItems = await findAllRaindropDataJsonItems(token, collectionId);
-
-  // If no data item exists in Raindrop, bootstrap initial sync file from local state
-  if (existingItems.length === 0) {
-    return {
-      syncFile: createInitialSyncFile(localFallback, deviceId),
-      existingItems: [],
-    };
-  }
-
-  // Use the most recently updated data item
-  const latestItem = existingItems[0];
-
-  // Gather candidate URLs for downloading the attached data file
+): Promise<ArcableSyncFile> {
   const urlCandidates: string[] = [];
 
-  // Candidate 1: Query single item detail (GET /raindrop/{id}) which contains exact file.path
-  if (latestItem._id) {
+  if (item._id) {
     try {
-      const fullItem = await fetchRaindropItem(token, latestItem._id);
+      const fullItem = await fetchRaindropItem(token, item._id);
       if (fullItem?.file?.path) {
         urlCandidates.push(fullItem.file.path);
       }
@@ -176,15 +247,15 @@ export async function fetchRaindropSyncFile(
     }
   }
 
-  if (latestItem.file?.path && !urlCandidates.includes(latestItem.file.path)) {
-    urlCandidates.push(latestItem.file.path);
+  if (item.file?.path && !urlCandidates.includes(item.file.path)) {
+    urlCandidates.push(item.file.path);
   }
-  if (latestItem.link && !urlCandidates.includes(latestItem.link)) {
-    urlCandidates.push(latestItem.link);
+  if (item.link && !urlCandidates.includes(item.link)) {
+    urlCandidates.push(item.link);
   }
-  if (latestItem._id) {
-    urlCandidates.push(`${RAINDROP_API_BASE}/raindrop/${latestItem._id}/file`);
-    urlCandidates.push(`${RAINDROP_API_BASE}/file/${latestItem._id}`);
+  if (item._id) {
+    urlCandidates.push(`${RAINDROP_API_BASE}/raindrop/${item._id}/file`);
+    urlCandidates.push(`${RAINDROP_API_BASE}/file/${item._id}`);
   }
 
   let rawContent = '';
@@ -206,7 +277,7 @@ export async function fetchRaindropSyncFile(
   // An existing sync file was found in Raindrop. If download failed, DO NOT silently wipe remote data with localFallback!
   if (!rawContent || !rawContent.trim()) {
     throw new Error(
-      `Found existing workspace sync file in Raindrop (Item ID ${latestItem._id}), but failed to download its content. Aborting sync to prevent overwriting remote changes.`
+      `Found existing workspace sync file in Raindrop (Item ID ${item._id}), but failed to download its content. Aborting sync to prevent overwriting remote changes.`
     );
   }
 
@@ -215,34 +286,93 @@ export async function fetchRaindropSyncFile(
     parsed = JSON.parse(rawContent);
   } catch (parseErr) {
     throw new Error(
-      `Found existing workspace sync file in Raindrop (Item ID ${latestItem._id}), but content is not valid JSON. Aborting sync to prevent data loss.`
+      `Found existing workspace sync file in Raindrop (Item ID ${item._id}), but content is not valid JSON. Aborting sync to prevent data loss.`
     );
   }
 
   // Case 1: Standard ArcableSyncFile format
   if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
     return {
-      syncFile: {
-        version: parsed.version || 1,
-        devices: parsed.devices || {},
-        baselineSnapshot: parsed.baselineSnapshot,
-        operations: parsed.operations,
-      },
-      existingItems,
+      version: parsed.version || 1,
+      devices: parsed.devices || {},
+      baselineSnapshot: parsed.baselineSnapshot,
+      operations: parsed.operations,
     };
   }
 
   // Case 2: Legacy single ArcableWorkspaceData snapshot ({ spaces, folders, tabs })
   if (parsed && Array.isArray(parsed.spaces)) {
-    return {
-      syncFile: createInitialSyncFile(parsed as ArcableWorkspaceData, deviceId),
-      existingItems,
-    };
+    return createInitialSyncFile(parsed as ArcableWorkspaceData, deviceId);
   }
 
   throw new Error(
     `Remote sync file structure in Raindrop is unrecognized. Aborting sync to prevent data loss.`
   );
+}
+
+/**
+ * Uploads the sync file to Raindrop and ensures its title is explicitly set to DATA_JSON_FILE_NAME ("data-v2.json.txt").
+ */
+export async function uploadRaindropSyncFile(
+  token: string,
+  collectionId: number,
+  content: string
+): Promise<any> {
+  const uploadResult = await uploadRaindropFile(token, collectionId, DATA_JSON_FILE_NAME, content);
+  const itemId = uploadResult?.item?._id;
+  if (itemId) {
+    try {
+      await updateRaindropItem(token, itemId, { title: DATA_JSON_FILE_NAME });
+    } catch (updErr) {
+      console.warn('[RaindropSync] Warning setting sync file title in Raindrop:', updErr);
+    }
+  }
+  return uploadResult;
+}
+
+/**
+ * Fetches and parses the ArcableSyncFile from Raindrop file content.
+ * 1. Checks for existing data-v2.json.txt items.
+ * 2. If missing, checks for legacy data.json.txt to migrate forward (without deleting it).
+ * 3. If no remote data exists, bootstraps a valid ArcableSyncFile from local state.
+ */
+export async function fetchRaindropSyncFile(
+  token: string,
+  collectionId: number,
+  localFallback: ArcableWorkspaceData,
+  deviceId: string
+): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
+  // 1. Look for existing data-v2 items first
+  const existingV2Items = await findAllRaindropDataV2JsonItems(token, collectionId);
+  if (existingV2Items.length > 0) {
+    const syncFile = await downloadAndParseSyncFile(token, existingV2Items[0], deviceId);
+    return {
+      syncFile,
+      existingItems: existingV2Items,
+    };
+  }
+
+  // 2. If no data-v2 item exists, check for legacy data.json items to migrate forward
+  const existingLegacyItems = await findAllRaindropLegacyDataJsonItems(token, collectionId);
+  if (existingLegacyItems.length > 0) {
+    try {
+      const migratedSyncFile = await downloadAndParseSyncFile(token, existingLegacyItems[0], deviceId);
+      console.log('[RaindropSync] Migrated legacy data.json into data-v2.json.txt initial state.');
+      // Return existingItems as empty array so the old legacy file is NOT deleted!
+      return {
+        syncFile: migratedSyncFile,
+        existingItems: [],
+      };
+    } catch (migErr) {
+      console.warn('[RaindropSync] Failed to read legacy data.json for migration, bootstrapping from local state:', migErr);
+    }
+  }
+
+  // 3. Bootstrap initial sync file from local state
+  return {
+    syncFile: createInitialSyncFile(localFallback, deviceId),
+    existingItems: [],
+  };
 }
 
 /**
@@ -317,23 +447,22 @@ export async function syncWorkspaceWithRaindrop(
       options?.localState?.tmpTabs
     );
 
-    // 5. Delete existing data.json items if present
+    // 5. Delete existing data-v2 items if present
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning: Failed to delete previous data.json item:', delErr);
+          console.warn('[RaindropSync] Warning: Failed to delete previous data-v2 item:', delErr);
         }
       }
     }
 
-    // 6. Upload updated ArcableSyncFile as data.json
+    // 6. Upload updated ArcableSyncFile as data-v2.json.txt
     const fileContent = JSON.stringify(compacted.syncFile, null, 2);
-    const uploadResult = await uploadRaindropFile(
+    const uploadResult = await uploadRaindropSyncFile(
       clean,
       collection._id,
-      DATA_JSON_FILE_NAME,
       fileContent
     );
 
@@ -461,20 +590,20 @@ export async function renameRaindropDevice(
       devices,
     };
 
-    // Delete existing data.json bookmarks
+    // Delete existing data-v2 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous data-v2:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile
+    // Upload updated syncFile as data-v2.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
-    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+    await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
     // If this is the current device, update local storage
     if (typeof window !== 'undefined' && deviceId === getOrCreateDeviceId()) {
@@ -533,20 +662,20 @@ export async function deleteRaindropDevice(
       Date.now()
     );
 
-    // Delete existing data.json bookmarks
+    // Delete existing data-v2 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous data-v2:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile
+    // Upload updated syncFile as data-v2.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
-    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+    await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
     const deviceList = sortDevicesByLastSync(Object.values(updatedSyncFile.devices));
     return { success: true, devices: deviceList, latestSnapshot };
@@ -557,7 +686,7 @@ export async function deleteRaindropDevice(
 }
 
 /**
- * Deletes all registered devices from the Raindrop data.json sync file except `keepDeviceId`,
+ * Deletes all registered devices from the Raindrop data-v2.json.txt sync file except `keepDeviceId`,
  * and re-compacts baselineSnapshot + operations.
  */
 export async function deleteAllOtherRaindropDevices(
@@ -600,20 +729,20 @@ export async function deleteAllOtherRaindropDevices(
       Date.now()
     );
 
-    // Delete existing data.json bookmarks
+    // Delete existing data-v2 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous data.json:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous data-v2:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile
+    // Upload updated syncFile as data-v2.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
-    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, fileContent);
+    await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
     const deviceList = sortDevicesByLastSync(Object.values(updatedSyncFile.devices));
     return { success: true, devices: deviceList, latestSnapshot };
@@ -968,15 +1097,15 @@ export async function restoreRaindropBackup(
       }
     }
 
-    // 4. Override remote data.json.txt in "Arcable" root collection
-    // Find and delete existing data.json.txt items
-    const existingDataItems = await findAllRaindropDataJsonItems(clean, collection._id);
+    // 4. Override remote data-v2.json.txt in "Arcable" root collection
+    // Find and delete existing data-v2 items (keeping legacy data.json.txt untouched)
+    const existingDataItems = await findAllRaindropDataV2JsonItems(clean, collection._id);
     for (const item of existingDataItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous data.json during restore:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous data-v2 during restore:', delErr);
         }
       }
     }
@@ -990,7 +1119,7 @@ export async function restoreRaindropBackup(
     };
 
     const newFileContent = JSON.stringify(initialSyncFile, null, 2);
-    await uploadRaindropFile(clean, collection._id, DATA_JSON_FILE_NAME, newFileContent);
+    await uploadRaindropSyncFile(clean, collection._id, newFileContent);
 
     return {
       success: true,

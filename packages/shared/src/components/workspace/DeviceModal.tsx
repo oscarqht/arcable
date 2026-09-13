@@ -557,7 +557,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 Device Management
               </h2>
               <p style={{ margin: '2px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                Synced clients in Raindrop <code style={{ fontSize: '11px', color: isDark ? '#38bdf8' : '#0284c7' }}>data.json</code>
+                Synced clients in Raindrop <code style={{ fontSize: '11px', color: isDark ? '#38bdf8' : '#0284c7' }}>data-v2.json.txt</code>
               </p>
             </div>
           </div>
