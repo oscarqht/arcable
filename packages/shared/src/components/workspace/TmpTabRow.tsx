@@ -76,10 +76,10 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const displayTitle = tab.customTitle || tab.title || domain || cleanUrl(tab.url) || 'Untitled Tab';
 
   const isFromCurrentDevice = Boolean(
-    tab.browserTabId !== undefined ||
     (currentDeviceId && tab.deviceId && tab.deviceId === currentDeviceId) ||
-    (!tab.deviceId && currentDeviceId)
+    (!tab.deviceId && !currentDeviceId)
   );
+  const badgeDeviceName = tab.deviceName || (tab.deviceType === 'Web App' ? 'Web App' : 'Remote Device');
 
   useEffect(() => {
     if (isEditing) {
@@ -239,9 +239,9 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         )}
 
         {/* Device indicator badge (only shown for remote devices) */}
-        {!isFromCurrentDevice && tab.deviceName && !isEditing && (
+        {!isFromCurrentDevice && !isEditing && (
           <span
-            title={tab.deviceId ? `Open on ${tab.deviceName} (${tab.deviceId})` : `Open on ${tab.deviceName}`}
+            title={tab.deviceId ? `Open on ${badgeDeviceName} (${tab.deviceId})` : `Open on ${badgeDeviceName}`}
             style={{
               fontSize: '10px',
               fontWeight: 500,
@@ -259,7 +259,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
             }}
           >
             <span style={{ fontSize: '9px' }}>{tab.deviceType === 'Web App' ? '🌐' : '💻'}</span>
-            <span>{tab.deviceName}</span>
+            <span>{badgeDeviceName}</span>
           </span>
         )}
       </div>

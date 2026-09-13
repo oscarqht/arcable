@@ -827,19 +827,31 @@ export function compactSyncFile(
   // 8. Reconcile tmpTabs across devices:
   // - Tabs belonging to other active devices (t.deviceId !== currentDeviceId) are preserved.
   // - Tabs belonging to currentDeviceId are updated from localTmpTabs (if provided), omitting any deleted tabs.
-  const deletedTmpOpIds = new Set<string>(
-    allOps.filter((op) => op.type === 'TMP_TAB_DELETE').map((op) => op.entityId)
-  );
+  const deletedTmpTabIds: Record<string, number> = { ...(syncFile.deletedTmpTabIds || {}) };
+  for (const op of allOps) {
+    if (op.type === 'TMP_TAB_DELETE' && op.entityId) {
+      deletedTmpTabIds[op.entityId] = Math.max(deletedTmpTabIds[op.entityId] || 0, op.timestamp || now);
+    }
+  }
+
+  // Prune tombstones older than 7 days
+  for (const [id, delTime] of Object.entries(deletedTmpTabIds)) {
+    if (now - delTime > DEVICE_INACTIVITY_TTL_MS) {
+      delete deletedTmpTabIds[id];
+    }
+  }
+
+  const isTabDeleted = (tabId: string) => deletedTmpTabIds[tabId] !== undefined;
 
   const otherDeviceMap = new Map<string, TmpTab>();
   for (const t of newBaseline.tmpTabs || []) {
-    if (t.deviceId && t.deviceId !== currentDeviceId && !deletedTmpOpIds.has(t.id)) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !isTabDeleted(t.id)) {
       otherDeviceMap.set(t.id, t);
     }
   }
   // Also preserve any non-current-device tabs passed in localTmpTabs (if not deleted)
   for (const t of localTmpTabs || []) {
-    if (t.deviceId && t.deviceId !== currentDeviceId && !otherDeviceMap.has(t.id) && !deletedTmpOpIds.has(t.id)) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !otherDeviceMap.has(t.id) && !isTabDeleted(t.id)) {
       otherDeviceMap.set(t.id, t);
     }
   }
@@ -853,13 +865,13 @@ export function compactSyncFile(
         deviceName: t.deviceName || deviceName || devices[currentDeviceId]?.deviceName,
         deviceType: t.deviceType || (deviceName?.includes('Web App') ? 'Web App' : 'Ext'),
       }))
-      .filter((t) => !deletedTmpOpIds.has(t.id));
+      .filter((t) => !isTabDeleted(t.id));
 
     newBaseline.tmpTabs = [...Array.from(otherDeviceMap.values()), ...currentDeviceTabs];
   } else {
     // Keep baseline's current-device tabs if not deleted
     const currentDeviceTabs = (newBaseline.tmpTabs || []).filter(
-      (t) => (!t.deviceId || t.deviceId === currentDeviceId) && !deletedTmpOpIds.has(t.id)
+      (t) => (!t.deviceId || t.deviceId === currentDeviceId) && !isTabDeleted(t.id)
     );
     newBaseline.tmpTabs = [...Array.from(otherDeviceMap.values()), ...currentDeviceTabs];
   }
@@ -885,6 +897,7 @@ export function compactSyncFile(
     devices: prunedDevices,
     baselineSnapshot: newBaseline,
     operations: sortOperations(remainingOps),
+    deletedTmpTabIds,
   };
 
   return {
@@ -965,6 +978,7 @@ export function recomputeSyncFileOnDeviceRemoval(
     devices: validDevices,
     baselineSnapshot: newBaseline,
     operations: sortOperations(remainingOps),
+    deletedTmpTabIds: syncFile.deletedTmpTabIds,
   };
 
   return {
@@ -1030,6 +1044,7 @@ export function recomputeSyncFileOnDeleteOtherDevices(
     devices: validDevices,
     baselineSnapshot: newBaseline,
     operations: sortOperations(remainingOps),
+    deletedTmpTabIds: syncFile.deletedTmpTabIds,
   };
 
   return {

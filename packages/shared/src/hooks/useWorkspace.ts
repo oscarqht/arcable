@@ -346,8 +346,29 @@ export function useWorkspace() {
       }
     };
 
+    const handleCustomUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<ArcableWorkspaceData>;
+      if (customEvent && customEvent.detail) {
+        const updated = customEvent.detail;
+        if (updated && Array.isArray(updated.folders)) {
+          updated.folders = updated.folders.map((f) => ({
+            ...f,
+            isExpanded: getLocalFolderExpanded(f.id, f.isExpanded !== false),
+          }));
+        }
+        setData(updated);
+      } else {
+        const reloaded = readWorkspaceFromStorage();
+        setData(reloaded);
+      }
+    };
+
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('arcable_workspace_updated', handleCustomUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('arcable_workspace_updated', handleCustomUpdate);
+    };
   }, []);
 
   // Save to localStorage whenever data changes

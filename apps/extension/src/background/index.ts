@@ -424,6 +424,31 @@ browser.runtime.onMessage.addListener(
           });
 
           if (result.success && result.latestSnapshot) {
+            const deletedOpIds = new Set([
+              ...(result.syncFile?.operations || [])
+                .filter((op: any) => op.type === 'TMP_TAB_DELETE')
+                .map((op: any) => op.entityId),
+              ...Object.keys(result.syncFile?.deletedTmpTabIds || {}),
+            ]);
+
+            const remainingLocalTmp: TmpTab[] = [];
+            for (const localTab of localTmp) {
+              if (
+                localTab.browserTabId !== undefined &&
+                (deletedOpIds.has(localTab.id) || (localTab.deviceId && deletedOpIds.has(`tmp_${localTab.deviceId}_${localTab.browserTabId}`)))
+              ) {
+                try {
+                  await browser.tabs.remove(localTab.browserTabId);
+                  console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
+                } catch {}
+              } else {
+                remainingLocalTmp.push(localTab);
+              }
+            }
+            if (remainingLocalTmp.length !== localTmp.length) {
+              await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmp });
+            }
+
             // Cache latest snapshot in extension storage for instant access across popup and sidepanel
             await browser.storage.local.set({
               arcable_workspace_snapshot: result.latestSnapshot,
@@ -699,24 +724,30 @@ async function triggerBackgroundSync(): Promise<void> {
 
     if (result.success && result.latestSnapshot) {
       // Reconcile remote tab closures against local open browser tabs.
-      // CRITICAL: ONLY close local browser tabs if an explicit TMP_TAB_DELETE operation was received.
-      // NEVER close tabs simply because remoteTmpTabIds is empty or transiently desynchronized!
-      const deletedOpIds = new Set(
-        (result.syncFile?.operations || [])
+      const deletedOpIds = new Set([
+        ...(result.syncFile?.operations || [])
           .filter((op: any) => op.type === 'TMP_TAB_DELETE')
-          .map((op: any) => op.entityId)
-      );
+          .map((op: any) => op.entityId),
+        ...Object.keys(result.syncFile?.deletedTmpTabIds || {}),
+      ]);
 
+      const remainingLocalTmpTabs: TmpTab[] = [];
       for (const localTab of localTmpTabs) {
         if (
           localTab.browserTabId !== undefined &&
-          deletedOpIds.has(localTab.id)
+          (deletedOpIds.has(localTab.id) || (localTab.deviceId && deletedOpIds.has(`tmp_${localTab.deviceId}_${localTab.browserTabId}`)))
         ) {
           try {
             await browser.tabs.remove(localTab.browserTabId);
             console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
           } catch {}
+        } else {
+          remainingLocalTmpTabs.push(localTab);
         }
+      }
+
+      if (remainingLocalTmpTabs.length !== localTmpTabs.length) {
+        await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmpTabs });
       }
 
       await browser.storage.local.set({

@@ -50,6 +50,7 @@ export interface WorkspaceManagerHandle {
   getActiveSpace: () => Space | null;
   getActiveSpaceTheme: () => SpaceThemeTokens;
   isSyncing: boolean;
+  applySnapshot?: (snapshot: ArcableWorkspaceData) => void;
 }
 
 export interface WorkspaceManagerProps {
@@ -226,28 +227,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
   );
 
+  const performSyncRef = useRef<((silent?: boolean) => Promise<SyncResult | void>) | null>(null);
+  const effectiveCurrentDeviceId = currentDeviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : '');
+
   const handleOpenTmpTab = useCallback(
     (url: string, tabId?: string, tab?: TmpTab) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
 
-      // If this is a remote tmp tab from another device, and the current host runs a local
-      // browser tab tracker (tmpTabs !== undefined, e.g. the browser extension):
-      // Taking over the remote tab means:
-      // 1. We remove the remote tab item from data.tmpTabs via deleteTmpTab(tab.id),
-      //    which authors a TMP_TAB_DELETE operation so the originating device closes it.
-      // 2. We open the URL locally via onOpenTab(url, tabId, tab), which creates a local
-      //    browser tab that tabTracker immediately tracks as the local replacement.
-      const hasLocalTabTracker = tmpTabs !== undefined;
-      const isRemote =
-        hasLocalTabTracker &&
-        tab &&
-        (tab.browserTabId === undefined ||
-          (tab.deviceId && currentDeviceId && tab.deviceId !== currentDeviceId));
-
-      if (isRemote && tab) {
-        deleteTmpTab(tab.id);
+      // Takeover tmp tab: author deletion for the old tmp tab so it's removed from its previous owner/device
+      const targetId = tab?.id || tabId;
+      if (targetId) {
+        deleteTmpTab(targetId);
       }
 
       if (onOpenTab) {
@@ -255,8 +247,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       } else if (typeof window !== 'undefined' && url) {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
+
+      // Immediately sync to propagate the deletion operation to Raindrop & other devices
+      void performSyncRef.current?.(true);
     },
-    [activeSearchQuery, handleUpdateSearch, tmpTabs, currentDeviceId, deleteTmpTab, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, deleteTmpTab, onOpenTab]
   );
 
   // Combine local tmpTabs (passed via prop) and remote tmpTabs (from synced workspace data.tmpTabs)
@@ -265,16 +260,27 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     const localList = tmpTabs || [];
     const localTabIds = new Set(localList.map((t) => t.id));
 
-    const remoteList = (data.tmpTabs || []).filter((remote) => {
-      // Don't duplicate if already present in local list
-      if (localTabIds.has(remote.id)) return false;
-      // If belongs to this device but not in localList, it was closed locally (only if host runs a local tab tracker)
-      if (hasLocalTabTracker && currentDeviceId && remote.deviceId === currentDeviceId) return false;
-      return true;
-    });
+    const remoteList = (data.tmpTabs || [])
+      .filter((remote) => {
+        // Don't duplicate if already present in local list
+        if (localTabIds.has(remote.id)) return false;
+        // If belongs to this device but not in localList, it was closed locally (only if host runs a local tab tracker)
+        if (hasLocalTabTracker && effectiveCurrentDeviceId && remote.deviceId === effectiveCurrentDeviceId) return false;
+        return true;
+      })
+      .map((remote) => {
+        // If tab is from another device, strip browserTabId so local UI/browser never treats it as a local browser tab
+        if (effectiveCurrentDeviceId && remote.deviceId && remote.deviceId !== effectiveCurrentDeviceId) {
+          return {
+            ...remote,
+            browserTabId: undefined,
+          };
+        }
+        return remote;
+      });
 
     return [...localList, ...remoteList];
-  }, [tmpTabs, data.tmpTabs, currentDeviceId]);
+  }, [tmpTabs, data.tmpTabs, effectiveCurrentDeviceId]);
 
   // Filter tmp tabs when search query is active and sort chronologically
   const filteredTmpTabs = useMemo(() => {
@@ -964,6 +970,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
     return executeSyncCycle(silent);
   };
+  performSyncRef.current = performSync;
 
   const handleTriggerSync = () => {
     void performSync(false);
@@ -1046,10 +1053,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       getActiveSpace: () => activeSpace || null,
       getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
+      applySnapshot: (snapshot: ArcableWorkspaceData) => {
+        applyLatestSnapshot(snapshot);
+      },
     }),
     [
       isCurrentlySyncing,
       performSync,
+      applyLatestSnapshot,
       handleCaptureTab,
       data.tabs,
       setActiveSpace,
@@ -1157,7 +1168,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleCloseTmpTab = useCallback((tab: TmpTab) => {
     deleteTmpTab(tab.id);
     onCloseTmpTab?.(tab);
-  }, [deleteTmpTab, onCloseTmpTab]);
+    void performSync(true);
+  }, [deleteTmpTab, onCloseTmpTab, performSync]);
 
   const handleRenameTmpTab = useCallback((tab: TmpTab, newTitle: string) => {
     updateTmpTab(tab.id, { customTitle: newTitle });

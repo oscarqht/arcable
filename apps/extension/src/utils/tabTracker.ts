@@ -1,5 +1,12 @@
 import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord } from '@arcable/shared/types';
-import { areUrlsMatching, extractTabNotificationBadge } from '@arcable/shared/utils';
+import {
+  areUrlsMatching,
+  extractTabNotificationBadge,
+  getOrCreateDeviceId,
+  getStoredDeviceName,
+  savePendingOperation,
+  createWorkspaceOperation,
+} from '@arcable/shared/utils';
 import { browser } from './browser';
 
 const SESSION_KEY = 'arcable_tab_associations';
@@ -36,12 +43,26 @@ class TabTracker {
     try {
       if (typeof browser !== 'undefined' && browser.storage?.local) {
         const res = (await browser.storage.local.get(['arcable_device_id', 'arcable_device_name'])) as Record<string, any>;
-        if (typeof res.arcable_device_id === 'string') this.cachedDeviceId = res.arcable_device_id;
-        if (typeof res.arcable_device_name === 'string') this.cachedDeviceName = res.arcable_device_name;
+        if (typeof res.arcable_device_id === 'string' && res.arcable_device_id) this.cachedDeviceId = res.arcable_device_id;
+        if (typeof res.arcable_device_name === 'string' && res.arcable_device_name) this.cachedDeviceName = res.arcable_device_name;
       }
       if (!this.cachedDeviceId && typeof window !== 'undefined') {
         this.cachedDeviceId = window.localStorage.getItem('arcable_device_id') || '';
+      }
+      if (!this.cachedDeviceName && typeof window !== 'undefined') {
         this.cachedDeviceName = window.localStorage.getItem('arcable_device_name') || '';
+      }
+      if (!this.cachedDeviceId) {
+        this.cachedDeviceId = getOrCreateDeviceId();
+        if (typeof browser !== 'undefined' && browser.storage?.local) {
+          await browser.storage.local.set({ arcable_device_id: this.cachedDeviceId });
+        }
+      }
+      if (!this.cachedDeviceName) {
+        this.cachedDeviceName = getStoredDeviceName(undefined, 'Ext');
+        if (typeof browser !== 'undefined' && browser.storage?.local) {
+          await browser.storage.local.set({ arcable_device_name: this.cachedDeviceName });
+        }
       }
     } catch {}
     return { deviceId: this.cachedDeviceId, deviceName: this.cachedDeviceName };
@@ -554,11 +575,15 @@ class TabTracker {
           currentUrl.startsWith('edge://newtab') ||
           currentUrl === 'about:blank';
 
-        const existingTmp = memoryTmpTabs.find((t) => t.browserTabId === bt.id || t.id === `tmp_${bt.id}`);
+        const currentDevId = this.cachedDeviceId || 'dev';
+        const tabUniqueId = `tmp_${currentDevId}_${bt.id}`;
+        const existingTmp = memoryTmpTabs.find(
+          (t) => t.browserTabId === bt.id || t.id === tabUniqueId || t.id === `tmp_${bt.id}`
+        );
         const createdAt = existingTmp?.createdAt || Date.now();
 
         return {
-          id: `tmp_${bt.id}`,
+          id: tabUniqueId,
           url: currentUrl,
           title: bt.title || (isBlankNewTab ? 'New Tab' : ''),
           customTitle: matchedCustomTitle,
@@ -648,8 +673,13 @@ class TabTracker {
         await browser.tabs.remove(browserTabId).catch(() => {});
         await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
+        const closedTab = currentTmpTabs.find((t) => t.browserTabId === browserTabId);
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
         await this.saveTmpTabs(updated);
+        if (closedTab) {
+          const devId = this.cachedDeviceId || getOrCreateDeviceId();
+          savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
+        }
       } catch (err) {
         console.warn('[TabTracker] Error closing tmp tab:', err);
       }
@@ -830,9 +860,14 @@ class TabTracker {
           await this.removeTmpTabCustomTitle(tabId);
 
           const tmpTabs = await this.getTmpTabs();
+          const closedTab = tmpTabs.find((t) => t.browserTabId === tabId);
           const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
           if (updatedTmp.length !== tmpTabs.length) {
             await this.saveTmpTabs(updatedTmp);
+            if (closedTab) {
+              const devId = this.cachedDeviceId || getOrCreateDeviceId();
+              savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
+            }
           }
         });
       });

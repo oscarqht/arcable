@@ -35,6 +35,7 @@ export interface ArcableSyncFile {
   devices: Record<string, DeviceSyncRecord>; // deviceId -> DeviceSyncRecord
   baselineSnapshot: ArcableWorkspaceData;     // Compacted state
   operations: WorkspaceOperation[];          // Pending operations log since baseline
+  deletedTmpTabIds?: Record<string, number>; // entityId -> deletedAt timestamp tombstone
 }
 
 export interface SyncResult {

@@ -8,7 +8,7 @@ import {
 } from '@arcable/shared/components';
 import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
+import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
@@ -109,32 +109,35 @@ export const App: React.FC = () => {
     browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id']).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
+      } else {
+        const devId = getOrCreateDeviceId();
+        setCurrentDeviceId(devId);
+        void browser.storage.local.set({ arcable_device_id: devId });
       }
       const auth = res.arcable_raindrop_auth;
       if (auth && auth.isAuthenticated) {
         setHasRaindropAuth(true);
       }
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
-        const local = window.localStorage.getItem('arcable_workspace_data');
-        if (!local) {
-          let snapshot = res.arcable_workspace_snapshot;
-          const remainingOps = getStoredPendingOperations();
-          if (remainingOps.length > 0) {
-            snapshot = replayOperations(snapshot, remainingOps);
-          }
-          const merged = {
-            ...snapshot,
-            folders: (snapshot.folders || []).map((f: any) => {
-              const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
-              setLocalFolderExpanded(f.id, isExp);
-              return {
-                ...f,
-                isExpanded: isExp,
-              };
-            }),
-          };
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
+        let snapshot = res.arcable_workspace_snapshot;
+        const remainingOps = getStoredPendingOperations();
+        if (remainingOps.length > 0) {
+          snapshot = replayOperations(snapshot, remainingOps);
         }
+        const merged = {
+          ...snapshot,
+          folders: (snapshot.folders || []).map((f: any) => {
+            const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
+            setLocalFolderExpanded(f.id, isExp);
+            return {
+              ...f,
+              isExpanded: isExp,
+            };
+          }),
+        };
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
+        workspaceRef.current?.applySnapshot?.(merged);
       }
       // Perform initial tab tracking sync once local snapshot is processed
       syncTabsWithTracker();
@@ -152,18 +155,22 @@ export const App: React.FC = () => {
         if (changes.arcable_raindrop_auth) {
           setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
+        if (changes.arcable_device_id?.newValue) {
+          setCurrentDeviceId(changes.arcable_device_id.newValue);
+        }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           let snapshot = changes.arcable_workspace_snapshot.newValue;
           const remainingOps = getStoredPendingOperations();
           if (remainingOps.length > 0) {
             snapshot = replayOperations(snapshot, remainingOps);
           }
+          let merged: any;
           try {
             const raw = window.localStorage.getItem('arcable_workspace_data');
             const current = raw ? JSON.parse(raw) : null;
             const currentActive = current?.activeSpaceId;
             const activeSpaceStillExists = snapshot.spaces?.some((s: any) => s.id === currentActive);
-            const merged = {
+            merged = {
               ...snapshot,
               folders: (snapshot.folders || []).map((f: any) => {
                 const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
@@ -179,7 +186,7 @@ export const App: React.FC = () => {
             };
             window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           } catch {
-            const merged = {
+            merged = {
               ...snapshot,
               folders: (snapshot.folders || []).map((f: any) => {
                 const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
@@ -195,6 +202,8 @@ export const App: React.FC = () => {
               JSON.stringify(merged)
             );
           }
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
+          workspaceRef.current?.applySnapshot?.(merged);
           syncTabsWithTracker();
         }
       }
@@ -387,17 +396,21 @@ export const App: React.FC = () => {
       // Check if this is a tmp tab
       if (tmpTabInfo || (tabId && tabId.startsWith('tmp_'))) {
         const localTmp = tmpTabs.find((t) => t.id === tabId || (tmpTabInfo && t.id === tmpTabInfo.id));
+        
+        // If it was already open locally, close previous tab so it is taken over by the new tab
         if (localTmp && localTmp.browserTabId !== undefined) {
-          await tabTracker.activateTab(localTmp.browserTabId, localTmp.windowId);
-          return;
-        } else {
-          // Remote tmp tab from another device: open in local browser and inherit any custom title
-          const newTab = await browser.tabs.create({ url, active: true });
-          if (newTab && newTab.id !== undefined && tmpTabInfo?.customTitle) {
-            await tabTracker.setTmpTabCustomTitle(newTab.id, url, tmpTabInfo.customTitle);
-          }
-          return;
+          try {
+            await browser.tabs.remove(localTmp.browserTabId);
+          } catch {}
         }
+
+        // Always create a new tab and take over in current device
+        const newTab = await browser.tabs.create({ url, active: true });
+        const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
+        if (newTab && newTab.id !== undefined && customTitle) {
+          await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
+        }
+        return;
       }
 
       // Check if this specific tab item is already associated
@@ -422,7 +435,8 @@ export const App: React.FC = () => {
   };
 
   const handleCloseTmpTab = async (tab: TmpTab) => {
-    if (tab.browserTabId !== undefined) {
+    const isLocal = tab.deviceId ? tab.deviceId === currentDeviceId : tab.browserTabId !== undefined;
+    if (isLocal && tab.browserTabId !== undefined) {
       await tabTracker.closeTmpTab(tab.browserTabId);
     }
   };
