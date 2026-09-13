@@ -576,11 +576,9 @@ class TabTracker {
           currentUrl === 'about:blank';
 
         const currentDevId = this.cachedDeviceId || 'dev';
-        const tabUniqueId = `tmp_${currentDevId}_${bt.id}`;
-        const existingTmp = memoryTmpTabs.find(
-          (t) => t.browserTabId === bt.id || t.id === tabUniqueId || t.id === `tmp_${bt.id}`
-        );
+        const existingTmp = memoryTmpTabs.find((t) => t.browserTabId === bt.id);
         const createdAt = existingTmp?.createdAt || Date.now();
+        const tabUniqueId = existingTmp?.id || `tmp_${currentDevId}_${bt.id}_${createdAt}`;
 
         return {
           id: tabUniqueId,

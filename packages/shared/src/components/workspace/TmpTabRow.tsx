@@ -76,6 +76,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const displayTitle = tab.customTitle || tab.title || domain || cleanUrl(tab.url) || 'Untitled Tab';
 
   const isFromCurrentDevice = Boolean(
+    tab.browserTabId !== undefined ||
     (currentDeviceId && tab.deviceId && tab.deviceId === currentDeviceId) ||
     (!tab.deviceId && !currentDeviceId)
   );

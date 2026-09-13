@@ -424,26 +424,29 @@ browser.runtime.onMessage.addListener(
           });
 
           if (result.success && result.latestSnapshot) {
-            const deletedOpIds = new Set([
-              ...(result.syncFile?.operations || [])
-                .filter((op: any) => op.type === 'TMP_TAB_DELETE')
-                .map((op: any) => op.entityId),
-              ...Object.keys(result.syncFile?.deletedTmpTabIds || {}),
-            ]);
+            const remoteDeletedOps = (result.syncFile?.operations || [])
+              .filter((op: any) => op.type === 'TMP_TAB_DELETE' && op.deviceId !== effectiveDeviceId)
+              .map((op: any) => op.entityId);
+            const remoteDeletedOpSet = new Set(remoteDeletedOps);
+            const deletedTmpTabMap = result.syncFile?.deletedTmpTabIds || {};
 
             const remainingLocalTmp: TmpTab[] = [];
             for (const localTab of localTmp) {
-              if (
-                localTab.browserTabId !== undefined &&
-                (deletedOpIds.has(localTab.id) || (localTab.deviceId && deletedOpIds.has(`tmp_${localTab.deviceId}_${localTab.browserTabId}`)))
-              ) {
-                try {
-                  await browser.tabs.remove(localTab.browserTabId);
-                  console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
-                } catch {}
-              } else {
-                remainingLocalTmp.push(localTab);
+              if (localTab.browserTabId !== undefined) {
+                const isExplicitlyDeletedByRemote = remoteDeletedOpSet.has(localTab.id);
+                const tombstoneTime = deletedTmpTabMap[localTab.id];
+                // Only honor tombstone if it was deleted after this tab instance was created
+                const isTombstoned = Boolean(tombstoneTime && (!localTab.createdAt || localTab.createdAt <= tombstoneTime));
+
+                if (isExplicitlyDeletedByRemote || isTombstoned) {
+                  try {
+                    await browser.tabs.remove(localTab.browserTabId);
+                    console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to remote deletion.`);
+                  } catch {}
+                  continue;
+                }
               }
+              remainingLocalTmp.push(localTab);
             }
             if (remainingLocalTmp.length !== localTmp.length) {
               await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmp });

@@ -395,16 +395,18 @@ export const App: React.FC = () => {
     try {
       // Check if this is a tmp tab
       if (tmpTabInfo || (tabId && tabId.startsWith('tmp_'))) {
-        const localTmp = tmpTabs.find((t) => t.id === tabId || (tmpTabInfo && t.id === tmpTabInfo.id));
+        const localTmp = tmpTabs.find(
+          (t) => (tabId && t.id === tabId) || (tmpTabInfo && t.id === tmpTabInfo.id)
+        );
         
-        // If it was already open locally, close previous tab so it is taken over by the new tab
+        // If it is already open locally in the browser, activate and focus it
         if (localTmp && localTmp.browserTabId !== undefined) {
-          try {
-            await browser.tabs.remove(localTmp.browserTabId);
-          } catch {}
+          await tabTracker.activateTab(localTmp.browserTabId, localTmp.windowId);
+          return;
         }
 
-        // Always create a new tab and take over in current device
+        // Otherwise (remote tmp tab from another device, or not currently open locally):
+        // Open a new tab in the local browser and take over in current device
         const newTab = await browser.tabs.create({ url, active: true });
         const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
         if (newTab && newTab.id !== undefined && customTitle) {

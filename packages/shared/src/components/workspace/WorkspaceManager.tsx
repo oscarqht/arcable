@@ -236,10 +236,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         handleUpdateSearch('');
       }
 
-      // Takeover tmp tab: author deletion for the old tmp tab so it's removed from its previous owner/device
-      const targetId = tab?.id || tabId;
-      if (targetId) {
-        deleteTmpTab(targetId);
+      const hasLocalTabTracker = tmpTabs !== undefined;
+      // It's remote if the client tracks local browser tabs, and the clicked tab is:
+      // - explicitly from another device, OR
+      // - not currently open in this browser (browserTabId === undefined)
+      const isRemote = Boolean(
+        hasLocalTabTracker &&
+        tab &&
+        (
+          (effectiveCurrentDeviceId && tab.deviceId && tab.deviceId !== effectiveCurrentDeviceId) ||
+          tab.browserTabId === undefined
+        )
+      );
+
+      if (isRemote && tab) {
+        // Takeover remote tmp tab: delete remote tab item so originating device closes it
+        deleteTmpTab(tab.id);
+        // Immediately sync to propagate the deletion operation to Raindrop & other devices
+        void performSyncRef.current?.(true);
       }
 
       if (onOpenTab) {
@@ -247,11 +261,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       } else if (typeof window !== 'undefined' && url) {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
-
-      // Immediately sync to propagate the deletion operation to Raindrop & other devices
-      void performSyncRef.current?.(true);
     },
-    [activeSearchQuery, handleUpdateSearch, deleteTmpTab, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, tmpTabs, effectiveCurrentDeviceId, deleteTmpTab, onOpenTab]
   );
 
   // Combine local tmpTabs (passed via prop) and remote tmpTabs (from synced workspace data.tmpTabs)
