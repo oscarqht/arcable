@@ -17,21 +17,8 @@ export class CustomCodeInjector {
 
   async init(): Promise<void> {
     try {
-      // A Google session is backed by Supabase, not Raindrop. Ask the worker to
-      // refresh the shared code stores before matching the current page.
-      try {
-        const hydration = await browser.runtime.sendMessage({ type: 'SUPABASE_HYDRATE_CUSTOM_CODE' }) as {
-          success?: boolean;
-          error?: string;
-        };
-        if (hydration?.success === false) {
-          console.warn('[CustomCodeInjector] Failed to refresh cloud rules:', hydration.error);
-        }
-      } catch (err) {
-        // Existing local rules should still run if the worker is restarting.
-        console.warn('[CustomCodeInjector] Could not contact background worker:', err);
-      }
       await this.loadRules();
+
       this.applyMatchingRules();
       this.setupStorageListener();
     } catch (err) {

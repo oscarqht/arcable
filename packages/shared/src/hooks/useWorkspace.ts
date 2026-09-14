@@ -17,9 +17,10 @@ import {
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
 import {
-  performSupabaseSync,
+  syncWorkspaceWithCloudServer,
   getSyncServerUrl,
-} from '../utils/supabaseSync';
+} from '../utils/cloudSync';
+
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -2196,14 +2197,17 @@ export function useWorkspace() {
     }
   }, [data, applyLatestSnapshot]);
 
-  // Supabase Server Sync Trigger
-  const syncWithSupabaseServer = useCallback(async (params?: { serverUrl?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
-    if (supabaseSyncPromiseRef.current) {
-      return supabaseSyncPromiseRef.current;
+  // Next.js Reconcile Server Sync Trigger (using Raindrop token)
+  const cloudSyncPromiseRef = useRef<Promise<{ success: boolean; error?: string; serverVersion?: number }> | null>(null);
+
+  const syncWithCloudServer = useCallback(async (params: { token: string; serverUrl?: string; deviceName?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
+    if (cloudSyncPromiseRef.current) {
+      return cloudSyncPromiseRef.current;
     }
 
     setIsSyncing(true);
-    const syncPromise = performSupabaseSync({
+    const syncPromise = syncWorkspaceWithCloudServer({
+      token: params.token,
       currentState: data,
       onApplySnapshot: (snapshot) => {
         applyLatestSnapshot(snapshot);
@@ -2211,19 +2215,30 @@ export function useWorkspace() {
       onApplyDiffs: (diffs) => {
         saveWorkspaceData((prev) => replayOperations(prev, diffs));
       },
-      serverUrl: params?.serverUrl,
+      serverUrl: params.serverUrl,
+      deviceName: params.deviceName,
     });
-    supabaseSyncPromiseRef.current = syncPromise;
+    cloudSyncPromiseRef.current = syncPromise;
 
     try {
       return await syncPromise;
     } finally {
-      if (supabaseSyncPromiseRef.current === syncPromise) {
-        supabaseSyncPromiseRef.current = null;
+      if (cloudSyncPromiseRef.current === syncPromise) {
+        cloudSyncPromiseRef.current = null;
         setIsSyncing(false);
       }
     }
   }, [data, applyLatestSnapshot, saveWorkspaceData]);
+
+  // Backward compatibility alias
+  const syncWithSupabaseServer = useCallback(async (params?: { token?: string; serverUrl?: string; deviceName?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
+    return syncWithCloudServer({
+      token: params?.token || '',
+      serverUrl: params?.serverUrl,
+      deviceName: params?.deviceName,
+    });
+  }, [syncWithCloudServer]);
+
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
@@ -2360,11 +2375,13 @@ export function useWorkspace() {
     importWorkspaceData,
     saveWorkspaceData,
     applyLatestSnapshot,
-    // Raindrop & Supabase sync
+    // Raindrop Cloud sync
+    syncWithCloudServer,
     syncWithRaindropToken,
     syncWithSupabaseServer,
     isSyncing,
     lastSyncResult,
+
     // Hierarchy queries
     favouriteTabs,
     pinnedTabs,

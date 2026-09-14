@@ -7,7 +7,8 @@ export * from './dragState';
 export * from './spaceTheme';
 export * from './customCodeUtils';
 export * from './weatherService';
-export * from './supabaseSync';
+export * from './cloudSync';
 export * from './oauthRedirect';
 export * from './workspaceBackup';
 export * from './syncProvider';
+

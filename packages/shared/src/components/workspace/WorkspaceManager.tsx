@@ -14,7 +14,7 @@ import {
   removeStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
-import { getSyncProvider, getSupabaseSession } from '../../utils/supabaseSync';
+import { getSyncProvider } from '../../utils/cloudSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
@@ -197,7 +197,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateWidget,
     removeWidget,
     reorderWidget,
-    syncWithSupabaseServer,
+    syncWithCloudServer,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -948,111 +948,47 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     const currentSeq = ++syncSeqRef.current;
 
     const syncPromise = (async () => {
-      let result: SyncResult | null = null;
-
       try {
+
         const deviceId = getOrCreateDeviceId();
-        const pendingOps = getStoredPendingOperations();
-        const syncedOpIds = pendingOps.map((op) => op.id);
+        const hasRaindrop = Boolean(raindropToken || onSyncRaindrop);
 
-        const hasSupabase = Boolean(getSupabaseSession()?.access_token);
-        const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
+        if (hasRaindrop) {
+          const token = raindropToken || '';
+          const res = await syncWithCloudServer({
+            token,
+            deviceName: getStoredDeviceName(),
+          });
 
-        // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
-        if (hasSupabase) {
-          const res = await syncWithSupabaseServer();
           if (currentSeq === syncSeqRef.current) {
             if (res.success) {
               if (!isCurrentSyncSilentRef.current) {
                 setSyncFeedback({
-                  message: `✓ Synced with Arcable Cloud (v${res.serverVersion || 1})`,
+                  message: `✓ Synced with Raindrop (v${res.serverVersion || 1})`,
                 });
               } else {
                 setSyncFeedback((prev) => (prev?.isError ? null : prev));
               }
             } else {
               setSyncFeedback({
-                message: res.error || 'Failed to sync with Arcable Cloud.',
+                message: res.error || 'Failed to sync with Raindrop.',
                 isError: true,
               });
             }
           }
           return;
-        }
-
-        // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop, NEVER supabase;
-        if (hasRaindrop) {
-          if (onSyncRaindrop) {
-            const res = await onSyncRaindrop({
-              localState: data,
-              deviceId,
-              pendingOps,
-            });
-
-            if (currentSeq === syncSeqRef.current) {
-              if (res && typeof res === 'object') {
-                result = res as SyncResult;
-                if (res.success) {
-                  removeStoredPendingOperations(syncedOpIds);
-                  if (res.latestSnapshot) {
-                    applyLatestSnapshot(res.latestSnapshot);
-                  }
-                }
-              }
-            }
-          } else if (raindropToken) {
-            const res = await syncWorkspaceWithRaindrop(raindropToken, {
-              localState: data,
-              deviceId,
-              pendingOps,
-            });
-
-            if (currentSeq === syncSeqRef.current) {
-              result = res;
-              if (res.success) {
-                removeStoredPendingOperations(syncedOpIds);
-                if (res.latestSnapshot) {
-                  applyLatestSnapshot(res.latestSnapshot);
-                }
-              }
-            }
-          }
         } else {
-          // 3. if user has logged in to none, don't perform any sync at all.
+          // No active cloud connection
           if (!isCurrentSyncSilentRef.current) {
             setSyncFeedback({
-              message: 'Please sign in with Google or connect Raindrop first.',
+              message: 'Please connect your Raindrop account first.',
               isError: true,
             });
           }
           return;
         }
 
-        if (currentSeq === syncSeqRef.current) {
-          if (result) {
-            if (result.success) {
-              if (!isCurrentSyncSilentRef.current) {
-                setSyncFeedback({
-                  message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
-                });
-              } else {
-                setSyncFeedback((prev) => (prev?.isError ? null : prev));
-              }
-            } else {
-              setSyncFeedback({
-                message: result.error || 'Failed to sync with Raindrop.',
-                isError: true,
-              });
-            }
-          } else if (!result && onSyncRaindrop) {
-            if (!isCurrentSyncSilentRef.current) {
-              setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
-            } else {
-              setSyncFeedback((prev) => (prev?.isError ? null : prev));
-            }
-          }
-        }
-        return result ?? undefined;
+
       } catch (err: any) {
         if (currentSeq === syncSeqRef.current) {
           setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
@@ -1122,9 +1058,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // listeners, otherwise the same state pull is started twice.
   useEffect(() => {
     const checkAndSync = (silent: boolean = true) => {
-      const hasSupabase = Boolean(getSupabaseSession()?.access_token);
-      const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
-      if (autoSync && (hasSupabase || hasRaindrop)) {
+      const hasRaindrop = Boolean(onSyncRaindrop || raindropToken);
+      if (autoSync && hasRaindrop) {
         void performSyncRef.current?.(silent);
       }
     };
@@ -1156,18 +1091,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('arcable_supabase_session_changed', handleSessionChange);
+      window.addEventListener('arcable_raindrop_auth_changed', handleSessionChange);
       window.addEventListener('arcable_pending_op_saved', handlePendingOperation);
       window.addEventListener('focus', handleFocusOrOnline);
       window.addEventListener('online', handleFocusOrOnline);
       return () => {
         if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
-        window.removeEventListener('arcable_supabase_session_changed', handleSessionChange);
+        window.removeEventListener('arcable_raindrop_auth_changed', handleSessionChange);
         window.removeEventListener('arcable_pending_op_saved', handlePendingOperation);
         window.removeEventListener('focus', handleFocusOrOnline);
         window.removeEventListener('online', handleFocusOrOnline);
       };
     }
+
   }, [autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
 
   // Notify parent of syncing state changes
@@ -2490,30 +2426,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
-          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (() => {
-            const isCloudSyncing = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
-            return (
-              <ActionDropdown
-                items={bottomBarMenuItems}
-                isDarkTheme={isDark}
-                align="right"
-                buttonTitle={isCurrentlySyncing ? (isCloudSyncing ? 'Syncing with Arcable Cloud...' : 'Syncing with Raindrop...') : 'More options'}
-                triggerIcon={
-                  isCurrentlySyncing ? (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '15px',
-                        lineHeight: 1,
-                        animation: 'arcable-spin 1s linear infinite',
-                      }}
-                    >
-                      {isCloudSyncing ? '☁️' : '💧'}
-                    </span>
-                  ) : undefined
-                }
+          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (
+            <ActionDropdown
+              items={bottomBarMenuItems}
+              isDarkTheme={isDark}
+              align="right"
+              buttonTitle={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'More options'}
+              triggerIcon={
+                isCurrentlySyncing ? (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '15px',
+                      lineHeight: 1,
+                      animation: 'arcable-spin 1s linear infinite',
+                    }}
+                  >
+                    💧
+                  </span>
+                ) : undefined
+              }
+
                 buttonStyle={{
                   width: '32px',
                   height: '32px',
@@ -2525,8 +2460,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   color: isDark ? '#cbd5e1' : '#475569',
                 }}
               />
-            );
-          })()}
+            )}
+
+
         </div>
       )}
 

@@ -91,7 +91,7 @@ const LOCATION_OPTIONS: RenameOption[] = [
 export interface DeviceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  syncProvider?: 'supabase' | 'raindrop';
+  syncProvider?: 'raindrop' | 'local';
   raindropToken?: string;
   currentDeviceId?: string;
   onFetchDevices?: () => Promise<DeviceSyncRecord[]>;
@@ -264,14 +264,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
           setErrorMessage(res.error || 'Failed to load devices from Raindrop.');
         }
       } else {
-        setErrorMessage(
-          syncProvider === 'supabase'
-            ? 'Please sign in with Google to view devices.'
-            : syncProvider === 'raindrop'
-            ? 'Please connect Raindrop account or provide an access token to view devices.'
-            : 'Please sign in with Google or connect a Raindrop account to view devices.'
-        );
+        setErrorMessage('Please connect a Raindrop account or provide an access token to view devices.');
       }
+
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error loading devices.');
     } finally {
@@ -565,18 +560,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 Device Management
               </h2>
               <p style={{ margin: '2px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                {syncProvider === 'supabase' ? (
-                  <>
-                    Synced clients in <strong style={{ color: isDark ? '#38bdf8' : '#0284c7' }}>Arcable Cloud (Supabase)</strong>
-                  </>
-                ) : syncProvider === 'raindrop' ? (
-                  <>
-                    Synced clients in Raindrop <code style={{ fontSize: '11px', color: isDark ? '#38bdf8' : '#0284c7' }}>data-v3.json.txt</code>
-                  </>
-                ) : (
-                  'Connected device registry'
-                )}
+                Synced clients in Raindrop <code style={{ fontSize: '11px', color: isDark ? '#38bdf8' : '#0284c7' }}>data-v3.json.txt</code>
               </p>
+
             </div>
           </div>
 
@@ -692,10 +678,9 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             </div>
             <p style={{ margin: '0 0 12px', fontSize: '12px', color: isDark ? '#fda4af' : '#be123c', lineHeight: 1.4 }}>
               Are you sure you want to delete <strong>{confirmDeleteDevice.deviceName || confirmDeleteDevice.deviceId}</strong>?
-              {syncProvider === 'supabase'
-                ? ' This device will be removed from your cloud workspace registry.'
-                : ' The sync file will re-compact its baseline snapshot. If this device connects again later, its local cache will be overwritten with the latest remote state.'}
+              The sync file will re-compact its baseline snapshot. If this device connects again later, its local cache will be overwritten with the latest remote state.
             </p>
+
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <Button
                 variant="secondary"
@@ -734,9 +719,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
             </div>
             <p style={{ margin: '0 0 12px', fontSize: '12px', color: isDark ? '#fda4af' : '#be123c', lineHeight: 1.4 }}>
               Are you sure you want to delete all other devices except this current device?
-              {syncProvider === 'supabase'
-                ? ' Only this current device will remain registered in your cloud workspace.'
-                : ' Only this current device will remain registered. The sync file will be re-compacted immediately.'}
+              Only this current device will remain registered. The sync file will be re-compacted immediately.
             </p>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <Button
@@ -754,16 +737,16 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                 isLoading={actionInProgressId === 'all_other'}
                 style={{ backgroundColor: '#e11d48', borderColor: '#e11d48', color: '#ffffff' }}
               >
-                Delete All But This
+                Delete All Others
               </Button>
             </div>
           </div>
         )}
 
-        {/* Device List Area */}
-        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px', minHeight: '180px' }}>
-          {loading && sortedDevices.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: isDark ? '#94a3b8' : '#64748b', fontSize: '13px' }}>
+        {/* Devices list or loading/empty state */}
+        <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '36px 0', color: isDark ? '#94a3b8' : '#64748b' }}>
               <div
                 style={{
                   width: '24px',
@@ -775,7 +758,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
                   margin: '0 auto 10px',
                 }}
               />
-              Loading devices from {syncProvider === 'supabase' ? 'Arcable Cloud' : 'Raindrop'}...
+              Loading devices from Raindrop...
             </div>
           ) : sortedDevices.length === 0 ? (
             <div
@@ -791,7 +774,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
               <div style={{ fontSize: '28px', marginBottom: '8px' }}>💻</div>
               <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>No Devices Found</div>
               <p style={{ margin: '4px 0 0', fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8' }}>
-                Run a {syncProvider === 'supabase' ? 'Cloud' : 'Raindrop'} sync to register this device into the workspace.
+                Run a Raindrop sync to register this device into the workspace.
               </p>
             </div>
           ) : (

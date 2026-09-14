@@ -5,7 +5,6 @@ import {
   Card,
   DeviceModal,
   RaindropAuthCard,
-  SupabaseAuthCard,
   CopyIcon,
   ExternalLinkIcon,
   RefreshIcon,
@@ -16,7 +15,6 @@ import {
   ExtensionResponse,
   SyncResult,
   DeviceSyncRecord,
-  SupabaseSessionTokens,
   SyncProvider,
   WorkspaceOperation,
 } from '@arcable/shared/types';
@@ -33,13 +31,9 @@ import {
   getSyncProvider,
   setSyncProvider,
   resolveSyncProvider,
-  getSupabaseSession,
-  setSupabaseSession,
   getSyncServerUrl,
   setSyncServerUrl,
   getStoredServerVersion,
-  performSupabaseSync,
-  refreshSupabaseSession,
   getDefaultServerUrl,
 } from '@arcable/shared/utils';
 
@@ -51,7 +45,6 @@ import packageJson from '../../package.json';
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
 
 type OptionsTab = 'sync' | 'device' | 'custom-code' | 'run-code' | 'about';
-type CloudSubTab = 'supabase' | 'raindrop';
 
 interface ToastInfo {
   message: string;
@@ -61,11 +54,6 @@ interface ToastInfo {
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
   const [activeTab, setActiveTab] = useState<OptionsTab>('sync');
-
-  // Sub-tab in Sync & Cloud: 'supabase' (Arcable Cloud) | 'raindrop' (Raindrop.io)
-  // Decoupled from syncProvider so navigating between tabs does NOT switch sync provider!
-  const [cloudSubTab, setCloudSubTab] = useState<CloudSubTab>('supabase');
-  const userSelectedTabRef = useRef(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -77,17 +65,8 @@ export const App: React.FC = () => {
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-
-  // Active sync provider strictly following:
-  // 1. Google OAuth -> 'supabase'
-  // 2. Raindrop -> 'raindrop'
-  // 3. None -> 'local'
   const [syncProvider, setSyncProviderState] = useState<SyncProvider>('local');
-  const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
-  const [supabaseServerUrl, setSupabaseServerUrlState] = useState<string>(getDefaultServerUrl());
-  const [supabaseVersion, setSupabaseVersionState] = useState<number>(1);
-  const [isSupabaseSyncing, setIsSupabaseSyncing] = useState(false);
-  const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [serverUrl, setServerUrlState] = useState<string>(getDefaultServerUrl());
 
   // Device state
   const [deviceId, setDeviceId] = useState('');
@@ -133,8 +112,7 @@ export const App: React.FC = () => {
       'arcable_last_synced_at',
       'arcable_device_name',
       'arcable_sync_provider',
-      'arcable_supabase_session',
-      'arcable_supabase_server_url',
+      'arcable_server_url',
       'arcable_raindrop_auth',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
@@ -144,54 +122,28 @@ export const App: React.FC = () => {
         setDeviceName(res.arcable_device_name);
         setDeviceNameInput(res.arcable_device_name);
       }
-      const storedSupabaseSession = res.arcable_supabase_session || getSupabaseSession();
-      setSupabaseSessionState(storedSupabaseSession);
 
       const storedRaindropAuth = res.arcable_raindrop_auth as RaindropAuthState | undefined;
       if (storedRaindropAuth && storedRaindropAuth.isAuthenticated) {
         setAuthState(storedRaindropAuth);
-        if (!userSelectedTabRef.current && !storedSupabaseSession?.access_token) {
-          setCloudSubTab('raindrop');
-        }
       }
 
-      // Strictly resolve sync provider:
-      // 1. Google OAuth -> Arcable Cloud ('supabase')
-      // 2. Raindrop -> Raindrop.io ('raindrop')
-      // 3. None -> Don't sync ('local')
-      const isGoogle = Boolean(storedSupabaseSession?.access_token);
-      const isRaindrop = Boolean(!isGoogle && (storedRaindropAuth?.isAuthenticated || authState.isAuthenticated));
-      const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+      const isRaindrop = Boolean(storedRaindropAuth?.isAuthenticated || authState.isAuthenticated);
+      const resolved = resolveSyncProvider(isRaindrop);
       setSyncProviderState(resolved);
       setSyncProvider(resolved);
       void browser.storage.local.set({ arcable_sync_provider: resolved });
 
-      // Sessions saved by the older Firefox identity callback contain valid
-      // tokens but no user profile. Refresh once to hydrate the existing
-      // connection without forcing the user to disconnect and sign in again.
-      if (
-        storedSupabaseSession?.access_token &&
-        storedSupabaseSession?.refresh_token &&
-        !storedSupabaseSession?.user?.id
-      ) {
-        void browser.runtime.sendMessage({ type: 'SUPABASE_REFRESH_SESSION' }).then((refreshResult: any) => {
-          if (refreshResult?.success && refreshResult.data?.user) {
-            setSupabaseSessionState(refreshResult.data);
-          }
-        }).catch(() => {});
-      }
-      if (res.arcable_supabase_server_url) {
-        setSupabaseServerUrlState(res.arcable_supabase_server_url);
+      if (res.arcable_server_url) {
+        setServerUrlState(res.arcable_server_url);
       } else {
-        setSupabaseServerUrlState(getSyncServerUrl());
+        setServerUrlState(getSyncServerUrl());
       }
-      setSupabaseVersionState(getStoredServerVersion());
     });
 
     // 4. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
-        let curSupabase = supabaseSession;
         let curRaindrop = authState;
         let authStateChanged = false;
 
@@ -210,19 +162,12 @@ export const App: React.FC = () => {
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
-        if (changes.arcable_supabase_session) {
-          const newSession = changes.arcable_supabase_session.newValue as SupabaseSessionTokens | null;
-          curSupabase = newSession;
-          setSupabaseSessionState(newSession);
-          authStateChanged = true;
-        }
-        if (changes.arcable_supabase_server_url) {
-          setSupabaseServerUrlState(changes.arcable_supabase_server_url.newValue as string);
+        if (changes.arcable_server_url) {
+          setServerUrlState(changes.arcable_server_url.newValue as string);
         }
         if (authStateChanged) {
-          const isGoogle = Boolean(curSupabase?.access_token);
-          const isRaindrop = Boolean(!isGoogle && curRaindrop?.isAuthenticated);
-          const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+          const isRaindrop = Boolean(curRaindrop?.isAuthenticated);
+          const resolved = resolveSyncProvider(isRaindrop);
           setSyncProviderState(resolved);
           setSyncProvider(resolved);
           void browser.storage.local.set({ arcable_sync_provider: resolved });
@@ -232,31 +177,18 @@ export const App: React.FC = () => {
       }
     };
 
-    // 5. Listen to runtime messages for auth bridge completion
+    // 5. Listen to runtime messages for auth completion
     const handleRuntimeMessage = (msg: any) => {
-      if (msg && msg.type === 'SUPABASE_SESSION_CHANGED') {
-        setSupabaseSessionState(msg.session || null);
-        if (msg.session) {
-          setSyncProvider('supabase');
-          setSyncProviderState('supabase');
-          showToast('Connected to Arcable Cloud!', 'success');
-        } else {
-          const resolved = resolveSyncProvider(false, Boolean(authState.isAuthenticated));
-          setSyncProvider(resolved);
-          setSyncProviderState(resolved);
-        }
-      } else if (msg && msg.type === 'RAINDROP_AUTH_CHANGED') {
+      if (msg && msg.type === 'RAINDROP_AUTH_CHANGED') {
         if (msg.auth && msg.auth.isAuthenticated) {
           setAuthState(msg.auth);
-          const isGoogle = Boolean(supabaseSession?.access_token);
-          const resolved = resolveSyncProvider(isGoogle, true);
+          const resolved = resolveSyncProvider(true);
           setSyncProvider(resolved);
           setSyncProviderState(resolved);
           showToast('Connected to Raindrop.io successfully!', 'success');
         } else {
           setAuthState({ isAuthenticated: false });
-          const isGoogle = Boolean(supabaseSession?.access_token);
-          const resolved = resolveSyncProvider(isGoogle, false);
+          const resolved = resolveSyncProvider(false);
           setSyncProvider(resolved);
           setSyncProviderState(resolved);
         }
@@ -265,30 +197,20 @@ export const App: React.FC = () => {
 
     // 6. Automatically re-check session when user returns/focuses Options tab
     const handleTabFocus = () => {
-      browser.storage.local.get(['arcable_supabase_session', 'arcable_raindrop_auth', 'arcable_sync_provider']).then((res: any) => {
-        if (res.arcable_supabase_session !== undefined) {
-          setSupabaseSessionState(res.arcable_supabase_session);
-        }
+      browser.storage.local.get(['arcable_raindrop_auth', 'arcable_sync_provider']).then((res: any) => {
         if (res.arcable_raindrop_auth !== undefined) {
           setAuthState(res.arcable_raindrop_auth);
         }
-        const isGoogle = Boolean(res.arcable_supabase_session?.access_token);
-        const isRaindrop = Boolean(!isGoogle && res.arcable_raindrop_auth?.isAuthenticated);
-        const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+        const isRaindrop = Boolean(res.arcable_raindrop_auth?.isAuthenticated);
+        const resolved = resolveSyncProvider(isRaindrop);
         setSyncProviderState(resolved);
         setSyncProvider(resolved);
         void browser.storage.local.set({ arcable_sync_provider: resolved });
       });
     };
 
-    const handleSessionEvent = (e: any) => {
-      const detail = e?.detail as SupabaseSessionTokens | null;
-      setSupabaseSessionState(detail || null);
-    };
-
     window.addEventListener('focus', handleTabFocus);
     window.addEventListener('visibilitychange', handleTabFocus);
-    window.addEventListener('arcable_supabase_session_changed', handleSessionEvent);
 
     browser.storage.onChanged.addListener(handleStorageChange);
     browser.runtime.onMessage.addListener(handleRuntimeMessage);
@@ -296,7 +218,6 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('focus', handleTabFocus);
       window.removeEventListener('visibilitychange', handleTabFocus);
-      window.removeEventListener('arcable_supabase_session_changed', handleSessionEvent);
       browser.storage.onChanged.removeListener(handleStorageChange);
       browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
@@ -330,8 +251,7 @@ export const App: React.FC = () => {
       })) as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
-        const isGoogle = Boolean(supabaseSession?.access_token);
-        const resolved = resolveSyncProvider(isGoogle, true);
+        const resolved = resolveSyncProvider(true);
         setSyncProvider(resolved);
         setSyncProviderState(resolved);
         await browser.storage.local.set({ arcable_sync_provider: resolved });
@@ -364,8 +284,7 @@ export const App: React.FC = () => {
         throw new Error(res?.error || 'Raindrop OAuth did not return an authenticated session.');
       }
       setAuthState(res.data);
-      const isGoogle = Boolean(supabaseSession?.access_token);
-      const resolved = resolveSyncProvider(isGoogle, true);
+      const resolved = resolveSyncProvider(true);
       setSyncProvider(resolved);
       setSyncProviderState(resolved);
       await browser.storage.local.set({ arcable_sync_provider: resolved });
@@ -382,8 +301,7 @@ export const App: React.FC = () => {
         type: 'RAINDROP_LOGOUT',
       });
       setAuthState({ isAuthenticated: false });
-      const isGoogle = Boolean(supabaseSession?.access_token);
-      const resolved = resolveSyncProvider(isGoogle, false);
+      const resolved = resolveSyncProvider(false);
       setSyncProvider(resolved);
       setSyncProviderState(resolved);
       await browser.storage.local.set({ arcable_sync_provider: resolved });
@@ -395,172 +313,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLoginWithGoogle = async () => {
-    setSupabaseError(null);
-    try {
-      const res: any = await browser.runtime.sendMessage({ type: 'SUPABASE_START_OAUTH' });
-      if (!res?.success) {
-        throw new Error(res?.error || 'Failed to start Google OAuth');
-      }
-      if (res.pending) {
-        showToast(res.message || 'Please complete sign-in in the opened tab, then return here.', 'info');
-        return;
-      }
-      if (!res.data?.access_token) {
-        throw new Error(res?.error || 'Google OAuth did not return a Supabase session.');
-      }
-      setSupabaseSession(res.data);
-      setSupabaseSessionState(res.data);
-      setSyncProvider('supabase');
-      setSyncProviderState('supabase');
-      await browser.storage.local.set({
-        arcable_supabase_session: res.data,
-        arcable_sync_provider: 'supabase',
-      });
-      showToast('Connected to Arcable Cloud!', 'success');
-    } catch (err: any) {
-      setSupabaseError(err?.message || 'Failed to start Google OAuth');
-    }
-  };
-
-  const handleSupabaseLogout = async () => {
-    try {
-      await browser.runtime.sendMessage({ type: 'SUPABASE_LOGOUT' });
-      setSupabaseSession(null);
-      setSupabaseSessionState(null);
-      const resolved = resolveSyncProvider(false, Boolean(authState.isAuthenticated));
-      setSyncProvider(resolved);
-      setSyncProviderState(resolved);
-      await browser.storage.local.set({ arcable_sync_provider: resolved });
-      showToast('Disconnected from Arcable Cloud', 'info');
-    } catch (err: any) {
-      console.error('Logout error:', err);
-    }
-  };
-
-  const handleChangeServerUrl = (url: string) => {
-    setSyncServerUrl(url);
-    setSupabaseServerUrlState(url);
-    void browser.storage.local.set({ arcable_supabase_server_url: url });
-    showToast(`Server URL updated to ${url}`, 'success');
-  };
-
-  const handleSupabaseSyncNow = async () => {
-    if (!supabaseSession) {
-      showToast('Please sign in first', 'warning');
-      return;
-    }
-    setIsSupabaseSyncing(true);
-    setSupabaseError(null);
-    try {
-      let localState: any = undefined;
-      if (typeof window !== 'undefined') {
-        const stored = window.localStorage.getItem('arcable_workspace_data');
-        if (stored) {
-          try {
-            localState = JSON.parse(stored);
-          } catch {}
-        }
-      }
-
-      if (!localState) {
-        showToast('No workspace data found locally', 'warning');
-        return;
-      }
-
-      const res = await performSupabaseSync({
-        currentState: localState,
-        serverUrl: supabaseServerUrl,
-        session: supabaseSession,
-        onApplySnapshot: (snap) => {
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snap));
-          }
-        },
-      });
-
-      if (res.success) {
-        if (res.serverVersion) setSupabaseVersionState(res.serverVersion);
-        setSupabaseError(null);
-        showToast('Cloud sync complete!', 'success');
-      } else {
-        setSupabaseError(res.error || 'Sync failed');
-        showToast(res.error || 'Sync failed', 'warning');
-      }
-    } catch (err: any) {
-      setSupabaseError(err?.message || 'Sync failed');
-      showToast(err?.message || 'Sync failed', 'warning');
-    } finally {
-      setIsSupabaseSyncing(false);
-    }
-  };
-
-
-  const handleRefreshSession = async () => {
-    try {
-      const res: any = await browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']);
-      const session = res.arcable_supabase_session || supabaseSession || getSupabaseSession();
-      if (!session) {
-        showToast('No active session found. Please complete sign-in in the login tab.', 'info');
-        return;
-      }
-
-      if (session.refresh_token) {
-        const refreshed = await refreshSupabaseSession(session, supabaseServerUrl);
-        if (refreshed) {
-          setSupabaseSessionState(refreshed);
-          setSupabaseError(null);
-          showToast('Connection refreshed successfully!', 'success');
-          return;
-        }
-      }
-
-      if (session.access_token) {
-        setSupabaseSessionState(session);
-        setSupabaseError(null);
-        showToast('Connected to Arcable Cloud!', 'success');
-      }
-    } catch (err: any) {
-      showToast('Refresh failed: ' + (err?.message || 'Unknown error'), 'warning');
-    }
-  };
-
-  const handleManualTokenImport = async (tokenInput: string) => {
-    try {
-      let session: any = null;
-      const clean = tokenInput.trim();
-      if (clean.startsWith('{')) {
-        session = JSON.parse(clean);
-      } else {
-        session = { access_token: clean, refresh_token: '' };
-      }
-
-      if (session && session.access_token) {
-        await browser.storage.local.set({
-          arcable_supabase_session: session,
-          arcable_sync_provider: 'supabase',
-        });
-        setSupabaseSession(session);
-        setSyncProvider('supabase');
-        setSupabaseSessionState(session);
-        setSyncProviderState('supabase');
-        showToast('Connected to Arcable Cloud successfully!', 'success');
-        return true;
-      }
-      throw new Error('Invalid token structure');
-    } catch (err: any) {
-      showToast('Import failed: ' + (err.message || 'Invalid format'), 'warning');
-      return false;
-    }
-  };
-
-
-
   const handleManualSync = async () => {
-    if (supabaseSession?.access_token) {
-      showToast('Google OAuth is active. Workspace sync uses Arcable Cloud.', 'warning');
-      return;
-    }
     if (!authState.isAuthenticated) {
       showToast('Please connect to Raindrop first.', 'warning');
       return;
@@ -900,7 +653,7 @@ export const App: React.FC = () => {
         {/* TAB 1: SYNC & CLOUD */}
         {activeTab === 'sync' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Cloud Provider Tabs & Active Status */}
+            {/* Status indicator */}
             <div
               style={{
                 display: 'flex',
@@ -912,249 +665,83 @@ export const App: React.FC = () => {
             >
               <div
                 style={{
-                  display: 'flex',
-                  gap: '8px',
-                  padding: '4px',
-                  backgroundColor: isDark ? 'rgba(30, 41, 59, 0.6)' : '#e2e8f0',
-                  borderRadius: '12px',
-                  width: 'fit-content',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    userSelectedTabRef.current = true;
-                    setCloudSubTab('supabase');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    backgroundColor: cloudSubTab === 'supabase' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                    color: cloudSubTab === 'supabase' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                    boxShadow: cloudSubTab === 'supabase' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span>🌌 Arcable Cloud (Google OAuth)</span>
-                  {syncProvider === 'supabase' && (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '10px',
-                        padding: '2px 7px',
-                        borderRadius: '9999px',
-                        backgroundColor: isDark ? '#10b981' : '#059669',
-                        color: '#ffffff',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: '5px',
-                          height: '5px',
-                          borderRadius: '50%',
-                          backgroundColor: '#ffffff',
-                        }}
-                      />
-                      Active
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    userSelectedTabRef.current = true;
-                    setCloudSubTab('raindrop');
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    backgroundColor: cloudSubTab === 'raindrop' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                    color: cloudSubTab === 'raindrop' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                    boxShadow: cloudSubTab === 'raindrop' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span>💧 Raindrop.io</span>
-                  {syncProvider === 'raindrop' && (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '10px',
-                        padding: '2px 7px',
-                        borderRadius: '9999px',
-                        backgroundColor: isDark ? '#10b981' : '#059669',
-                        color: '#ffffff',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: '5px',
-                          height: '5px',
-                          borderRadius: '50%',
-                          backgroundColor: '#ffffff',
-                        }}
-                      />
-                      Active
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Status indicator */}
-              <div
-                style={{
-                  fontSize: '12px',
+                  fontSize: '13px',
                   color: isDark ? '#94a3b8' : '#64748b',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
                 }}
               >
-                <span>Active Sync Provider:</span>
+                <span>Sync Provider:</span>
                 <strong
                   style={{
-                    color:
-                      syncProvider === 'supabase'
-                        ? '#3b82f6'
-                        : syncProvider === 'raindrop'
-                        ? '#0ea5e9'
-                        : (isDark ? '#94a3b8' : '#64748b'),
+                    color: syncProvider === 'raindrop' ? '#0ea5e9' : (isDark ? '#94a3b8' : '#64748b'),
                   }}
                 >
-                  {syncProvider === 'supabase'
-                    ? 'Arcable Cloud (Google OAuth)'
-                    : syncProvider === 'raindrop'
-                    ? 'Raindrop.io'
-                    : 'None (Sync Disabled)'}
+                  {syncProvider === 'raindrop' ? 'Raindrop.io Cloud' : 'None (Sync Disabled)'}
                 </strong>
               </div>
             </div>
 
-            {cloudSubTab === 'supabase' ? (
-              <SupabaseAuthCard
-                session={supabaseSession}
-                onLoginWithGoogle={handleLoginWithGoogle}
-                onLogout={handleSupabaseLogout}
-                onRefreshSession={handleRefreshSession}
-                onImportToken={handleManualTokenImport}
-                serverUrl={supabaseServerUrl}
-                onChangeServerUrl={handleChangeServerUrl}
-                onSyncNow={handleSupabaseSyncNow}
-                isSyncing={isSupabaseSyncing}
-                errorMessage={supabaseError}
-                serverVersion={supabaseVersion}
-              />
-            ) : (
-              <>
-                {Boolean(supabaseSession?.access_token) && (
-                  <div
+            <RaindropAuthCard
+              authState={authState}
+              isLoading={authLoading}
+              errorMessage={authError}
+              onLoginWithToken={handleLoginWithToken}
+              onLoginWithOAuth={handleLoginWithOAuth}
+              onLogout={handleLogout}
+              onClearError={() => setAuthError(null)}
+              title="Raindrop.io Cloud Sync"
+              subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
+            />
+
+            {authState.isAuthenticated && (
+              <Card
+                title="Sync Status"
+                subtitle="Manage your cloud synchronization with Raindrop"
+                style={{ borderRadius: '16px', padding: '24px' }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    padding: '14px 18px',
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                    borderRadius: '12px',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                      Last Cloud Sync
+                    </div>
+                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                      {lastSyncAt ? formatDate(lastSyncAt) : 'Not synced yet in this session'}
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleManualSync}
+                    isLoading={isSyncing}
                     style={{
-                      padding: '12px 16px',
-                      borderRadius: '12px',
-                      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : '#eff6ff',
-                      border: isDark ? '1px solid rgba(59, 130, 246, 0.25)' : '1px solid #bfdbfe',
-                      color: isDark ? '#bfdbfe' : '#1d4ed8',
-                      fontSize: '13px',
-                      lineHeight: '1.5',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '10px',
+                      gap: '6px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      fontWeight: 600,
                     }}
                   >
-                    <span style={{ fontSize: '16px' }}>ℹ️</span>
-                    <span>
-                      Google OAuth is currently active as your sync provider. Full workspace sync uses Arcable Cloud; Raindrop item search and save-to-unsorted remain active.
-                    </span>
-                  </div>
-                )}
-
-                <RaindropAuthCard
-                  authState={authState}
-                  isLoading={authLoading}
-                  errorMessage={authError}
-                  onLoginWithToken={handleLoginWithToken}
-                  onLoginWithOAuth={handleLoginWithOAuth}
-                  onLogout={handleLogout}
-                  onClearError={() => setAuthError(null)}
-                  title="Raindrop.io Cloud Sync"
-                  subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
-                />
-
-                {authState.isAuthenticated && (
-                  <Card
-                    title="Sync Status"
-                    subtitle="Manage your cloud synchronization with Raindrop"
-                    style={{ borderRadius: '16px', padding: '24px' }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: '12px',
-                        padding: '14px 18px',
-                        backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                        borderRadius: '12px',
-                        border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                          Last Cloud Sync
-                        </div>
-                        <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                          {lastSyncAt ? formatDate(lastSyncAt) : 'Not synced yet in this session'}
-                        </div>
-                      </div>
-
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={handleManualSync}
-                        isLoading={isSyncing}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '8px 16px',
-                          borderRadius: '8px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        <RefreshIcon size={14} />
-                        <span>Sync Now</span>
-                      </Button>
-                    </div>
-                  </Card>
-                )}
-              </>
+                    <RefreshIcon size={14} />
+                    <span>Sync Now</span>
+                  </Button>
+                </div>
+              </Card>
             )}
           </div>
         )}
@@ -1382,92 +969,55 @@ export const App: React.FC = () => {
       </main>
 
       {/* Device Management Modal */}
-      {isDeviceModalOpen && (() => {
-        const isGoogleLoggedIn = Boolean(supabaseSession?.access_token);
-        const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && authState.isAuthenticated);
-
-        return (
-          <DeviceModal
-            isOpen={isDeviceModalOpen}
-            onClose={() => setIsDeviceModalOpen(false)}
-            syncProvider={isGoogleLoggedIn ? 'supabase' : isRaindropLoggedIn ? 'raindrop' : undefined}
-            currentDeviceId={deviceId}
-            onFetchDevices={async () => {
-              if (isGoogleLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'SUPABASE_GET_DEVICES',
-                  payload: { currentDeviceId: deviceId, currentDeviceName: deviceName },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data || [];
+      {isDeviceModalOpen && (
+        <DeviceModal
+          isOpen={isDeviceModalOpen}
+          onClose={() => setIsDeviceModalOpen(false)}
+          syncProvider={authState.isAuthenticated ? 'raindrop' : undefined}
+          currentDeviceId={deviceId}
+          onFetchDevices={async () => {
+            if (authState.isAuthenticated) {
+              const res = (await browser.runtime.sendMessage({
+                type: 'CLOUD_GET_DEVICES',
+                payload: { currentDeviceId: deviceId, currentDeviceName: deviceName },
+              })) as ExtensionResponse<DeviceSyncRecord[]>;
+              return res?.data || [];
+            }
+            return [];
+          }}
+          onRenameDevice={async (devId, newName) => {
+            if (authState.isAuthenticated) {
+              const res = (await browser.runtime.sendMessage({
+                type: 'CLOUD_RENAME_DEVICE',
+                payload: { deviceId: devId, newName },
+              })) as ExtensionResponse<DeviceSyncRecord[]>;
+              if (devId === deviceId) {
+                setDeviceName(newName);
+                setDeviceNameInput(newName);
               }
-              if (isRaindropLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'RAINDROP_GET_DEVICES',
-                  payload: { currentDeviceId: deviceId },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data || [];
-              }
-              return [];
-            }}
-            onRenameDevice={async (devId, newName) => {
-              if (isGoogleLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'SUPABASE_RENAME_DEVICE',
-                  payload: { deviceId: devId, newName },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                if (devId === deviceId) {
-                  setDeviceName(newName);
-                  setDeviceNameInput(newName);
-                }
-                return res?.data;
-              }
-              if (isRaindropLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'RAINDROP_RENAME_DEVICE',
-                  payload: { deviceId: devId, newName },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                if (devId === deviceId) {
-                  setDeviceName(newName);
-                  setDeviceNameInput(newName);
-                }
-                return res?.data;
-              }
-            }}
-            onDeleteDevice={async (devId) => {
-              if (isGoogleLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'SUPABASE_DELETE_DEVICE',
-                  payload: { deviceId: devId },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data;
-              }
-              if (isRaindropLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'RAINDROP_DELETE_DEVICE',
-                  payload: { deviceId: devId },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data;
-              }
-            }}
-            onDeleteOtherDevices={async (keepId) => {
-              if (isGoogleLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'SUPABASE_DELETE_OTHER_DEVICES',
-                  payload: { keepDeviceId: keepId },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data;
-              }
-              if (isRaindropLoggedIn) {
-                const res = (await browser.runtime.sendMessage({
-                  type: 'RAINDROP_DELETE_OTHER_DEVICES',
-                  payload: { keepDeviceId: keepId },
-                })) as ExtensionResponse<DeviceSyncRecord[]>;
-                return res?.data;
-              }
-            }}
-          />
-        );
-      })()}
+              return res?.data;
+            }
+          }}
+          onDeleteDevice={async (devId) => {
+            if (authState.isAuthenticated) {
+              const res = (await browser.runtime.sendMessage({
+                type: 'CLOUD_DELETE_DEVICE',
+                payload: { deviceId: devId },
+              })) as ExtensionResponse<DeviceSyncRecord[]>;
+              return res?.data;
+            }
+          }}
+          onDeleteOtherDevices={async (keepId) => {
+            if (authState.isAuthenticated) {
+              const res = (await browser.runtime.sendMessage({
+                type: 'CLOUD_DELETE_OTHER_DEVICES',
+                payload: { keepDeviceId: keepId },
+              })) as ExtensionResponse<DeviceSyncRecord[]>;
+              return res?.data;
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
