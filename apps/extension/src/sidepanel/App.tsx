@@ -711,7 +711,7 @@ export const App: React.FC = () => {
       label: isSyncing
         ? 'Syncing...'
         : isGoogleLoggedIn
-        ? '☁️ Cloud Sync'
+        ? 'Cloud Sync'
         : hasRaindropAuth
         ? 'Raindrop Sync'
         : 'Connect Cloud Sync',
