@@ -24,6 +24,8 @@ import {
   getSupabaseSession,
   setSupabaseSession,
   setupSupabaseRealtime,
+  fetchServerWorkspaceState,
+  setStoredServerVersion,
 } from '@arcable/shared/utils';
 import { RaindropAuthState, SupabaseSessionTokens, SyncProvider } from '@arcable/shared/types';
 import { createClient } from '@supabase/supabase-js';
@@ -55,6 +57,40 @@ export default function HomePage() {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Authoritative server state fetcher for Supabase
+  const loadServerWorkspace = useCallback(async (tokens?: SupabaseSessionTokens | null) => {
+    const activeTokens = tokens !== undefined ? tokens : (supabaseSession || getSupabaseSession());
+    if (!activeTokens?.access_token) return;
+
+    try {
+      setIsSyncing(true);
+      const res = await fetchServerWorkspaceState({ session: activeTokens });
+      if (res.success && res.state) {
+        if (workspaceRef.current?.applySnapshot) {
+          workspaceRef.current.applySnapshot(res.state);
+        }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.state));
+          window.dispatchEvent(new Event('arcable_workspace_updated'));
+        }
+        if (res.version) {
+          setStoredServerVersion(res.version);
+        }
+      } else if (res.error) {
+        console.warn('Failed to fetch server workspace:', res.error);
+      }
+    } catch (err) {
+      console.error('loadServerWorkspace error:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [supabaseSession]);
+
+  const loadServerWorkspaceRef = useRef(loadServerWorkspace);
+  useEffect(() => {
+    loadServerWorkspaceRef.current = loadServerWorkspace;
+  }, [loadServerWorkspace]);
 
   // Initialize Auth & Supabase
   useEffect(() => {
@@ -102,6 +138,9 @@ export default function HomePage() {
           setSyncProvider('supabase');
           setSyncProviderState('supabase');
 
+          // Pull full authoritative workspace from cloud immediately
+          void loadServerWorkspaceRef.current(tokens);
+
           // Clean hash
           if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
             window.history.replaceState({}, '', window.location.pathname);
@@ -111,6 +150,7 @@ export default function HomePage() {
           const stored = getSupabaseSession();
           if (stored) {
             setSupabaseSessionState(stored);
+            void loadServerWorkspaceRef.current(stored);
           }
         }
         setSupabaseLoading(false);
@@ -135,6 +175,8 @@ export default function HomePage() {
           setSupabaseSessionState(tokens);
           setSyncProvider('supabase');
           setSyncProviderState('supabase');
+
+          void loadServerWorkspaceRef.current(tokens);
 
           if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
             window.history.replaceState({}, '', window.location.pathname);
@@ -169,6 +211,7 @@ export default function HomePage() {
       userId: supabaseSession.user.id,
       onRemoteUpdate: () => {
         // Instant trigger remote sync when workspace updated by another client
+        void loadServerWorkspaceRef.current();
         if (workspaceRef.current) {
           void workspaceRef.current.triggerSync();
         }
@@ -265,6 +308,7 @@ export default function HomePage() {
     setSupabaseSessionState(parsedTokens);
     setSyncProvider('supabase');
     setSyncProviderState('supabase');
+    void loadServerWorkspace(parsedTokens);
   };
 
   // Raindrop OAuth & Token
@@ -599,6 +643,9 @@ export default function HomePage() {
               type="button"
               className="header-action-btn"
               onClick={async () => {
+                if (isSupabaseActive) {
+                  await loadServerWorkspace();
+                }
                 if (workspaceRef.current) {
                   await workspaceRef.current.triggerSync();
                 }
@@ -900,6 +947,9 @@ export default function HomePage() {
         activeProvider={syncProvider}
         onSelectProvider={handleSelectProvider}
         onSyncNow={async () => {
+          if (isSupabaseActive) {
+            await loadServerWorkspace();
+          }
           if (workspaceRef.current) {
             await workspaceRef.current.triggerSync();
           }

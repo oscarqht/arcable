@@ -140,45 +140,6 @@ export async function POST(request: Request) {
 
     // Subcase 2A: Client has no operations to push (Poll / Sync check)
     if (operations.length === 0) {
-      if (baseVersion >= currentServerVersion) {
-        const response: SupabaseSyncResponse = {
-          success: true,
-          serverVersion: currentServerVersion,
-          diffs: [],
-        };
-        return NextResponse.json(response, { headers: corsHeaders });
-      }
-
-      const versionGap = currentServerVersion - baseVersion;
-      if (versionGap <= 50) {
-        const { data: missedRows, error: diffErr } = await supabase
-          .from('workspace_operations')
-          .select('id, version, device_id, type, payload, timestamp')
-          .eq('user_id', userId)
-          .gt('version', baseVersion)
-          .order('version', { ascending: true });
-
-        if (!diffErr && missedRows && missedRows.length > 0) {
-          const diffs: WorkspaceOperation[] = missedRows.map((r) => ({
-            id: r.id,
-            type: r.type as any,
-            entityId: r.payload?.id || r.payload?.entityId || '',
-            payload: r.payload,
-            deviceId: r.device_id,
-            timestamp: Number(r.timestamp),
-            lamportSeq: Number(r.version),
-          }));
-
-          const response: SupabaseSyncResponse = {
-            success: true,
-            serverVersion: currentServerVersion,
-            diffs,
-          };
-          return NextResponse.json(response, { headers: corsHeaders });
-        }
-      }
-
-      // Gap is large or fetching diffs failed: return full snapshot
       const response: SupabaseSyncResponse = {
         success: true,
         serverVersion: currentServerVersion,

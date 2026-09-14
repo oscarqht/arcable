@@ -94,7 +94,17 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
 export function getSyncServerUrl(): string {
   if (typeof window === 'undefined') return DEFAULT_SERVER_URL;
   try {
-    return window.localStorage.getItem(SUPABASE_SERVER_URL_KEY) || DEFAULT_SERVER_URL;
+    const stored = window.localStorage.getItem(SUPABASE_SERVER_URL_KEY);
+    if (stored) return stored;
+    if (
+      window.location &&
+      window.location.origin &&
+      !window.location.origin.startsWith('chrome-extension:') &&
+      !window.location.origin.startsWith('moz-extension:')
+    ) {
+      return window.location.origin;
+    }
+    return DEFAULT_SERVER_URL;
   } catch {
     return DEFAULT_SERVER_URL;
   }
@@ -120,12 +130,12 @@ export function setSyncServerUrl(url: string): void {
  * Gets the last confirmed server version.
  */
 export function getStoredServerVersion(): number {
-  if (typeof window === 'undefined') return 1;
+  if (typeof window === 'undefined') return 0;
   try {
     const raw = window.localStorage.getItem(SUPABASE_VERSION_KEY);
-    return raw ? Math.max(1, parseInt(raw, 10) || 1) : 1;
+    return raw ? parseInt(raw, 10) || 0 : 0;
   } catch {
-    return 1;
+    return 0;
   }
 }
 
@@ -327,6 +337,24 @@ export async function performSupabaseSync(params: {
   const pendingOps = getStoredPendingOperations();
   const syncedOpIds = pendingOps.map((o) => o.id);
   const baseVersion = getStoredServerVersion();
+
+  // If there are no pending local operations to send, directly pull latest consolidated state from /api/sync/state
+  if (pendingOps.length === 0) {
+    const stateRes = await fetchServerWorkspaceState({
+      serverUrl: params.serverUrl,
+      session,
+    });
+
+    if (stateRes.success && stateRes.state) {
+      params.onApplySnapshot(stateRes.state);
+      if (stateRes.version) {
+        setStoredServerVersion(stateRes.version);
+      }
+      return { success: true, serverVersion: stateRes.version };
+    } else if (stateRes.error) {
+      return { success: false, error: stateRes.error };
+    }
+  }
 
   const res = await syncOperationsWithServer({
     serverUrl: params.serverUrl,

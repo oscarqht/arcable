@@ -1087,11 +1087,26 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     void performSync(false);
   };
 
-  // Auto-sync on mount if authenticated
+  // Auto-sync on mount or when Supabase session changes
   useEffect(() => {
-    const hasSupabase = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
-    if (autoSync && (onSyncRaindrop || raindropToken || hasSupabase)) {
-      performSync(true);
+    const checkAndSync = (silent: boolean = true) => {
+      const hasSupabase = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
+      if (autoSync && (onSyncRaindrop || raindropToken || hasSupabase)) {
+        performSync(silent);
+      }
+    };
+
+    checkAndSync(true);
+
+    const handleSessionChange = () => {
+      checkAndSync(false);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('arcable_supabase_session_changed', handleSessionChange);
+      return () => {
+        window.removeEventListener('arcable_supabase_session_changed', handleSessionChange);
+      };
     }
   }, [autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
 
