@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
@@ -17,8 +17,6 @@ import {
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
 import {
-  getSyncProvider,
-  getSupabaseSession,
   performSupabaseSync,
   getSyncServerUrl,
 } from '../utils/supabaseSync';
@@ -2165,6 +2163,9 @@ export function useWorkspace() {
   // Raindrop Sync Trigger
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+  // WorkspaceManager can receive overlapping automatic cloud-sync triggers.
+  // Keep one request authoritative so each pending operation is posted once.
+  const supabaseSyncPromiseRef = useRef<Promise<{ success: boolean; error?: string; serverVersion?: number }> | null>(null);
 
   const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
     setIsSyncing(true);
@@ -2197,62 +2198,32 @@ export function useWorkspace() {
 
   // Supabase Server Sync Trigger
   const syncWithSupabaseServer = useCallback(async (params?: { serverUrl?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
+    if (supabaseSyncPromiseRef.current) {
+      return supabaseSyncPromiseRef.current;
+    }
+
     setIsSyncing(true);
+    const syncPromise = performSupabaseSync({
+      currentState: data,
+      onApplySnapshot: (snapshot) => {
+        applyLatestSnapshot(snapshot);
+      },
+      onApplyDiffs: (diffs) => {
+        saveWorkspaceData((prev) => replayOperations(prev, diffs));
+      },
+      serverUrl: params?.serverUrl,
+    });
+    supabaseSyncPromiseRef.current = syncPromise;
+
     try {
-      const res = await performSupabaseSync({
-        currentState: data,
-        onApplySnapshot: (snapshot) => {
-          applyLatestSnapshot(snapshot);
-        },
-        onApplyDiffs: (diffs) => {
-          saveWorkspaceData((prev) => replayOperations(prev, diffs));
-        },
-        serverUrl: params?.serverUrl,
-      });
-      return res;
+      return await syncPromise;
     } finally {
-      setIsSyncing(false);
+      if (supabaseSyncPromiseRef.current === syncPromise) {
+        supabaseSyncPromiseRef.current = null;
+        setIsSyncing(false);
+      }
     }
   }, [data, applyLatestSnapshot, saveWorkspaceData]);
-
-  // Auto-sync with Supabase when operations are queued and user is logged in
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    let debounceTimer: any = null;
-
-    const triggerSyncDebounced = () => {
-      if (getSyncProvider() !== 'supabase') return;
-      if (!getSupabaseSession()) return;
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        void syncWithSupabaseServer();
-      }, 800);
-    };
-
-    const handleOpSaved = () => {
-      triggerSyncDebounced();
-    };
-
-    const handleFocusOrOnline = () => {
-      if (getSyncProvider() === 'supabase' && getSupabaseSession()) {
-        void syncWithSupabaseServer();
-      }
-    };
-
-    window.addEventListener('arcable_pending_op_saved', handleOpSaved);
-    window.addEventListener('focus', handleFocusOrOnline);
-    window.addEventListener('online', handleFocusOrOnline);
-
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      window.removeEventListener('arcable_pending_op_saved', handleOpSaved);
-      window.removeEventListener('focus', handleFocusOrOnline);
-      window.removeEventListener('online', handleFocusOrOnline);
-    };
-  }, [syncWithSupabaseServer]);
-
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
@@ -2405,4 +2376,3 @@ export function useWorkspace() {
     getChildSiblings,
   };
 }
-

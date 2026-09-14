@@ -932,20 +932,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     isTabModalOpen,
     isJsonModalOpen,
   ]);
-  const syncLoadingRef = useRef(false);
   const activeSyncPromiseRef = useRef<Promise<SyncResult | void> | null>(null);
   const isCurrentSyncSilentRef = useRef<boolean>(true);
   const queuedManualSyncRef = useRef<boolean>(false);
+  const queuedAutomaticSyncRef = useRef<boolean>(false);
   const syncSeqRef = useRef<number>(0);
 
   const executeSyncCycle = async (silent: boolean): Promise<SyncResult | void> => {
     isCurrentSyncSilentRef.current = silent;
     setSyncLoading(true);
-    syncLoadingRef.current = true;
     if (!silent) {
       setSyncFeedback(null);
     }
-    onSyncStateChange?.(true);
 
     const currentSeq = ++syncSeqRef.current;
 
@@ -1061,9 +1059,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }
       } finally {
         if (currentSeq === syncSeqRef.current) {
-          setSyncLoading(false);
-          syncLoadingRef.current = false;
-          onSyncStateChange?.(false);
           setTimeout(() => {
             setSyncFeedback((prev) => (prev?.isError ? prev : null));
           }, 4000);
@@ -1084,6 +1079,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         queuedManualSyncRef.current = false;
         return executeSyncCycle(false);
       }
+      if (queuedAutomaticSyncRef.current) {
+        queuedAutomaticSyncRef.current = false;
+        return executeSyncCycle(true);
+      }
+      if (currentSeq === syncSeqRef.current) {
+        setSyncLoading(false);
+      }
     }
   };
 
@@ -1092,8 +1094,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     if (!silent) {
       setSyncFeedback(null);
       setSyncLoading(true);
-      syncLoadingRef.current = true;
-      onSyncStateChange?.(true);
     }
 
     // If an in-flight sync is active
@@ -1106,11 +1106,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       try {
         await activeSyncPromiseRef.current;
       } catch {}
-
-      if (queuedManualSyncRef.current) {
-        queuedManualSyncRef.current = false;
-        return executeSyncCycle(false);
-      }
       return;
     }
 
@@ -1122,45 +1117,58 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     void performSync(false);
   };
 
-  // Auto-sync on mount or when Supabase session changes
+  // Keep all automatic sync triggers behind WorkspaceManager's single-flight
+  // coordinator. useWorkspace intentionally does not register a second set of
+  // listeners, otherwise the same state pull is started twice.
   useEffect(() => {
     const checkAndSync = (silent: boolean = true) => {
       const hasSupabase = Boolean(getSupabaseSession()?.access_token);
       const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
       if (autoSync && (hasSupabase || hasRaindrop)) {
-        performSync(silent);
+        void performSyncRef.current?.(silent);
       }
     };
 
     checkAndSync(true);
 
     const handleSessionChange = () => {
+      if (activeSyncPromiseRef.current) {
+        queuedAutomaticSyncRef.current = true;
+        return;
+      }
+      checkAndSync(true);
+    };
+
+    let pendingOperationTimer: ReturnType<typeof setTimeout> | null = null;
+    const handlePendingOperation = () => {
+      if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
+      pendingOperationTimer = setTimeout(() => {
+        if (activeSyncPromiseRef.current) {
+          queuedAutomaticSyncRef.current = true;
+          return;
+        }
+        checkAndSync(true);
+      }, 800);
+    };
+
+    const handleFocusOrOnline = () => {
       checkAndSync(true);
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('arcable_supabase_session_changed', handleSessionChange);
+      window.addEventListener('arcable_pending_op_saved', handlePendingOperation);
+      window.addEventListener('focus', handleFocusOrOnline);
+      window.addEventListener('online', handleFocusOrOnline);
       return () => {
+        if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
         window.removeEventListener('arcable_supabase_session_changed', handleSessionChange);
+        window.removeEventListener('arcable_pending_op_saved', handlePendingOperation);
+        window.removeEventListener('focus', handleFocusOrOnline);
+        window.removeEventListener('online', handleFocusOrOnline);
       };
     }
   }, [autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
-
-  // Debounced auto-sync when local changes occur
-  useEffect(() => {
-    const hasSupabase = Boolean(getSupabaseSession()?.access_token);
-    const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
-    if (!autoSync || (!hasSupabase && !hasRaindrop)) return;
-
-    const pending = getStoredPendingOperations();
-    if (pending.length === 0) return;
-
-    const timer = setTimeout(() => {
-      performSync(true);
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [data, autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);
 
   // Notify parent of syncing state changes
   useEffect(() => {

@@ -1,7 +1,13 @@
 import browser from 'webextension-polyfill';
 import { initCustomCodeInjector } from './custom-js-css';
+import { initOAuthBridge } from './oauth-bridge';
 
 console.log('[Arcable Extension] Content script loaded on:', window.location.href);
+
+// Firefox fallback: the dedicated document_start OAuth script is not always
+// available after the provider redirects back to the login page. The page
+// persists the completed session, so initialize the relay again here.
+initOAuthBridge();
 
 // Initialize Custom JS & CSS automatic injector for matching sites
 if (document.readyState === 'loading') {
@@ -321,4 +327,3 @@ browser.runtime.onMessage.addListener((message: any, _sender: browser.Runtime.Me
 
   return undefined;
 });
-

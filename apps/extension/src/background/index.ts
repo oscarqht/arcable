@@ -28,6 +28,7 @@ import {
   searchRaindrop,
   getDefaultServerUrl,
   refreshSupabaseSession,
+  parseExtensionOAuthCallback,
 } from '@arcable/shared/utils';
 import {
   initRunCodeBackgroundListeners,
@@ -155,6 +156,24 @@ async function processOAuthTokens(tokens: {
   return authState;
 }
 
+async function saveSupabaseOAuthSession(session: any): Promise<boolean> {
+  if (!session?.access_token) return false;
+
+  const normalizedSession = {
+    ...session,
+    refresh_token: session.refresh_token || '',
+  };
+  await browser.storage.local.set({
+    arcable_supabase_session: normalizedSession,
+    arcable_sync_provider: 'supabase',
+  });
+  void browser.runtime.sendMessage({
+    type: 'SUPABASE_SESSION_CHANGED',
+    session: normalizedSession,
+  }).catch(() => {});
+  return true;
+}
+
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
   async (rawMessage: any, sender: any): Promise<ExtensionResponse> => {
@@ -164,15 +183,7 @@ browser.runtime.onMessage.addListener(
     if (rawMessage && (rawMessage.type === 'oauth_bridge_success' || rawMessage.type === 'oauth_success')) {
       if (rawMessage.provider === 'supabase') {
         const session = rawMessage.tokens;
-        if (session && session.access_token) {
-          await browser.storage.local.set({
-            arcable_supabase_session: session,
-            arcable_sync_provider: 'supabase',
-          });
-          void browser.runtime.sendMessage({
-            type: 'SUPABASE_SESSION_CHANGED',
-            session,
-          }).catch(() => {});
+        if (await saveSupabaseOAuthSession(session)) {
           return { success: true, data: session };
         }
         return { success: false, error: 'Invalid Supabase session' };
@@ -304,70 +315,36 @@ browser.runtime.onMessage.addListener(
       case 'RAINDROP_START_OAUTH': {
         try {
           const extensionId = browser.runtime.id;
+          const extensionRedirect = browser.identity.getRedirectURL('raindrop');
           const statePayload = {
             extensionId,
             fromExt: true,
             provider: 'raindrop',
+            extensionRedirect,
           };
           const stateStr = encodeURIComponent(JSON.stringify(statePayload));
           const authUrl = `https://oh-auth.vercel.app/auth/raindrop?state=${stateStr}`;
 
-          // Try launchWebAuthFlow if identity API is supported
-          if (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.launchWebAuthFlow) {
-            try {
-              const redirectUrl = await new Promise<string | undefined>((resolve, reject) => {
-                chrome.identity.launchWebAuthFlow(
-                  { url: authUrl, interactive: true },
-                  (responseUrl) => {
-                    if (chrome.runtime.lastError) {
-                      reject(new Error(chrome.runtime.lastError.message));
-                    } else {
-                      resolve(responseUrl);
-                    }
-                  }
-                );
-              });
-
-              if (redirectUrl) {
-                // Parse access token / code from redirect url if returned directly
-                const url = new URL(redirectUrl);
-                const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
-                const token = hashParams.get('access_token') || url.searchParams.get('access_token');
-                const refreshToken = hashParams.get('refresh_token') || url.searchParams.get('refresh_token');
-                const expiresIn = hashParams.get('expires_in') || url.searchParams.get('expires_in');
-                if (token) {
-                  const auth = await processOAuthTokens({
-                    access_token: token,
-                    refresh_token: refreshToken || undefined,
-                    expires_in: Number(expiresIn) || 2592000,
-                  });
-                  return { success: Boolean(auth), data: auth };
-                }
-              }
-
-              // Check if token was received via external message / bridge during the flow
-              const currentAuth = await getStoredAuthState();
-              if (currentAuth.isAuthenticated) {
-                return { success: true, data: currentAuth };
-              }
-
-              return { success: true };
-            } catch (authErr: any) {
-              console.warn('[Arcable] launchWebAuthFlow finished/failed:', authErr);
-              // Check if token was received before reporting error or user cancellation
-              const currentAuth = await getStoredAuthState();
-              if (currentAuth.isAuthenticated) {
-                return { success: true, data: currentAuth };
-              }
-              return { success: false, error: authErr?.message || 'OAuth flow was cancelled or failed' };
-            }
+          const responseUrl = await browser.identity.launchWebAuthFlow({
+            url: authUrl,
+            interactive: true,
+          });
+          const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
+          if (!tokens?.access_token) {
+            return { success: false, error: 'Raindrop OAuth completed without an access token.' };
           }
 
-          // Fallback if identity API is completely unavailable: open auth provider URL
-          await browser.tabs.create({ url: authUrl });
-          return { success: true, data: { status: 'opened_tab' } };
+          const auth = await processOAuthTokens({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in || 2592000,
+          });
+          return auth
+            ? { success: true, data: auth }
+            : { success: false, error: 'Could not validate the Raindrop OAuth session.' };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to initiate OAuth flow' };
+          console.warn('[Arcable] Raindrop identity OAuth failed:', err);
+          return { success: false, error: err?.message || 'Failed to complete Raindrop OAuth' };
         }
       }
 
@@ -383,11 +360,31 @@ browser.runtime.onMessage.addListener(
           const extensionId = browser.runtime.id;
           const stored: any = await browser.storage.local.get(['arcable_supabase_server_url']);
           const serverUrl = String(stored.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
-          const authUrl = `${serverUrl}/auth/extension-login?extId=${extensionId}`;
-          await browser.tabs.create({ url: authUrl });
-          return { success: true, data: { status: 'opened_tab' } };
+          const extensionRedirect = browser.identity.getRedirectURL('supabase');
+          const authUrl = new URL(`${serverUrl}/auth/extension-login`);
+          authUrl.searchParams.set('extId', extensionId);
+          authUrl.searchParams.set('extensionRedirect', extensionRedirect);
+
+          const responseUrl = await browser.identity.launchWebAuthFlow({
+            url: authUrl.toString(),
+            interactive: true,
+          });
+          const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
+          if (!tokens?.access_token) {
+            return { success: false, error: 'Google OAuth completed without a Supabase session.' };
+          }
+
+          const session = {
+            ...tokens,
+            refresh_token: tokens.refresh_token || '',
+          };
+          if (!(await saveSupabaseOAuthSession(session))) {
+            return { success: false, error: 'Failed to save the Google OAuth session.' };
+          }
+          return { success: true, data: session };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to start Google OAuth' };
+          console.warn('[Arcable] Google identity OAuth failed:', err);
+          return { success: false, error: err?.message || 'Failed to complete Google OAuth' };
         }
       }
 
@@ -1202,6 +1199,4 @@ if (browser.action && browser.action.onClicked) {
 } else if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
   chrome.action.onClicked.addListener(handleActionClick);
 }
-
-
 

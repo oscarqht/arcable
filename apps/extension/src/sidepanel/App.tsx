@@ -21,8 +21,7 @@ import {
   setSyncProvider,
   getSupabaseSession,
   setSupabaseSession,
-  fetchServerWorkspaceState,
-  setStoredServerVersion,
+  areSupabaseSessionsEquivalent,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -114,36 +113,6 @@ export const App: React.FC = () => {
   const isGoogleLoggedIn = Boolean(hasSupabaseAuth && supabaseSession?.access_token);
   const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && hasRaindropAuth);
 
-  // Authoritative server state fetcher for Supabase
-  const loadCloudWorkspace = useCallback(async (sessionTokens?: SupabaseSessionTokens | null) => {
-    const activeTokens = sessionTokens !== undefined ? sessionTokens : (supabaseSession || getSupabaseSession());
-    if (!activeTokens?.access_token) return;
-
-    try {
-      setIsSyncing(true);
-      const res = await fetchServerWorkspaceState({ session: activeTokens });
-      if (res.success && res.state) {
-        workspaceRef.current?.applySnapshot?.(res.state);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.state));
-          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.state }));
-        }
-        if (res.version) {
-          setStoredServerVersion(res.version);
-        }
-      }
-    } catch (e) {
-      console.warn('[Sidepanel] Failed to load cloud workspace:', e);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [supabaseSession]);
-
-  const loadCloudWorkspaceRef = useRef(loadCloudWorkspace);
-  useEffect(() => {
-    loadCloudWorkspaceRef.current = loadCloudWorkspace;
-  }, [loadCloudWorkspace]);
-
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -212,8 +181,6 @@ export const App: React.FC = () => {
         setSupabaseSession(res.arcable_supabase_session);
         setSyncProviderState('supabase');
         setSyncProvider('supabase');
-        // Fetch authoritative state from cloud
-        void loadCloudWorkspaceRef.current(res.arcable_supabase_session);
       } else {
         setHasSupabaseAuth(false);
         setSupabaseSessionState(null);
@@ -277,7 +244,6 @@ export const App: React.FC = () => {
         setHasSupabaseAuth(true);
         setSupabaseSessionState(res.data);
         setSupabaseSession(res.data);
-        void loadCloudWorkspaceRef.current(res.data);
       }
     });
 
@@ -285,15 +251,19 @@ export const App: React.FC = () => {
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
         if (changes.arcable_supabase_session) {
-          const sess = changes.arcable_supabase_session.newValue;
-          const isAuth = Boolean(sess?.access_token);
-          setHasSupabaseAuth(isAuth);
-          setSupabaseSessionState(sess || null);
-          setSupabaseSession(sess || null);
-          if (isAuth) {
-            setSyncProviderState('supabase');
-            setSyncProvider('supabase');
-            void loadCloudWorkspaceRef.current(sess);
+          const sessionChange = changes.arcable_supabase_session;
+          const sess = sessionChange.newValue;
+          // Firefox can report storage.set() calls whose old and new values are
+          // identical. Do not mirror those events back into extension storage.
+          if (!areSupabaseSessionsEquivalent(sessionChange.oldValue, sess)) {
+            const isAuth = Boolean(sess?.access_token);
+            setHasSupabaseAuth(isAuth);
+            setSupabaseSessionState(sess || null);
+            setSupabaseSession(sess || null);
+            if (isAuth) {
+              setSyncProviderState('supabase');
+              setSyncProvider('supabase');
+            }
           }
         }
         if (changes.arcable_sync_provider?.newValue) {
@@ -823,7 +793,6 @@ export const App: React.FC = () => {
         if (isGoogleLoggedIn) {
           setSyncProvider('supabase');
           setSyncProviderState('supabase');
-          await loadCloudWorkspace();
           if (workspaceRef.current) {
             await workspaceRef.current.triggerSync();
           }
@@ -982,4 +951,3 @@ export const App: React.FC = () => {
     </div>
   );
 };
-

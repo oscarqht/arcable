@@ -138,10 +138,21 @@ export const App: React.FC = () => {
       } else {
         setSyncProviderState(getSyncProvider());
       }
-      if (res.arcable_supabase_session) {
-        setSupabaseSessionState(res.arcable_supabase_session);
-      } else {
-        setSupabaseSessionState(getSupabaseSession());
+      const storedSupabaseSession = res.arcable_supabase_session || getSupabaseSession();
+      setSupabaseSessionState(storedSupabaseSession);
+      // Sessions saved by the older Firefox identity callback contain valid
+      // tokens but no user profile. Refresh once to hydrate the existing
+      // connection without forcing the user to disconnect and sign in again.
+      if (
+        storedSupabaseSession?.access_token &&
+        storedSupabaseSession?.refresh_token &&
+        !storedSupabaseSession?.user?.id
+      ) {
+        void browser.runtime.sendMessage({ type: 'SUPABASE_REFRESH_SESSION' }).then((refreshResult: any) => {
+          if (refreshResult?.success && refreshResult.data?.user) {
+            setSupabaseSessionState(refreshResult.data);
+          }
+        }).catch(() => {});
       }
       if (res.arcable_supabase_server_url) {
         setSupabaseServerUrlState(res.arcable_supabase_server_url);
@@ -264,10 +275,14 @@ export const App: React.FC = () => {
   const handleLoginWithOAuth = async () => {
     setAuthError(null);
     try {
-      await browser.runtime.sendMessage({
+      const res: any = await browser.runtime.sendMessage({
         type: 'RAINDROP_START_OAUTH',
       });
-      showToast('Opening Raindrop authentication...', 'info');
+      if (!res?.success || !res.data?.isAuthenticated) {
+        throw new Error(res?.error || 'Raindrop OAuth did not return an authenticated session.');
+      }
+      setAuthState(res.data);
+      showToast('Connected to Raindrop.io successfully!', 'success');
     } catch (err: any) {
       setAuthError(err.message || 'Failed to start OAuth');
     }
@@ -291,8 +306,15 @@ export const App: React.FC = () => {
   const handleLoginWithGoogle = async () => {
     setSupabaseError(null);
     try {
-      await browser.runtime.sendMessage({ type: 'SUPABASE_START_OAUTH' });
-      showToast('Opening Google sign-in...', 'info');
+      const res: any = await browser.runtime.sendMessage({ type: 'SUPABASE_START_OAUTH' });
+      if (!res?.success || !res.data?.access_token) {
+        throw new Error(res?.error || 'Google OAuth did not return a Supabase session.');
+      }
+      setSupabaseSession(res.data);
+      setSupabaseSessionState(res.data);
+      setSyncProvider('supabase');
+      setSyncProviderState('supabase');
+      showToast('Connected to Arcable Cloud!', 'success');
     } catch (err: any) {
       setSupabaseError(err?.message || 'Failed to start Google OAuth');
     }

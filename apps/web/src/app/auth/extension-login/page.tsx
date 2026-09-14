@@ -2,6 +2,10 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import {
+  createExtensionOAuthCallbackUrl,
+  isAllowedExtensionOAuthRedirect,
+} from '@arcable/shared/utils';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -110,6 +114,19 @@ export default function ExtensionLoginPage() {
     };
 
     setTokensData(tokens);
+
+    const extensionRedirect = new URLSearchParams(window.location.search).get('extensionRedirect');
+    if (isAllowedExtensionOAuthRedirect(extensionRedirect)) {
+      window.location.replace(
+        createExtensionOAuthCallbackUrl(extensionRedirect!, {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expires_at: tokens.expires_at,
+          user: tokens.user,
+        })
+      );
+      return;
+    }
 
     // Initial broadcast
     broadcastTokensToExtension(tokens);

@@ -16,6 +16,9 @@ import {
   replayOperations,
   sortDevicesByLastSync,
 } from './syncEngine';
+import { areSupabaseSessionsEquivalent } from './supabaseSession';
+
+export { areSupabaseSessionsEquivalent } from './supabaseSession';
 
 
 export const SYNC_PROVIDER_KEY = 'arcable_sync_provider';
@@ -110,12 +113,24 @@ export function getSupabaseSession(): SupabaseSessionTokens | null {
 export function setSupabaseSession(session: SupabaseSessionTokens | null): void {
   if (typeof window !== 'undefined') {
     try {
-      if (session && session.access_token) {
-        window.localStorage.setItem(SUPABASE_SESSION_KEY, JSON.stringify(session));
-        window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: session }));
-      } else {
-        window.localStorage.removeItem(SUPABASE_SESSION_KEY);
-        window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: null }));
+      const rawCurrentSession = window.localStorage.getItem(SUPABASE_SESSION_KEY);
+      let currentSession: SupabaseSessionTokens | null = null;
+      if (rawCurrentSession) {
+        try {
+          currentSession = JSON.parse(rawCurrentSession) as SupabaseSessionTokens;
+        } catch {}
+      }
+
+      // Avoid dispatching another local session-change event when Firefox
+      // reports a no-op extension storage write for the same session.
+      if (!areSupabaseSessionsEquivalent(currentSession, session)) {
+        if (session && session.access_token) {
+          window.localStorage.setItem(SUPABASE_SESSION_KEY, JSON.stringify(session));
+          window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: session }));
+        } else {
+          window.localStorage.removeItem(SUPABASE_SESSION_KEY);
+          window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: null }));
+        }
       }
     } catch (err) {
       console.warn('Failed to save Supabase session:', err);
@@ -137,27 +152,35 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
         ? browserObj.storage.local
         : null;
 
-    if (extStorage) {
-      if (session && session.access_token) {
-        void extStorage.set({ [SUPABASE_SESSION_KEY]: session });
-      } else {
-        void extStorage.remove(SUPABASE_SESSION_KEY);
-      }
-    }
-
     const hasChromeRuntime = typeof chromeObj?.runtime?.sendMessage === 'function';
     const hasBrowserRuntime = typeof browserObj?.runtime?.sendMessage === 'function';
 
-    if (hasChromeRuntime) {
-      void chromeObj.runtime.sendMessage({
-        type: 'SUPABASE_SESSION_CHANGED',
-        session: session || null,
-      }).catch?.(() => {});
-    } else if (hasBrowserRuntime) {
-      void browserObj.runtime.sendMessage({
-        type: 'SUPABASE_SESSION_CHANGED',
-        session: session || null,
-      }).catch?.(() => {});
+    if (extStorage) {
+      // Read before writing. Both Firefox and Chromium extension contexts can
+      // otherwise turn a mirrored session into another storage change and
+      // another automatic sync request.
+      void Promise.resolve(extStorage.get(SUPABASE_SESSION_KEY)).then(async (stored: any) => {
+        const storedSession = stored?.[SUPABASE_SESSION_KEY] as SupabaseSessionTokens | null | undefined;
+        if (areSupabaseSessionsEquivalent(storedSession, session)) return;
+
+        if (session && session.access_token) {
+          await extStorage.set({ [SUPABASE_SESSION_KEY]: session });
+        } else {
+          await extStorage.remove(SUPABASE_SESSION_KEY);
+        }
+
+        if (hasChromeRuntime) {
+          await chromeObj.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session: session || null,
+          }).catch?.(() => {});
+        } else if (hasBrowserRuntime) {
+          await browserObj.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session: session || null,
+          }).catch?.(() => {});
+        }
+      }).catch(() => {});
     }
   } catch {}
 }
