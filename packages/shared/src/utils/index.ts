@@ -10,3 +10,4 @@ export * from './weatherService';
 export * from './supabaseSync';
 export * from './oauthRedirect';
 export * from './workspaceBackup';
+export * from './syncProvider';

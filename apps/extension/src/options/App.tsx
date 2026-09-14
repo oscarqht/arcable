@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Button,
   Badge,
@@ -32,6 +32,7 @@ import {
   createWorkspaceOperation,
   getSyncProvider,
   setSyncProvider,
+  resolveSyncProvider,
   getSupabaseSession,
   setSupabaseSession,
   getSyncServerUrl,
@@ -50,6 +51,7 @@ import packageJson from '../../package.json';
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
 
 type OptionsTab = 'sync' | 'device' | 'custom-code' | 'run-code' | 'about';
+type CloudSubTab = 'supabase' | 'raindrop';
 
 interface ToastInfo {
   message: string;
@@ -59,6 +61,11 @@ interface ToastInfo {
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
   const [activeTab, setActiveTab] = useState<OptionsTab>('sync');
+
+  // Sub-tab in Sync & Cloud: 'supabase' (Arcable Cloud) | 'raindrop' (Raindrop.io)
+  // Decoupled from syncProvider so navigating between tabs does NOT switch sync provider!
+  const [cloudSubTab, setCloudSubTab] = useState<CloudSubTab>('supabase');
+  const userSelectedTabRef = useRef(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -71,8 +78,11 @@ export const App: React.FC = () => {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Supabase / Arcable Cloud state
-  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
+  // Active sync provider strictly following:
+  // 1. Google OAuth -> 'supabase'
+  // 2. Raindrop -> 'raindrop'
+  // 3. None -> 'local'
+  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('local');
   const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
   const [supabaseServerUrl, setSupabaseServerUrlState] = useState<string>(getDefaultServerUrl());
   const [supabaseVersion, setSupabaseVersionState] = useState<number>(1);
@@ -125,6 +135,7 @@ export const App: React.FC = () => {
       'arcable_sync_provider',
       'arcable_supabase_session',
       'arcable_supabase_server_url',
+      'arcable_raindrop_auth',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
@@ -133,13 +144,28 @@ export const App: React.FC = () => {
         setDeviceName(res.arcable_device_name);
         setDeviceNameInput(res.arcable_device_name);
       }
-      if (res.arcable_sync_provider) {
-        setSyncProviderState(res.arcable_sync_provider);
-      } else {
-        setSyncProviderState(getSyncProvider());
-      }
       const storedSupabaseSession = res.arcable_supabase_session || getSupabaseSession();
       setSupabaseSessionState(storedSupabaseSession);
+
+      const storedRaindropAuth = res.arcable_raindrop_auth as RaindropAuthState | undefined;
+      if (storedRaindropAuth && storedRaindropAuth.isAuthenticated) {
+        setAuthState(storedRaindropAuth);
+        if (!userSelectedTabRef.current && !storedSupabaseSession?.access_token) {
+          setCloudSubTab('raindrop');
+        }
+      }
+
+      // Strictly resolve sync provider:
+      // 1. Google OAuth -> Arcable Cloud ('supabase')
+      // 2. Raindrop -> Raindrop.io ('raindrop')
+      // 3. None -> Don't sync ('local')
+      const isGoogle = Boolean(storedSupabaseSession?.access_token);
+      const isRaindrop = Boolean(!isGoogle && (storedRaindropAuth?.isAuthenticated || authState.isAuthenticated));
+      const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+      setSyncProviderState(resolved);
+      setSyncProvider(resolved);
+      void browser.storage.local.set({ arcable_sync_provider: resolved });
+
       // Sessions saved by the older Firefox identity callback contain valid
       // tokens but no user profile. Refresh once to hydrate the existing
       // connection without forcing the user to disconnect and sign in again.
@@ -165,26 +191,43 @@ export const App: React.FC = () => {
     // 4. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
+        let curSupabase = supabaseSession;
+        let curRaindrop = authState;
+        let authStateChanged = false;
+
         if (changes.arcable_raindrop_auth) {
           const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
           if (newAuth && newAuth.isAuthenticated) {
+            curRaindrop = newAuth;
             setAuthState(newAuth);
             setAuthError(null);
           } else {
+            curRaindrop = { isAuthenticated: false };
             setAuthState({ isAuthenticated: false });
           }
+          authStateChanged = true;
         }
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
-        if (changes.arcable_sync_provider) {
-          setSyncProviderState(changes.arcable_sync_provider.newValue as SyncProvider);
-        }
         if (changes.arcable_supabase_session) {
-          setSupabaseSessionState(changes.arcable_supabase_session.newValue as SupabaseSessionTokens | null);
+          const newSession = changes.arcable_supabase_session.newValue as SupabaseSessionTokens | null;
+          curSupabase = newSession;
+          setSupabaseSessionState(newSession);
+          authStateChanged = true;
         }
         if (changes.arcable_supabase_server_url) {
           setSupabaseServerUrlState(changes.arcable_supabase_server_url.newValue as string);
+        }
+        if (authStateChanged) {
+          const isGoogle = Boolean(curSupabase?.access_token);
+          const isRaindrop = Boolean(!isGoogle && curRaindrop?.isAuthenticated);
+          const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+          setSyncProviderState(resolved);
+          setSyncProvider(resolved);
+          void browser.storage.local.set({ arcable_sync_provider: resolved });
+        } else if (changes.arcable_sync_provider) {
+          setSyncProviderState(changes.arcable_sync_provider.newValue as SyncProvider);
         }
       }
     };
@@ -201,13 +244,19 @@ export const App: React.FC = () => {
 
     // 6. Automatically re-check session when user returns/focuses Options tab
     const handleTabFocus = () => {
-      browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']).then((res: any) => {
-        if (res.arcable_supabase_session) {
+      browser.storage.local.get(['arcable_supabase_session', 'arcable_raindrop_auth', 'arcable_sync_provider']).then((res: any) => {
+        if (res.arcable_supabase_session !== undefined) {
           setSupabaseSessionState(res.arcable_supabase_session);
         }
-        if (res.arcable_sync_provider) {
-          setSyncProviderState(res.arcable_sync_provider);
+        if (res.arcable_raindrop_auth !== undefined) {
+          setAuthState(res.arcable_raindrop_auth);
         }
+        const isGoogle = Boolean(res.arcable_supabase_session?.access_token);
+        const isRaindrop = Boolean(!isGoogle && res.arcable_raindrop_auth?.isAuthenticated);
+        const resolved = resolveSyncProvider(isGoogle, isRaindrop);
+        setSyncProviderState(resolved);
+        setSyncProvider(resolved);
+        void browser.storage.local.set({ arcable_sync_provider: resolved });
       });
     };
 
@@ -260,6 +309,11 @@ export const App: React.FC = () => {
       })) as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
+        const isGoogle = Boolean(supabaseSession?.access_token);
+        const resolved = resolveSyncProvider(isGoogle, true);
+        setSyncProvider(resolved);
+        setSyncProviderState(resolved);
+        await browser.storage.local.set({ arcable_sync_provider: resolved });
         showToast('Connected to Raindrop.io successfully!', 'success');
       } else {
         throw new Error(res?.error || 'Failed to authenticate token with Raindrop.');
@@ -282,6 +336,11 @@ export const App: React.FC = () => {
         throw new Error(res?.error || 'Raindrop OAuth did not return an authenticated session.');
       }
       setAuthState(res.data);
+      const isGoogle = Boolean(supabaseSession?.access_token);
+      const resolved = resolveSyncProvider(isGoogle, true);
+      setSyncProvider(resolved);
+      setSyncProviderState(resolved);
+      await browser.storage.local.set({ arcable_sync_provider: resolved });
       showToast('Connected to Raindrop.io successfully!', 'success');
     } catch (err: any) {
       setAuthError(err.message || 'Failed to start OAuth');
@@ -295,6 +354,11 @@ export const App: React.FC = () => {
         type: 'RAINDROP_LOGOUT',
       });
       setAuthState({ isAuthenticated: false });
+      const isGoogle = Boolean(supabaseSession?.access_token);
+      const resolved = resolveSyncProvider(isGoogle, false);
+      setSyncProvider(resolved);
+      setSyncProviderState(resolved);
+      await browser.storage.local.set({ arcable_sync_provider: resolved });
       showToast('Disconnected from Raindrop', 'info');
     } catch (err: any) {
       console.error('Logout failed:', err);
@@ -314,6 +378,10 @@ export const App: React.FC = () => {
       setSupabaseSessionState(res.data);
       setSyncProvider('supabase');
       setSyncProviderState('supabase');
+      await browser.storage.local.set({
+        arcable_supabase_session: res.data,
+        arcable_sync_provider: 'supabase',
+      });
       showToast('Connected to Arcable Cloud!', 'success');
     } catch (err: any) {
       setSupabaseError(err?.message || 'Failed to start Google OAuth');
@@ -325,6 +393,10 @@ export const App: React.FC = () => {
       await browser.runtime.sendMessage({ type: 'SUPABASE_LOGOUT' });
       setSupabaseSession(null);
       setSupabaseSessionState(null);
+      const resolved = resolveSyncProvider(false, Boolean(authState.isAuthenticated));
+      setSyncProvider(resolved);
+      setSyncProviderState(resolved);
+      await browser.storage.local.set({ arcable_sync_provider: resolved });
       showToast('Disconnected from Arcable Cloud', 'info');
     } catch (err: any) {
       console.error('Logout error:', err);
@@ -388,15 +460,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleProviderToggle = (provider: SyncProvider) => {
-    setSyncProvider(provider);
-    setSyncProviderState(provider);
-    void browser.storage.local.set({ arcable_sync_provider: provider });
-    showToast(
-      `Sync provider switched to ${provider === 'supabase' ? 'Arcable Cloud' : 'Raindrop.io'}`,
-      'info'
-    );
-  };
 
   const handleRefreshSession = async () => {
     try {
@@ -459,6 +522,10 @@ export const App: React.FC = () => {
 
 
   const handleManualSync = async () => {
+    if (supabaseSession?.access_token) {
+      showToast('Google OAuth is active. Workspace sync uses Arcable Cloud.', 'warning');
+      return;
+    }
     if (!authState.isAuthenticated) {
       showToast('Please connect to Raindrop first.', 'warning');
       return;
@@ -798,56 +865,163 @@ export const App: React.FC = () => {
         {/* TAB 1: SYNC & CLOUD */}
         {activeTab === 'sync' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Sync Provider Selector */}
+            {/* Cloud Provider Tabs & Active Status */}
             <div
               style={{
                 display: 'flex',
-                gap: '8px',
-                padding: '4px',
-                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.6)' : '#e2e8f0',
-                borderRadius: '12px',
-                width: 'fit-content',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
               }}
             >
-              <button
-                type="button"
-                onClick={() => handleProviderToggle('supabase')}
+              <div
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  backgroundColor: syncProvider === 'supabase' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                  color: syncProvider === 'supabase' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                  boxShadow: syncProvider === 'supabase' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '4px',
+                  backgroundColor: isDark ? 'rgba(30, 41, 59, 0.6)' : '#e2e8f0',
+                  borderRadius: '12px',
+                  width: 'fit-content',
                 }}
               >
-                🌌 Arcable Cloud (Google OAuth)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleProviderToggle('raindrop')}
+                <button
+                  type="button"
+                  onClick={() => {
+                    userSelectedTabRef.current = true;
+                    setCloudSubTab('supabase');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    backgroundColor: cloudSubTab === 'supabase' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                    color: cloudSubTab === 'supabase' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                    boxShadow: cloudSubTab === 'supabase' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>🌌 Arcable Cloud (Google OAuth)</span>
+                  {syncProvider === 'supabase' && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '10px',
+                        padding: '2px 7px',
+                        borderRadius: '9999px',
+                        backgroundColor: isDark ? '#10b981' : '#059669',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '5px',
+                          height: '5px',
+                          borderRadius: '50%',
+                          backgroundColor: '#ffffff',
+                        }}
+                      />
+                      Active
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    userSelectedTabRef.current = true;
+                    setCloudSubTab('raindrop');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    backgroundColor: cloudSubTab === 'raindrop' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                    color: cloudSubTab === 'raindrop' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                    boxShadow: cloudSubTab === 'raindrop' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>💧 Raindrop.io</span>
+                  {syncProvider === 'raindrop' && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '10px',
+                        padding: '2px 7px',
+                        borderRadius: '9999px',
+                        backgroundColor: isDark ? '#10b981' : '#059669',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '5px',
+                          height: '5px',
+                          borderRadius: '50%',
+                          backgroundColor: '#ffffff',
+                        }}
+                      />
+                      Active
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Status indicator */}
+              <div
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  backgroundColor: syncProvider === 'raindrop' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
-                  color: syncProvider === 'raindrop' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                  boxShadow: syncProvider === 'raindrop' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  transition: 'all 0.15s ease',
+                  fontSize: '12px',
+                  color: isDark ? '#94a3b8' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
               >
-                💧 Raindrop.io
-              </button>
+                <span>Active Sync Provider:</span>
+                <strong
+                  style={{
+                    color:
+                      syncProvider === 'supabase'
+                        ? '#3b82f6'
+                        : syncProvider === 'raindrop'
+                        ? '#0ea5e9'
+                        : (isDark ? '#94a3b8' : '#64748b'),
+                  }}
+                >
+                  {syncProvider === 'supabase'
+                    ? 'Arcable Cloud (Google OAuth)'
+                    : syncProvider === 'raindrop'
+                    ? 'Raindrop.io'
+                    : 'None (Sync Disabled)'}
+                </strong>
+              </div>
             </div>
 
-            {syncProvider === 'supabase' ? (
+            {cloudSubTab === 'supabase' ? (
               <SupabaseAuthCard
                 session={supabaseSession}
                 onLoginWithGoogle={handleLoginWithGoogle}
@@ -863,6 +1037,28 @@ export const App: React.FC = () => {
               />
             ) : (
               <>
+                {Boolean(supabaseSession?.access_token) && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : '#eff6ff',
+                      border: isDark ? '1px solid rgba(59, 130, 246, 0.25)' : '1px solid #bfdbfe',
+                      color: isDark ? '#bfdbfe' : '#1d4ed8',
+                      fontSize: '13px',
+                      lineHeight: '1.5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}
+                  >
+                    <span style={{ fontSize: '16px' }}>ℹ️</span>
+                    <span>
+                      Google OAuth is currently active as your sync provider. Full workspace sync uses Arcable Cloud; Raindrop item search and save-to-unsorted remain active.
+                    </span>
+                  </div>
+                )}
+
                 <RaindropAuthCard
                   authState={authState}
                   isLoading={authLoading}

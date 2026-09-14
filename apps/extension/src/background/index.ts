@@ -163,7 +163,12 @@ async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthSta
 // Helper to save auth state
 async function saveAuthState(auth: RaindropAuthState): Promise<void> {
   cachedAuthState = auth;
-  await browser.storage.local.set({ [STORAGE_KEY_AUTH]: auth });
+  const updates: Record<string, any> = { [STORAGE_KEY_AUTH]: auth };
+  const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
+  if (!storedGoogle.arcable_supabase_session?.access_token) {
+    updates.arcable_sync_provider = (auth && auth.isAuthenticated && auth.accessToken) ? 'raindrop' : 'local';
+  }
+  await browser.storage.local.set(updates);
   void syncSidePanelBehavior(Boolean(auth && auth.isAuthenticated && auth.accessToken));
 }
 
@@ -171,6 +176,10 @@ async function saveAuthState(auth: RaindropAuthState): Promise<void> {
 async function clearAuthState(): Promise<void> {
   cachedAuthState = { isAuthenticated: false };
   await browser.storage.local.remove(STORAGE_KEY_AUTH);
+  const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
+  if (!storedGoogle.arcable_supabase_session?.access_token) {
+    await browser.storage.local.set({ arcable_sync_provider: 'local' });
+  }
   void syncSidePanelBehavior(false);
 }
 
@@ -447,6 +456,9 @@ browser.runtime.onMessage.addListener(
       case 'SUPABASE_LOGOUT': {
         try {
           await browser.storage.local.remove(['arcable_supabase_session']);
+          const auth = await getStoredAuthState();
+          const nextProvider = (auth.isAuthenticated && auth.accessToken) ? 'raindrop' : 'local';
+          await browser.storage.local.set({ arcable_sync_provider: nextProvider });
           void browser.runtime.sendMessage({
             type: 'SUPABASE_SESSION_CHANGED',
             session: null,

@@ -19,6 +19,7 @@ import {
   SpaceThemeTokens,
   getSyncProvider,
   setSyncProvider,
+  resolveSyncProvider,
   getSupabaseSession,
   setSupabaseSession,
   areSupabaseSessionsEquivalent,
@@ -179,8 +180,6 @@ export const App: React.FC = () => {
         setHasSupabaseAuth(true);
         setSupabaseSessionState(res.arcable_supabase_session);
         setSupabaseSession(res.arcable_supabase_session);
-        setSyncProviderState('supabase');
-        setSyncProvider('supabase');
       } else {
         setHasSupabaseAuth(false);
         setSupabaseSessionState(null);
@@ -188,8 +187,13 @@ export const App: React.FC = () => {
       }
 
       const auth = res.arcable_raindrop_auth;
-      const isRaindrop = Boolean(!isGoogle && auth && auth.isAuthenticated);
-      setHasRaindropAuth(Boolean(auth && auth.isAuthenticated));
+      const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
+      const isRaindrop = Boolean(!isGoogle && isRaindropAuth);
+      setHasRaindropAuth(isRaindropAuth);
+
+      const resolved = resolveSyncProvider(isGoogle, isRaindropAuth);
+      setSyncProviderState(resolved);
+      setSyncProvider(resolved);
 
       if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
@@ -250,6 +254,10 @@ export const App: React.FC = () => {
     // Listen for storage changes (e.g. login/logout in options or background sync updates)
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
+        let curSupabaseAuth = hasSupabaseAuth;
+        let curRaindropAuth = hasRaindropAuth;
+        let authChanged = false;
+
         if (changes.arcable_supabase_session) {
           const sessionChange = changes.arcable_supabase_session;
           const sess = sessionChange.newValue;
@@ -257,21 +265,26 @@ export const App: React.FC = () => {
           // identical. Do not mirror those events back into extension storage.
           if (!areSupabaseSessionsEquivalent(sessionChange.oldValue, sess)) {
             const isAuth = Boolean(sess?.access_token);
+            curSupabaseAuth = isAuth;
             setHasSupabaseAuth(isAuth);
             setSupabaseSessionState(sess || null);
             setSupabaseSession(sess || null);
-            if (isAuth) {
-              setSyncProviderState('supabase');
-              setSyncProvider('supabase');
-            }
+            authChanged = true;
           }
         }
-        if (changes.arcable_sync_provider?.newValue) {
+        if (changes.arcable_raindrop_auth) {
+          const isAuth = Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated);
+          curRaindropAuth = isAuth;
+          setHasRaindropAuth(isAuth);
+          authChanged = true;
+        }
+        if (authChanged) {
+          const resolved = resolveSyncProvider(curSupabaseAuth, curRaindropAuth);
+          setSyncProviderState(resolved);
+          setSyncProvider(resolved);
+        } else if (changes.arcable_sync_provider?.newValue) {
           setSyncProviderState(changes.arcable_sync_provider.newValue);
           setSyncProvider(changes.arcable_sync_provider.newValue);
-        }
-        if (changes.arcable_raindrop_auth) {
-          setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
@@ -358,19 +371,28 @@ export const App: React.FC = () => {
           setHasSupabaseAuth(true);
           setSupabaseSessionState(res.arcable_supabase_session);
           setSupabaseSession(res.arcable_supabase_session);
-          setSyncProviderState('supabase');
-          setSyncProvider('supabase');
         } else {
           setHasSupabaseAuth(false);
           setSupabaseSessionState(null);
           setSupabaseSession(null);
         }
+        const isRaindropAuth = Boolean(res.arcable_raindrop_auth?.isAuthenticated);
         if (res.arcable_raindrop_auth !== undefined) {
-          setHasRaindropAuth(Boolean(res.arcable_raindrop_auth?.isAuthenticated));
+          setHasRaindropAuth(isRaindropAuth);
         }
+        const resolved = resolveSyncProvider(isGoogle, isRaindropAuth);
+        setSyncProviderState(resolved);
+        setSyncProvider(resolved);
+
         browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((r: any) => {
           if (r && r.success) {
-            setHasRaindropAuth(Boolean(r.data?.isAuthenticated));
+            const rAuth = Boolean(r.data?.isAuthenticated);
+            setHasRaindropAuth(rAuth);
+            if (!isGoogle) {
+              const next = resolveSyncProvider(false, rAuth);
+              setSyncProviderState(next);
+              setSyncProvider(next);
+            }
           }
         });
       });

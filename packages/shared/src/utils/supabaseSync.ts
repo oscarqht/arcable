@@ -19,6 +19,7 @@ import {
 import { areSupabaseSessionsEquivalent } from './supabaseSession';
 
 export { areSupabaseSessionsEquivalent } from './supabaseSession';
+export { resolveSyncProvider } from './syncProvider';
 
 
 export const SYNC_PROVIDER_KEY = 'arcable_sync_provider';
@@ -70,9 +71,9 @@ export function getSyncProvider(): SyncProvider {
     if (provider === 'raindrop' || provider === 'local' || provider === 'supabase') {
       return provider;
     }
-    return 'raindrop';
+    return 'local';
   } catch {
-    return 'supabase';
+    return 'local';
   }
 }
 
