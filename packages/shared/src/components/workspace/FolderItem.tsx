@@ -4,6 +4,7 @@ import { Folder, Tab, TabUrlVariant } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
+import { areUrlsMatching } from '../../utils/format';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -641,6 +642,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               const tab = item.data;
               const assoc = tabAssociations?.[tab.id];
               const isHighlighted = highlightedTabId === tab.id;
+              const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
 
               return (
                 <div
@@ -698,11 +700,82 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      flex: 1,
+                      flex: hasVariants ? '0 1 auto' : 1,
+                      minWidth: hasVariants ? '40px' : 0,
                     }}
                   >
                     {tab.customTitle || tab.url}
                   </span>
+                  {hasVariants && (
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        borderRadius: '6px',
+                        border: `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.14)'}`,
+                        overflow: 'hidden',
+                        flexShrink: 1,
+                        minWidth: 0,
+                        backgroundColor: effectiveDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.04)',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {tab.urlVariants!.map((variant, index) => {
+                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, variant.url));
+                        return (
+                          <button
+                            key={variant.id || index}
+                            type="button"
+                            title={`${variant.name}: ${variant.url}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setShowHoverPopup(false);
+                              if (onOpenVariant) {
+                                onOpenVariant(variant.url, tab, variant);
+                              } else if (onOpenTab) {
+                                onOpenTab(variant.url, tab.id);
+                              } else {
+                                window.open(variant.url, '_blank', 'noopener,noreferrer');
+                              }
+                            }}
+                            style={{
+                              border: 'none',
+                              borderRight: index < tab.urlVariants!.length - 1
+                                ? `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'}`
+                                : 'none',
+                              background: isMatch ? (effectiveDark ? '#0284c7' : '#0ea5e9') : 'transparent',
+                              color: isMatch ? '#ffffff' : (effectiveDark ? '#cbd5e1' : '#475569'),
+                              fontWeight: isMatch ? 700 : 500,
+                              fontSize: '11px',
+                              padding: '2px 7px',
+                              cursor: 'pointer',
+                              maxWidth: '80px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.12s ease',
+                              height: '20px',
+                              lineHeight: '16px',
+                              flexShrink: 1,
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isMatch) {
+                                e.currentTarget.style.backgroundColor = effectiveDark
+                                  ? 'rgba(255, 255, 255, 0.15)'
+                                  : 'rgba(0, 0, 0, 0.08)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isMatch) e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            {variant.name || 'Variant'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   {Boolean(assoc) && (
                     <span
                       title="Open tab in browser"
