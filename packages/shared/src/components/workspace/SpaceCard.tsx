@@ -57,6 +57,7 @@ export interface SpaceCardProps {
   onDeleteFolder?: (folderId: string) => void;
   onToggleFolderExpand?: (folderId: string) => void;
   onEditTab?: (tab: Tab) => void;
+  onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab?: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -99,6 +100,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onDeleteFolder,
   onToggleFolderExpand,
   onEditTab,
+  onDuplicateTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -383,6 +385,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                           : undefined
                       }
                       onEdit={onEditTab || (() => {})}
+                      onDuplicate={onDuplicateTab}
                       onDelete={onDeleteTab || (() => {})}
                       onTogglePin={onTogglePinTab}
                       onToggleFavourite={onToggleFavouriteTab}
@@ -422,6 +425,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onResetDivertedUrl={onResetDivertedUrl}
                         onMediaControl={onMediaControl}
                         onEditTab={onEditTab || (() => {})}
+                        onDuplicateTab={onDuplicateTab}
                         onDeleteTab={onDeleteTab || (() => {})}
                         onTogglePinTab={onTogglePinTab || (() => {})}
                         onToggleFavouriteTab={onToggleFavouriteTab}
@@ -468,6 +472,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                           : undefined
                       }
                       onEdit={onEditTab || (() => {})}
+                      onDuplicate={onDuplicateTab}
                       onDelete={onDeleteTab || (() => {})}
                       onTogglePin={onTogglePinTab}
                       onToggleFavourite={onToggleFavouriteTab}

@@ -814,3 +814,24 @@ export const UploadIcon: React.FC<IconProps> = ({ size = 16, color = 'currentCol
     <line x1="12" y1="3" x2="12" y2="15" />
   </svg>
 );
+
+export const DuplicateIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    <line x1="15.5" y1="12.5" x2="15.5" y2="18.5" />
+    <line x1="12.5" y1="15.5" x2="18.5" y2="15.5" />
+  </svg>
+);
+

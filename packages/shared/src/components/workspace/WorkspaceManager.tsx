@@ -176,6 +176,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     createTab,
     updateTab,
     deleteTab,
+    duplicateTab,
     togglePinTab,
     toggleFavouriteTab,
     reorderSiblingItem,
@@ -1533,6 +1534,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setTargetSpaceIdForModal(tab.parentSpaceId);
           setIsTabModalOpen(true);
         }}
+        onDuplicateTab={(tab) => duplicateTab(tab.id)}
         onDeleteTab={handleRequestDeleteTab}
         onToggleFavouriteTab={toggleFavouriteTab}
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
@@ -2001,6 +2003,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setTargetSpaceIdForModal(space.id);
                     setIsTabModalOpen(true);
                   }}
+                  onDuplicateTab={(t) => duplicateTab(t.id)}
                   onDeleteTab={handleRequestDeleteTab}
                   onTogglePinTab={togglePinTab}
                   onToggleFavouriteTab={toggleFavouriteTab}
@@ -2135,6 +2138,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
                       }}
+                      onDuplicateTab={(t) => duplicateTab(t.id)}
                       onDeleteTab={handleRequestDeleteTab}
                       onTogglePinTab={togglePinTab}
                       onToggleFavouriteTab={toggleFavouriteTab}
@@ -2300,6 +2304,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
                       }}
+                      onDuplicateTab={(t) => duplicateTab(t.id)}
                       onDeleteTab={handleRequestDeleteTab}
                       onTogglePinTab={togglePinTab}
                       onToggleFavouriteTab={toggleFavouriteTab}

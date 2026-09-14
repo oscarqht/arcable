@@ -17,6 +17,7 @@ import {
   ExternalLinkIcon,
   StarIcon,
   EditIcon,
+  DuplicateIcon,
   TrashIcon,
   MinusIcon,
   SlashIcon,
@@ -42,6 +43,7 @@ export interface TabRowProps {
   onResetDivertedUrl?: () => void;
   onMediaControl?: (action: MediaControlAction) => void;
   onEdit: (tab: Tab) => void;
+  onDuplicate?: (tab: Tab) => void;
   onDelete: (id: string) => void;
   onTogglePin?: (id: string) => void;
   onToggleFavourite?: (id: string) => void;
@@ -70,6 +72,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onResetDivertedUrl,
   onMediaControl,
   onEdit,
+  onDuplicate,
   onDelete,
   onTogglePin,
   onToggleFavourite,
@@ -145,7 +148,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: 'Open in new tab',
         icon: <ExternalLinkIcon size={15} />,
         onClick: handleOpenLink,
-        dividerAfter: Boolean(onToggleFavourite),
+        dividerAfter: Boolean(onToggleFavourite || onEdit || onDuplicate || onDelete),
       },
     ];
 
@@ -155,7 +158,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: tab.favourite ? 'Remove favourite' : 'Add to favourites',
         icon: <StarIcon size={14} filled={Boolean(tab.favourite)} color={tab.favourite ? '#eab308' : 'currentColor'} />,
         onClick: () => onToggleFavourite(tab.id),
-        dividerAfter: Boolean(onEdit || onDelete),
+        dividerAfter: Boolean(onEdit || onDuplicate || onDelete),
       });
     }
 
@@ -165,6 +168,15 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: 'Edit tab',
         icon: <EditIcon size={14} />,
         onClick: () => onEdit(tab),
+      });
+    }
+
+    if (onDuplicate) {
+      items.push({
+        id: 'duplicate-tab',
+        label: 'Duplicate',
+        icon: <DuplicateIcon size={14} />,
+        onClick: () => onDuplicate(tab),
       });
     }
 
@@ -179,7 +191,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
 
     return items;
-  }, [copied, handleCopyUrl, handleOpenLink, tab, onToggleFavourite, onEdit, onDelete]);
+  }, [copied, handleCopyUrl, handleOpenLink, tab, onToggleFavourite, onEdit, onDuplicate, onDelete]);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();

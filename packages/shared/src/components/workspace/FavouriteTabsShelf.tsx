@@ -27,6 +27,7 @@ import {
   StarIcon,
   PlusIcon,
   EditIcon,
+  DuplicateIcon,
   TrashIcon,
   CopyIcon,
   CheckIcon,
@@ -56,6 +57,7 @@ export interface FavouriteTabsShelfProps {
   audibleTabs?: AudibleTab[];
   onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   onEditTab: (tab: Tab) => void;
+  onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
@@ -115,6 +117,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   audibleTabs,
   onToggleTabMute,
   onEditTab,
+  onDuplicateTab,
   onDeleteTab,
   onToggleFavouriteTab,
   onAddFavouriteTab,
@@ -473,7 +476,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 label: 'Remove from favourites',
                 icon: <StarIcon size={14} filled={true} color="#eab308" />,
                 onClick: () => onToggleFavouriteTab(tab.id),
-                dividerAfter: Boolean(onEditTab || onDeleteTab),
+                dividerAfter: Boolean(onEditTab || onDuplicateTab || onDeleteTab),
               },
               {
                 id: 'edit-tab',
@@ -481,6 +484,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 icon: <EditIcon size={14} />,
                 onClick: () => onEditTab(tab),
               },
+              ...(onDuplicateTab
+                ? [
+                    {
+                      id: 'duplicate-tab',
+                      label: 'Duplicate',
+                      icon: <DuplicateIcon size={14} />,
+                      onClick: () => onDuplicateTab(tab),
+                    },
+                  ]
+                : []),
               {
                 id: 'delete-tab',
                 label: 'Delete tab',

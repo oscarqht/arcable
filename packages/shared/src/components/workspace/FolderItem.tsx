@@ -43,6 +43,7 @@ export interface FolderItemProps {
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditTab: (tab: Tab) => void;
+  onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -80,6 +81,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onResetDivertedUrl,
   onMediaControl,
   onEditTab,
+  onDuplicateTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -929,6 +931,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   }
                   onMoveSiblingItem={onMoveSiblingItem}
                   onReorderSiblingItem={onReorderSiblingItem}
+                  onDuplicateTab={onDuplicateTab}
                 />
               );
             }
@@ -960,6 +963,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     : undefined
                 }
                 onEdit={onEditTab}
+                onDuplicate={onDuplicateTab}
                 onDelete={onDeleteTab}
                 onTogglePin={onTogglePinTab}
                 onToggleFavourite={onToggleFavouriteTab}

@@ -1058,7 +1058,210 @@ export function useWorkspace() {
     }));
   }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
 
+  const duplicateTab = useCallback(
+    (tabId: string) => {
+      const sourceTab = data.tabs.find((t) => t.id === tabId);
+      if (!sourceTab) return null;
+
+      const newTabId = generateId('tab');
+
+      // Case 1: Favourite tab
+      if (sourceTab.favourite) {
+        const favTabs = data.tabs
+          .filter((t) => Boolean(t.favourite))
+          .sort((a, b) => {
+            const orderA = a.order !== undefined ? a.order : a.createdAt || 0;
+            const orderB = b.order !== undefined ? b.order : b.createdAt || 0;
+            if (orderA !== orderB) return orderA - orderB;
+            return a.id.localeCompare(b.id);
+          });
+
+        const sourceIdx = favTabs.findIndex((t) => t.id === tabId);
+        const newTab: Tab = {
+          id: newTabId,
+          url: sourceTab.url,
+          customTitle: sourceTab.customTitle,
+          customEmojiIcon: sourceTab.customEmojiIcon,
+          pinned: false,
+          favourite: true,
+          order: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const insertIdx = sourceIdx >= 0 ? sourceIdx + 1 : favTabs.length;
+        favTabs.splice(insertIdx, 0, newTab);
+
+        const orderMap = new Map<string, number>();
+        favTabs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+        newTab.order = orderMap.get(newTab.id) ?? (insertIdx + 1) * 1000;
+
+        savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTab.id, newTab));
+
+        favTabs.forEach((t) => {
+          if (t.id !== newTab.id) {
+            const oldTab = data.tabs.find((orig) => orig.id === t.id);
+            const newOrder = orderMap.get(t.id);
+            if (oldTab && newOrder !== undefined && oldTab.order !== newOrder) {
+              savePendingOperation(
+                createWorkspaceOperation('TAB_UPDATE', t.id, { order: newOrder })
+              );
+            }
+          }
+        });
+
+        saveWorkspaceData((prev) => {
+          const updatedTabs = prev.tabs.map((t) =>
+            orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id)! } : t
+          );
+          return {
+            ...prev,
+            tabs: [...updatedTabs, newTab],
+          };
+        });
+
+        return newTab;
+      }
+
+      // Case 2: Pinned tab in space
+      if (sourceTab.pinned) {
+        const parentSpaceId = sourceTab.parentSpaceId || activeSpace?.id || data.activeSpaceId || 'space_personal';
+        const pinnedTabs = getSortedTabs(
+          data.tabs.filter((t) => !t.favourite && t.pinned && t.parentSpaceId === parentSpaceId)
+        );
+        const sourceIdx = pinnedTabs.findIndex((t) => t.id === tabId);
+
+        const newTab: Tab = {
+          id: newTabId,
+          url: sourceTab.url,
+          customTitle: sourceTab.customTitle,
+          customEmojiIcon: sourceTab.customEmojiIcon,
+          pinned: true,
+          favourite: false,
+          parentSpaceId,
+          order: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const insertIdx = sourceIdx >= 0 ? sourceIdx + 1 : pinnedTabs.length;
+        pinnedTabs.splice(insertIdx, 0, newTab);
+
+        const orderMap = new Map<string, number>();
+        pinnedTabs.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
+        newTab.order = orderMap.get(newTab.id) ?? (insertIdx + 1) * 1000;
+
+        savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTab.id, newTab));
+
+        pinnedTabs.forEach((t) => {
+          if (t.id !== newTab.id) {
+            const oldTab = data.tabs.find((orig) => orig.id === t.id);
+            const newOrder = orderMap.get(t.id);
+            if (oldTab && newOrder !== undefined && oldTab.order !== newOrder) {
+              savePendingOperation(
+                createWorkspaceOperation('TAB_UPDATE', t.id, { order: newOrder })
+              );
+            }
+          }
+        });
+
+        saveWorkspaceData((prev) => {
+          const updatedTabs = prev.tabs.map((t) =>
+            orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id)! } : t
+          );
+          return {
+            ...prev,
+            tabs: [...updatedTabs, newTab],
+          };
+        });
+
+        return newTab;
+      }
+
+      // Case 3: Regular saved tab (in space root or folder)
+      const parentSpaceId = sourceTab.parentSpaceId || activeSpace?.id || data.activeSpaceId || 'space_personal';
+      const parentFolderId = sourceTab.parentFolderId || undefined;
+
+      const siblings = getSortedSiblings(data.folders, data.tabs, parentSpaceId, parentFolderId);
+      const sourceIdx = siblings.findIndex((s) => s.id === tabId);
+
+      const newTab: Tab = {
+        id: newTabId,
+        url: sourceTab.url,
+        customTitle: sourceTab.customTitle,
+        customEmojiIcon: sourceTab.customEmojiIcon,
+        pinned: false,
+        favourite: false,
+        parentSpaceId,
+        parentFolderId,
+        order: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const newSiblingItem: WorkspaceSiblingItem = {
+        type: 'tab',
+        data: newTab,
+        id: newTab.id,
+        order: 0,
+      };
+
+      const insertIdx = sourceIdx >= 0 ? sourceIdx + 1 : siblings.length;
+      siblings.splice(insertIdx, 0, newSiblingItem);
+
+      const orderMap = new Map<string, number>();
+      siblings.forEach((s, idx) => {
+        orderMap.set(s.id, (idx + 1) * 1000);
+      });
+
+      newTab.order = orderMap.get(newTab.id) ?? (insertIdx + 1) * 1000;
+
+      savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTab.id, newTab));
+
+      siblings.forEach((s) => {
+        if (s.id !== newTab.id) {
+          const newOrder = orderMap.get(s.id);
+          if (newOrder !== undefined) {
+            if (s.type === 'folder') {
+              const oldFolder = data.folders.find((f) => f.id === s.id);
+              if (oldFolder && oldFolder.order !== newOrder) {
+                savePendingOperation(
+                  createWorkspaceOperation('FOLDER_UPDATE', s.id, { order: newOrder })
+                );
+              }
+            } else {
+              const oldTab = data.tabs.find((t) => t.id === s.id);
+              if (oldTab && oldTab.order !== newOrder) {
+                savePendingOperation(
+                  createWorkspaceOperation('TAB_UPDATE', s.id, { order: newOrder })
+                );
+              }
+            }
+          }
+        }
+      });
+
+      saveWorkspaceData((prev) => {
+        const updatedFolders = prev.folders.map((f) =>
+          orderMap.has(f.id) ? { ...f, order: orderMap.get(f.id)! } : f
+        );
+        const updatedTabs = prev.tabs.map((t) =>
+          orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id)! } : t
+        );
+        return {
+          ...prev,
+          folders: updatedFolders,
+          tabs: [...updatedTabs, newTab],
+        };
+      });
+
+      return newTab;
+    },
+    [activeSpace, data.activeSpaceId, data.folders, data.tabs, saveWorkspaceData]
+  );
+
   // ================= Tmp Tab Operations =================
+
   const createTmpTab = useCallback((tabInput: Partial<TmpTab> & { url: string; id?: string }) => {
     const newTmpTab: TmpTab = {
       id: tabInput.id || generateId('tmp'),
@@ -2071,6 +2274,7 @@ export function useWorkspace() {
     createTab,
     updateTab,
     deleteTab,
+    duplicateTab,
     togglePinTab,
     toggleFavouriteTab,
     // Tmp Tab operations

@@ -15,6 +15,7 @@ import {
   PlusIcon,
   StarIcon,
   EditIcon,
+  DuplicateIcon,
   TrashIcon,
   CopyIcon,
   ExternalLinkIcon,
@@ -27,6 +28,7 @@ export interface PinnedTabsShelfProps {
   shelfBg?: string;
   onOpenTab?: (url: string, tabId?: string) => void;
   onEditTab: (tab: Tab) => void;
+  onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -41,6 +43,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   shelfBg,
   onOpenTab,
   onEditTab,
+  onDuplicateTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -298,7 +301,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     label: 'Unpin tab',
                     icon: <PinIcon size={14} />,
                     onClick: () => onTogglePinTab(tab.id),
-                    dividerAfter: Boolean(onEditTab || onDeleteTab),
+                    dividerAfter: Boolean(onEditTab || onDuplicateTab || onDeleteTab),
                   },
                   {
                     id: 'edit-tab',
@@ -306,6 +309,16 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     icon: <EditIcon size={14} />,
                     onClick: () => onEditTab(tab),
                   },
+                  ...(onDuplicateTab
+                    ? [
+                        {
+                          id: 'duplicate-tab',
+                          label: 'Duplicate',
+                          icon: <DuplicateIcon size={14} />,
+                          onClick: () => onDuplicateTab(tab),
+                        },
+                      ]
+                    : []),
                   {
                     id: 'delete-tab',
                     label: 'Delete tab',
