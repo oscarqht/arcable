@@ -1523,7 +1523,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                         lineHeight: 1,
                       }}
                     >
-                      Quick
+                      Search
                     </div>
                   </div>
                 );
