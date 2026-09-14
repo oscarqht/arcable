@@ -1,6 +1,6 @@
 {
   "name": "@arcable/web",
-  "version": "0.51.0",
+  "version": "0.52.0",
   "description": "Arcable Next.js Web Application",
   "private": true,
   "scripts": {
