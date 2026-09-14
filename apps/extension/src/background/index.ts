@@ -159,6 +159,22 @@ browser.runtime.onMessage.addListener(
 
     // Handle OAuth bridge event from content script
     if (rawMessage && rawMessage.type === 'oauth_bridge_success') {
+      if (rawMessage.provider === 'supabase') {
+        const session = rawMessage.tokens;
+        if (session && session.access_token) {
+          await browser.storage.local.set({
+            arcable_supabase_session: session,
+            arcable_sync_provider: 'supabase',
+          });
+          void browser.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session,
+          }).catch(() => {});
+          return { success: true, data: session };
+        }
+        return { success: false, error: 'Invalid Supabase session' };
+      }
+
       const auth = await processOAuthTokens(rawMessage.tokens);
       return { success: Boolean(auth), data: auth };
     }
@@ -357,6 +373,45 @@ browser.runtime.onMessage.addListener(
         await clearAuthState();
         return { success: true };
       }
+
+      // Supabase: Start Google OAuth Flow
+      case 'SUPABASE_START_OAUTH': {
+        try {
+          const extensionId = browser.runtime.id;
+          const stored: any = await browser.storage.local.get(['arcable_supabase_server_url']);
+          const serverUrl = String(stored.arcable_supabase_server_url || 'http://localhost:3000').replace(/\/+$/, '');
+          const authUrl = `${serverUrl}/auth/extension-login?extId=${extensionId}`;
+          await browser.tabs.create({ url: authUrl });
+          return { success: true, data: { status: 'opened_tab' } };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to start Google OAuth' };
+        }
+      }
+
+      // Supabase: Logout
+      case 'SUPABASE_LOGOUT': {
+        try {
+          await browser.storage.local.remove(['arcable_supabase_session']);
+          void browser.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session: null,
+          }).catch(() => {});
+          return { success: true };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to logout from Supabase' };
+        }
+      }
+
+      // Supabase: Get Session
+      case 'SUPABASE_GET_SESSION': {
+        try {
+          const stored = await browser.storage.local.get(['arcable_supabase_session']);
+          return { success: true, data: stored.arcable_supabase_session || null };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to retrieve Supabase session' };
+        }
+      }
+
 
       // Raindrop: Create Bookmark
       case 'RAINDROP_SAVE_BOOKMARK': {

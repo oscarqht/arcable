@@ -305,6 +305,7 @@ export function savePendingOperation(op: WorkspaceOperation): void {
     const existing = getStoredPendingOperations();
     existing.push(op);
     window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(existing));
+    window.dispatchEvent(new CustomEvent('arcable_pending_op_saved', { detail: op }));
   } catch (err) {
     console.error('Failed to save pending operation:', err);
   }
