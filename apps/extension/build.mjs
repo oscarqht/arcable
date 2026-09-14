@@ -7,10 +7,20 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const target = process.argv[2] || 'all';
+const args = process.argv.slice(2);
+const isDev = args.includes('--dev') || process.env.NODE_ENV === 'development';
+const nodeEnv = isDev ? 'development' : 'production';
+
+let target = 'all';
+for (const arg of args) {
+  if (arg === 'chrome' || arg === 'firefox' || arg === 'all') {
+    target = arg;
+    break;
+  }
+}
 
 async function buildTarget(browserName) {
-  console.log(`\n📦 Building Arcable extension for ${browserName.toUpperCase()}...`);
+  console.log(`\n📦 Building Arcable extension for ${browserName.toUpperCase()} [${nodeEnv.toUpperCase()}]...`);
   const outDir = resolve(__dirname, `dist/${browserName}`);
 
   // Clean target dir
@@ -29,6 +39,9 @@ async function buildTarget(browserName) {
       alias: {
         '@arcable/shared': resolve(__dirname, '../../packages/shared/src'),
       },
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
     },
     build: {
       outDir,
@@ -68,7 +81,7 @@ async function buildTarget(browserName) {
       },
     },
     define: {
-      'process.env.NODE_ENV': JSON.stringify('production'),
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
     },
   });
 
@@ -97,7 +110,7 @@ async function buildTarget(browserName) {
       },
     },
     define: {
-      'process.env.NODE_ENV': JSON.stringify('production'),
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
     },
   });
 
@@ -126,7 +139,7 @@ async function buildTarget(browserName) {
       },
     },
     define: {
-      'process.env.NODE_ENV': JSON.stringify('production'),
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
     },
   });
 

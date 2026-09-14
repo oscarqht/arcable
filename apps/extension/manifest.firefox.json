@@ -34,6 +34,7 @@
     "https://api.raindrop.io/*",
     "https://raindrop.io/*",
     "https://oh-auth.vercel.app/*",
+    "https://arcable.vercel.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://*.arcable.dev/*",
@@ -92,6 +93,7 @@
     {
       "matches": [
         "https://oh-auth.vercel.app/*",
+        "https://arcable.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
         "https://*.arcable.dev/*"

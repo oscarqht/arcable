@@ -8,4 +8,5 @@ export * from './spaceTheme';
 export * from './customCodeUtils';
 export * from './weatherService';
 export * from './supabaseSync';
+export * from './workspaceBackup';
 

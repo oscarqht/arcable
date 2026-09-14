@@ -20,7 +20,36 @@ export const SYNC_PROVIDER_KEY = 'arcable_sync_provider';
 export const SUPABASE_SESSION_KEY = 'arcable_supabase_session';
 export const SUPABASE_SERVER_URL_KEY = 'arcable_supabase_server_url';
 export const SUPABASE_VERSION_KEY = 'arcable_supabase_version';
-export const DEFAULT_SERVER_URL = 'http://localhost:3000';
+export const DEV_SERVER_URL = 'http://localhost:3000';
+export const PROD_SERVER_URL = 'https://arcable.vercel.app';
+
+/**
+ * Detects whether the current execution context is development mode.
+ */
+export function isDevEnvironment(): boolean {
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.NODE_ENV === 'development') return true;
+      if (process.env.NODE_ENV === 'production') return false;
+    }
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      if ((import.meta as any).env.DEV) return true;
+      if ((import.meta as any).env.PROD) return false;
+    }
+  } catch {}
+  return false;
+}
+
+/**
+ * Returns default server URL depending on environment:
+ * dev => http://localhost:3000
+ * production => https://arcable.vercel.app
+ */
+export function getDefaultServerUrl(): string {
+  return isDevEnvironment() ? DEV_SERVER_URL : PROD_SERVER_URL;
+}
+
+export const DEFAULT_SERVER_URL = getDefaultServerUrl();
 
 /**
  * Returns current sync provider: 'supabase' | 'raindrop' | 'local'
@@ -95,7 +124,8 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
  * Gets configured sync server URL.
  */
 export function getSyncServerUrl(): string {
-  if (typeof window === 'undefined') return DEFAULT_SERVER_URL;
+  const fallbackUrl = getDefaultServerUrl();
+  if (typeof window === 'undefined') return fallbackUrl;
   try {
     const stored = window.localStorage.getItem(SUPABASE_SERVER_URL_KEY);
     if (stored) return stored;
@@ -107,9 +137,9 @@ export function getSyncServerUrl(): string {
     ) {
       return window.location.origin;
     }
-    return DEFAULT_SERVER_URL;
+    return fallbackUrl;
   } catch {
-    return DEFAULT_SERVER_URL;
+    return fallbackUrl;
   }
 }
 

@@ -6,6 +6,7 @@ import { Button } from './Button';
 import { Badge } from './Badge';
 import { SupabaseSessionTokens } from '../types/sync';
 import { useSystemTheme } from '../hooks/useSystemTheme';
+import { getDefaultServerUrl, DEV_SERVER_URL, PROD_SERVER_URL } from '../utils/supabaseSync';
 
 export interface SupabaseAuthCardProps {
   session: SupabaseSessionTokens | null;
@@ -30,7 +31,7 @@ export const SupabaseAuthCard: React.FC<SupabaseAuthCardProps> = ({
   onLogout,
   onRefreshSession,
   onImportToken,
-  serverUrl = 'http://localhost:3000',
+  serverUrl = getDefaultServerUrl(),
   onChangeServerUrl,
   onSyncNow,
   isSyncing = false,
@@ -376,42 +377,76 @@ export const SupabaseAuthCard: React.FC<SupabaseAuthCardProps> = ({
                 Configure Server Host ({serverUrl})
               </button>
             ) : (
-              <form
-                onSubmit={handleSaveUrl}
-                style={{
-                  display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center',
-                  marginTop: '8px',
-                }}
-              >
-                <input
-                  type="text"
-                  value={tempUrl}
-                  onChange={(e) => setTempUrl(e.target.value)}
-                  placeholder="http://localhost:3000"
+              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <form
+                  onSubmit={handleSaveUrl}
                   style={{
-                    flex: 1,
-                    padding: '6px 10px',
-                    fontSize: '12px',
-                    borderRadius: '6px',
-                    border: isDark ? '1px solid #475569' : '1px solid #cbd5e1',
-                    backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                    color: isDark ? '#f8fafc' : '#0f172a',
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center',
                   }}
-                />
-                <Button size="sm" variant="secondary" type="submit">
-                  Save
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  type="button"
-                  onClick={() => setEditingUrl(false)}
                 >
-                  Cancel
-                </Button>
-              </form>
+                  <input
+                    type="text"
+                    value={tempUrl}
+                    onChange={(e) => setTempUrl(e.target.value)}
+                    placeholder={getDefaultServerUrl()}
+                    style={{
+                      flex: 1,
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      borderRadius: '6px',
+                      border: isDark ? '1px solid #475569' : '1px solid #cbd5e1',
+                      backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                    }}
+                  />
+                  <Button size="sm" variant="secondary" type="submit">
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    onClick={() => setEditingUrl(false)}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: isDark ? '#64748b' : '#94a3b8' }}>Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTempUrl(PROD_SERVER_URL)}
+                    style={{
+                      fontSize: '11px',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                      background: isDark ? '#1e293b' : '#f1f5f9',
+                      color: isDark ? '#93c5fd' : '#2563eb',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Production (Vercel)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTempUrl(DEV_SERVER_URL)}
+                    style={{
+                      fontSize: '11px',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                      background: isDark ? '#1e293b' : '#f1f5f9',
+                      color: isDark ? '#93c5fd' : '#2563eb',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Localhost:3000
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

@@ -17,9 +17,6 @@ import {
   deleteAllOtherRaindropDevices,
   getDefaultDeviceName,
   searchRaindrop,
-  createRaindropBackup,
-  fetchRaindropBackups,
-  restoreRaindropBackup,
 } from '@arcable/shared/utils';
 
 import type {
@@ -29,7 +26,6 @@ import type {
   RaindropBookmarkItem,
   RaindropFileItem,
   RaindropCreateItemInput,
-  RaindropBackupRecord,
 } from '@arcable/shared/types';
 
 export const ACCESS_TOKEN_COOKIE = 'raindrop_access_token';
@@ -95,9 +91,6 @@ export {
   deleteAllOtherRaindropDevices,
   getDefaultDeviceName,
   searchRaindrop,
-  createRaindropBackup,
-  fetchRaindropBackups,
-  restoreRaindropBackup,
 };
 
 export type {
@@ -107,5 +100,4 @@ export type {
   RaindropBookmarkItem,
   RaindropFileItem,
   RaindropCreateItemInput,
-  RaindropBackupRecord,
 };

@@ -502,53 +502,6 @@ export const App: React.FC = () => {
     return res.data || [];
   };
 
-  const handleCreateBackup = useCallback(async () => {
-    let wsData: any = null;
-    if (typeof window !== 'undefined') {
-      const raw = window.localStorage.getItem('arcable_workspace_data');
-      if (raw) {
-        try {
-          wsData = JSON.parse(raw);
-        } catch {}
-      }
-    }
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_CREATE_BACKUP',
-      payload: {
-        workspaceData: wsData,
-        deviceName: getStoredDeviceName(undefined, 'Ext'),
-      },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to create backup');
-    }
-    return res.data;
-  }, []);
-
-  const handleFetchBackups = useCallback(async () => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_LIST_BACKUPS',
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to list backups');
-    }
-    return res.data || [];
-  }, []);
-
-  const handleRestoreBackup = useCallback(async (backupId: number) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_RESTORE_BACKUP',
-      payload: {
-        backupId,
-        deviceName: getStoredDeviceName(undefined, 'Ext'),
-      },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to restore backup');
-    }
-    return res.data;
-  }, []);
-
   const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
       const sorted = getSortedSpaces(restoredSnapshot.spaces || []);
@@ -563,6 +516,10 @@ export const App: React.FC = () => {
         activeSpaceId: resolvedActiveSpaceId,
       };
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(toSave));
+      void browser.storage.local.set({
+        arcable_workspace_snapshot: toSave,
+        arcable_pending_ops: [],
+      });
       syncTabsWithTracker();
       window.location.reload();
     }
@@ -937,9 +894,6 @@ export const App: React.FC = () => {
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
-        onBackup={isRaindropLoggedIn ? handleCreateBackup : undefined}
-        onFetchBackups={isRaindropLoggedIn ? handleFetchBackups : undefined}
-        onRestoreBackup={isRaindropLoggedIn ? handleRestoreBackup : undefined}
         onRestoreComplete={handleRestoreComplete}
       />
     </div>

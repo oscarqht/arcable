@@ -38,6 +38,7 @@ import {
   setSyncServerUrl,
   getStoredServerVersion,
   performSupabaseSync,
+  getDefaultServerUrl,
 } from '@arcable/shared/utils';
 
 import { browser, openWorkspaceSafely } from '../utils/browser';
@@ -72,7 +73,7 @@ export const App: React.FC = () => {
   // Supabase / Arcable Cloud state
   const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
   const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
-  const [supabaseServerUrl, setSupabaseServerUrlState] = useState<string>('http://localhost:3000');
+  const [supabaseServerUrl, setSupabaseServerUrlState] = useState<string>(getDefaultServerUrl());
   const [supabaseVersion, setSupabaseVersionState] = useState<number>(1);
   const [isSupabaseSyncing, setIsSupabaseSyncing] = useState(false);
   const [supabaseError, setSupabaseError] = useState<string | null>(null);
