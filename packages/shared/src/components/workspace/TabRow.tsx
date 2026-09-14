@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 
-import { Tab } from '../../types/workspace';
+import { Tab, TabUrlVariant } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
-import { cleanUrl } from '../../utils/format';
+import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
@@ -38,7 +38,9 @@ export interface TabRowProps {
   isAudible?: boolean;
   isMuted?: boolean;
   badge?: string | number | null;
+  currentUrl?: string;
   onOpen?: (url: string, tabId?: string) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
   onCloseAssociatedTab?: () => void;
   onResetDivertedUrl?: () => void;
   onMediaControl?: (action: MediaControlAction) => void;
@@ -67,7 +69,9 @@ export const TabRow: React.FC<TabRowProps> = ({
   isAudible = false,
   isMuted = false,
   badge,
+  currentUrl,
   onOpen,
+  onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
   onMediaControl,
@@ -102,6 +106,7 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   const domain = getDomain(tab.url);
   const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled Tab';
+  const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -360,7 +365,7 @@ export const TabRow: React.FC<TabRowProps> = ({
           </button>
         )}
 
-        {/* Title taking 100% available width */}
+        {/* Title taking available width */}
         <span
           style={{
             fontSize: '14px',
@@ -369,13 +374,91 @@ export const TabRow: React.FC<TabRowProps> = ({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            flex: 1,
-            minWidth: 0,
+            flex: hasVariants ? '0 1 auto' : 1,
+            minWidth: hasVariants ? '40px' : 0,
           }}
           title={displayTitle}
         >
           {displayTitle}
         </span>
+
+        {/* Variant button group following title */}
+        {hasVariants && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              borderRadius: '6px',
+              border: `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.14)'}`,
+              overflow: 'hidden',
+              flexShrink: 1,
+              minWidth: 0,
+              backgroundColor: effectiveDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.04)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {tab.urlVariants!.map((v, idx) => {
+              const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, v.url));
+              return (
+                <button
+                  key={v.id || idx}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (onOpenVariant) {
+                      onOpenVariant(v.url, tab, v);
+                    } else if (onOpen) {
+                      onOpen(v.url, tab.id);
+                    } else {
+                      window.open(v.url, '_blank', 'noopener,noreferrer');
+                    }
+                  }}
+                  title={`${v.name}: ${v.url}`}
+                  style={{
+                    border: 'none',
+                    borderRight:
+                      idx < tab.urlVariants!.length - 1
+                        ? `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'}`
+                        : 'none',
+                    background: isMatch
+                      ? (effectiveDark ? '#0284c7' : '#0ea5e9')
+                      : 'transparent',
+                    color: isMatch
+                      ? '#ffffff'
+                      : (effectiveDark ? '#cbd5e1' : '#475569'),
+                    fontWeight: isMatch ? 700 : 500,
+                    fontSize: '11px',
+                    padding: '2px 7px',
+                    cursor: 'pointer',
+                    maxWidth: '80px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.12s ease',
+                    height: '20px',
+                    lineHeight: '16px',
+                    flexShrink: 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isMatch) {
+                      e.currentTarget.style.backgroundColor = effectiveDark
+                        ? 'rgba(255, 255, 255, 0.15)'
+                        : 'rgba(0, 0, 0, 0.08)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isMatch) {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
+                >
+                  {v.name || 'Variant'}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Right side: Actions (left) + Media controls (right-most) */}

@@ -886,6 +886,11 @@ export default function HomePage() {
               window.open(url, '_blank', 'noopener,noreferrer');
             }
           }}
+          onOpenVariant={(variantUrl: string) => {
+            if (typeof window !== 'undefined' && variantUrl) {
+              window.open(variantUrl, '_blank', 'noopener,noreferrer');
+            }
+          }}
           onSyncRaindrop={isRaindropActive ? handleSyncWorkspace : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}

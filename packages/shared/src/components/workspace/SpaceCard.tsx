@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Space, Folder, Tab } from '../../types/workspace';
+import { Space, Folder, Tab, TabUrlVariant } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import {
   isDarkColor,
@@ -45,6 +45,7 @@ export interface SpaceCardProps {
   audibleTabs?: AudibleTab[];
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
@@ -88,6 +89,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   audibleTabs,
   highlightedTabId,
   onOpenTab,
+  onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
   onMediaControl,
@@ -375,8 +377,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       isAudible={isAudible}
                       isMuted={isMuted}
                       badge={assoc?.badge}
+                      currentUrl={assoc?.currentUrl}
                       isHighlighted={highlightedTabId === t.id}
                       onOpen={onOpenTab}
+                      onOpenVariant={onOpenVariant}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
                       onMediaControl={
@@ -421,6 +425,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onAddSubFolder={onAddFolder || (() => {})}
                         onAddTabInFolder={(pId) => onAddTab?.(pId, false)}
                         onOpenTab={onOpenTab}
+                        onOpenVariant={onOpenVariant}
                         onCloseAssociatedTab={onCloseAssociatedTab}
                         onResetDivertedUrl={onResetDivertedUrl}
                         onMediaControl={onMediaControl}
@@ -462,8 +467,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       isAudible={isAudible}
                       isMuted={isMuted}
                       badge={assoc?.badge}
+                      currentUrl={assoc?.currentUrl}
                       isHighlighted={highlightedTabId === item.id}
                       onOpen={onOpenTab}
+                      onOpenVariant={onOpenVariant}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                       onMediaControl={

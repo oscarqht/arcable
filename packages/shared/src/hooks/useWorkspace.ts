@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize } from '../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -852,6 +852,8 @@ export function useWorkspace() {
   // ================= Tab CRUD =================
   const createTab = useCallback((tabInput: {
     url: string;
+    urlVariants?: TabUrlVariant[];
+    defaultVariantId?: string;
     parentSpaceId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
@@ -859,9 +861,35 @@ export function useWorkspace() {
     favourite?: boolean;
     parentFolderId?: string;
   }) => {
-    let cleanUrl = tabInput.url.trim();
-    if (cleanUrl && !/^https?:\/\//i.test(cleanUrl) && !cleanUrl.startsWith('about:') && !cleanUrl.startsWith('chrome:')) {
-      cleanUrl = `https://${cleanUrl}`;
+    const normalizeUrl = (u: string) => {
+      let c = u.trim();
+      if (c && !/^https?:\/\//i.test(c) && !c.startsWith('about:') && !c.startsWith('chrome:')) {
+        c = `https://${c}`;
+      }
+      return c;
+    };
+
+    let cleanUrl = normalizeUrl(tabInput.url);
+    let cleanedVariants: TabUrlVariant[] | undefined = undefined;
+    let selectedDefaultId = tabInput.defaultVariantId;
+
+    if (tabInput.urlVariants && tabInput.urlVariants.length > 0) {
+      cleanedVariants = tabInput.urlVariants.map((v) => ({
+        id: v.id || generateId('var'),
+        name: v.name.trim(),
+        url: normalizeUrl(v.url),
+      }));
+
+      let defaultVar = selectedDefaultId
+        ? cleanedVariants.find((v) => v.id === selectedDefaultId)
+        : undefined;
+      if (!defaultVar) {
+        defaultVar = cleanedVariants[0];
+      }
+      if (defaultVar) {
+        cleanUrl = defaultVar.url;
+        selectedDefaultId = defaultVar.id;
+      }
     }
 
     const isFav = Boolean(tabInput.favourite);
@@ -884,6 +912,8 @@ export function useWorkspace() {
     const newTab: Tab = {
       id: generateId('tab'),
       url: cleanUrl || 'https://arcable.dev',
+      urlVariants: cleanedVariants && cleanedVariants.length > 0 ? cleanedVariants : undefined,
+      defaultVariantId: cleanedVariants && cleanedVariants.length > 0 ? selectedDefaultId : undefined,
       pinned: isPinned,
       favourite: isFav || undefined,
       customTitle: tabInput.customTitle?.trim() || undefined,
@@ -910,7 +940,44 @@ export function useWorkspace() {
       const currentTab = prev.tabs.find((t) => t.id === id);
       if (!currentTab) return prev;
 
-      const updated = { ...currentTab, ...updates, updatedAt: Date.now() };
+      const normalizeUrl = (u: string) => {
+        let c = u.trim();
+        if (c && !/^https?:\/\//i.test(c) && !c.startsWith('about:') && !c.startsWith('chrome:')) {
+          c = `https://${c}`;
+        }
+        return c;
+      };
+
+      const normalizedUpdates = { ...updates };
+      if (normalizedUpdates.urlVariants !== undefined) {
+        if (normalizedUpdates.urlVariants && normalizedUpdates.urlVariants.length > 0) {
+          const cleanedVariants = normalizedUpdates.urlVariants.map((v) => ({
+            id: v.id || generateId('var'),
+            name: v.name.trim(),
+            url: normalizeUrl(v.url),
+          }));
+          let defaultVar = normalizedUpdates.defaultVariantId
+            ? cleanedVariants.find((v) => v.id === normalizedUpdates.defaultVariantId)
+            : undefined;
+          if (!defaultVar) {
+            defaultVar = cleanedVariants[0];
+          }
+          normalizedUpdates.urlVariants = cleanedVariants;
+          normalizedUpdates.defaultVariantId = defaultVar?.id;
+          if (defaultVar?.url) {
+            normalizedUpdates.url = defaultVar.url;
+          }
+        } else {
+          normalizedUpdates.urlVariants = undefined;
+          normalizedUpdates.defaultVariantId = undefined;
+        }
+      }
+
+      if (normalizedUpdates.url) {
+        normalizedUpdates.url = normalizeUrl(normalizedUpdates.url);
+      }
+
+      const updated = { ...currentTab, ...normalizedUpdates, updatedAt: Date.now() };
 
       // If favourite is true, tab stops belonging to any space or folder and cannot be pinned
       if (updated.favourite) {
@@ -1065,6 +1132,22 @@ export function useWorkspace() {
 
       const newTabId = generateId('tab');
 
+      const clonedVariants = sourceTab.urlVariants
+        ? sourceTab.urlVariants.map((v) => ({ ...v, id: generateId('var') }))
+        : undefined;
+      let clonedDefaultVariantId: string | undefined = undefined;
+      if (clonedVariants && clonedVariants.length > 0) {
+        if (sourceTab.defaultVariantId) {
+          const origIdx = sourceTab.urlVariants?.findIndex((v) => v.id === sourceTab.defaultVariantId);
+          if (origIdx !== undefined && origIdx >= 0 && clonedVariants[origIdx]) {
+            clonedDefaultVariantId = clonedVariants[origIdx].id;
+          }
+        }
+        if (!clonedDefaultVariantId) {
+          clonedDefaultVariantId = clonedVariants[0].id;
+        }
+      }
+
       // Case 1: Favourite tab
       if (sourceTab.favourite) {
         const favTabs = data.tabs
@@ -1080,6 +1163,8 @@ export function useWorkspace() {
         const newTab: Tab = {
           id: newTabId,
           url: sourceTab.url,
+          urlVariants: clonedVariants,
+          defaultVariantId: clonedDefaultVariantId,
           customTitle: sourceTab.customTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
           pinned: false,
@@ -1134,6 +1219,8 @@ export function useWorkspace() {
         const newTab: Tab = {
           id: newTabId,
           url: sourceTab.url,
+          urlVariants: clonedVariants,
+          defaultVariantId: clonedDefaultVariantId,
           customTitle: sourceTab.customTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
           pinned: true,
@@ -1188,6 +1275,8 @@ export function useWorkspace() {
       const newTab: Tab = {
         id: newTabId,
         url: sourceTab.url,
+        urlVariants: clonedVariants,
+        defaultVariantId: clonedDefaultVariantId,
         customTitle: sourceTab.customTitle,
         customEmojiIcon: sourceTab.customEmojiIcon,
         pinned: false,

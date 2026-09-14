@@ -2,9 +2,17 @@ import { CustomCodeRule, RunCodeRule } from './customCode';
 import type { DeviceSyncRecord } from './sync';
 export type { CustomCodeRule, RunCodeRule, DeviceSyncRecord };
 
+export interface TabUrlVariant {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export interface Tab {
   id: string;
   url: string;
+  urlVariants?: TabUrlVariant[];
+  defaultVariantId?: string;
   pinned: boolean;
   favourite?: boolean;     // Optional: if true, tab is a global favourite and does not belong to any space or folder
   customTitle?: string;

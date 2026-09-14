@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Tab, Folder, Space } from '../../types/workspace';
+import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
 import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -22,6 +22,8 @@ interface TabModalProps {
   onDelete?: (tabId: string) => void;
   onSave: (tabData: {
     url: string;
+    urlVariants?: TabUrlVariant[];
+    defaultVariantId?: string;
     parentSpaceId?: string;
     parentFolderId?: string;
     customTitle?: string;
@@ -54,6 +56,11 @@ export const TabModal: React.FC<TabModalProps> = ({
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
 
+  // Variants state
+  const [showVariants, setShowVariants] = useState(false);
+  const [variants, setVariants] = useState<TabUrlVariant[]>([]);
+  const [defaultVariantId, setDefaultVariantId] = useState<string>('');
+
   const prevIsOpenRef = React.useRef(false);
   const prevTabIdRef = React.useRef<string | null | undefined>(undefined);
 
@@ -69,6 +76,16 @@ export const TabModal: React.FC<TabModalProps> = ({
         setFavourite(Boolean(tab.favourite));
         setParentSpaceId(tab.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
+
+        if (tab.urlVariants && tab.urlVariants.length > 0) {
+          setShowVariants(true);
+          setVariants(tab.urlVariants.map((v) => ({ ...v })));
+          setDefaultVariantId(tab.defaultVariantId || tab.urlVariants[0]?.id || '');
+        } else {
+          setShowVariants(false);
+          setVariants([]);
+          setDefaultVariantId('');
+        }
       } else {
         setUrl(initialUrl || '');
         setCustomTitle(initialTitle || '');
@@ -76,6 +93,9 @@ export const TabModal: React.FC<TabModalProps> = ({
         setFavourite(Boolean(initialFavourite));
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
+        setShowVariants(false);
+        setVariants([]);
+        setDefaultVariantId('');
       }
     }
 
@@ -100,15 +120,99 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleEnableVariants = () => {
+    const currentUrlVal = url.trim();
+    const firstId = 'var_' + Date.now() + '_1';
+    const secondId = 'var_' + Date.now() + '_2';
+    const initialVariants: TabUrlVariant[] = [
+      {
+        id: firstId,
+        name: 'Default',
+        url: currentUrlVal || '',
+      },
+      {
+        id: secondId,
+        name: '',
+        url: '',
+      },
+    ];
+    setVariants(initialVariants);
+    setDefaultVariantId(firstId);
+    setShowVariants(true);
+  };
+
+  const handleAddVariantRow = () => {
+    const newId = 'var_' + Date.now() + '_' + (variants.length + 1);
+    setVariants((prev) => [...prev, { id: newId, name: '', url: '' }]);
+  };
+
+  const handleRemoveVariantRow = (idToRemove: string) => {
+    setVariants((prev) => {
+      const next = prev.filter((v) => v.id !== idToRemove);
+      if (next.length === 0) {
+        setShowVariants(false);
+        setDefaultVariantId('');
+      } else if (defaultVariantId === idToRemove) {
+        setDefaultVariantId(next[0].id);
+      }
+      return next;
+    });
+  };
+
+  const handleSwitchToSingleUrl = () => {
+    const def = variants.find((v) => v.id === defaultVariantId) || variants[0];
+    if (def && def.url) {
+      setUrl(def.url);
+    }
+    setShowVariants(false);
+    setVariants([]);
+    setDefaultVariantId('');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (showVariants && variants.length > 0) {
+      const validVariants = variants.filter((v) => v.name.trim() || v.url.trim());
+      let defVariant = validVariants.find((v) => v.id === defaultVariantId);
+      if (!defVariant && validVariants.length > 0) {
+        defVariant = validVariants[0];
+      }
+      const finalDefaultUrl = defVariant ? defVariant.url.trim() : url.trim();
+      if (!finalDefaultUrl) return;
+      if (!favourite && !parentSpaceId) return;
+
+      onSave({
+        url: finalDefaultUrl,
+        urlVariants:
+          validVariants.length > 1
+            ? validVariants.map((v) => ({
+                ...v,
+                name: v.name.trim() || 'Variant',
+                url: v.url.trim(),
+              }))
+            : undefined,
+        defaultVariantId: validVariants.length > 1 && defVariant ? defVariant.id : undefined,
+        parentSpaceId: favourite ? undefined : parentSpaceId,
+        parentFolderId: favourite ? undefined : parentFolderId || undefined,
+        customTitle: customTitle.trim() || undefined,
+        customEmojiIcon: customEmojiIcon.trim() || undefined,
+        pinned: false,
+        favourite,
+      });
+      onClose();
+      return;
+    }
+
     if (!url.trim()) return;
     if (!favourite && !parentSpaceId) return;
 
     onSave({
       url: url.trim(),
+      urlVariants: undefined,
+      defaultVariantId: undefined,
       parentSpaceId: favourite ? undefined : parentSpaceId,
-      parentFolderId: favourite ? undefined : (parentFolderId || undefined),
+      parentFolderId: favourite ? undefined : parentFolderId || undefined,
       customTitle: customTitle.trim() || undefined,
       customEmojiIcon: customEmojiIcon.trim() || undefined,
       pinned: false,
@@ -169,30 +273,218 @@ export const TabModal: React.FC<TabModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              URL <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="https://example.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '9px 12px',
-                borderRadius: '6px',
-                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-                outline: 'none',
-              }}
-              required
-              autoFocus
-            />
-          </div>
+          {!showVariants ? (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                  URL <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleEnableVariants}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#0284c7',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                  title="Add multiple URL variants (e.g. Prod, Staging, Dev)"
+                >
+                  <span>+</span> Add Variant
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="https://example.com"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                  color: isDark ? '#f8fafc' : '#0f172a',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                }}
+                required
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                  URL Variants <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSwitchToSingleUrl}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                  }}
+                >
+                  Single URL mode
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                {variants.map((v) => {
+                  const isDefault = defaultVariantId === v.id;
+                  return (
+                    <div
+                      key={v.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        border: `1px solid ${isDefault ? (isDark ? '#0284c7' : '#38bdf8') : (isDark ? '#334155' : '#e2e8f0')}`,
+                      }}
+                    >
+                      {/* Default selector radio */}
+                      <label
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          cursor: 'pointer',
+                          fontSize: '10px',
+                          color: isDefault ? '#0284c7' : (isDark ? '#94a3b8' : '#64748b'),
+                          fontWeight: isDefault ? 700 : 500,
+                          gap: '2px',
+                          minWidth: '38px',
+                          userSelect: 'none',
+                        }}
+                        title="Set as default URL"
+                      >
+                        <input
+                          type="radio"
+                          name="defaultVariantRadio"
+                          checked={isDefault}
+                          onChange={() => setDefaultVariantId(v.id)}
+                          style={{ cursor: 'pointer', margin: 0 }}
+                        />
+                        {isDefault ? 'Default' : 'Set def'}
+                      </label>
+
+                      {/* Name input */}
+                      <input
+                        type="text"
+                        placeholder="Name (e.g. Prod)"
+                        value={v.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setVariants((prev) => prev.map((item) => (item.id === v.id ? { ...item, name: val } : item)));
+                        }}
+                        style={{
+                          width: '105px',
+                          flexShrink: 0,
+                          padding: '7px 8px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                          outline: 'none',
+                        }}
+                      />
+
+                      {/* URL input */}
+                      <input
+                        type="text"
+                        placeholder="https://example.com"
+                        value={v.url}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setVariants((prev) => prev.map((item) => (item.id === v.id ? { ...item, url: val } : item)));
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: '7px 8px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                          outline: 'none',
+                        }}
+                        required={isDefault}
+                      />
+
+                      {/* Remove button */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVariantRow(v.id)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: isDark ? '#94a3b8' : '#64748b',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          flexShrink: 0,
+                        }}
+                        title="Remove variant"
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = '#ef4444';
+                          e.currentTarget.style.backgroundColor = isDark ? 'rgba(239, 68, 68, 0.15)' : '#fee2e2';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = isDark ? '#94a3b8' : '#64748b';
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddVariantRow}
+                style={{
+                  alignSelf: 'flex-start',
+                  background: 'none',
+                  border: `1px dashed ${isDark ? '#475569' : '#cbd5e1'}`,
+                  color: isDark ? '#94a3b8' : '#64748b',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  marginTop: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <span>+</span> Add another variant
+              </button>
+            </div>
+          )}
 
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>

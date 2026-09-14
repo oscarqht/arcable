@@ -6,7 +6,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SupabaseSessionTokens, SyncProvider } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SupabaseSessionTokens, SyncProvider, TabUrlVariant } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
@@ -648,6 +648,19 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleOpenVariant = useCallback(
+    async (variantUrl: string, tab: Tab, variant: TabUrlVariant) => {
+      setHighlightedTabId(tab.id);
+      try {
+        await tabTracker.updateAssociatedTabUrl(tab.id, variantUrl);
+      } catch (e) {
+        console.warn('Failed to open variant via tabTracker, falling back to window.open:', e);
+        window.open(variantUrl, '_blank', 'noopener,noreferrer');
+      }
+    },
+    []
+  );
+
   const handleCloseTmpTab = async (tab: TmpTab) => {
     // Always remove this tab from arcable_tmp_tabs in browser.storage.local.
     // This prevents resurrection: even if the deviceId mismatch causes isLocal=false,
@@ -931,6 +944,7 @@ export const App: React.FC = () => {
           onTabPromoted={handleTabPromoted}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
+          onOpenVariant={handleOpenVariant}
           onCloseAssociatedTab={handleCloseAssociatedTab}
           onResetDivertedUrl={handleResetDivertedUrl}
           onTabsChange={handleTabsChange}

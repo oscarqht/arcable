@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -61,6 +61,7 @@ export interface WorkspaceManagerHandle {
 
 export interface WorkspaceManagerProps {
   onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
@@ -112,6 +113,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   function WorkspaceManager(
     {
       onOpenTab,
+      onOpenVariant,
       onCaptureCurrentTab,
       compact = false,
       showWidgets = false,
@@ -271,6 +273,22 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }
     },
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
+  );
+
+  const handleOpenVariant = useCallback(
+    (variantUrl: string, tab: Tab, variant: TabUrlVariant) => {
+      if (activeSearchQuery) {
+        handleUpdateSearch('');
+      }
+      if (onOpenVariant) {
+        onOpenVariant(variantUrl, tab, variant);
+      } else if (onOpenTab) {
+        onOpenTab(variantUrl, tab.id);
+      } else if (typeof window !== 'undefined' && variantUrl) {
+        window.open(variantUrl, '_blank', 'noopener,noreferrer');
+      }
+    },
+    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab]
   );
 
   const performSyncRef = useRef<((silent?: boolean) => Promise<SyncResult | void>) | null>(null);
@@ -1979,6 +1997,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   highlightedTabId={highlightedTabId}
                   onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                   onOpenTab={handleOpenTabWithSearchClear}
+                  onOpenVariant={handleOpenVariant}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
                   onMediaControl={onMediaControl}
@@ -2115,6 +2134,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       highlightedTabId={highlightedTabId}
                       onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                       onOpenTab={handleOpenTabWithSearchClear}
+                      onOpenVariant={handleOpenVariant}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
                       onMediaControl={onMediaControl}
@@ -2281,6 +2301,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       audibleTabs={audibleTabs}
                       highlightedTabId={highlightedTabId}
                       onOpenTab={handleOpenTabWithSearchClear}
+                      onOpenVariant={handleOpenVariant}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
                       onMediaControl={onMediaControl}

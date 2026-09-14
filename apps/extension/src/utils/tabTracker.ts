@@ -759,6 +759,61 @@ class TabTracker {
     }
   }
 
+  // Update the URL of an already-associated browser tab to a variant URL, and update its originalUrl/reference URL
+  public async updateAssociatedTabUrl(tabItemId: string, newUrl: string): Promise<void> {
+    const associations = await this.getAssociations();
+    const assoc = associations[tabItemId];
+
+    if (!assoc) {
+      await this.openAndAssociateTab(tabItemId, newUrl);
+      return;
+    }
+
+    let tabUpdated = false;
+    try {
+      if (typeof browser !== 'undefined' && browser.tabs) {
+        await browser.tabs.update(assoc.browserTabId, { url: newUrl, active: true });
+        tabUpdated = true;
+      } else if (typeof chrome !== 'undefined' && chrome.tabs) {
+        await chrome.tabs.update(assoc.browserTabId, { url: newUrl, active: true });
+        tabUpdated = true;
+      }
+    } catch (tabErr) {
+      console.warn('[TabTracker] Browser tab not found when updating variant URL, reopening:', tabErr);
+    }
+
+    if (!tabUpdated) {
+      await this.runWithLock(async () => {
+        const fresh = await this.getAssociations();
+        delete fresh[tabItemId];
+        await this.saveAssociations(fresh);
+      });
+      await this.openAndAssociateTab(tabItemId, newUrl);
+      return;
+    }
+
+    if (assoc.windowId) {
+      try {
+        if (typeof browser !== 'undefined' && browser.windows) {
+          await browser.windows.update(assoc.windowId, { focused: true });
+        } else if (typeof chrome !== 'undefined' && chrome.windows) {
+          await chrome.windows.update(assoc.windowId, { focused: true });
+        }
+      } catch {}
+    }
+
+    await this.runWithLock(async () => {
+      const fresh = await this.getAssociations();
+      if (fresh[tabItemId]) {
+        fresh[tabItemId].originalUrl = newUrl;
+        fresh[tabItemId].currentUrl = newUrl;
+        fresh[tabItemId].isDiverted = false;
+        await this.saveAssociations(fresh);
+      }
+    });
+    this.notifyActivated(tabItemId);
+  }
+
   // Associate an existing open browser tab with a workspace tab item (e.g. when promoting a tmp tab)
   public async associateExistingBrowserTab(
     tabItemId: string,

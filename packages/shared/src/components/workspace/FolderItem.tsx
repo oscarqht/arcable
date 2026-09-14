@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, Tab } from '../../types/workspace';
+import { Folder, Tab, TabUrlVariant } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, findDirectChildForTab } from '../../utils/treeUtils';
@@ -39,6 +39,7 @@ export interface FolderItemProps {
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
   onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
@@ -77,6 +78,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onAddSubFolder,
   onAddTabInFolder,
   onOpenTab,
+  onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
   onMediaControl,
@@ -932,6 +934,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onMoveSiblingItem={onMoveSiblingItem}
                   onReorderSiblingItem={onReorderSiblingItem}
                   onDuplicateTab={onDuplicateTab}
+                  onOpenVariant={onOpenVariant}
                 />
               );
             }
@@ -953,8 +956,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 isAudible={isAudible}
                 isMuted={isMuted}
                 badge={assoc?.badge}
+                currentUrl={assoc?.currentUrl}
                 isHighlighted={highlightedTabId === item.id}
                 onOpen={onOpenTab}
+                onOpenVariant={onOpenVariant}
                 onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                 onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                 onMediaControl={
