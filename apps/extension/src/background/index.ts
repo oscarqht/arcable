@@ -29,6 +29,7 @@ import {
   getDefaultServerUrl,
   refreshSupabaseSession,
   parseExtensionOAuthCallback,
+  fetchServerWorkspaceState,
 } from '@arcable/shared/utils';
 import {
   initRunCodeBackgroundListeners,
@@ -50,6 +51,47 @@ initContextMenuListeners();
 
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
 const STORAGE_KEY_ITEMS = 'arcable_items';
+
+/**
+ * Google users keep custom CSS/JS and Run Code rules in the Supabase workspace
+ * snapshot. Hydrate the extension copies before a content script reads them so
+ * those users never fall back to a stale Raindrop snapshot.
+ */
+async function hydrateGoogleCustomCode(): Promise<{ success: boolean; error?: string }> {
+  const stored = await browser.storage.local.get([
+    'arcable_supabase_session',
+    'arcable_supabase_server_url',
+  ]);
+  const session = stored.arcable_supabase_session as any;
+  if (!session?.access_token) {
+    return { success: true };
+  }
+
+  const serverUrl = String(stored.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+  const result = await fetchServerWorkspaceState({ serverUrl, session });
+  if (!result.success) {
+    return { success: false, error: result.error || 'Failed to fetch cloud custom code.' };
+  }
+
+  const snapshot = result.state;
+  if (!snapshot) {
+    return { success: true };
+  }
+
+  const updates: Record<string, any> = {
+    arcable_workspace_snapshot: snapshot,
+    arcable_last_synced_at: Date.now(),
+  };
+  // An empty array is meaningful: it removes rules deleted on another device.
+  if (Array.isArray(snapshot.customCodeRules)) {
+    updates[CUSTOM_CODE_STORAGE_KEY] = snapshot.customCodeRules;
+  }
+  if (Array.isArray(snapshot.runCodeInPageRules)) {
+    updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = snapshot.runCodeInPageRules;
+  }
+  await browser.storage.local.set(updates);
+  return { success: true };
+}
 
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
 
@@ -184,6 +226,10 @@ browser.runtime.onMessage.addListener(
       if (rawMessage.provider === 'supabase') {
         const session = rawMessage.tokens;
         if (await saveSupabaseOAuthSession(session)) {
+          const hydration = await hydrateGoogleCustomCode();
+          if (!hydration.success) {
+            console.warn('[Arcable Background] Failed to hydrate Google custom code:', hydration.error);
+          }
           return { success: true, data: session };
         }
         return { success: false, error: 'Invalid Supabase session' };
@@ -194,6 +240,15 @@ browser.runtime.onMessage.addListener(
     }
 
     switch (message.type) {
+      case 'SUPABASE_HYDRATE_CUSTOM_CODE': {
+        try {
+          const result = await hydrateGoogleCustomCode();
+          return { success: result.success, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch cloud custom code.' };
+        }
+      }
+
       case 'INJECT_CUSTOM_JS': {
         const payload = (message.payload || rawMessage) as { ruleId: string; code: string; tabId?: number };
         const tabId = payload?.tabId ?? sender?.tab?.id;
@@ -907,9 +962,13 @@ async function triggerBackgroundSync(): Promise<void> {
   isBackgroundSyncInFlight = true;
 
   try {
-    // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
+    // 1. Google OAuth uses Supabase exclusively, including custom CSS/JS and Run Code rules.
     const storedAuth: any = await browser.storage.local.get(['arcable_supabase_session']);
     if (storedAuth.arcable_supabase_session?.access_token) {
+      const hydration = await hydrateGoogleCustomCode();
+      if (!hydration.success) {
+        console.warn('[Arcable Background] Periodic Supabase custom code sync error:', hydration.error);
+      }
       return;
     }
 
@@ -1043,14 +1102,12 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageE
       if (message.provider === 'supabase') {
         const session = message.tokens;
         if (session && session.access_token) {
-          void browser.storage.local.set({
-            arcable_supabase_session: session,
-            arcable_sync_provider: 'supabase',
-          }).then(() => {
-            void browser.runtime.sendMessage({
-              type: 'SUPABASE_SESSION_CHANGED',
-              session,
-            }).catch(() => {});
+          void saveSupabaseOAuthSession(session).then(async (saved) => {
+            if (!saved) return;
+            const hydration = await hydrateGoogleCustomCode();
+            if (!hydration.success) {
+              console.warn('[Arcable Background] Failed to hydrate Google custom code:', hydration.error);
+            }
           });
           if (sendResponse) {
             sendResponse({ success: true, session });
@@ -1199,4 +1256,3 @@ if (browser.action && browser.action.onClicked) {
 } else if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
   chrome.action.onClicked.addListener(handleActionClick);
 }
-
