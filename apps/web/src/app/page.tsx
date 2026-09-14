@@ -618,7 +618,7 @@ export default function HomePage() {
           )
         }
         actions={
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', flexShrink: 0 }}>
             {/* Sync Action Button */}
             <button
               type="button"
@@ -641,6 +641,13 @@ export default function HomePage() {
               }}
               disabled={isSyncing}
               title={
+                isSyncing
+                  ? 'Syncing...'
+                  : isSupabaseActive
+                  ? 'Sync with Arcable Cloud'
+                  : 'Sync with Raindrop'
+              }
+              aria-label={
                 isSyncing
                   ? 'Syncing...'
                   : isSupabaseActive
@@ -691,6 +698,7 @@ export default function HomePage() {
               className="header-action-btn"
               onClick={() => workspaceRef.current?.openNewSpace()}
               title="New Space"
+              aria-label="New Space"
               style={{
                 border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : 'none',
                 background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
@@ -718,6 +726,7 @@ export default function HomePage() {
               className="header-action-btn"
               onClick={() => setIsDeviceModalOpen(true)}
               title="Manage connected sync devices"
+              aria-label="Manage connected sync devices"
               style={{
                 border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                 background: isDark ? '#151e2e' : '#ffffff',
@@ -745,6 +754,7 @@ export default function HomePage() {
               className="header-action-btn"
               onClick={() => setIsBackupModalOpen(true)}
               title="Backup & Restore workspace"
+              aria-label="Backup & Restore workspace"
               style={{
                 border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                 background: isDark ? '#151e2e' : '#ffffff',
@@ -772,6 +782,7 @@ export default function HomePage() {
               className="header-action-btn"
               onClick={() => setIsAuthModalOpen(true)}
               title="Account & Sync Settings"
+              aria-label="Account & Sync Settings"
               style={{
                 border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                 background: isDark ? '#151e2e' : '#ffffff',

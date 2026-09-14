@@ -108,12 +108,8 @@ a {
   }
 }
 
-/* Header responsive adjustments (<= 780px) */
-@media (max-width: 780px) {
-  .header-user-info {
-    display: none !important;
-  }
-
+/* Header Action Buttons: Icon only on screens narrower than 1200px */
+@media (max-width: 1199.98px) {
   .header-action-btn .header-btn-text {
     display: none !important;
   }
@@ -124,7 +120,31 @@ a {
     height: 32px !important;
     min-width: 32px !important;
     gap: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
     justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.header-user-info {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Header responsive adjustments (<= 780px) */
+@media (max-width: 780px) {
+  .header-user-info {
+    display: none !important;
   }
 }
 

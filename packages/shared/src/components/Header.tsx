@@ -39,7 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
           ...style,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexShrink: 1 }}>
           <img
             src={logoSrc}
             alt={title}
@@ -49,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
               borderRadius: '6px',
               objectFit: 'contain',
               display: 'block',
+              flexShrink: 0,
             }}
           />
           <span
@@ -58,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
               fontWeight: 700,
               color: isDark ? '#f8fafc' : '#0f172a',
               letterSpacing: '-0.02em',
+              flexShrink: 0,
             }}
           >
             {title}
@@ -65,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
           {badgeText && <Badge variant={badgeVariant}>{badgeText}</Badge>}
           {leftContent}
         </div>
-        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>{actions}</div>}
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>{actions}</div>}
       </header>
     </>
   );
