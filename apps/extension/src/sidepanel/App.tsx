@@ -6,7 +6,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SyncProvider, TabUrlVariant } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
@@ -17,9 +17,6 @@ import {
   areUrlsMatching,
   getSpaceThemeStyles,
   SpaceThemeTokens,
-  getSyncProvider,
-  setSyncProvider,
-  resolveSyncProvider,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -99,14 +96,11 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
-  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('local');
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
-
-  const isRaindropLoggedIn = Boolean(hasRaindropAuth);
 
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
@@ -160,7 +154,7 @@ export const App: React.FC = () => {
 
 
     // Check initial Raindrop auth and cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_sync_provider', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
@@ -172,10 +166,6 @@ export const App: React.FC = () => {
       const auth = res.arcable_raindrop_auth;
       const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
       setHasRaindropAuth(isRaindropAuth);
-
-      const resolved = resolveSyncProvider(isRaindropAuth);
-      setSyncProviderState(resolved);
-      setSyncProvider(resolved);
 
       if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
@@ -227,22 +217,8 @@ export const App: React.FC = () => {
     // Listen for storage changes (e.g. login/logout in options or background sync updates)
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
-        let curRaindropAuth = hasRaindropAuth;
-        let authChanged = false;
-
         if (changes.arcable_raindrop_auth) {
-          const isAuth = Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated);
-          curRaindropAuth = isAuth;
-          setHasRaindropAuth(isAuth);
-          authChanged = true;
-        }
-        if (authChanged) {
-          const resolved = resolveSyncProvider(curRaindropAuth);
-          setSyncProviderState(resolved);
-          setSyncProvider(resolved);
-        } else if (changes.arcable_sync_provider?.newValue) {
-          setSyncProviderState(changes.arcable_sync_provider.newValue);
-          setSyncProvider(changes.arcable_sync_provider.newValue);
+          setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
@@ -317,22 +293,13 @@ export const App: React.FC = () => {
     updateActiveTab();
 
     const handleFocus = () => {
-      browser.storage.local.get(['arcable_sync_provider', 'arcable_raindrop_auth']).then((res: any) => {
-        const isRaindropAuth = Boolean(res.arcable_raindrop_auth?.isAuthenticated);
+      browser.storage.local.get(['arcable_raindrop_auth']).then((res: any) => {
         if (res.arcable_raindrop_auth !== undefined) {
-          setHasRaindropAuth(isRaindropAuth);
+          setHasRaindropAuth(Boolean(res.arcable_raindrop_auth?.isAuthenticated));
         }
-        const resolved = resolveSyncProvider(isRaindropAuth);
-        setSyncProviderState(resolved);
-        setSyncProvider(resolved);
-
         browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((r: any) => {
           if (r && r.success) {
-            const rAuth = Boolean(r.data?.isAuthenticated);
-            setHasRaindropAuth(rAuth);
-            const next = resolveSyncProvider(rAuth);
-            setSyncProviderState(next);
-            setSyncProvider(next);
+            setHasRaindropAuth(Boolean(r.data?.isAuthenticated));
           }
         });
       });
@@ -409,59 +376,47 @@ export const App: React.FC = () => {
   };
 
   const handleFetchDevices = async () => {
-    if (isRaindropLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'CLOUD_GET_DEVICES',
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to fetch devices');
-      }
-      return res.data || [];
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_GET_DEVICES',
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to fetch devices');
     }
-    return [];
+    return res.data || [];
   };
 
   const handleRenameDevice = async (deviceId: string, newName: string) => {
     setStoredDeviceName(newName);
-    if (isRaindropLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'CLOUD_RENAME_DEVICE',
-        payload: { deviceId, newName },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to rename device');
-      }
-      return res.data || [];
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_RENAME_DEVICE',
+      payload: { deviceId, newName },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to rename device');
     }
-    return [];
+    return res.data || [];
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
-    if (isRaindropLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'CLOUD_DELETE_DEVICE',
-        payload: { deviceId },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete device');
-      }
-      return res.data || [];
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_DELETE_DEVICE',
+      payload: { deviceId },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to delete device');
     }
-    return [];
+    return res.data || [];
   };
 
   const handleDeleteOtherDevices = async (keepDeviceId: string) => {
-    if (isRaindropLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'CLOUD_DELETE_OTHER_DEVICES',
-        payload: { keepDeviceId },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete other devices');
-      }
-      return res.data || [];
+    const res: any = await browser.runtime.sendMessage({
+      type: 'RAINDROP_DELETE_OTHER_DEVICES',
+      payload: { keepDeviceId },
+    });
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to delete other devices');
     }
-    return [];
+    return res.data || [];
   };
 
   const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
@@ -690,12 +645,8 @@ export const App: React.FC = () => {
 
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
-      id: isRaindropLoggedIn ? 'sync-raindrop' : 'connect-sync',
-      label: isSyncing
-        ? 'Syncing...'
-        : isRaindropLoggedIn
-        ? 'Raindrop Sync'
-        : 'Connect Sync',
+      id: 'sync-raindrop',
+      label: isSyncing ? 'Syncing...' : hasRaindropAuth ? 'Raindrop Sync' : 'Connect Raindrop.io',
       icon: (
         <span
           style={{
@@ -706,20 +657,17 @@ export const App: React.FC = () => {
             animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
           }}
         >
-          {isRaindropLoggedIn ? '💧' : '🔄'}
+          💧
         </span>
       ),
       onClick: async () => {
-        if (isRaindropLoggedIn) {
-          setSyncProvider('raindrop');
-          setSyncProviderState('raindrop');
-          if (workspaceRef.current) {
-            await workspaceRef.current.triggerSync();
-          }
+        if (!hasRaindropAuth) {
+          browser.runtime.openOptionsPage();
           return;
         }
-
-        browser.runtime.openOptionsPage();
+        if (workspaceRef.current) {
+          await workspaceRef.current.triggerSync();
+        }
       },
       disabled: isSyncing,
     },
@@ -835,8 +783,8 @@ export const App: React.FC = () => {
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
           hasRaindropAuth={hasRaindropAuth}
-          onSyncRaindrop={isRaindropLoggedIn ? handleSyncRaindrop : undefined}
-          onSearchRaindrop={handleSearchRaindrop}
+          onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
+          onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </div>
@@ -844,12 +792,11 @@ export const App: React.FC = () => {
       <DeviceModal
         isOpen={isDeviceModalOpen}
         onClose={() => setIsDeviceModalOpen(false)}
-        syncProvider={isRaindropLoggedIn ? 'raindrop' : undefined}
         currentDeviceId={currentDeviceId || undefined}
-        onFetchDevices={isRaindropLoggedIn ? handleFetchDevices : undefined}
-        onRenameDevice={isRaindropLoggedIn ? handleRenameDevice : undefined}
-        onDeleteDevice={isRaindropLoggedIn ? handleDeleteDevice : undefined}
-        onDeleteOtherDevices={isRaindropLoggedIn ? handleDeleteOtherDevices : undefined}
+        onFetchDevices={hasRaindropAuth ? handleFetchDevices : undefined}
+        onRenameDevice={hasRaindropAuth ? handleRenameDevice : undefined}
+        onDeleteDevice={hasRaindropAuth ? handleDeleteDevice : undefined}
+        onDeleteOtherDevices={hasRaindropAuth ? handleDeleteOtherDevices : undefined}
       />
 
       <BackupRestoreModal

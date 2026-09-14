@@ -91,7 +91,6 @@ const LOCATION_OPTIONS: RenameOption[] = [
 export interface DeviceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  syncProvider?: 'raindrop' | 'local';
   raindropToken?: string;
   currentDeviceId?: string;
   onFetchDevices?: () => Promise<DeviceSyncRecord[]>;
@@ -197,7 +196,6 @@ const PillRow: React.FC<PillRowProps> = ({ options, selected, onSelect, isDark }
 export const DeviceModal: React.FC<DeviceModalProps> = ({
   isOpen,
   onClose,
-  syncProvider,
   raindropToken,
   currentDeviceId,
   onFetchDevices,
@@ -274,7 +272,7 @@ export const DeviceModal: React.FC<DeviceModalProps> = ({
         setLoading(false);
       }
     }
-  }, [onFetchDevices, raindropToken, effectiveCurrentDeviceId, syncProvider]);
+  }, [onFetchDevices, raindropToken, effectiveCurrentDeviceId]);
 
   const prevIsOpenRef = React.useRef(false);
 

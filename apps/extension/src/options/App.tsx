@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Button,
   Badge,
@@ -10,14 +10,7 @@ import {
   RefreshIcon,
   LaptopIcon,
 } from '@arcable/shared/components';
-import {
-  RaindropAuthState,
-  ExtensionResponse,
-  SyncResult,
-  DeviceSyncRecord,
-  SyncProvider,
-  WorkspaceOperation,
-} from '@arcable/shared/types';
+import { RaindropAuthState, ExtensionResponse, SyncResult, DeviceSyncRecord } from '@arcable/shared/types';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
@@ -28,15 +21,8 @@ import {
   mergeCustomCodeRules,
   mergeRunCodeRules,
   createWorkspaceOperation,
-  getSyncProvider,
-  setSyncProvider,
-  resolveSyncProvider,
-  getSyncServerUrl,
-  setSyncServerUrl,
-  getStoredServerVersion,
-  getDefaultServerUrl,
 } from '@arcable/shared/utils';
-
+import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
@@ -65,8 +51,6 @@ export const App: React.FC = () => {
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('local');
-  const [serverUrl, setServerUrlState] = useState<string>(getDefaultServerUrl());
 
   // Device state
   const [deviceId, setDeviceId] = useState('');
@@ -111,9 +95,6 @@ export const App: React.FC = () => {
     browser.storage.local.get([
       'arcable_last_synced_at',
       'arcable_device_name',
-      'arcable_sync_provider',
-      'arcable_server_url',
-      'arcable_raindrop_auth',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
@@ -122,104 +103,29 @@ export const App: React.FC = () => {
         setDeviceName(res.arcable_device_name);
         setDeviceNameInput(res.arcable_device_name);
       }
-
-      const storedRaindropAuth = res.arcable_raindrop_auth as RaindropAuthState | undefined;
-      if (storedRaindropAuth && storedRaindropAuth.isAuthenticated) {
-        setAuthState(storedRaindropAuth);
-      }
-
-      const isRaindrop = Boolean(storedRaindropAuth?.isAuthenticated || authState.isAuthenticated);
-      const resolved = resolveSyncProvider(isRaindrop);
-      setSyncProviderState(resolved);
-      setSyncProvider(resolved);
-      void browser.storage.local.set({ arcable_sync_provider: resolved });
-
-      if (res.arcable_server_url) {
-        setServerUrlState(res.arcable_server_url);
-      } else {
-        setServerUrlState(getSyncServerUrl());
-      }
     });
 
     // 4. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
-        let curRaindrop = authState;
-        let authStateChanged = false;
-
         if (changes.arcable_raindrop_auth) {
           const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
           if (newAuth && newAuth.isAuthenticated) {
-            curRaindrop = newAuth;
             setAuthState(newAuth);
             setAuthError(null);
           } else {
-            curRaindrop = { isAuthenticated: false };
             setAuthState({ isAuthenticated: false });
           }
-          authStateChanged = true;
         }
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
-        if (changes.arcable_server_url) {
-          setServerUrlState(changes.arcable_server_url.newValue as string);
-        }
-        if (authStateChanged) {
-          const isRaindrop = Boolean(curRaindrop?.isAuthenticated);
-          const resolved = resolveSyncProvider(isRaindrop);
-          setSyncProviderState(resolved);
-          setSyncProvider(resolved);
-          void browser.storage.local.set({ arcable_sync_provider: resolved });
-        } else if (changes.arcable_sync_provider) {
-          setSyncProviderState(changes.arcable_sync_provider.newValue as SyncProvider);
-        }
       }
     };
-
-    // 5. Listen to runtime messages for auth completion
-    const handleRuntimeMessage = (msg: any) => {
-      if (msg && msg.type === 'RAINDROP_AUTH_CHANGED') {
-        if (msg.auth && msg.auth.isAuthenticated) {
-          setAuthState(msg.auth);
-          const resolved = resolveSyncProvider(true);
-          setSyncProvider(resolved);
-          setSyncProviderState(resolved);
-          showToast('Connected to Raindrop.io successfully!', 'success');
-        } else {
-          setAuthState({ isAuthenticated: false });
-          const resolved = resolveSyncProvider(false);
-          setSyncProvider(resolved);
-          setSyncProviderState(resolved);
-        }
-      }
-    };
-
-    // 6. Automatically re-check session when user returns/focuses Options tab
-    const handleTabFocus = () => {
-      browser.storage.local.get(['arcable_raindrop_auth', 'arcable_sync_provider']).then((res: any) => {
-        if (res.arcable_raindrop_auth !== undefined) {
-          setAuthState(res.arcable_raindrop_auth);
-        }
-        const isRaindrop = Boolean(res.arcable_raindrop_auth?.isAuthenticated);
-        const resolved = resolveSyncProvider(isRaindrop);
-        setSyncProviderState(resolved);
-        setSyncProvider(resolved);
-        void browser.storage.local.set({ arcable_sync_provider: resolved });
-      });
-    };
-
-    window.addEventListener('focus', handleTabFocus);
-    window.addEventListener('visibilitychange', handleTabFocus);
 
     browser.storage.onChanged.addListener(handleStorageChange);
-    browser.runtime.onMessage.addListener(handleRuntimeMessage);
-
     return () => {
-      window.removeEventListener('focus', handleTabFocus);
-      window.removeEventListener('visibilitychange', handleTabFocus);
       browser.storage.onChanged.removeListener(handleStorageChange);
-      browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
   }, []);
 
@@ -251,10 +157,6 @@ export const App: React.FC = () => {
       })) as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
-        const resolved = resolveSyncProvider(true);
-        setSyncProvider(resolved);
-        setSyncProviderState(resolved);
-        await browser.storage.local.set({ arcable_sync_provider: resolved });
         showToast('Connected to Raindrop.io successfully!', 'success');
       } else {
         throw new Error(res?.error || 'Failed to authenticate token with Raindrop.');
@@ -270,25 +172,10 @@ export const App: React.FC = () => {
   const handleLoginWithOAuth = async () => {
     setAuthError(null);
     try {
-      const res: any = await browser.runtime.sendMessage({
+      await browser.runtime.sendMessage({
         type: 'RAINDROP_START_OAUTH',
       });
-      if (!res?.success) {
-        throw new Error(res?.error || 'Failed to start OAuth');
-      }
-      if (res.pending) {
-        showToast(res.message || 'Please complete sign-in in the opened tab, then return here.', 'info');
-        return;
-      }
-      if (!res.data?.isAuthenticated) {
-        throw new Error(res?.error || 'Raindrop OAuth did not return an authenticated session.');
-      }
-      setAuthState(res.data);
-      const resolved = resolveSyncProvider(true);
-      setSyncProvider(resolved);
-      setSyncProviderState(resolved);
-      await browser.storage.local.set({ arcable_sync_provider: resolved });
-      showToast('Connected to Raindrop.io successfully!', 'success');
+      showToast('Opening Raindrop authentication...', 'info');
     } catch (err: any) {
       setAuthError(err.message || 'Failed to start OAuth');
     }
@@ -301,10 +188,6 @@ export const App: React.FC = () => {
         type: 'RAINDROP_LOGOUT',
       });
       setAuthState({ isAuthenticated: false });
-      const resolved = resolveSyncProvider(false);
-      setSyncProvider(resolved);
-      setSyncProviderState(resolved);
-      await browser.storage.local.set({ arcable_sync_provider: resolved });
       showToast('Disconnected from Raindrop', 'info');
     } catch (err: any) {
       console.error('Logout failed:', err);
@@ -603,7 +486,7 @@ export const App: React.FC = () => {
           }}
         >
           {[
-            { id: 'sync', label: 'Sync & Cloud', icon: '🔄' },
+            { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
             { id: 'device', label: 'Device & Identity', icon: '💻' },
             { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
             { id: 'run-code', label: 'Run Code', icon: '⚡' },
@@ -650,39 +533,9 @@ export const App: React.FC = () => {
 
       {/* Main Content Sections */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* TAB 1: SYNC & CLOUD */}
+        {/* TAB 1: SYNC & RAINDROP */}
         {activeTab === 'sync' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Status indicator */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '12px',
-              }}
-            >
-              <div
-                style={{
-                  fontSize: '13px',
-                  color: isDark ? '#94a3b8' : '#64748b',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <span>Sync Provider:</span>
-                <strong
-                  style={{
-                    color: syncProvider === 'raindrop' ? '#0ea5e9' : (isDark ? '#94a3b8' : '#64748b'),
-                  }}
-                >
-                  {syncProvider === 'raindrop' ? 'Raindrop.io Cloud' : 'None (Sync Disabled)'}
-                </strong>
-              </div>
-            </div>
-
             <RaindropAuthCard
               authState={authState}
               isLoading={authLoading}
@@ -973,48 +826,38 @@ export const App: React.FC = () => {
         <DeviceModal
           isOpen={isDeviceModalOpen}
           onClose={() => setIsDeviceModalOpen(false)}
-          syncProvider={authState.isAuthenticated ? 'raindrop' : undefined}
           currentDeviceId={deviceId}
           onFetchDevices={async () => {
-            if (authState.isAuthenticated) {
-              const res = (await browser.runtime.sendMessage({
-                type: 'CLOUD_GET_DEVICES',
-                payload: { currentDeviceId: deviceId, currentDeviceName: deviceName },
-              })) as ExtensionResponse<DeviceSyncRecord[]>;
-              return res?.data || [];
-            }
-            return [];
+            const res = (await browser.runtime.sendMessage({
+              type: 'RAINDROP_GET_DEVICES',
+              payload: { currentDeviceId: deviceId },
+            })) as ExtensionResponse<DeviceSyncRecord[]>;
+            return res?.data || [];
           }}
           onRenameDevice={async (devId, newName) => {
-            if (authState.isAuthenticated) {
-              const res = (await browser.runtime.sendMessage({
-                type: 'CLOUD_RENAME_DEVICE',
-                payload: { deviceId: devId, newName },
-              })) as ExtensionResponse<DeviceSyncRecord[]>;
-              if (devId === deviceId) {
-                setDeviceName(newName);
-                setDeviceNameInput(newName);
-              }
-              return res?.data;
+            const res = (await browser.runtime.sendMessage({
+              type: 'RAINDROP_RENAME_DEVICE',
+              payload: { deviceId: devId, newName },
+            })) as ExtensionResponse<DeviceSyncRecord[]>;
+            if (devId === deviceId) {
+              setDeviceName(newName);
+              setDeviceNameInput(newName);
             }
+            return res?.data;
           }}
           onDeleteDevice={async (devId) => {
-            if (authState.isAuthenticated) {
-              const res = (await browser.runtime.sendMessage({
-                type: 'CLOUD_DELETE_DEVICE',
-                payload: { deviceId: devId },
-              })) as ExtensionResponse<DeviceSyncRecord[]>;
-              return res?.data;
-            }
+            const res = (await browser.runtime.sendMessage({
+              type: 'RAINDROP_DELETE_DEVICE',
+              payload: { deviceId: devId },
+            })) as ExtensionResponse<DeviceSyncRecord[]>;
+            return res?.data;
           }}
           onDeleteOtherDevices={async (keepId) => {
-            if (authState.isAuthenticated) {
-              const res = (await browser.runtime.sendMessage({
-                type: 'CLOUD_DELETE_OTHER_DEVICES',
-                payload: { keepDeviceId: keepId },
-              })) as ExtensionResponse<DeviceSyncRecord[]>;
-              return res?.data;
-            }
+            const res = (await browser.runtime.sendMessage({
+              type: 'RAINDROP_DELETE_OTHER_DEVICES',
+              payload: { keepDeviceId: keepId },
+            })) as ExtensionResponse<DeviceSyncRecord[]>;
+            return res?.data;
           }}
         />
       )}

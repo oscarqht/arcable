@@ -16,11 +16,6 @@ import {
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
-import {
-  syncWorkspaceWithCloudServer,
-  getSyncServerUrl,
-} from '../utils/cloudSync';
-
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -2164,10 +2159,6 @@ export function useWorkspace() {
   // Raindrop Sync Trigger
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
-  // WorkspaceManager can receive overlapping automatic cloud-sync triggers.
-  // Keep one request authoritative so each pending operation is posted once.
-  const supabaseSyncPromiseRef = useRef<Promise<{ success: boolean; error?: string; serverVersion?: number }> | null>(null);
-
   const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
@@ -2196,48 +2187,6 @@ export function useWorkspace() {
       setIsSyncing(false);
     }
   }, [data, applyLatestSnapshot]);
-
-  // Next.js Reconcile Server Sync Trigger (using Raindrop token)
-  const cloudSyncPromiseRef = useRef<Promise<{ success: boolean; error?: string; serverVersion?: number }> | null>(null);
-
-  const syncWithCloudServer = useCallback(async (params: { token: string; serverUrl?: string; deviceName?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
-    if (cloudSyncPromiseRef.current) {
-      return cloudSyncPromiseRef.current;
-    }
-
-    setIsSyncing(true);
-    const syncPromise = syncWorkspaceWithCloudServer({
-      token: params.token,
-      currentState: data,
-      onApplySnapshot: (snapshot) => {
-        applyLatestSnapshot(snapshot);
-      },
-      onApplyDiffs: (diffs) => {
-        saveWorkspaceData((prev) => replayOperations(prev, diffs));
-      },
-      serverUrl: params.serverUrl,
-      deviceName: params.deviceName,
-    });
-    cloudSyncPromiseRef.current = syncPromise;
-
-    try {
-      return await syncPromise;
-    } finally {
-      if (cloudSyncPromiseRef.current === syncPromise) {
-        cloudSyncPromiseRef.current = null;
-        setIsSyncing(false);
-      }
-    }
-  }, [data, applyLatestSnapshot, saveWorkspaceData]);
-
-  // Backward compatibility alias
-  const syncWithSupabaseServer = useCallback(async (params?: { token?: string; serverUrl?: string; deviceName?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
-    return syncWithCloudServer({
-      token: params?.token || '',
-      serverUrl: params?.serverUrl,
-      deviceName: params?.deviceName,
-    });
-  }, [syncWithCloudServer]);
 
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
@@ -2375,10 +2324,8 @@ export function useWorkspace() {
     importWorkspaceData,
     saveWorkspaceData,
     applyLatestSnapshot,
-    // Raindrop Cloud sync
-    syncWithCloudServer,
+    // Raindrop sync
     syncWithRaindropToken,
-    syncWithSupabaseServer,
     isSyncing,
     lastSyncResult,
 

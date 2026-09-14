@@ -57,27 +57,3 @@ export interface SyncResult {
   error?: string;
   syncedAt?: number;
 }
-
-export type SyncProvider = 'raindrop' | 'local';
-
-export interface WorkspaceSyncRequest {
-  baseVersion: number;
-  deviceId: string;
-  deviceName?: string;
-  operations: WorkspaceOperation[];
-  initialState?: ArcableWorkspaceData;
-}
-
-export interface WorkspaceSyncResponse {
-  success: boolean;
-  serverVersion: number;
-  diffs?: WorkspaceOperation[];
-  fullState?: ArcableWorkspaceData;
-  error?: string;
-}
-
-// Aliases for compatibility during transition
-export type SupabaseSyncRequest = WorkspaceSyncRequest;
-export type SupabaseSyncResponse = WorkspaceSyncResponse;
-
-

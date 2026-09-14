@@ -14,7 +14,6 @@ import {
   removeStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
-import { getSyncProvider } from '../../utils/cloudSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
@@ -197,7 +196,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateWidget,
     removeWidget,
     reorderWidget,
-    syncWithCloudServer,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -948,47 +946,74 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     const currentSeq = ++syncSeqRef.current;
 
     const syncPromise = (async () => {
+      let result: SyncResult | null = null;
       try {
-
         const deviceId = getOrCreateDeviceId();
-        const hasRaindrop = Boolean(raindropToken || onSyncRaindrop);
+        const pendingOps = getStoredPendingOperations();
+        const syncedOpIds = pendingOps.map((op) => op.id);
 
-        if (hasRaindrop) {
-          const token = raindropToken || '';
-          const res = await syncWithCloudServer({
-            token,
-            deviceName: getStoredDeviceName(),
+        if (onSyncRaindrop) {
+          const res = await onSyncRaindrop({
+            localState: data,
+            deviceId,
+            pendingOps,
           });
 
           if (currentSeq === syncSeqRef.current) {
-            if (res.success) {
-              if (!isCurrentSyncSilentRef.current) {
-                setSyncFeedback({
-                  message: `✓ Synced with Raindrop (v${res.serverVersion || 1})`,
-                });
-              } else {
-                setSyncFeedback((prev) => (prev?.isError ? null : prev));
+            if (res && typeof res === 'object' && 'success' in res) {
+              result = res as SyncResult;
+              if (result.success) {
+                removeStoredPendingOperations(syncedOpIds);
+                if (result.latestSnapshot) {
+                  applyLatestSnapshot(result.latestSnapshot);
+                }
               }
-            } else {
-              setSyncFeedback({
-                message: res.error || 'Failed to sync with Raindrop.',
-                isError: true,
-              });
             }
           }
-          return;
+        } else if (raindropToken) {
+          const res = await syncWorkspaceWithRaindrop(raindropToken, {
+            localState: data,
+            deviceId,
+            deviceName: getStoredDeviceName(),
+            pendingOps,
+          });
+
+          if (currentSeq === syncSeqRef.current) {
+            result = res;
+            if (result.success) {
+              removeStoredPendingOperations(syncedOpIds);
+              if (result.latestSnapshot) {
+                applyLatestSnapshot(result.latestSnapshot);
+              }
+            }
+          }
         } else {
           // No active cloud connection
           if (!isCurrentSyncSilentRef.current) {
             setSyncFeedback({
-              message: 'Please connect your Raindrop account first.',
+              message: 'Please connect a Raindrop account or API token first.',
               isError: true,
             });
           }
           return;
         }
 
-
+        if (currentSeq === syncSeqRef.current && !isCurrentSyncSilentRef.current) {
+          if (result) {
+            if (result.success) {
+              setSyncFeedback({
+                message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
+              });
+            } else {
+              setSyncFeedback({
+                message: result.error || 'Failed to sync with Raindrop.',
+                isError: true,
+              });
+            }
+          } else if (!result && onSyncRaindrop) {
+            setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+          }
+        }
       } catch (err: any) {
         if (currentSeq === syncSeqRef.current) {
           setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
