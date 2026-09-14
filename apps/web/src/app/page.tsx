@@ -12,7 +12,6 @@ import {
   DeviceModal,
   BackupRestoreModal,
   LogInIcon,
-  LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
@@ -352,14 +351,6 @@ export default function HomePage() {
   const handleSelectProvider = (provider: SyncProvider) => {
     setSyncProvider(provider);
     setSyncProviderState(provider);
-  };
-
-  const handleLogoutActive = async () => {
-    if (supabaseSession?.access_token) {
-      await handleLogoutSupabase();
-    } else if (authState.isAuthenticated) {
-      await handleLogoutRaindrop();
-    }
   };
 
   // Workspace Sync & Management Handlers
@@ -812,35 +803,8 @@ export default function HomePage() {
               <span className="header-btn-text">Sync Settings</span>
             </button>
 
-            {/* Login / Logout Button */}
-            {isAuthenticated ? (
-              <button
-                type="button"
-                className="header-action-btn"
-                onClick={handleLogoutActive}
-                disabled={isOverallLoading}
-                title="Log Out"
-                style={{
-                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                  background: isDark ? '#151e2e' : '#ffffff',
-                  color: isDark ? '#f87171' : '#dc2626',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  padding: '5px 12px',
-                  borderRadius: '8px',
-                  cursor: isOverallLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '5px',
-                  transition: 'all 0.15s ease',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <LogOutIcon size={14} color={isDark ? '#f87171' : '#dc2626'} />
-                <span className="header-btn-text">Logout</span>
-              </button>
-            ) : (
+            {/* Login Button (only when unauthenticated) */}
+            {!isAuthenticated && (
               <button
                 type="button"
                 className="header-action-btn"
