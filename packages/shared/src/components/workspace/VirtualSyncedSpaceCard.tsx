@@ -212,7 +212,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
               }}
               title="Synced Open Tabs (Virtual Space)"
             >
-              Synced Open Tabs
+              Open Tabs
             </h3>
 
             {/* Tab Count Pill */}
@@ -229,34 +229,6 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
             >
               {tabs.length}
             </span>
-
-            {/* Synced Badge */}
-            <span
-              style={{
-                fontSize: '10.5px',
-                fontWeight: 600,
-                padding: '2px 7px',
-                borderRadius: '10px',
-                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : '#f0f9ff',
-                color: isDark ? '#38bdf8' : '#0284c7',
-                border: `1px solid ${isDark ? 'rgba(56, 189, 248, 0.3)' : '#bae6fd'}`,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                flexShrink: 0,
-              }}
-              title="Real-time synchronized open tabs across connected devices"
-            >
-              <span
-                style={{
-                  width: '5px',
-                  height: '5px',
-                  borderRadius: '50%',
-                  backgroundColor: isDark ? '#38bdf8' : '#0284c7',
-                }}
-              />
-              Synced
-            </span>
           </div>
         </div>
 
@@ -265,31 +237,6 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
           style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
           onClick={(e) => e.stopPropagation()}
         >
-          {onAddTmpTab && (isMobile || isCardHovered || alwaysShowActions) && (
-            <button
-              type="button"
-              onClick={onAddTmpTab}
-              title="Open and sync a new link"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '4px 8px',
-                fontSize: '11.5px',
-                fontWeight: 600,
-                borderRadius: '8px',
-                border: `1px solid ${themeStyles.borderColor}`,
-                background: themeStyles.badgeBg,
-                color: themeStyles.textColor,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <PlusIcon size={12} />
-              <span>Link</span>
-            </button>
-          )}
-
           <ActionDropdown
             items={spaceMenuItems}
             isDarkTheme={themeStyles.isDark}
