@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import {
-  authenticateUserFromRequest,
+  authenticateRaindropUserFromRequest,
   getCorsHeaders,
-  getSupabaseAdminClient,
-} from '@/lib/supabaseServer';
+  getWorkspaceState,
+} from '@/lib/raindropSyncServer';
+
+export const dynamic = 'force-dynamic';
 
 export async function OPTIONS(request: Request) {
   return new NextResponse(null, {
@@ -15,65 +17,33 @@ export async function OPTIONS(request: Request) {
 export async function GET(request: Request) {
   const corsHeaders = getCorsHeaders(request);
 
-  // 1. Authenticate user from Bearer JWT
-  const auth = await authenticateUserFromRequest(request);
-  if (!auth.user) {
+  // 1. Authenticate user via Raindrop token
+  const auth = await authenticateRaindropUserFromRequest(request);
+  if (!auth.token) {
     return NextResponse.json(
       { success: false, error: auth.error || 'Unauthorized' },
       { status: 401, headers: corsHeaders }
     );
   }
 
-  const userId = auth.user.id;
-  const supabase = getSupabaseAdminClient();
+  const { searchParams } = new URL(request.url);
+  const deviceId = searchParams.get('deviceId')?.trim() || undefined;
+  const deviceName = searchParams.get('deviceName')?.trim() || undefined;
 
   try {
-    const { data: record, error } = await supabase
-      .from('workspaces')
-      .select('version, state, updated_at')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error querying workspace state:', error);
+    const result = await getWorkspaceState(auth.token, deviceId, deviceName);
+    if (!result.success) {
       return NextResponse.json(
-        { success: false, error: error.message },
+        { success: false, error: result.error || 'Failed to fetch state' },
         { status: 500, headers: corsHeaders }
       );
-    }
-
-    if (!record) {
-      return NextResponse.json(
-        { success: true, version: 1, state: null },
-        { headers: corsHeaders }
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('deviceId')?.trim();
-    const deviceName = searchParams.get('deviceName')?.trim();
-
-    if (deviceId && record.state) {
-      const state = record.state as any;
-      const devices = { ...(state.devices || {}) };
-      devices[deviceId] = {
-        deviceId,
-        deviceName: deviceName || devices[deviceId]?.deviceName || 'Device',
-        lastSyncAt: Date.now(),
-      };
-      state.devices = devices;
-      void supabase
-        .from('workspaces')
-        .update({ state, updated_at: new Date().toISOString() })
-        .eq('user_id', userId);
     }
 
     return NextResponse.json(
       {
         success: true,
-        version: Number(record.version) || 1,
-        state: record.state,
-        updatedAt: record.updated_at,
+        version: result.version || 1,
+        state: result.state,
       },
       { headers: corsHeaders }
     );

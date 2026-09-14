@@ -65,7 +65,7 @@ export function initOAuthBridge(): void {
 
       const response: any = await browser.runtime.sendMessage({
         type: 'oauth_bridge_success',
-        provider: provider || 'supabase',
+        provider: provider || 'raindrop',
         tokens,
       });
       if (response?.success) {
@@ -89,7 +89,7 @@ export function initOAuthBridge(): void {
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'oauth_success' || data.type === 'oauth_bridge_success') {
-      void relayAuthTokens(data.provider || 'supabase', data.tokens);
+      void relayAuthTokens(data.provider || 'raindrop', data.tokens);
     }
   });
 
@@ -97,7 +97,7 @@ export function initOAuthBridge(): void {
   document.addEventListener('arcable_oauth_relay', (event: any) => {
     const detail = event?.detail;
     if (detail && (detail.type === 'oauth_success' || detail.type === 'oauth_bridge_success')) {
-      void relayAuthTokens(detail.provider || 'supabase', detail.tokens);
+      void relayAuthTokens(detail.provider || 'raindrop', detail.tokens);
     }
   });
 
@@ -108,7 +108,7 @@ export function initOAuthBridge(): void {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.tokens) {
-          void relayAuthTokens(parsed.provider || 'supabase', parsed.tokens);
+          void relayAuthTokens(parsed.provider || 'raindrop', parsed.tokens);
         }
       }
     } catch {}

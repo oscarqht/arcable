@@ -15,22 +15,22 @@ import {
   fetchRaindropUser,
   fetchRaindropCollections,
   createRaindropBookmark,
-  syncWorkspaceWithRaindrop,
   fetchRaindropDevices,
   renameRaindropDevice,
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
-  fetchSupabaseDevices,
-  renameSupabaseDevice,
-  deleteSupabaseDevice,
-  deleteAllOtherSupabaseDevices,
+  fetchCloudDevices,
+  renameCloudDevice,
+  deleteCloudDevice,
+  syncOperationsWithServer,
   getDefaultDeviceName,
   searchRaindrop,
   getDefaultServerUrl,
-  refreshSupabaseSession,
   parseExtensionOAuthCallback,
   fetchServerWorkspaceState,
+  replayOperations,
 } from '@arcable/shared/utils';
+
 import {
   initRunCodeBackgroundListeners,
   executeAutomaticCustomCode,
@@ -52,46 +52,7 @@ initContextMenuListeners();
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
 const STORAGE_KEY_ITEMS = 'arcable_items';
 
-/**
- * Google users keep custom CSS/JS and Run Code rules in the Supabase workspace
- * snapshot. Hydrate the extension copies before a content script reads them so
- * those users never fall back to a stale Raindrop snapshot.
- */
-async function hydrateGoogleCustomCode(): Promise<{ success: boolean; error?: string }> {
-  const stored = await browser.storage.local.get([
-    'arcable_supabase_session',
-    'arcable_supabase_server_url',
-  ]);
-  const session = stored.arcable_supabase_session as any;
-  if (!session?.access_token) {
-    return { success: true };
-  }
 
-  const serverUrl = String(stored.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
-  const result = await fetchServerWorkspaceState({ serverUrl, session });
-  if (!result.success) {
-    return { success: false, error: result.error || 'Failed to fetch cloud custom code.' };
-  }
-
-  const snapshot = result.state;
-  if (!snapshot) {
-    return { success: true };
-  }
-
-  const updates: Record<string, any> = {
-    arcable_workspace_snapshot: snapshot,
-    arcable_last_synced_at: Date.now(),
-  };
-  // An empty array is meaningful: it removes rules deleted on another device.
-  if (Array.isArray(snapshot.customCodeRules)) {
-    updates[CUSTOM_CODE_STORAGE_KEY] = snapshot.customCodeRules;
-  }
-  if (Array.isArray(snapshot.runCodeInPageRules)) {
-    updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = snapshot.runCodeInPageRules;
-  }
-  await browser.storage.local.set(updates);
-  return { success: true };
-}
 
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
 
@@ -163,11 +124,10 @@ async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthSta
 // Helper to save auth state
 async function saveAuthState(auth: RaindropAuthState): Promise<void> {
   cachedAuthState = auth;
-  const updates: Record<string, any> = { [STORAGE_KEY_AUTH]: auth };
-  const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
-  if (!storedGoogle.arcable_supabase_session?.access_token) {
-    updates.arcable_sync_provider = (auth && auth.isAuthenticated && auth.accessToken) ? 'raindrop' : 'local';
-  }
+  const updates: Record<string, any> = {
+    [STORAGE_KEY_AUTH]: auth,
+    arcable_sync_provider: (auth && auth.isAuthenticated && auth.accessToken) ? 'raindrop' : 'local',
+  };
   await browser.storage.local.set(updates);
   void syncSidePanelBehavior(Boolean(auth && auth.isAuthenticated && auth.accessToken));
   void browser.runtime.sendMessage({
@@ -180,16 +140,14 @@ async function saveAuthState(auth: RaindropAuthState): Promise<void> {
 async function clearAuthState(): Promise<void> {
   cachedAuthState = { isAuthenticated: false };
   await browser.storage.local.remove(STORAGE_KEY_AUTH);
-  const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
-  if (!storedGoogle.arcable_supabase_session?.access_token) {
-    await browser.storage.local.set({ arcable_sync_provider: 'local' });
-  }
+  await browser.storage.local.set({ arcable_sync_provider: 'local' });
   void syncSidePanelBehavior(false);
   void browser.runtime.sendMessage({
     type: 'RAINDROP_AUTH_CHANGED',
     auth: { isAuthenticated: false },
   }).catch(() => {});
 }
+
 
 // Process OAuth tokens received via bridge or launchWebAuthFlow
 async function processOAuthTokens(tokens: {
@@ -215,23 +173,7 @@ async function processOAuthTokens(tokens: {
   return authState;
 }
 
-async function saveSupabaseOAuthSession(session: any): Promise<boolean> {
-  if (!session?.access_token) return false;
 
-  const normalizedSession = {
-    ...session,
-    refresh_token: session.refresh_token || '',
-  };
-  await browser.storage.local.set({
-    arcable_supabase_session: normalizedSession,
-    arcable_sync_provider: 'supabase',
-  });
-  void browser.runtime.sendMessage({
-    type: 'SUPABASE_SESSION_CHANGED',
-    session: normalizedSession,
-  }).catch(() => {});
-  return true;
-}
 
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
@@ -240,31 +182,12 @@ browser.runtime.onMessage.addListener(
 
     // Handle OAuth bridge event from content script
     if (rawMessage && (rawMessage.type === 'oauth_bridge_success' || rawMessage.type === 'oauth_success')) {
-      if (rawMessage.provider === 'supabase') {
-        const session = rawMessage.tokens;
-        if (await saveSupabaseOAuthSession(session)) {
-          const hydration = await hydrateGoogleCustomCode();
-          if (!hydration.success) {
-            console.warn('[Arcable Background] Failed to hydrate Google custom code:', hydration.error);
-          }
-          return { success: true, data: session };
-        }
-        return { success: false, error: 'Invalid Supabase session' };
-      }
-
       const auth = await processOAuthTokens(rawMessage.tokens);
       return { success: Boolean(auth), data: auth };
     }
 
     switch (message.type) {
-      case 'SUPABASE_HYDRATE_CUSTOM_CODE': {
-        try {
-          const result = await hydrateGoogleCustomCode();
-          return { success: result.success, error: result.error };
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to fetch cloud custom code.' };
-        }
-      }
+
 
       case 'INJECT_CUSTOM_JS': {
         const payload = (message.payload || rawMessage) as { ruleId: string; code: string; tabId?: number };
@@ -451,159 +374,45 @@ browser.runtime.onMessage.addListener(
         return { success: true };
       }
 
-      // Supabase: Start Google OAuth Flow
-      case 'SUPABASE_START_OAUTH': {
-        try {
-          const extensionId = browser.runtime.id;
-          const stored: any = await browser.storage.local.get(['arcable_supabase_server_url']);
-          const serverUrl = String(stored.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
-          const authUrl = new URL(`${serverUrl}/auth/extension-login`);
-          authUrl.searchParams.set('extId', extensionId);
-
-          const hasIdentity =
-            typeof browser?.identity?.launchWebAuthFlow === 'function' &&
-            typeof browser?.identity?.getRedirectURL === 'function';
-
-          let extensionRedirect: string | undefined;
-          if (hasIdentity) {
-            try {
-              extensionRedirect = browser.identity.getRedirectURL('supabase');
-            } catch (err) {
-              console.warn('[Arcable] Failed to get identity redirect URL for Supabase:', err);
-            }
-          }
-
-          if (hasIdentity && extensionRedirect) {
-            authUrl.searchParams.set('extensionRedirect', extensionRedirect);
-
-            const responseUrl = await browser.identity.launchWebAuthFlow({
-              url: authUrl.toString(),
-              interactive: true,
-            });
-            const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
-            if (!tokens?.access_token) {
-              return { success: false, error: 'Google OAuth completed without a Supabase session.' };
-            }
-
-            const session = {
-              ...tokens,
-              refresh_token: tokens.refresh_token || '',
-            };
-            if (!(await saveSupabaseOAuthSession(session))) {
-              return { success: false, error: 'Failed to save the Google OAuth session.' };
-            }
-            return { success: true, data: session };
-          } else {
-            // Fallback for Firefox Android or environments without browser.identity
-            await browser.tabs.create({ url: authUrl.toString() });
-            return {
-              success: true,
-              pending: true,
-              message: 'Opened Google Sign-In in a new tab. Please complete sign-in there.',
-            };
-          }
-        } catch (err: any) {
-          console.warn('[Arcable] Google OAuth failed:', err);
-          return { success: false, error: err?.message || 'Failed to complete Google OAuth' };
+      // Cloud Device Management (via Next.js API /api/sync/devices)
+      case 'CLOUD_GET_DEVICES': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
         }
-      }
-
-      // Supabase: Logout
-      case 'SUPABASE_LOGOUT': {
-        try {
-          await browser.storage.local.remove(['arcable_supabase_session']);
-          const auth = await getStoredAuthState();
-          const nextProvider = (auth.isAuthenticated && auth.accessToken) ? 'raindrop' : 'local';
-          await browser.storage.local.set({ arcable_sync_provider: nextProvider });
-          void browser.runtime.sendMessage({
-            type: 'SUPABASE_SESSION_CHANGED',
-            session: null,
-          }).catch(() => {});
-          return { success: true };
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to logout from Supabase' };
-        }
-      }
-
-      // Supabase: Get Session
-      case 'SUPABASE_GET_SESSION': {
-        try {
-          const stored = await browser.storage.local.get(['arcable_supabase_session']);
-          return { success: true, data: stored.arcable_supabase_session || null };
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to retrieve Supabase session' };
-        }
-      }
-
-      // Supabase: Refresh Session
-      case 'SUPABASE_REFRESH_SESSION': {
-        try {
-          const storedAuth: any = await browser.storage.local.get([
-            'arcable_supabase_session',
-            'arcable_supabase_server_url',
-          ]);
-          const session = storedAuth.arcable_supabase_session;
-          if (!session?.refresh_token) {
-            return { success: false, error: 'No refresh token available' };
-          }
-          const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
-          const refreshed = await refreshSupabaseSession(session, serverUrl);
-          if (refreshed) {
-            await browser.storage.local.set({ arcable_supabase_session: refreshed });
-            return { success: true, data: refreshed };
-          }
-          return { success: false, error: 'Failed to refresh Supabase session' };
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to refresh Supabase session' };
-        }
-      }
-
-      // Supabase: Fetch Devices
-      case 'SUPABASE_GET_DEVICES': {
-        const storedAuth: any = await browser.storage.local.get([
-          'arcable_supabase_session',
-          'arcable_supabase_server_url',
-        ]);
-        const session = storedAuth.arcable_supabase_session;
-        if (!session?.access_token) {
-          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
-        }
-        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const stored: any = await browser.storage.local.get(['arcable_server_url']);
+        const serverUrl = String(stored.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
         const payload = message.payload as { currentDeviceId?: string; currentDeviceName?: string } | undefined;
         try {
           const effectiveCurrentDeviceId = payload?.currentDeviceId || await getOrCreateExtensionDeviceId();
           const effectiveCurrentDeviceName = payload?.currentDeviceName || await getExtensionDeviceName();
-          const result = await fetchSupabaseDevices({
+          const result = await fetchCloudDevices({
             serverUrl,
-            session,
+            token: auth.accessToken,
             currentDeviceId: effectiveCurrentDeviceId,
             currentDeviceName: effectiveCurrentDeviceName,
           });
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to fetch devices from Supabase' };
+          return { success: false, error: err?.message || 'Failed to fetch devices' };
         }
       }
 
-      // Supabase: Rename Device
-      case 'SUPABASE_RENAME_DEVICE': {
-        const storedAuth: any = await browser.storage.local.get([
-          'arcable_supabase_session',
-          'arcable_supabase_server_url',
-        ]);
-        const session = storedAuth.arcable_supabase_session;
-        if (!session?.access_token) {
-          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+      case 'CLOUD_RENAME_DEVICE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
         }
-        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const stored: any = await browser.storage.local.get(['arcable_server_url']);
+        const serverUrl = String(stored.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
         const payload = message.payload as { deviceId: string; newName: string } | undefined;
         if (!payload?.deviceId || !payload?.newName) {
           return { success: false, error: 'deviceId and newName are required' };
         }
         try {
-          const result = await renameSupabaseDevice({
+          const result = await renameCloudDevice({
             serverUrl,
-            session,
+            token: auth.accessToken,
             deviceId: payload.deviceId,
             newName: payload.newName,
           });
@@ -613,61 +422,55 @@ browser.runtime.onMessage.addListener(
           }
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to rename device in Supabase' };
+          return { success: false, error: err?.message || 'Failed to rename device' };
         }
       }
 
-      // Supabase: Delete Device
-      case 'SUPABASE_DELETE_DEVICE': {
-        const storedAuth: any = await browser.storage.local.get([
-          'arcable_supabase_session',
-          'arcable_supabase_server_url',
-        ]);
-        const session = storedAuth.arcable_supabase_session;
-        if (!session?.access_token) {
-          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+      case 'CLOUD_DELETE_DEVICE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
         }
-        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const stored: any = await browser.storage.local.get(['arcable_server_url']);
+        const serverUrl = String(stored.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
         const payload = message.payload as { deviceId: string } | undefined;
         if (!payload?.deviceId) {
           return { success: false, error: 'deviceId is required' };
         }
         try {
-          const result = await deleteSupabaseDevice({
+          const result = await deleteCloudDevice({
             serverUrl,
-            session,
+            token: auth.accessToken,
             deviceId: payload.deviceId,
           });
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to delete device from Supabase' };
+          return { success: false, error: err?.message || 'Failed to delete device' };
         }
       }
 
-      // Supabase: Delete All Other Devices
-      case 'SUPABASE_DELETE_OTHER_DEVICES': {
-        const storedAuth: any = await browser.storage.local.get([
-          'arcable_supabase_session',
-          'arcable_supabase_server_url',
-        ]);
-        const session = storedAuth.arcable_supabase_session;
-        if (!session?.access_token) {
-          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+      case 'CLOUD_DELETE_OTHER_DEVICES': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
         }
-        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const stored: any = await browser.storage.local.get(['arcable_server_url']);
+        const serverUrl = String(stored.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
         const payload = message.payload as { keepDeviceId?: string } | undefined;
         try {
           const effectiveKeepDeviceId = payload?.keepDeviceId || await getOrCreateExtensionDeviceId();
-          const result = await deleteAllOtherSupabaseDevices({
+          const result = await deleteCloudDevice({
             serverUrl,
-            session,
+            token: auth.accessToken,
+            allOther: true,
             keepDeviceId: effectiveKeepDeviceId,
           });
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to delete other devices from Supabase' };
+          return { success: false, error: err?.message || 'Failed to delete other devices' };
         }
       }
+
 
 
       // Raindrop: Create Bookmark
@@ -745,13 +548,8 @@ browser.runtime.onMessage.addListener(
         }
       }
 
-      // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
+      // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log) via Next.js server API
       case 'RAINDROP_SYNC_WORKSPACE': {
-        const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
-        if (storedGoogle.arcable_supabase_session?.access_token) {
-          return { success: false, error: 'Google OAuth is active. Raindrop sync is disabled.' };
-        }
-
         const auth = await getStoredAuthState();
         if (!auth.isAuthenticated || !auth.accessToken) {
           return { success: false, error: 'Not authenticated with Raindrop' };
@@ -769,20 +567,21 @@ browser.runtime.onMessage.addListener(
           });
 
           const stored = await browser.storage.local.get([
+            'arcable_server_url',
+            'arcable_server_version',
             'arcable_tmp_tabs',
             CUSTOM_CODE_STORAGE_KEY,
             RUN_CODE_IN_PAGE_STORAGE_KEY,
             'arcable_pending_ops',
           ]);
+          const serverUrl = String(stored.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+          const baseVersion = Number(stored.arcable_server_version) || 0;
           const localTmp = (stored.arcable_tmp_tabs as TmpTab[]) || [];
           const localCustomRules = (stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
           const localRunRules = (stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
           const storedPendingOps = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
 
-          // Merge payload pending ops with stored pending ops first, so we
-          // know which tmp tab IDs have been deleted by the time we build
-          // stateToSync. This prevents a race where the UI deletes a tab but
-          // storage hasn't flushed yet and background re-injects the stale entry.
+          // Merge payload pending ops with stored pending ops first
           const opMap = new Map<string, WorkspaceOperation>();
           for (const op of storedPendingOps) {
             opMap.set(op.id, op);
@@ -793,7 +592,7 @@ browser.runtime.onMessage.addListener(
           const combinedPendingOps = Array.from(opMap.values());
           const syncedOpIds = new Set(combinedPendingOps.map((op) => op.id));
 
-          // Collect all tmp tab IDs pending deletion (from UI or stored ops)
+          // Collect all tmp tab IDs pending deletion
           const pendingDeletedTmpIds = new Set<string>(
             combinedPendingOps
               .filter((op) => op.type === 'TMP_TAB_DELETE')
@@ -801,7 +600,6 @@ browser.runtime.onMessage.addListener(
           );
 
           const taggedTmp = localTmp
-            // Drop tabs that are pending deletion — they should not be re-uploaded
             .filter((t) => !pendingDeletedTmpIds.has(t.id))
             .map((t) => ({
               ...t,
@@ -812,7 +610,6 @@ browser.runtime.onMessage.addListener(
 
           let stateToSync = payload?.localState;
           if (stateToSync) {
-            // Also filter deletions from the localState tmpTabs supplied by the UI
             const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
               (t: TmpTab) => !pendingDeletedTmpIds.has(t.id)
             );
@@ -835,30 +632,59 @@ browser.runtime.onMessage.addListener(
             };
           }
 
+          let latestSnapshot: ArcableWorkspaceData | undefined;
+          let newServerVersion = baseVersion;
 
-          const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
-            localState: stateToSync,
-            deviceId: effectiveDeviceId,
-            deviceName: effectiveDeviceName,
-            pendingOps: combinedPendingOps,
-          });
+          if (combinedPendingOps.length === 0) {
+            const stateRes = await fetchServerWorkspaceState({
+              serverUrl,
+              token: auth.accessToken,
+              deviceId: effectiveDeviceId,
+              deviceName: effectiveDeviceName,
+            });
+            if (!stateRes.success) {
+              return { success: false, error: stateRes.error };
+            }
+            if (stateRes.state) {
+              latestSnapshot = stateRes.state;
+            }
+            if (stateRes.version) {
+              newServerVersion = stateRes.version;
+            }
+          } else {
+            const opRes = await syncOperationsWithServer({
+              serverUrl,
+              token: auth.accessToken,
+              baseVersion,
+              deviceId: effectiveDeviceId,
+              deviceName: effectiveDeviceName,
+              operations: combinedPendingOps,
+              initialState: stateToSync,
+            });
+            if (!opRes.success) {
+              return { success: false, error: opRes.error };
+            }
+            if (opRes.serverVersion) {
+              newServerVersion = opRes.serverVersion;
+            }
+            if (opRes.fullState) {
+              latestSnapshot = opRes.fullState;
+            } else if (opRes.diffs && opRes.diffs.length > 0) {
+              latestSnapshot = replayOperations(stateToSync, opRes.diffs);
+            }
+          }
 
-          if (result.success && result.latestSnapshot) {
-            const remoteDeletedOps = (result.syncFile?.operations || [])
+          if (latestSnapshot) {
+            const remoteDeletedOps = (combinedPendingOps || [])
               .filter((op: any) => op.type === 'TMP_TAB_DELETE' && op.deviceId !== effectiveDeviceId)
               .map((op: any) => op.entityId);
             const remoteDeletedOpSet = new Set(remoteDeletedOps);
-            const deletedTmpTabMap = result.syncFile?.deletedTmpTabIds || {};
 
             const remainingLocalTmp: TmpTab[] = [];
             for (const localTab of localTmp) {
               if (localTab.browserTabId !== undefined) {
                 const isExplicitlyDeletedByRemote = remoteDeletedOpSet.has(localTab.id);
-                const tombstoneTime = deletedTmpTabMap[localTab.id];
-                // Only honor tombstone if it was deleted after this tab instance was created
-                const isTombstoned = Boolean(tombstoneTime && (!localTab.createdAt || localTab.createdAt <= tombstoneTime));
-
-                if (isExplicitlyDeletedByRemote || isTombstoned) {
+                if (isExplicitlyDeletedByRemote) {
                   try {
                     await browser.tabs.remove(localTab.browserTabId);
                     console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to remote deletion.`);
@@ -874,14 +700,15 @@ browser.runtime.onMessage.addListener(
 
             // Cache latest snapshot and custom code rules in extension storage
             const updates: Record<string, any> = {
-              arcable_workspace_snapshot: result.latestSnapshot,
-              arcable_last_synced_at: result.syncedAt,
+              arcable_workspace_snapshot: latestSnapshot,
+              arcable_last_synced_at: Date.now(),
+              arcable_server_version: newServerVersion,
             };
-            if (result.latestSnapshot.customCodeRules) {
-              updates[CUSTOM_CODE_STORAGE_KEY] = result.latestSnapshot.customCodeRules;
+            if (latestSnapshot.customCodeRules) {
+              updates[CUSTOM_CODE_STORAGE_KEY] = latestSnapshot.customCodeRules;
             }
-            if (result.latestSnapshot.runCodeInPageRules) {
-              updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
+            if (latestSnapshot.runCodeInPageRules) {
+              updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = latestSnapshot.runCodeInPageRules;
             }
             if (syncedOpIds.size > 0) {
               const curStored = await browser.storage.local.get('arcable_pending_ops');
@@ -892,7 +719,7 @@ browser.runtime.onMessage.addListener(
             await browser.storage.local.set(updates);
           }
 
-          return { success: result.success, data: result, error: result.error };
+          return { success: true, data: { success: true, latestSnapshot, serverVersion: newServerVersion } };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to sync workspace' };
         }
@@ -1030,30 +857,22 @@ async function triggerBackgroundSync(): Promise<void> {
   isBackgroundSyncInFlight = true;
 
   try {
-    // 1. Google OAuth uses Supabase exclusively, including custom CSS/JS and Run Code rules.
-    const storedAuth: any = await browser.storage.local.get(['arcable_supabase_session']);
-    if (storedAuth.arcable_supabase_session?.access_token) {
-      const hydration = await hydrateGoogleCustomCode();
-      if (!hydration.success) {
-        console.warn('[Arcable Background] Periodic Supabase custom code sync error:', hydration.error);
-      }
-      return;
-    }
-
-    // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop;
     const auth = await getStoredAuthState();
     if (!auth.isAuthenticated || !auth.accessToken) {
-      // 3. if user has logged in to none, don't perform any sync at all.
       return;
     }
 
     const storedData = await browser.storage.local.get([
+      'arcable_server_url',
+      'arcable_server_version',
       'arcable_workspace_snapshot',
       'arcable_tmp_tabs',
       CUSTOM_CODE_STORAGE_KEY,
       RUN_CODE_IN_PAGE_STORAGE_KEY,
       'arcable_pending_ops',
     ]);
+    const serverUrl = String(storedData.arcable_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+    const baseVersion = Number(storedData.arcable_server_version) || 0;
     let localState = storedData.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
     const localTmpTabs = (storedData.arcable_tmp_tabs as TmpTab[]) || [];
     const localCustomRules = (storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
@@ -1091,50 +910,55 @@ async function triggerBackgroundSync(): Promise<void> {
       };
     }
 
-    const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
-      localState,
-      deviceId,
-      deviceName,
-      pendingOps,
-    });
+    let latestSnapshot: ArcableWorkspaceData | undefined;
+    let newServerVersion = baseVersion;
 
-    if (result.success && result.latestSnapshot) {
-      // Reconcile remote tab closures against local open browser tabs.
-      const deletedOpIds = new Set([
-        ...(result.syncFile?.operations || [])
-          .filter((op: any) => op.type === 'TMP_TAB_DELETE')
-          .map((op: any) => op.entityId),
-        ...Object.keys(result.syncFile?.deletedTmpTabIds || {}),
-      ]);
-
-      const remainingLocalTmpTabs: TmpTab[] = [];
-      for (const localTab of localTmpTabs) {
-        if (
-          localTab.browserTabId !== undefined &&
-          (deletedOpIds.has(localTab.id) || (localTab.deviceId && deletedOpIds.has(`tmp_${localTab.deviceId}_${localTab.browserTabId}`)))
-        ) {
-          try {
-            await browser.tabs.remove(localTab.browserTabId);
-            console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
-          } catch {}
-        } else {
-          remainingLocalTmpTabs.push(localTab);
+    if (pendingOps.length === 0) {
+      const stateRes = await fetchServerWorkspaceState({
+        serverUrl,
+        token: auth.accessToken,
+        deviceId,
+        deviceName,
+      });
+      if (stateRes.success && stateRes.state) {
+        latestSnapshot = stateRes.state;
+        if (stateRes.version) {
+          newServerVersion = stateRes.version;
         }
       }
-
-      if (remainingLocalTmpTabs.length !== localTmpTabs.length) {
-        await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmpTabs });
+    } else {
+      const opRes = await syncOperationsWithServer({
+        serverUrl,
+        token: auth.accessToken,
+        baseVersion,
+        deviceId,
+        deviceName,
+        operations: pendingOps,
+        initialState: localState,
+      });
+      if (opRes.success) {
+        if (opRes.serverVersion) {
+          newServerVersion = opRes.serverVersion;
+        }
+        if (opRes.fullState) {
+          latestSnapshot = opRes.fullState;
+        } else if (opRes.diffs && opRes.diffs.length > 0) {
+          latestSnapshot = replayOperations(localState, opRes.diffs);
+        }
       }
+    }
 
+    if (latestSnapshot) {
       const updates: Record<string, any> = {
-        arcable_workspace_snapshot: result.latestSnapshot,
-        arcable_last_synced_at: result.syncedAt,
+        arcable_workspace_snapshot: latestSnapshot,
+        arcable_last_synced_at: Date.now(),
+        arcable_server_version: newServerVersion,
       };
-      if (result.latestSnapshot.customCodeRules) {
-        updates[CUSTOM_CODE_STORAGE_KEY] = result.latestSnapshot.customCodeRules;
+      if (latestSnapshot.customCodeRules) {
+        updates[CUSTOM_CODE_STORAGE_KEY] = latestSnapshot.customCodeRules;
       }
-      if (result.latestSnapshot.runCodeInPageRules) {
-        updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
+      if (latestSnapshot.runCodeInPageRules) {
+        updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = latestSnapshot.runCodeInPageRules;
       }
       if (syncedOpIds.size > 0) {
         const curStored = await browser.storage.local.get('arcable_pending_ops');
@@ -1167,23 +991,6 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
     if (message && (message.type === 'oauth_success' || message.type === 'oauth_bridge_success')) {
-      if (message.provider === 'supabase') {
-        const session = message.tokens;
-        if (session && session.access_token) {
-          void saveSupabaseOAuthSession(session).then(async (saved) => {
-            if (!saved) return;
-            const hydration = await hydrateGoogleCustomCode();
-            if (!hydration.success) {
-              console.warn('[Arcable Background] Failed to hydrate Google custom code:', hydration.error);
-            }
-          });
-          if (sendResponse) {
-            sendResponse({ success: true, session });
-          }
-          return true;
-        }
-      }
-
       void processOAuthTokens(message.tokens).then((auth) => {
         if (sendResponse) {
           sendResponse({ success: Boolean(auth), auth });

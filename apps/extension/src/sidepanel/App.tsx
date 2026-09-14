@@ -6,7 +6,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SupabaseSessionTokens, SyncProvider, TabUrlVariant } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SyncProvider, TabUrlVariant } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
@@ -20,9 +20,6 @@ import {
   getSyncProvider,
   setSyncProvider,
   resolveSyncProvider,
-  getSupabaseSession,
-  setSupabaseSession,
-  areSupabaseSessionsEquivalent,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -102,17 +99,14 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
-  const [hasSupabaseAuth, setHasSupabaseAuth] = useState(false);
-  const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
-  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
+  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('local');
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
-  const isGoogleLoggedIn = Boolean(hasSupabaseAuth && supabaseSession?.access_token);
-  const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && hasRaindropAuth);
+  const isRaindropLoggedIn = Boolean(hasRaindropAuth);
 
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
@@ -138,7 +132,7 @@ export const App: React.FC = () => {
     tabTracker.getAssociations().then(setTabAssociations);
     const unsubAssociations = tabTracker.subscribe(setTabAssociations);
 
-    // Initial tmp tabs subscription
+    // Initial temporary tabs subscription
     tabTracker.getTmpTabs().then(setTmpTabs);
     const unsubTmpTabs = tabTracker.subscribeTmpTabs(setTmpTabs);
 
@@ -165,8 +159,8 @@ export const App: React.FC = () => {
     });
 
 
-    // Check initial Raindrop & Supabase auth, and cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_supabase_session', 'arcable_sync_provider', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
+    // Check initial Raindrop auth and cached snapshot
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_sync_provider', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
@@ -175,23 +169,11 @@ export const App: React.FC = () => {
         void browser.storage.local.set({ arcable_device_id: devId });
       }
 
-      const isGoogle = Boolean(res.arcable_supabase_session && res.arcable_supabase_session.access_token);
-      if (isGoogle) {
-        setHasSupabaseAuth(true);
-        setSupabaseSessionState(res.arcable_supabase_session);
-        setSupabaseSession(res.arcable_supabase_session);
-      } else {
-        setHasSupabaseAuth(false);
-        setSupabaseSessionState(null);
-        setSupabaseSession(null);
-      }
-
       const auth = res.arcable_raindrop_auth;
       const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
-      const isRaindrop = Boolean(!isGoogle && isRaindropAuth);
       setHasRaindropAuth(isRaindropAuth);
 
-      const resolved = resolveSyncProvider(isGoogle, isRaindropAuth);
+      const resolved = resolveSyncProvider(isRaindropAuth);
       setSyncProviderState(resolved);
       setSyncProvider(resolved);
 
@@ -199,8 +181,7 @@ export const App: React.FC = () => {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
       }
 
-      // Rule 1 & 2: ONLY load Raindrop workspace snapshot if user is NOT in Google OAuth mode and IS in Raindrop mode!
-      if (!isGoogle && isRaindrop && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+      if (isRaindropAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         let snapshot = res.arcable_workspace_snapshot;
         const remainingOps = getStoredPendingOperations();
         if (remainingOps.length > 0) {
@@ -243,35 +224,12 @@ export const App: React.FC = () => {
       }
     });
 
-    browser.runtime.sendMessage({ type: 'SUPABASE_GET_SESSION' }).then((res: any) => {
-      if (res && res.success && res.data?.access_token) {
-        setHasSupabaseAuth(true);
-        setSupabaseSessionState(res.data);
-        setSupabaseSession(res.data);
-      }
-    });
-
     // Listen for storage changes (e.g. login/logout in options or background sync updates)
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
-        let curSupabaseAuth = hasSupabaseAuth;
         let curRaindropAuth = hasRaindropAuth;
         let authChanged = false;
 
-        if (changes.arcable_supabase_session) {
-          const sessionChange = changes.arcable_supabase_session;
-          const sess = sessionChange.newValue;
-          // Firefox can report storage.set() calls whose old and new values are
-          // identical. Do not mirror those events back into extension storage.
-          if (!areSupabaseSessionsEquivalent(sessionChange.oldValue, sess)) {
-            const isAuth = Boolean(sess?.access_token);
-            curSupabaseAuth = isAuth;
-            setHasSupabaseAuth(isAuth);
-            setSupabaseSessionState(sess || null);
-            setSupabaseSession(sess || null);
-            authChanged = true;
-          }
-        }
         if (changes.arcable_raindrop_auth) {
           const isAuth = Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated);
           curRaindropAuth = isAuth;
@@ -279,7 +237,7 @@ export const App: React.FC = () => {
           authChanged = true;
         }
         if (authChanged) {
-          const resolved = resolveSyncProvider(curSupabaseAuth, curRaindropAuth);
+          const resolved = resolveSyncProvider(curRaindropAuth);
           setSyncProviderState(resolved);
           setSyncProvider(resolved);
         } else if (changes.arcable_sync_provider?.newValue) {
@@ -299,12 +257,6 @@ export const App: React.FC = () => {
           workspaceRef.current?.setActiveSpace?.(newId);
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
-          // Rule 1: if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop!
-          const currentGoogleAuth = Boolean(getSupabaseSession()?.access_token);
-          if (currentGoogleAuth) {
-            return;
-          }
-
           let snapshot = changes.arcable_workspace_snapshot.newValue;
           const remainingOps = getStoredPendingOperations();
           if (remainingOps.length > 0) {
@@ -365,22 +317,12 @@ export const App: React.FC = () => {
     updateActiveTab();
 
     const handleFocus = () => {
-      browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider', 'arcable_raindrop_auth']).then((res: any) => {
-        const isGoogle = Boolean(res.arcable_supabase_session?.access_token);
-        if (isGoogle) {
-          setHasSupabaseAuth(true);
-          setSupabaseSessionState(res.arcable_supabase_session);
-          setSupabaseSession(res.arcable_supabase_session);
-        } else {
-          setHasSupabaseAuth(false);
-          setSupabaseSessionState(null);
-          setSupabaseSession(null);
-        }
+      browser.storage.local.get(['arcable_sync_provider', 'arcable_raindrop_auth']).then((res: any) => {
         const isRaindropAuth = Boolean(res.arcable_raindrop_auth?.isAuthenticated);
         if (res.arcable_raindrop_auth !== undefined) {
           setHasRaindropAuth(isRaindropAuth);
         }
-        const resolved = resolveSyncProvider(isGoogle, isRaindropAuth);
+        const resolved = resolveSyncProvider(isRaindropAuth);
         setSyncProviderState(resolved);
         setSyncProvider(resolved);
 
@@ -388,11 +330,9 @@ export const App: React.FC = () => {
           if (r && r.success) {
             const rAuth = Boolean(r.data?.isAuthenticated);
             setHasRaindropAuth(rAuth);
-            if (!isGoogle) {
-              const next = resolveSyncProvider(false, rAuth);
-              setSyncProviderState(next);
-              setSyncProvider(next);
-            }
+            const next = resolveSyncProvider(rAuth);
+            setSyncProviderState(next);
+            setSyncProvider(next);
           }
         });
       });
@@ -469,21 +409,12 @@ export const App: React.FC = () => {
   };
 
   const handleFetchDevices = async () => {
-    if (isGoogleLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'SUPABASE_GET_DEVICES',
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to fetch devices from Supabase');
-      }
-      return res.data || [];
-    }
     if (isRaindropLoggedIn) {
       const res: any = await browser.runtime.sendMessage({
-        type: 'RAINDROP_GET_DEVICES',
+        type: 'CLOUD_GET_DEVICES',
       });
       if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to fetch devices from Raindrop');
+        throw new Error(res?.error || 'Failed to fetch devices');
       }
       return res.data || [];
     }
@@ -492,23 +423,13 @@ export const App: React.FC = () => {
 
   const handleRenameDevice = async (deviceId: string, newName: string) => {
     setStoredDeviceName(newName);
-    if (isGoogleLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'SUPABASE_RENAME_DEVICE',
-        payload: { deviceId, newName },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to rename device in Supabase');
-      }
-      return res.data || [];
-    }
     if (isRaindropLoggedIn) {
       const res: any = await browser.runtime.sendMessage({
-        type: 'RAINDROP_RENAME_DEVICE',
+        type: 'CLOUD_RENAME_DEVICE',
         payload: { deviceId, newName },
       });
       if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to rename device in Raindrop');
+        throw new Error(res?.error || 'Failed to rename device');
       }
       return res.data || [];
     }
@@ -516,23 +437,13 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
-    if (isGoogleLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'SUPABASE_DELETE_DEVICE',
-        payload: { deviceId },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete device from Supabase');
-      }
-      return res.data || [];
-    }
     if (isRaindropLoggedIn) {
       const res: any = await browser.runtime.sendMessage({
-        type: 'RAINDROP_DELETE_DEVICE',
+        type: 'CLOUD_DELETE_DEVICE',
         payload: { deviceId },
       });
       if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete device from Raindrop');
+        throw new Error(res?.error || 'Failed to delete device');
       }
       return res.data || [];
     }
@@ -540,23 +451,13 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteOtherDevices = async (keepDeviceId: string) => {
-    if (isGoogleLoggedIn) {
-      const res: any = await browser.runtime.sendMessage({
-        type: 'SUPABASE_DELETE_OTHER_DEVICES',
-        payload: { keepDeviceId },
-      });
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete other devices from Supabase');
-      }
-      return res.data || [];
-    }
     if (isRaindropLoggedIn) {
       const res: any = await browser.runtime.sendMessage({
-        type: 'RAINDROP_DELETE_OTHER_DEVICES',
+        type: 'CLOUD_DELETE_OTHER_DEVICES',
         payload: { keepDeviceId },
       });
       if (!res || !res.success) {
-        throw new Error(res?.error || 'Failed to delete other devices from Raindrop');
+        throw new Error(res?.error || 'Failed to delete other devices');
       }
       return res.data || [];
     }
@@ -789,11 +690,9 @@ export const App: React.FC = () => {
 
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
-      id: isGoogleLoggedIn ? 'sync-cloud' : isRaindropLoggedIn ? 'sync-raindrop' : 'connect-sync',
+      id: isRaindropLoggedIn ? 'sync-raindrop' : 'connect-sync',
       label: isSyncing
         ? 'Syncing...'
-        : isGoogleLoggedIn
-        ? 'Cloud Sync'
         : isRaindropLoggedIn
         ? 'Raindrop Sync'
         : 'Connect Sync',
@@ -807,21 +706,10 @@ export const App: React.FC = () => {
             animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
           }}
         >
-          {isGoogleLoggedIn ? '☁️' : isRaindropLoggedIn ? '💧' : '🔄'}
+          {isRaindropLoggedIn ? '💧' : '🔄'}
         </span>
       ),
       onClick: async () => {
-        // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
-        if (isGoogleLoggedIn) {
-          setSyncProvider('supabase');
-          setSyncProviderState('supabase');
-          if (workspaceRef.current) {
-            await workspaceRef.current.triggerSync();
-          }
-          return;
-        }
-
-        // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop, NEVER supabase;
         if (isRaindropLoggedIn) {
           setSyncProvider('raindrop');
           setSyncProviderState('raindrop');
@@ -831,7 +719,6 @@ export const App: React.FC = () => {
           return;
         }
 
-        // 3. if user has logged in to none, don't perform any sync at all.
         browser.runtime.openOptionsPage();
       },
       disabled: isSyncing,
@@ -957,12 +844,12 @@ export const App: React.FC = () => {
       <DeviceModal
         isOpen={isDeviceModalOpen}
         onClose={() => setIsDeviceModalOpen(false)}
-        syncProvider={isGoogleLoggedIn ? 'supabase' : isRaindropLoggedIn ? 'raindrop' : undefined}
+        syncProvider={isRaindropLoggedIn ? 'raindrop' : undefined}
         currentDeviceId={currentDeviceId || undefined}
-        onFetchDevices={isGoogleLoggedIn || isRaindropLoggedIn ? handleFetchDevices : undefined}
-        onRenameDevice={isGoogleLoggedIn || isRaindropLoggedIn ? handleRenameDevice : undefined}
-        onDeleteDevice={isGoogleLoggedIn || isRaindropLoggedIn ? handleDeleteDevice : undefined}
-        onDeleteOtherDevices={isGoogleLoggedIn || isRaindropLoggedIn ? handleDeleteOtherDevices : undefined}
+        onFetchDevices={isRaindropLoggedIn ? handleFetchDevices : undefined}
+        onRenameDevice={isRaindropLoggedIn ? handleRenameDevice : undefined}
+        onDeleteDevice={isRaindropLoggedIn ? handleDeleteDevice : undefined}
+        onDeleteOtherDevices={isRaindropLoggedIn ? handleDeleteOtherDevices : undefined}
       />
 
       <BackupRestoreModal

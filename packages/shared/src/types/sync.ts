@@ -58,9 +58,9 @@ export interface SyncResult {
   syncedAt?: number;
 }
 
-export type SyncProvider = 'supabase' | 'raindrop' | 'local';
+export type SyncProvider = 'raindrop' | 'local';
 
-export interface SupabaseSyncRequest {
+export interface WorkspaceSyncRequest {
   baseVersion: number;
   deviceId: string;
   deviceName?: string;
@@ -68,7 +68,7 @@ export interface SupabaseSyncRequest {
   initialState?: ArcableWorkspaceData;
 }
 
-export interface SupabaseSyncResponse {
+export interface WorkspaceSyncResponse {
   success: boolean;
   serverVersion: number;
   diffs?: WorkspaceOperation[];
@@ -76,15 +76,8 @@ export interface SupabaseSyncResponse {
   error?: string;
 }
 
-export interface SupabaseSessionTokens {
-  access_token: string;
-  refresh_token: string;
-  expires_at?: number;
-  expires_in?: number;
-  user?: {
-    id: string;
-    email?: string;
-    user_metadata?: Record<string, any>;
-  };
-}
+// Aliases for compatibility during transition
+export type SupabaseSyncRequest = WorkspaceSyncRequest;
+export type SupabaseSyncResponse = WorkspaceSyncResponse;
+
 
