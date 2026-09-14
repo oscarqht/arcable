@@ -90,8 +90,10 @@ export interface WeatherConfig {
 }
 
 export interface SearchConfig {
-  engine?: 'google' | 'perplexity' | 'duckduckgo' | 'bing' | 'custom';
+  engine?: 'google' | 'custom';
   customUrl?: string;
+  customName?: string;
+  customIcon?: string;
 }
 
 export interface WorkspaceWidget {
@@ -143,4 +145,3 @@ export interface TmpTabCustomTitleRecord {
 export type WorkspaceSiblingItem =
   | { type: 'folder'; data: Folder; id: string; order: number }
   | { type: 'tab'; data: Tab; id: string; order: number };
-

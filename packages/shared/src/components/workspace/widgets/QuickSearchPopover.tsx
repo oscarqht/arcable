@@ -18,9 +18,6 @@ export interface QuickSearchPopoverProps {
 
 const ENGINES: { id: NonNullable<SearchConfig['engine']>; name: string; url: string; icon: string }[] = [
   { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=%s', icon: '🔍' },
-  { id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai/search?q=%s', icon: '⚡' },
-  { id: 'duckduckgo', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=%s', icon: '🦆' },
-  { id: 'bing', name: 'Bing', url: 'https://www.bing.com/search?q=%s', icon: '🌐' },
   { id: 'custom', name: 'Custom', url: '', icon: '⚙️' },
 ];
 
@@ -34,12 +31,16 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
   theme,
 }) => {
   const config = (widget.config as SearchConfig) || {};
-  const activeEngine = config.engine || 'google';
+  const activeEngine = config.engine === 'custom' ? 'custom' : 'google';
   const customUrl = config.customUrl || '';
+  const customName = config.customName?.trim() || 'Custom';
+  const customIcon = config.customIcon?.trim() || '⚙️';
 
   const [query, setQuery] = useState('');
   const [showConfig, setShowConfig] = useState(false);
   const [tempCustomUrl, setTempCustomUrl] = useState(customUrl);
+  const [tempCustomName, setTempCustomName] = useState(customName);
+  const [tempCustomIcon, setTempCustomIcon] = useState(customIcon);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -47,6 +48,14 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTempCustomUrl(customUrl);
+      setTempCustomName(customName);
+      setTempCustomIcon(customIcon);
+    }
+  }, [isOpen, customIcon, customName, customUrl]);
 
   // Click outside to close
   useEffect(() => {
@@ -74,7 +83,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
   if (!isOpen || !anchorRect || typeof document === 'undefined') return null;
 
   const width = 280;
-  const height = showConfig ? 230 : 160;
+  const height = showConfig ? 290 : 160;
   const spaceBelow = window.innerHeight - anchorRect.bottom;
   const fitsBelow = spaceBelow >= height + 10;
   const top = fitsBelow ? anchorRect.bottom + 6 : Math.max(10, anchorRect.top - height - 6);
@@ -85,7 +94,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
       ...config,
       engine: engineId,
     });
-    if (engineId === 'custom' && !customUrl) {
+    if (engineId === 'custom') {
       setShowConfig(true);
     }
   };
@@ -96,6 +105,8 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
       ...config,
       engine: 'custom',
       customUrl: tempCustomUrl.trim(),
+      customName: tempCustomName.trim() || 'Custom',
+      customIcon: tempCustomIcon.trim() || '⚙️',
     });
   };
 
@@ -168,7 +179,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search on ${ENGINES.find((e) => e.id === activeEngine)?.name || 'Web'}...`}
+            placeholder={`Search on ${activeEngine === 'custom' ? customName : 'Google'}...`}
             style={{
               flex: 1,
               border: 'none',
@@ -201,6 +212,8 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
         <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
           {ENGINES.map((item) => {
             const isSelected = activeEngine === item.id;
+            const name = item.id === 'custom' ? customName : item.name;
+            const icon = item.id === 'custom' ? customIcon : item.icon;
             return (
               <button
                 key={item.id}
@@ -223,8 +236,8 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
                   transition: 'all 0.12s ease',
                 }}
               >
-                <span>{item.icon}</span>
-                <span>{item.name}</span>
+                <span>{icon}</span>
+                <span>{name}</span>
               </button>
             );
           })}
@@ -233,7 +246,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
         <button
           type="button"
           onClick={() => setShowConfig(!showConfig)}
-          title="Configure custom search URL"
+          title="Configure custom search"
           style={{
             background: 'none',
             border: 'none',
@@ -258,6 +271,49 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
             borderTop: `1px solid ${theme.borderColor}`,
           }}
         >
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <label style={{ flex: 1, fontSize: '10.5px', color: theme.subtextColor }}>
+              Name
+              <input
+                type="text"
+                value={tempCustomName}
+                onChange={(e) => setTempCustomName(e.target.value)}
+                placeholder="Custom"
+                style={{
+                  boxSizing: 'border-box',
+                  width: '100%',
+                  marginTop: '3px',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.borderColor}`,
+                  background: theme.isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc',
+                  color: theme.textColor,
+                  fontSize: '11.5px',
+                }}
+              />
+            </label>
+            <label style={{ width: '62px', fontSize: '10.5px', color: theme.subtextColor }}>
+              Emoji
+              <input
+                type="text"
+                value={tempCustomIcon}
+                onChange={(e) => setTempCustomIcon(e.target.value)}
+                placeholder="⚙️"
+                aria-label="Custom search emoji icon"
+                style={{
+                  boxSizing: 'border-box',
+                  width: '100%',
+                  marginTop: '3px',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.borderColor}`,
+                  background: theme.isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc',
+                  color: theme.textColor,
+                  fontSize: '11.5px',
+                }}
+              />
+            </label>
+          </div>
           <label style={{ fontSize: '10.5px', color: theme.subtextColor }}>
             Custom Search URL (use <code>%s</code> as query placeholder):
           </label>
@@ -290,7 +346,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
               cursor: 'pointer',
             }}
           >
-            Save URL
+            Save custom search
           </button>
         </div>
       )}
