@@ -124,11 +124,17 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
 
   // Also sync with extension storage if in a Chrome/Firefox extension context
   try {
+    const globalObj = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined;
+    const chromeObj = globalObj?.chrome;
+    const browserObj =
+      globalObj?.browser ||
+      (typeof window !== 'undefined' ? (window as any)?.browser : undefined);
+
     const extStorage =
-      typeof chrome !== 'undefined' && chrome.storage?.local
-        ? chrome.storage.local
-        : typeof (window as any)?.browser !== 'undefined' && (window as any).browser?.storage?.local
-        ? (window as any).browser.storage.local
+      chromeObj?.storage?.local
+        ? chromeObj.storage.local
+        : browserObj?.storage?.local
+        ? browserObj.storage.local
         : null;
 
     if (extStorage) {
@@ -139,18 +145,16 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
       }
     }
 
-    const hasChromeRuntime = typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function';
-    const hasBrowserRuntime =
-      typeof (window as any)?.browser !== 'undefined' &&
-      typeof (window as any).browser?.runtime?.sendMessage === 'function';
+    const hasChromeRuntime = typeof chromeObj?.runtime?.sendMessage === 'function';
+    const hasBrowserRuntime = typeof browserObj?.runtime?.sendMessage === 'function';
 
     if (hasChromeRuntime) {
-      void chrome.runtime.sendMessage({
+      void chromeObj.runtime.sendMessage({
         type: 'SUPABASE_SESSION_CHANGED',
         session: session || null,
       }).catch?.(() => {});
     } else if (hasBrowserRuntime) {
-      void (window as any).browser.runtime.sendMessage({
+      void browserObj.runtime.sendMessage({
         type: 'SUPABASE_SESSION_CHANGED',
         session: session || null,
       }).catch?.(() => {});
