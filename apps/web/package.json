@@ -1,6 +1,6 @@
 {
   "name": "@arcable/web",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "description": "Arcable Next.js Web Application",
   "private": true,
   "scripts": {
@@ -14,7 +14,6 @@
   "dependencies": {
     "@arcable/shared": "*",
     "next": "^15.1.7",
-
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
