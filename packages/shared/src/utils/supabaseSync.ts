@@ -105,22 +105,238 @@ export function getSupabaseSession(): SupabaseSessionTokens | null {
 }
 
 /**
- * Stores or clears the Supabase session tokens in localStorage.
+ * Stores or clears the Supabase session tokens in localStorage and extension storage.
  */
 export function setSupabaseSession(session: SupabaseSessionTokens | null): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (session && session.access_token) {
-      window.localStorage.setItem(SUPABASE_SESSION_KEY, JSON.stringify(session));
-      window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: session }));
-    } else {
-      window.localStorage.removeItem(SUPABASE_SESSION_KEY);
-      window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: null }));
+  if (typeof window !== 'undefined') {
+    try {
+      if (session && session.access_token) {
+        window.localStorage.setItem(SUPABASE_SESSION_KEY, JSON.stringify(session));
+        window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: session }));
+      } else {
+        window.localStorage.removeItem(SUPABASE_SESSION_KEY);
+        window.dispatchEvent(new CustomEvent('arcable_supabase_session_changed', { detail: null }));
+      }
+    } catch (err) {
+      console.warn('Failed to save Supabase session:', err);
     }
-  } catch (err) {
-    console.warn('Failed to save Supabase session:', err);
+  }
+
+  // Also sync with extension storage if in a Chrome/Firefox extension context
+  try {
+    const extStorage =
+      typeof chrome !== 'undefined' && chrome.storage?.local
+        ? chrome.storage.local
+        : typeof (window as any)?.browser !== 'undefined' && (window as any).browser?.storage?.local
+        ? (window as any).browser.storage.local
+        : null;
+
+    if (extStorage) {
+      if (session && session.access_token) {
+        void extStorage.set({ [SUPABASE_SESSION_KEY]: session });
+      } else {
+        void extStorage.remove(SUPABASE_SESSION_KEY);
+      }
+    }
+
+    const hasChromeRuntime = typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function';
+    const hasBrowserRuntime =
+      typeof (window as any)?.browser !== 'undefined' &&
+      typeof (window as any).browser?.runtime?.sendMessage === 'function';
+
+    if (hasChromeRuntime) {
+      void chrome.runtime.sendMessage({
+        type: 'SUPABASE_SESSION_CHANGED',
+        session: session || null,
+      }).catch?.(() => {});
+    } else if (hasBrowserRuntime) {
+      void (window as any).browser.runtime.sendMessage({
+        type: 'SUPABASE_SESSION_CHANGED',
+        session: session || null,
+      }).catch?.(() => {});
+    }
+  } catch {}
+}
+
+/**
+ * Checks whether a session's access token is expired or expiring soon.
+ * @param session The Supabase session object.
+ * @param marginSeconds Number of seconds before actual expiration to consider "expiring soon" (default: 300s / 5 min).
+ */
+export function isSessionExpiringSoon(session: SupabaseSessionTokens, marginSeconds = 300): boolean {
+  if (!session?.access_token) return true;
+  if (!session.expires_at) return false;
+  const expiresAtMs = session.expires_at > 1e11 ? session.expires_at : session.expires_at * 1000;
+  return Date.now() + marginSeconds * 1000 >= expiresAtMs;
+}
+
+let inFlightRefreshPromise: Promise<SupabaseSessionTokens | null> | null = null;
+
+/**
+ * Refreshes an existing Supabase OAuth session using its refresh_token.
+ * Uses promise deduplication so multiple concurrent calls share a single refresh request.
+ */
+export async function refreshSupabaseSession(
+  session?: SupabaseSessionTokens | null,
+  serverUrl?: string
+): Promise<SupabaseSessionTokens | null> {
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise;
+  }
+
+  const activeSession = session !== undefined ? session : getSupabaseSession();
+  if (!activeSession?.refresh_token) {
+    console.warn('[SupabaseSync] Cannot refresh session: no refresh_token present.');
+    return null;
+  }
+
+  const baseHost = serverUrl || getSyncServerUrl();
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      const endpoint = `${baseHost.replace(/\/+$/, '')}/api/auth/refresh`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          refresh_token: activeSession.refresh_token,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[SupabaseSync] Token refresh endpoint returned status ${res.status}:`, errText);
+        return null;
+      }
+
+      const data = await res.json();
+      if (data && data.success && data.session && data.session.access_token) {
+        const newSession: SupabaseSessionTokens = {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token || activeSession.refresh_token,
+          expires_at: data.session.expires_at,
+          expires_in: data.session.expires_in,
+          user: data.session.user || activeSession.user,
+        };
+        setSupabaseSession(newSession);
+        return newSession;
+      }
+
+      return null;
+    } catch (err) {
+      console.warn('[SupabaseSync] Network error refreshing session:', err);
+      return null;
+    } finally {
+      inFlightRefreshPromise = null;
+    }
+  })();
+
+  return inFlightRefreshPromise;
+}
+
+/**
+ * Ensures a valid (unexpired) session is returned, proactively refreshing if close to expiry.
+ */
+export async function getOrRefreshValidSupabaseSession(params?: {
+  session?: SupabaseSessionTokens | null;
+  serverUrl?: string;
+  marginSeconds?: number;
+}): Promise<SupabaseSessionTokens | null> {
+  const session = params?.session !== undefined ? params.session : getSupabaseSession();
+  if (!session) return null;
+
+  if (isSessionExpiringSoon(session, params?.marginSeconds ?? 300) && session.refresh_token) {
+    const refreshed = await refreshSupabaseSession(session, params?.serverUrl);
+    if (refreshed) {
+      return refreshed;
+    }
+  }
+
+  return session;
+}
+
+/**
+ * Makes an authenticated request to the sync server with proactive expiry checking
+ * and reactive 401 retry on token expiration.
+ */
+export async function authenticatedSupabaseFetch(
+  endpointUrl: string,
+  init: RequestInit,
+  params?: {
+    session?: SupabaseSessionTokens | null;
+    serverUrl?: string;
+  }
+): Promise<
+  | { success: true; response: Response; session: SupabaseSessionTokens }
+  | { success: false; error: string; status?: number; response?: Response }
+> {
+  const baseHost = params?.serverUrl || getSyncServerUrl();
+  let session = await getOrRefreshValidSupabaseSession({
+    session: params?.session,
+    serverUrl: baseHost,
+  });
+
+  if (!session?.access_token) {
+    return {
+      success: false,
+      error: 'Not authenticated with Supabase / Google OAuth.',
+    };
+  }
+
+  const makeRequest = async (token: string) => {
+    const headers = new Headers(init.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    return fetch(endpointUrl, {
+      ...init,
+      headers,
+    });
+  };
+
+  try {
+    let res = await makeRequest(session.access_token);
+
+    // If unauthorized / token expired, attempt reactive refresh
+    if (res.status === 401 && session.refresh_token) {
+      console.log('[SupabaseSync] Received 401 from server. Attempting reactive token refresh...');
+      const refreshed = await refreshSupabaseSession(session, baseHost);
+      if (refreshed && refreshed.access_token) {
+        session = refreshed;
+        res = await makeRequest(session.access_token);
+      } else {
+        return {
+          success: false,
+          status: 401,
+          response: res,
+          error: 'Your Google OAuth session has expired. Please reconnect to continue syncing.',
+        };
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return {
+        success: false,
+        status: res.status,
+        response: res,
+        error: `Server error (${res.status}): ${errText || res.statusText}`,
+      };
+    }
+
+    return {
+      success: true,
+      response: res,
+      session,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network request failed',
+    };
   }
 }
+
 
 /**
  * Gets configured sync server URL.
@@ -197,16 +413,6 @@ export async function syncOperationsWithServer(params: {
   initialState?: ArcableWorkspaceData;
 }): Promise<SupabaseSyncResponse> {
   const baseHost = params.serverUrl || getSyncServerUrl();
-  const session = params.session !== undefined ? params.session : getSupabaseSession();
-
-  if (!session?.access_token) {
-    return {
-      success: false,
-      serverVersion: params.baseVersion,
-      error: 'Not authenticated with Supabase / Google OAuth.',
-    };
-  }
-
   const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/operations`;
   const body: SupabaseSyncRequest = {
     baseVersion: params.baseVersion,
@@ -216,32 +422,37 @@ export async function syncOperationsWithServer(params: {
     initialState: params.initialState,
   };
 
-  try {
-    const res = await fetch(endpoint, {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        serverVersion: params.baseVersion,
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
+    },
+    {
+      session: params.session,
+      serverUrl: baseHost,
     }
+  );
 
-    const data: SupabaseSyncResponse = await res.json();
+  if (!req.success) {
+    return {
+      success: false,
+      serverVersion: params.baseVersion,
+      error: req.error,
+    };
+  }
+
+  try {
+    const data: SupabaseSyncResponse = await req.response.json();
     return data;
   } catch (err: any) {
     return {
       success: false,
       serverVersion: params.baseVersion,
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse sync response',
     };
   }
 }
@@ -259,34 +470,28 @@ export async function fetchServerWorkspaceState(params?: {
   error?: string;
 }> {
   const baseHost = params?.serverUrl || getSyncServerUrl();
-  const session = params?.session !== undefined ? params?.session : getSupabaseSession();
+  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/state`;
 
-  if (!session?.access_token) {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
+      method: 'GET',
+    },
+    {
+      session: params?.session,
+      serverUrl: baseHost,
+    }
+  );
+
+  if (!req.success) {
     return {
       success: false,
-      error: 'Not authenticated with Supabase / Google OAuth.',
+      error: req.error,
     };
   }
 
-  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/state`;
-
   try {
-    const res = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
-    }
-
-    const data = await res.json();
+    const data = await req.response.json();
     return {
       success: true,
       version: data.version,
@@ -295,7 +500,7 @@ export async function fetchServerWorkspaceState(params?: {
   } catch (err: any) {
     return {
       success: false,
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse server state response',
     };
   }
 }
@@ -362,10 +567,20 @@ export async function performSupabaseSync(params: {
   serverUrl?: string;
   session?: SupabaseSessionTokens | null;
 }): Promise<{ success: boolean; error?: string; serverVersion?: number }> {
-  const session = params.session !== undefined ? params.session : getSupabaseSession();
+  let session = params.session !== undefined ? params.session : getSupabaseSession();
   if (!session) {
     return { success: false, error: 'No active session' };
   }
+
+  // Ensure session is fresh before beginning sync operations
+  const validSession = await getOrRefreshValidSupabaseSession({
+    session,
+    serverUrl: params.serverUrl,
+  });
+  if (validSession) {
+    session = validSession;
+  }
+
 
   const deviceId = getOrCreateDeviceId();
   const deviceName = getStoredDeviceName();
@@ -439,16 +654,6 @@ export async function fetchSupabaseDevices(params?: {
   currentDeviceName?: string;
 }): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
   const baseHost = params?.serverUrl || getSyncServerUrl();
-  const session = params?.session !== undefined ? params?.session : getSupabaseSession();
-
-  if (!session?.access_token) {
-    return {
-      success: false,
-      devices: [],
-      error: 'Not authenticated with Supabase / Google OAuth.',
-    };
-  }
-
   const queryParams = new URLSearchParams();
   if (params?.currentDeviceId) queryParams.set('deviceId', params.currentDeviceId);
   if (params?.currentDeviceName) queryParams.set('deviceName', params.currentDeviceName);
@@ -456,24 +661,27 @@ export async function fetchSupabaseDevices(params?: {
   const qs = queryParams.toString();
   const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices${qs ? `?${qs}` : ''}`;
 
-  try {
-    const res = await fetch(endpoint, {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
       method: 'GET',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        devices: [],
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
+    },
+    {
+      session: params?.session,
+      serverUrl: baseHost,
     }
+  );
 
-    const data = await res.json();
+  if (!req.success) {
+    return {
+      success: false,
+      devices: [],
+      error: req.error,
+    };
+  }
+
+  try {
+    const data = await req.response.json();
     return {
       success: true,
       devices: sortDevicesByLastSync(data.devices || []),
@@ -482,7 +690,7 @@ export async function fetchSupabaseDevices(params?: {
     return {
       success: false,
       devices: [],
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse devices response',
     };
   }
 }
@@ -497,41 +705,36 @@ export async function renameSupabaseDevice(params: {
   newName: string;
 }): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
   const baseHost = params.serverUrl || getSyncServerUrl();
-  const session = params.session !== undefined ? params.session : getSupabaseSession();
-
-  if (!session?.access_token) {
-    return {
-      success: false,
-      devices: [],
-      error: 'Not authenticated with Supabase / Google OAuth.',
-    };
-  }
-
   const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
 
-  try {
-    const res = await fetch(endpoint, {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
         deviceId: params.deviceId,
         newName: params.newName,
       }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        devices: [],
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
+    },
+    {
+      session: params.session,
+      serverUrl: baseHost,
     }
+  );
 
-    const data = await res.json();
+  if (!req.success) {
+    return {
+      success: false,
+      devices: [],
+      error: req.error,
+    };
+  }
+
+  try {
+    const data = await req.response.json();
     return {
       success: true,
       devices: sortDevicesByLastSync(data.devices || []),
@@ -540,7 +743,7 @@ export async function renameSupabaseDevice(params: {
     return {
       success: false,
       devices: [],
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse rename device response',
     };
   }
 }
@@ -554,40 +757,35 @@ export async function deleteSupabaseDevice(params: {
   deviceId: string;
 }): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
   const baseHost = params.serverUrl || getSyncServerUrl();
-  const session = params.session !== undefined ? params.session : getSupabaseSession();
-
-  if (!session?.access_token) {
-    return {
-      success: false,
-      devices: [],
-      error: 'Not authenticated with Supabase / Google OAuth.',
-    };
-  }
-
   const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
 
-  try {
-    const res = await fetch(endpoint, {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
         deviceId: params.deviceId,
       }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        devices: [],
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
+    },
+    {
+      session: params.session,
+      serverUrl: baseHost,
     }
+  );
 
-    const data = await res.json();
+  if (!req.success) {
+    return {
+      success: false,
+      devices: [],
+      error: req.error,
+    };
+  }
+
+  try {
+    const data = await req.response.json();
     return {
       success: true,
       devices: sortDevicesByLastSync(data.devices || []),
@@ -596,7 +794,7 @@ export async function deleteSupabaseDevice(params: {
     return {
       success: false,
       devices: [],
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse delete device response',
     };
   }
 }
@@ -610,41 +808,36 @@ export async function deleteAllOtherSupabaseDevices(params: {
   keepDeviceId: string;
 }): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
   const baseHost = params.serverUrl || getSyncServerUrl();
-  const session = params.session !== undefined ? params.session : getSupabaseSession();
-
-  if (!session?.access_token) {
-    return {
-      success: false,
-      devices: [],
-      error: 'Not authenticated with Supabase / Google OAuth.',
-    };
-  }
-
   const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
 
-  try {
-    const res = await fetch(endpoint, {
+  const req = await authenticatedSupabaseFetch(
+    endpoint,
+    {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({
         deviceId: params.keepDeviceId,
         allOther: true,
       }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        success: false,
-        devices: [],
-        error: `Server error (${res.status}): ${errText || res.statusText}`,
-      };
+    },
+    {
+      session: params.session,
+      serverUrl: baseHost,
     }
+  );
 
-    const data = await res.json();
+  if (!req.success) {
+    return {
+      success: false,
+      devices: [],
+      error: req.error,
+    };
+  }
+
+  try {
+    const data = await req.response.json();
     return {
       success: true,
       devices: sortDevicesByLastSync(data.devices || []),
@@ -653,7 +846,7 @@ export async function deleteAllOtherSupabaseDevices(params: {
     return {
       success: false,
       devices: [],
-      error: err?.message || 'Network request failed',
+      error: err?.message || 'Failed to parse delete all other devices response',
     };
   }
 }

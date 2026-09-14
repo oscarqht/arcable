@@ -38,6 +38,7 @@ import {
   setSyncServerUrl,
   getStoredServerVersion,
   performSupabaseSync,
+  refreshSupabaseSession,
   getDefaultServerUrl,
 } from '@arcable/shared/utils';
 
@@ -199,8 +200,14 @@ export const App: React.FC = () => {
       });
     };
 
+    const handleSessionEvent = (e: any) => {
+      const detail = e?.detail as SupabaseSessionTokens | null;
+      setSupabaseSessionState(detail || null);
+    };
+
     window.addEventListener('focus', handleTabFocus);
     window.addEventListener('visibilitychange', handleTabFocus);
+    window.addEventListener('arcable_supabase_session_changed', handleSessionEvent);
 
     browser.storage.onChanged.addListener(handleStorageChange);
     browser.runtime.onMessage.addListener(handleRuntimeMessage);
@@ -208,6 +215,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('focus', handleTabFocus);
       window.removeEventListener('visibilitychange', handleTabFocus);
+      window.removeEventListener('arcable_supabase_session_changed', handleSessionEvent);
       browser.storage.onChanged.removeListener(handleStorageChange);
       browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
@@ -344,6 +352,7 @@ export const App: React.FC = () => {
 
       if (res.success) {
         if (res.serverVersion) setSupabaseVersionState(res.serverVersion);
+        setSupabaseError(null);
         showToast('Cloud sync complete!', 'success');
       } else {
         setSupabaseError(res.error || 'Sync failed');
@@ -368,12 +377,31 @@ export const App: React.FC = () => {
   };
 
   const handleRefreshSession = async () => {
-    const res: any = await browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']);
-    if (res.arcable_supabase_session) {
-      setSupabaseSessionState(res.arcable_supabase_session);
-      showToast('Connected to Arcable Cloud!', 'success');
-    } else {
-      showToast('No active session found. Please complete sign-in in the login tab.', 'info');
+    try {
+      const res: any = await browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']);
+      const session = res.arcable_supabase_session || supabaseSession || getSupabaseSession();
+      if (!session) {
+        showToast('No active session found. Please complete sign-in in the login tab.', 'info');
+        return;
+      }
+
+      if (session.refresh_token) {
+        const refreshed = await refreshSupabaseSession(session, supabaseServerUrl);
+        if (refreshed) {
+          setSupabaseSessionState(refreshed);
+          setSupabaseError(null);
+          showToast('Connection refreshed successfully!', 'success');
+          return;
+        }
+      }
+
+      if (session.access_token) {
+        setSupabaseSessionState(session);
+        setSupabaseError(null);
+        showToast('Connected to Arcable Cloud!', 'success');
+      }
+    } catch (err: any) {
+      showToast('Refresh failed: ' + (err?.message || 'Unknown error'), 'warning');
     }
   };
 

@@ -27,6 +27,7 @@ import {
   getDefaultDeviceName,
   searchRaindrop,
   getDefaultServerUrl,
+  refreshSupabaseSession,
 } from '@arcable/shared/utils';
 import {
   initRunCodeBackgroundListeners,
@@ -411,6 +412,29 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: stored.arcable_supabase_session || null };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to retrieve Supabase session' };
+        }
+      }
+
+      // Supabase: Refresh Session
+      case 'SUPABASE_REFRESH_SESSION': {
+        try {
+          const storedAuth: any = await browser.storage.local.get([
+            'arcable_supabase_session',
+            'arcable_supabase_server_url',
+          ]);
+          const session = storedAuth.arcable_supabase_session;
+          if (!session?.refresh_token) {
+            return { success: false, error: 'No refresh token available' };
+          }
+          const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+          const refreshed = await refreshSupabaseSession(session, serverUrl);
+          if (refreshed) {
+            await browser.storage.local.set({ arcable_supabase_session: refreshed });
+            return { success: true, data: refreshed };
+          }
+          return { success: false, error: 'Failed to refresh Supabase session' };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to refresh Supabase session' };
         }
       }
 

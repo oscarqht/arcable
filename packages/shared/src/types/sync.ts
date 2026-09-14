@@ -80,6 +80,7 @@ export interface SupabaseSessionTokens {
   access_token: string;
   refresh_token: string;
   expires_at?: number;
+  expires_in?: number;
   user?: {
     id: string;
     email?: string;

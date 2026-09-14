@@ -61,6 +61,15 @@ export async function authenticateUserFromRequest(request: Request): Promise<{
 }
 
 /**
+ * Refreshes a user session using their refresh_token against Supabase Auth.
+ */
+export async function refreshSupabaseUserSession(refreshToken: string) {
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+  return { data, error };
+}
+
+/**
  * Generates CORS headers allowing Chrome/Firefox extensions and localhost web requests.
  */
 export function getCorsHeaders(request?: Request): Record<string, string> {
@@ -72,3 +81,4 @@ export function getCorsHeaders(request?: Request): Record<string, string> {
     'Access-Control-Allow-Credentials': 'true',
   };
 }
+
