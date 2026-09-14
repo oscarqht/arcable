@@ -2,8 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { Folder, Tab, TabUrlVariant } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
-import { getSortedSiblings } from '../../hooks/useWorkspace';
-import { getAllFolderTabUrls, isTabInFolder, findDirectChildForTab } from '../../utils/treeUtils';
+import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -118,10 +117,33 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
-  const isSemiExpanded =
-    !isExpanded &&
-    Boolean(highlightedTabId) &&
-    isTabInFolder(highlightedTabId!, folder.id, allFolders, allTabs);
+
+  const openTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (tabAssociations) {
+      for (const id of Object.keys(tabAssociations)) {
+        if (tabAssociations[id]) {
+          ids.add(id);
+        }
+      }
+    }
+    if (highlightedTabId) {
+      ids.add(highlightedTabId);
+    }
+    return ids;
+  }, [tabAssociations, highlightedTabId]);
+
+  const hasOpenChild = useMemo(() => {
+    if (openTabIds.size === 0) return false;
+    return hasAnyTabInFolder(openTabIds, folder.id, allFolders, allTabs);
+  }, [openTabIds, folder.id, allFolders, allTabs]);
+
+  const hasActiveChild = useMemo(() => {
+    if (!highlightedTabId) return false;
+    return isTabInFolder(highlightedTabId, folder.id, allFolders, allTabs);
+  }, [highlightedTabId, folder.id, allFolders, allTabs]);
+
+  const isSemiExpanded = !isExpanded && hasOpenChild;
   const totalItemCount = siblings.length;
 
   const updatePopupPosition = useCallback(() => {
@@ -284,20 +306,21 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
   }, [isExpanded, clearHoverTimer, clearCloseTimer]);
 
-  const activeDirectChild = useMemo(() => {
-    if (!isSemiExpanded || !highlightedTabId) return null;
-    return findDirectChildForTab(highlightedTabId, folder.id, allFolders, allTabs);
-  }, [isSemiExpanded, highlightedTabId, folder.id, allFolders, allTabs]);
-
   const visibleSiblings = useMemo(() => {
     if (isExpanded) return siblings;
-    if (isSemiExpanded && activeDirectChild) {
-      return siblings.filter(
-        (s) => s.type === activeDirectChild.type && s.id === activeDirectChild.id
-      );
+    if (isSemiExpanded) {
+      return siblings.filter((item) => {
+        if (item.type === 'tab') {
+          return openTabIds.has(item.id);
+        }
+        if (item.type === 'folder') {
+          return hasAnyTabInFolder(openTabIds, item.id, allFolders, allTabs);
+        }
+        return false;
+      });
     }
     return [];
-  }, [isExpanded, isSemiExpanded, activeDirectChild, siblings]);
+  }, [isExpanded, isSemiExpanded, siblings, openTabIds, allFolders, allTabs]);
 
   const handleCopyFolder = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -823,7 +846,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           {isSemiExpanded && (
             <div
-              title="Active tab inside"
+              title={hasActiveChild ? 'Active tab inside' : 'Open tabs inside'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -839,7 +862,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   backgroundColor: '#10b981',
                   boxShadow: '0 0 0 2px rgba(16, 185, 129, 0.25)',
                   display: 'inline-block',
-                  animation: 'arcable-pulse 2s infinite',
+                  ...(hasActiveChild ? { animation: 'arcable-pulse 2s infinite' } : {}),
                 }}
               />
             </div>

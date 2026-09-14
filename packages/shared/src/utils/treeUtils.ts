@@ -345,6 +345,23 @@ export function isTabInFolder(
 }
 
 /**
+ * Checks whether any tab in a given collection of tab IDs belongs to a specified folder (direct child or descendant).
+ */
+export function hasAnyTabInFolder(
+  tabIds: Iterable<string>,
+  folderId: string,
+  allFolders: Folder[],
+  allTabs: Tab[]
+): boolean {
+  for (const tabId of tabIds) {
+    if (isTabInFolder(tabId, folderId, allFolders, allTabs)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Finds the immediate direct child item (either a subfolder or a direct tab) of folderId
  * that is or contains the targetTabId.
  */
