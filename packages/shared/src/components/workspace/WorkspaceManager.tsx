@@ -1108,7 +1108,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           return;
         }
         checkAndSync(true);
-      }, 800);
+      }, 5000);
     };
 
     const handleFocusOrOnline = () => {
