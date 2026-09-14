@@ -490,6 +490,11 @@ browser.runtime.onMessage.addListener(
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
       case 'RAINDROP_SYNC_WORKSPACE': {
+        const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
+        if (storedGoogle.arcable_supabase_session?.access_token) {
+          return { success: false, error: 'Google OAuth is active. Raindrop sync is disabled.' };
+        }
+
         const auth = await getStoredAuthState();
         if (!auth.isAuthenticated || !auth.accessToken) {
           return { success: false, error: 'Not authenticated with Raindrop' };
@@ -875,8 +880,18 @@ async function triggerBackgroundSync(): Promise<void> {
   isBackgroundSyncInFlight = true;
 
   try {
+    // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
+    const storedAuth: any = await browser.storage.local.get(['arcable_supabase_session']);
+    if (storedAuth.arcable_supabase_session?.access_token) {
+      return;
+    }
+
+    // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop;
     const auth = await getStoredAuthState();
-    if (!auth.isAuthenticated || !auth.accessToken) return;
+    if (!auth.isAuthenticated || !auth.accessToken) {
+      // 3. if user has logged in to none, don't perform any sync at all.
+      return;
+    }
 
     const storedData = await browser.storage.local.get([
       'arcable_workspace_snapshot',

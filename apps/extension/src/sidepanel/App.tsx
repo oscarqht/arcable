@@ -21,6 +21,8 @@ import {
   setSyncProvider,
   getSupabaseSession,
   setSupabaseSession,
+  fetchServerWorkspaceState,
+  setStoredServerVersion,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -109,6 +111,36 @@ export const App: React.FC = () => {
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
+  // Authoritative server state fetcher for Supabase
+  const loadCloudWorkspace = useCallback(async (sessionTokens?: SupabaseSessionTokens | null) => {
+    const activeTokens = sessionTokens !== undefined ? sessionTokens : (supabaseSession || getSupabaseSession());
+    if (!activeTokens?.access_token) return;
+
+    try {
+      setIsSyncing(true);
+      const res = await fetchServerWorkspaceState({ session: activeTokens });
+      if (res.success && res.state) {
+        workspaceRef.current?.applySnapshot?.(res.state);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.state));
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.state }));
+        }
+        if (res.version) {
+          setStoredServerVersion(res.version);
+        }
+      }
+    } catch (e) {
+      console.warn('[Sidepanel] Failed to load cloud workspace:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [supabaseSession]);
+
+  const loadCloudWorkspaceRef = useRef(loadCloudWorkspace);
+  useEffect(() => {
+    loadCloudWorkspaceRef.current = loadCloudWorkspace;
+  }, [loadCloudWorkspace]);
+
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -169,23 +201,32 @@ export const App: React.FC = () => {
         setCurrentDeviceId(devId);
         void browser.storage.local.set({ arcable_device_id: devId });
       }
-      if (res.arcable_sync_provider) {
-        setSyncProviderState(res.arcable_sync_provider);
-        setSyncProvider(res.arcable_sync_provider);
-      }
-      if (res.arcable_supabase_session && res.arcable_supabase_session.access_token) {
+
+      const isGoogle = Boolean(res.arcable_supabase_session && res.arcable_supabase_session.access_token);
+      if (isGoogle) {
         setHasSupabaseAuth(true);
         setSupabaseSessionState(res.arcable_supabase_session);
         setSupabaseSession(res.arcable_supabase_session);
+        setSyncProviderState('supabase');
+        setSyncProvider('supabase');
+        // Fetch authoritative state from cloud
+        void loadCloudWorkspaceRef.current(res.arcable_supabase_session);
+      } else {
+        setHasSupabaseAuth(false);
+        setSupabaseSessionState(null);
+        setSupabaseSession(null);
       }
+
       const auth = res.arcable_raindrop_auth;
-      if (auth && auth.isAuthenticated) {
-        setHasRaindropAuth(true);
-      }
+      const isRaindrop = Boolean(!isGoogle && auth && auth.isAuthenticated);
+      setHasRaindropAuth(Boolean(auth && auth.isAuthenticated));
+
       if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
       }
-      if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+
+      // Rule 1 & 2: ONLY load Raindrop workspace snapshot if user is NOT in Google OAuth mode and IS in Raindrop mode!
+      if (!isGoogle && isRaindrop && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         let snapshot = res.arcable_workspace_snapshot;
         const remainingOps = getStoredPendingOperations();
         if (remainingOps.length > 0) {
@@ -233,6 +274,7 @@ export const App: React.FC = () => {
         setHasSupabaseAuth(true);
         setSupabaseSessionState(res.data);
         setSupabaseSession(res.data);
+        void loadCloudWorkspaceRef.current(res.data);
       }
     });
 
@@ -245,6 +287,11 @@ export const App: React.FC = () => {
           setHasSupabaseAuth(isAuth);
           setSupabaseSessionState(sess || null);
           setSupabaseSession(sess || null);
+          if (isAuth) {
+            setSyncProviderState('supabase');
+            setSyncProvider('supabase');
+            void loadCloudWorkspaceRef.current(sess);
+          }
         }
         if (changes.arcable_sync_provider?.newValue) {
           setSyncProviderState(changes.arcable_sync_provider.newValue);
@@ -266,6 +313,12 @@ export const App: React.FC = () => {
           workspaceRef.current?.setActiveSpace?.(newId);
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
+          // Rule 1: if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop!
+          const currentGoogleAuth = Boolean(getSupabaseSession()?.access_token);
+          if (currentGoogleAuth) {
+            return;
+          }
+
           let snapshot = changes.arcable_workspace_snapshot.newValue;
           const remainingOps = getStoredPendingOperations();
           if (remainingOps.length > 0) {
@@ -327,17 +380,17 @@ export const App: React.FC = () => {
 
     const handleFocus = () => {
       browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider', 'arcable_raindrop_auth']).then((res: any) => {
-        if (res.arcable_supabase_session?.access_token) {
+        const isGoogle = Boolean(res.arcable_supabase_session?.access_token);
+        if (isGoogle) {
           setHasSupabaseAuth(true);
           setSupabaseSessionState(res.arcable_supabase_session);
           setSupabaseSession(res.arcable_supabase_session);
+          setSyncProviderState('supabase');
+          setSyncProvider('supabase');
         } else {
           setHasSupabaseAuth(false);
           setSupabaseSessionState(null);
-        }
-        if (res.arcable_sync_provider) {
-          setSyncProviderState(res.arcable_sync_provider);
-          setSyncProvider(res.arcable_sync_provider);
+          setSupabaseSession(null);
         }
         if (res.arcable_raindrop_auth) {
           setHasRaindropAuth(Boolean(res.arcable_raindrop_auth.isAuthenticated));
@@ -703,18 +756,19 @@ export const App: React.FC = () => {
     return res.data;
   };
 
-  const isGoogleLoggedIn = hasSupabaseAuth;
+  const isGoogleLoggedIn = Boolean(hasSupabaseAuth && supabaseSession?.access_token);
+  const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && hasRaindropAuth);
 
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
-      id: isGoogleLoggedIn ? 'sync-cloud' : 'sync-raindrop',
+      id: isGoogleLoggedIn ? 'sync-cloud' : isRaindropLoggedIn ? 'sync-raindrop' : 'connect-sync',
       label: isSyncing
         ? 'Syncing...'
         : isGoogleLoggedIn
         ? 'Cloud Sync'
-        : hasRaindropAuth
+        : isRaindropLoggedIn
         ? 'Raindrop Sync'
-        : 'Connect Cloud Sync',
+        : 'Connect Sync',
       icon: (
         <span
           style={{
@@ -725,27 +779,33 @@ export const App: React.FC = () => {
             animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
           }}
         >
-          {isGoogleLoggedIn ? '☁️' : '💧'}
+          {isGoogleLoggedIn ? '☁️' : isRaindropLoggedIn ? '💧' : '🔄'}
         </span>
       ),
       onClick: async () => {
+        // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
         if (isGoogleLoggedIn) {
           setSyncProvider('supabase');
           setSyncProviderState('supabase');
+          await loadCloudWorkspace();
           if (workspaceRef.current) {
             await workspaceRef.current.triggerSync();
           }
           return;
         }
 
-        if (!hasRaindropAuth) {
-          browser.runtime.openOptionsPage();
+        // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop, NEVER supabase;
+        if (isRaindropLoggedIn) {
+          setSyncProvider('raindrop');
+          setSyncProviderState('raindrop');
+          if (workspaceRef.current) {
+            await workspaceRef.current.triggerSync();
+          }
           return;
         }
 
-        if (workspaceRef.current) {
-          await workspaceRef.current.triggerSync();
-        }
+        // 3. if user has logged in to none, don't perform any sync at all.
+        browser.runtime.openOptionsPage();
       },
       disabled: isSyncing,
     },
@@ -859,8 +919,8 @@ export const App: React.FC = () => {
           onMediaControl={handleMediaControl}
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
-          onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
-          onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
+          onSyncRaindrop={isRaindropLoggedIn ? handleSyncRaindrop : undefined}
+          onSearchRaindrop={isRaindropLoggedIn ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </div>
@@ -877,9 +937,9 @@ export const App: React.FC = () => {
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
-        onBackup={hasRaindropAuth ? handleCreateBackup : undefined}
-        onFetchBackups={hasRaindropAuth ? handleFetchBackups : undefined}
-        onRestoreBackup={hasRaindropAuth ? handleRestoreBackup : undefined}
+        onBackup={isRaindropLoggedIn ? handleCreateBackup : undefined}
+        onFetchBackups={isRaindropLoggedIn ? handleFetchBackups : undefined}
+        onRestoreBackup={isRaindropLoggedIn ? handleRestoreBackup : undefined}
         onRestoreComplete={handleRestoreComplete}
       />
     </div>

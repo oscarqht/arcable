@@ -28,12 +28,15 @@ export const DEFAULT_SERVER_URL = 'http://localhost:3000';
 export function getSyncProvider(): SyncProvider {
   if (typeof window === 'undefined') return 'supabase';
   try {
+    // If user has active Google/Supabase OAuth session, sync provider is strictly supabase
+    if (getSupabaseSession()?.access_token) {
+      return 'supabase';
+    }
     const provider = window.localStorage.getItem(SYNC_PROVIDER_KEY) as SyncProvider;
     if (provider === 'raindrop' || provider === 'local' || provider === 'supabase') {
       return provider;
     }
-    // Default to supabase if session exists, else supabase
-    return 'supabase';
+    return 'raindrop';
   } catch {
     return 'supabase';
   }

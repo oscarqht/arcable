@@ -934,8 +934,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const pendingOps = getStoredPendingOperations();
         const syncedOpIds = pendingOps.map((op) => op.id);
 
-        const provider = getSyncProvider();
-        if (provider === 'supabase' && getSupabaseSession()) {
+        const hasSupabase = Boolean(getSupabaseSession()?.access_token);
+        const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
+
+        // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
+        if (hasSupabase) {
           const res = await syncWithSupabaseServer();
           if (currentSeq === syncSeqRef.current) {
             if (res.success) {
@@ -956,16 +959,35 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           return;
         }
 
-        if (onSyncRaindrop) {
-          const res = await onSyncRaindrop({
-            localState: data,
-            deviceId,
-            pendingOps,
-          });
+        // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop, NEVER supabase;
+        if (hasRaindrop) {
+          if (onSyncRaindrop) {
+            const res = await onSyncRaindrop({
+              localState: data,
+              deviceId,
+              pendingOps,
+            });
 
-          if (currentSeq === syncSeqRef.current) {
-            if (res && typeof res === 'object') {
-              result = res as SyncResult;
+            if (currentSeq === syncSeqRef.current) {
+              if (res && typeof res === 'object') {
+                result = res as SyncResult;
+                if (res.success) {
+                  removeStoredPendingOperations(syncedOpIds);
+                  if (res.latestSnapshot) {
+                    applyLatestSnapshot(res.latestSnapshot);
+                  }
+                }
+              }
+            }
+          } else if (raindropToken) {
+            const res = await syncWorkspaceWithRaindrop(raindropToken, {
+              localState: data,
+              deviceId,
+              pendingOps,
+            });
+
+            if (currentSeq === syncSeqRef.current) {
+              result = res;
               if (res.success) {
                 removeStoredPendingOperations(syncedOpIds);
                 if (res.latestSnapshot) {
@@ -974,26 +996,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               }
             }
           }
-        } else if (raindropToken) {
-          const res = await syncWorkspaceWithRaindrop(raindropToken, {
-            localState: data,
-            deviceId,
-            pendingOps,
-          });
-
-          if (currentSeq === syncSeqRef.current) {
-            result = res;
-            if (res.success) {
-              removeStoredPendingOperations(syncedOpIds);
-              if (res.latestSnapshot) {
-                applyLatestSnapshot(res.latestSnapshot);
-              }
-            }
-          }
         } else {
+          // 3. if user has logged in to none, don't perform any sync at all.
           if (!isCurrentSyncSilentRef.current) {
             setSyncFeedback({
-              message: 'Please connect a Raindrop account or API token first.',
+              message: 'Please sign in with Google or connect Raindrop first.',
               isError: true,
             });
           }
@@ -1090,8 +1097,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // Auto-sync on mount or when Supabase session changes
   useEffect(() => {
     const checkAndSync = (silent: boolean = true) => {
-      const hasSupabase = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
-      if (autoSync && (onSyncRaindrop || raindropToken || hasSupabase)) {
+      const hasSupabase = Boolean(getSupabaseSession()?.access_token);
+      const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
+      if (autoSync && (hasSupabase || hasRaindrop)) {
         performSync(silent);
       }
     };
@@ -1112,7 +1120,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Debounced auto-sync when local changes occur
   useEffect(() => {
-    if (!autoSync || (!onSyncRaindrop && !raindropToken)) return;
+    const hasSupabase = Boolean(getSupabaseSession()?.access_token);
+    const hasRaindrop = !hasSupabase && Boolean(onSyncRaindrop || raindropToken);
+    if (!autoSync || (!hasSupabase && !hasRaindrop)) return;
 
     const pending = getStoredPendingOperations();
     if (pending.length === 0) return;

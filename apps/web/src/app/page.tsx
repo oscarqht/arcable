@@ -565,7 +565,7 @@ export default function HomePage() {
   }, []);
 
   const isSupabaseActive = Boolean(supabaseSession?.access_token);
-  const isRaindropActive = Boolean(authState.isAuthenticated && authState.user);
+  const isRaindropActive = Boolean(!isSupabaseActive && authState.isAuthenticated && authState.user);
   const isAuthenticated = isSupabaseActive || isRaindropActive;
   const isOverallLoading = authLoading || supabaseLoading;
 
@@ -645,10 +645,18 @@ export default function HomePage() {
               onClick={async () => {
                 if (isSupabaseActive) {
                   await loadServerWorkspace();
+                  if (workspaceRef.current) {
+                    await workspaceRef.current.triggerSync();
+                  }
+                  return;
                 }
-                if (workspaceRef.current) {
-                  await workspaceRef.current.triggerSync();
+                if (isRaindropActive) {
+                  if (workspaceRef.current) {
+                    await workspaceRef.current.triggerSync();
+                  }
+                  return;
                 }
+                setIsAuthModalOpen(true);
               }}
               disabled={isSyncing}
               title={
@@ -919,15 +927,15 @@ export default function HomePage() {
           showJsonInspector={true}
           showWidgets={true}
           defaultViewMode="grid"
-          raindropToken={authState.accessToken}
+          raindropToken={isRaindropActive ? authState.accessToken : undefined}
           currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
           onOpenTab={(url: string) => {
             if (typeof window !== 'undefined' && url) {
               window.open(url, '_blank', 'noopener,noreferrer');
             }
           }}
-          onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
-          onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
+          onSyncRaindrop={isRaindropActive ? handleSyncWorkspace : undefined}
+          onSearchRaindrop={isRaindropActive ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </main>
@@ -949,9 +957,16 @@ export default function HomePage() {
         onSyncNow={async () => {
           if (isSupabaseActive) {
             await loadServerWorkspace();
+            if (workspaceRef.current) {
+              await workspaceRef.current.triggerSync();
+            }
+            return;
           }
-          if (workspaceRef.current) {
-            await workspaceRef.current.triggerSync();
+          if (isRaindropActive) {
+            if (workspaceRef.current) {
+              await workspaceRef.current.triggerSync();
+            }
+            return;
           }
         }}
         isSyncing={isSyncing}
