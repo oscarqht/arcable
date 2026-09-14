@@ -6,6 +6,7 @@ import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   getOrCreateDeviceId,
   getStoredDeviceName,
@@ -198,6 +199,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     reorderWidget,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
+
+  const isMobile = useIsMobile();
+  const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -1985,7 +1989,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setIsFolderModalOpen(true);
                   }}
                   onDeleteFolder={handleRequestDeleteFolder}
-                  onToggleFolderExpand={toggleFolderExpand}
+                  onToggleFolderExpand={handleToggleFolderExpand}
                   onEditTab={(t) => {
                     setEditingTab(t);
                     setTargetSpaceIdForModal(space.id);
@@ -2121,7 +2125,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsFolderModalOpen(true);
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
-                      onToggleFolderExpand={toggleFolderExpand}
+                      onToggleFolderExpand={handleToggleFolderExpand}
                       onEditTab={(t) => {
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);
@@ -2288,7 +2292,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsFolderModalOpen(true);
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
-                      onToggleFolderExpand={toggleFolderExpand}
+                      onToggleFolderExpand={handleToggleFolderExpand}
                       onEditTab={(t) => {
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);

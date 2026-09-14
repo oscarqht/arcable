@@ -118,7 +118,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
-  const isExpanded = folder.isExpanded !== false;
+  // On mobile device, always expand all folders regardless of their collapsed status
+  const isExpanded = isMobile ? true : folder.isExpanded !== false;
 
   const openTabIds = useMemo(() => {
     const ids = new Set<string>();
@@ -217,6 +218,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   }, []);
 
   const handleMouseEnterHeader = () => {
+    if (isMobile) return;
     setIsHovered(true);
     clearCloseTimer();
     if (!isExpanded && siblings.length > 0) {
@@ -572,7 +574,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       e.stopPropagation();
                       e.preventDefault();
                       setShowHoverPopup(false);
-                      onToggleExpand(subfolder.id);
+                      if (!isMobile) {
+                        onToggleExpand(subfolder.id);
+                      }
                     }}
                     style={{
                       display: 'flex',
@@ -829,6 +833,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         onMouseEnter={handleMouseEnterHeader}
         onMouseLeave={handleMouseLeaveHeader}
         onClick={() => {
+          if (isMobile) return;
           clearHoverTimer();
           clearCloseTimer();
           setShowHoverPopup(false);
@@ -844,13 +849,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           backgroundColor:
             dropIndicator === 'inside'
               ? effectiveDark ? 'rgba(255, 255, 255, 0.25)' : '#e0f2fe'
-              : isHovered
+              : !isMobile && isHovered
               ? hoverBg
               : 'transparent',
           borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
           borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
           color: textColor,
-          cursor: 'pointer',
+          cursor: isMobile ? 'default' : 'pointer',
           transition: 'background-color 0.12s ease',
           userSelect: 'none',
           boxSizing: 'border-box',

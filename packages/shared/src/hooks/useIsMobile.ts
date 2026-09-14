@@ -21,8 +21,9 @@ export function useIsMobile(): boolean {
       const isCoarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
       const isHoverNone = window.matchMedia?.('(hover: none)').matches ?? false;
       const isSmallTouch = hasTouch && window.innerWidth <= 1024;
+      const isSmallScreen = window.innerWidth <= 768;
 
-      return Boolean(isMobileUA || isHoverNone || isCoarse || isSmallTouch);
+      return Boolean(isMobileUA || isHoverNone || (hasTouch && (isCoarse || isSmallTouch || isSmallScreen)));
     } catch {
       return false;
     }
@@ -40,9 +41,10 @@ export function useIsMobile(): boolean {
         );
         const isCoarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
         const isHoverNone = window.matchMedia?.('(hover: none)').matches ?? false;
+        const isSmallTouch = hasTouch && window.innerWidth <= 1024;
         const isSmallScreen = window.innerWidth <= 768;
 
-        return Boolean(isMobileUA || (hasTouch && (isCoarse || isHoverNone || isSmallScreen)));
+        return Boolean(isMobileUA || isHoverNone || (hasTouch && (isCoarse || isSmallTouch || isSmallScreen)));
       } catch {
         return false;
       }
@@ -53,7 +55,7 @@ export function useIsMobile(): boolean {
 
     const mqlCoarse = window.matchMedia?.('(pointer: coarse)');
     const mqlHover = window.matchMedia?.('(hover: none)');
-    const mqlWidth = window.matchMedia?.('(max-width: 768px)');
+    const mqlWidth = window.matchMedia?.('(max-width: 1024px)');
 
     const handleUpdate = () => {
       setIsMobile(checkIsMobile());
