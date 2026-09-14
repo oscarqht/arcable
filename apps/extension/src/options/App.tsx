@@ -350,6 +350,7 @@ export const App: React.FC = () => {
       }
     } catch (err: any) {
       setSupabaseError(err?.message || 'Sync failed');
+      showToast(err?.message || 'Sync failed', 'warning');
     } finally {
       setIsSupabaseSyncing(false);
     }

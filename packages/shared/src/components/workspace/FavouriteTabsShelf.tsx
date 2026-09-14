@@ -1101,9 +1101,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     height: '100%',
                     width: '100%',
                     userSelect: 'none',
-                    padding: '4px 2px',
+                    padding: '3px 2px',
                     boxSizing: 'border-box',
-                    gap: '2px',
+                    gap: '1.5px',
                   }}
                 >
                   <div
@@ -1111,17 +1111,30 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       fontSize: '8.5px',
                       fontWeight: 800,
                       color: shelfTheme.primaryColor,
-                      letterSpacing: '0.05em',
+                      letterSpacing: '0.06em',
                       textTransform: 'uppercase',
-                      lineHeight: 1,
+                      lineHeight: 1.1,
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {clockInfo.weekdayShort} {clockInfo.monthShort} {clockInfo.day}
+                    {clockInfo.weekdayShort}
                   </div>
                   <div
                     style={{
-                      fontSize: '13px',
+                      fontSize: '8.5px',
+                      fontWeight: 800,
+                      color: shelfTheme.primaryColor,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      lineHeight: 1.1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {clockInfo.monthShort} {clockInfo.day}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '12px',
                       fontWeight: 700,
                       letterSpacing: '-0.3px',
                       color: shelfTheme.textColor,
@@ -1131,6 +1144,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       display: 'flex',
                       alignItems: 'baseline',
                       justifyContent: 'center',
+                      marginTop: '1px',
                     }}
                   >
                     <span>{clockInfo.timeMain}</span>
@@ -1140,6 +1154,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                         fontWeight: 700,
                         opacity: 0.65,
                         marginLeft: '2px',
+                        textTransform: 'lowercase',
                       }}
                     >
                       {clockInfo.timeAmpm}

@@ -220,8 +220,13 @@ function WidgetFace({
         </div>
       )}
       {isSmall && (
-        <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.02em', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
-          {info.weekdayShort} {info.monthShort} {info.day}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+            {info.weekdayShort}
+          </div>
+          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.02em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+            {info.monthShort} {info.day}
+          </div>
         </div>
       )}
       <div style={{ fontSize: `${timeFontSize}px`, fontWeight: 700, color: textColor, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>

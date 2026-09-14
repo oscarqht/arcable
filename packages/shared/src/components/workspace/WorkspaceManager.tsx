@@ -946,14 +946,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 setSyncFeedback({
                   message: `✓ Synced with Arcable Cloud (v${res.serverVersion || 1})`,
                 });
+              } else {
+                setSyncFeedback((prev) => (prev?.isError ? null : prev));
               }
             } else {
-              if (!isCurrentSyncSilentRef.current) {
-                setSyncFeedback({
-                  message: res.error || 'Failed to sync with Arcable Cloud.',
-                  isError: true,
-                });
-              }
+              setSyncFeedback({
+                message: res.error || 'Failed to sync with Arcable Cloud.',
+                isError: true,
+              });
             }
           }
           return;
@@ -1007,12 +1007,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           return;
         }
 
-        if (currentSeq === syncSeqRef.current && !isCurrentSyncSilentRef.current) {
+        if (currentSeq === syncSeqRef.current) {
           if (result) {
             if (result.success) {
-              setSyncFeedback({
-                message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
-              });
+              if (!isCurrentSyncSilentRef.current) {
+                setSyncFeedback({
+                  message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
+                });
+              } else {
+                setSyncFeedback((prev) => (prev?.isError ? null : prev));
+              }
             } else {
               setSyncFeedback({
                 message: result.error || 'Failed to sync with Raindrop.',
@@ -1020,28 +1024,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               });
             }
           } else if (!result && onSyncRaindrop) {
-            setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+            if (!isCurrentSyncSilentRef.current) {
+              setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+            } else {
+              setSyncFeedback((prev) => (prev?.isError ? null : prev));
+            }
           }
         }
         return result ?? undefined;
       } catch (err: any) {
-        if (currentSeq === syncSeqRef.current && !isCurrentSyncSilentRef.current) {
+        if (currentSeq === syncSeqRef.current) {
           setSyncFeedback({ message: err?.message || 'Sync error occurred.', isError: true });
         }
       } finally {
         if (currentSeq === syncSeqRef.current) {
-          if (!isCurrentSyncSilentRef.current) {
-            setSyncLoading(false);
-            syncLoadingRef.current = false;
-            onSyncStateChange?.(false);
-            setTimeout(() => {
-              setSyncFeedback((prev) => (prev?.isError ? prev : null));
-            }, 4000);
-          } else {
-            setSyncLoading(false);
-            syncLoadingRef.current = false;
-            onSyncStateChange?.(false);
-          }
+          setSyncLoading(false);
+          syncLoadingRef.current = false;
+          onSyncStateChange?.(false);
+          setTimeout(() => {
+            setSyncFeedback((prev) => (prev?.isError ? prev : null));
+          }, 4000);
+          setTimeout(() => {
+            setSyncFeedback((prev) => (prev?.isError ? null : prev));
+          }, 8000);
         }
       }
     })();
@@ -1107,7 +1112,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     checkAndSync(true);
 
     const handleSessionChange = () => {
-      checkAndSync(false);
+      checkAndSync(true);
     };
 
     if (typeof window !== 'undefined') {
