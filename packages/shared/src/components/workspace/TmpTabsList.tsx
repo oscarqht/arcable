@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { TmpTab } from '../../types/workspace';
+import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -17,7 +17,7 @@ export interface TmpTabsListProps {
   activeBrowserTabId?: number;
   audibleTabs?: AudibleTab[];
   showDeviceBadge?: boolean;
-  onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
+  onOpen?: (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;

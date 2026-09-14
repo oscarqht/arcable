@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 
-import { Tab, TabUrlVariant } from '../../types/workspace';
+import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
@@ -39,8 +39,8 @@ export interface TabRowProps {
   isMuted?: boolean;
   badge?: string | number | null;
   currentUrl?: string;
-  onOpen?: (url: string, tabId?: string) => void;
-  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
+  onOpen?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: () => void;
   onResetDivertedUrl?: () => void;
   onMediaControl?: (action: MediaControlAction) => void;
@@ -111,10 +111,15 @@ export const TabRow: React.FC<TabRowProps> = ({
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (tab.url) {
+      const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
       if (onOpen) {
-        onOpen(tab.url, tab.id);
+        onOpen(tab.url, tab.id, { inNewTab, event: e });
       } else {
-        window.open(tab.url, '_blank', 'noopener,noreferrer');
+        if (inNewTab) {
+          window.open(tab.url, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = tab.url;
+        }
       }
     }
   };
@@ -133,7 +138,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     e.stopPropagation();
     if (tab.url) {
       if (onOpen) {
-        onOpen(tab.url, tab.id);
+        onOpen(tab.url, tab.id, { inNewTab: true, event: e });
       } else {
         window.open(tab.url, '_blank', 'noopener,noreferrer');
       }
@@ -406,12 +411,17 @@ export const TabRow: React.FC<TabRowProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                    const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                     if (onOpenVariant) {
-                      onOpenVariant(v.url, tab, v);
+                      onOpenVariant(v.url, tab, v, { inNewTab, event: e });
                     } else if (onOpen) {
-                      onOpen(v.url, tab.id);
+                      onOpen(v.url, tab.id, { inNewTab, event: e });
                     } else {
-                      window.open(v.url, '_blank', 'noopener,noreferrer');
+                      if (inNewTab) {
+                        window.open(v.url, '_blank', 'noopener,noreferrer');
+                      } else {
+                        window.location.href = v.url;
+                      }
                     }
                   }}
                   title={`${v.name}: ${v.url}`}

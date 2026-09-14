@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, Tab, TabUrlVariant } from '../../types/workspace';
+import { Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
@@ -39,8 +39,8 @@ export interface FolderItemProps {
   onDeleteFolder: (folderId: string) => void;
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
-  onOpenTab?: (url: string, tabId?: string) => void;
-  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
+  onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
@@ -659,10 +659,15 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     e.stopPropagation();
                     e.preventDefault();
                     setShowHoverPopup(false);
+                    const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                     if (onOpenTab) {
-                      onOpenTab(tab.url, tab.id);
+                      onOpenTab(tab.url, tab.id, { inNewTab, event: e });
                     } else {
-                      window.open(tab.url, '_blank', 'noopener,noreferrer');
+                      if (inNewTab) {
+                        window.open(tab.url, '_blank', 'noopener,noreferrer');
+                      } else {
+                        window.location.href = tab.url;
+                      }
                     }
                   }}
                   style={{
@@ -745,12 +750,17 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                               e.stopPropagation();
                               e.preventDefault();
                               setShowHoverPopup(false);
+                              const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                               if (onOpenVariant) {
-                                onOpenVariant(variant.url, tab, variant);
+                                onOpenVariant(variant.url, tab, variant, { inNewTab, event: e });
                               } else if (onOpenTab) {
-                                onOpenTab(variant.url, tab.id);
+                                onOpenTab(variant.url, tab.id, { inNewTab, event: e });
                               } else {
-                                window.open(variant.url, '_blank', 'noopener,noreferrer');
+                                if (inNewTab) {
+                                  window.open(variant.url, '_blank', 'noopener,noreferrer');
+                                } else {
+                                  window.location.href = variant.url;
+                                }
                               }
                             }}
                             style={{

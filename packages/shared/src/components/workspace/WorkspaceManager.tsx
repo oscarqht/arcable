@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { useWorkspace } from '../../hooks/useWorkspace';
@@ -60,8 +60,8 @@ export interface WorkspaceManagerHandle {
 }
 
 export interface WorkspaceManagerProps {
-  onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab) => void;
-  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
+  onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab, options?: TabOpenOptions) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
@@ -264,30 +264,38 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   );
 
   const handleOpenTabWithSearchClear = useCallback(
-    (url: string, tabId?: string) => {
+    (url: string, tabId?: string, options?: TabOpenOptions) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
       if (onOpenTab) {
-        onOpenTab(url, tabId);
+        onOpenTab(url, tabId, undefined, options);
       } else if (typeof window !== 'undefined' && url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
+        if (options?.inNewTab) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = url;
+        }
       }
     },
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
   );
 
   const handleOpenVariant = useCallback(
-    (variantUrl: string, tab: Tab, variant: TabUrlVariant) => {
+    (variantUrl: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
       if (onOpenVariant) {
-        onOpenVariant(variantUrl, tab, variant);
+        onOpenVariant(variantUrl, tab, variant, options);
       } else if (onOpenTab) {
-        onOpenTab(variantUrl, tab.id);
+        onOpenTab(variantUrl, tab.id, undefined, options);
       } else if (typeof window !== 'undefined' && variantUrl) {
-        window.open(variantUrl, '_blank', 'noopener,noreferrer');
+        if (options?.inNewTab) {
+          window.open(variantUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = variantUrl;
+        }
       }
     },
     [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab]
@@ -297,7 +305,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const effectiveCurrentDeviceId = currentDeviceId || (typeof window !== 'undefined' ? getOrCreateDeviceId() : '');
 
   const handleOpenTmpTab = useCallback(
-    (url: string, tabId?: string, tab?: TmpTab) => {
+    (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
@@ -323,9 +331,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }
 
       if (onOpenTab) {
-        onOpenTab(url, tabId, tab);
+        onOpenTab(url, tabId, tab, options);
       } else if (typeof window !== 'undefined' && url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
+        if (options?.inNewTab) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = url;
+        }
       }
     },
     [activeSearchQuery, handleUpdateSearch, tmpTabs, effectiveCurrentDeviceId, deleteTmpTab, onOpenTab]

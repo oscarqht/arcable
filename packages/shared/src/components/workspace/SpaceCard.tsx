@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Space, Folder, Tab, TabUrlVariant } from '../../types/workspace';
+import { Space, Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import {
   isDarkColor,
@@ -44,8 +44,8 @@ export interface SpaceCardProps {
   tabAssociations?: TabAssociationMap;
   audibleTabs?: AudibleTab[];
   highlightedTabId?: string | null;
-  onOpenTab?: (url: string, tabId?: string) => void;
-  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant) => void;
+  onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;

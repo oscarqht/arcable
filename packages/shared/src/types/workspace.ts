@@ -2,6 +2,11 @@ import { CustomCodeRule, RunCodeRule } from './customCode';
 import type { DeviceSyncRecord } from './sync';
 export type { CustomCodeRule, RunCodeRule, DeviceSyncRecord };
 
+export interface TabOpenOptions {
+  inNewTab?: boolean;
+  event?: any;
+}
+
 export interface TabUrlVariant {
   id: string;
   name: string;

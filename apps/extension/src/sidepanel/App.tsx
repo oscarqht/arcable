@@ -6,8 +6,8 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant } from '@arcable/shared/types';
-import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
+import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
   getStoredDeviceName,
@@ -18,7 +18,7 @@ import {
   getSpaceThemeStyles,
   SpaceThemeTokens,
 } from '@arcable/shared/utils';
-import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
+import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
 
@@ -46,6 +46,15 @@ export function setStoredLastSpaceId(spaceId: string): void {
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
+  const isMobileHook = useIsMobile();
+  const [isAndroid, setIsAndroid] = useState(false);
+  useEffect(() => {
+    void isAndroidPlatform().then((val) => {
+      if (val) setIsAndroid(true);
+    });
+  }, []);
+  const isMobile = isMobileHook || isAndroid;
+
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [currentSpaceTheme, setCurrentSpaceTheme] = useState<SpaceThemeTokens>(() => {
     if (typeof window !== 'undefined') {
@@ -448,10 +457,38 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab) => {
+  const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab, options?: TabOpenOptions) => {
     if (tabId) {
       setHighlightedTabId(tabId);
     }
+    const inNewTab = Boolean(options?.inNewTab);
+
+    // In mobile device:
+    // 1. Click tab item open URL in current tab;
+    // 2. Shift+click open in new tab.
+    if (isMobile) {
+      if (!inNewTab) {
+        try {
+          const currentTab = await browser.tabs?.getCurrent?.();
+          if (currentTab?.id !== undefined) {
+            await browser.tabs.update(currentTab.id, { url, active: true });
+            return;
+          }
+        } catch (err) {
+          console.warn('browser.tabs.getCurrent failed:', err);
+        }
+        window.location.href = url;
+        return;
+      } else {
+        try {
+          await browser.tabs.create({ url, active: true });
+        } catch {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+    }
+
     try {
       // Check if this is a tmp tab
       if (tmpTabInfo || (tabId && tabId.startsWith('tmp_'))) {
@@ -459,13 +496,13 @@ export const App: React.FC = () => {
           (t) => (tabId && t.id === tabId) || (tmpTabInfo && t.id === tmpTabInfo.id)
         );
         
-        // If it is already open locally in the browser, activate and focus it
-        if (localTmp && localTmp.browserTabId !== undefined) {
+        // If it is already open locally in the browser, activate and focus it (unless shift-clicked for new tab)
+        if (localTmp && localTmp.browserTabId !== undefined && !inNewTab) {
           await tabTracker.activateTab(localTmp.browserTabId, localTmp.windowId);
           return;
         }
 
-        // Otherwise (remote tmp tab from another device, or not currently open locally):
+        // Otherwise (remote tmp tab from another device, or not currently open locally, or inNewTab):
         // Open a new tab in the local browser and take over in current device
         const newTab = await browser.tabs.create({ url, active: true });
         const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
@@ -475,38 +512,78 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Check if this specific tab item is already associated
-      if (tabId && tabAssociations[tabId]) {
+      // Check if this specific tab item is already associated (unless shift-clicked for new tab)
+      if (tabId && tabAssociations[tabId] && !inNewTab) {
         const assoc = tabAssociations[tabId];
         await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
         return;
       }
 
       // Prioritize associating new browser tab with the tab item being clicked
-      if (tabId) {
+      if (tabId && !inNewTab) {
         await tabTracker.openAndAssociateTab(tabId, url);
         return;
       }
 
-      // When tabId is not provided, open a new browser tab (will be tracked as a tmp tab)
+      // When tabId is not provided or shift+click, open a new browser tab
       await browser.tabs.create({ url, active: true });
     } catch (e) {
       console.warn('Failed to open tab via browser API, falling back to window.open:', e);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      if (inNewTab) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.href = url;
+      }
     }
   };
 
   const handleOpenVariant = useCallback(
-    async (variantUrl: string, tab: Tab, variant: TabUrlVariant) => {
+    async (variantUrl: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => {
       setHighlightedTabId(tab.id);
+      const inNewTab = Boolean(options?.inNewTab);
+
+      // In mobile device:
+      // 1. Click URL variant open URL in current tab;
+      // 2. Shift+click open in new tab.
+      if (isMobile) {
+        if (!inNewTab) {
+          try {
+            const currentTab = await browser.tabs?.getCurrent?.();
+            if (currentTab?.id !== undefined) {
+              await browser.tabs.update(currentTab.id, { url: variantUrl, active: true });
+              return;
+            }
+          } catch (err) {
+            console.warn('browser.tabs.getCurrent failed:', err);
+          }
+          window.location.href = variantUrl;
+          return;
+        } else {
+          try {
+            await browser.tabs.create({ url: variantUrl, active: true });
+          } catch {
+            window.open(variantUrl, '_blank', 'noopener,noreferrer');
+          }
+          return;
+        }
+      }
+
       try {
-        await tabTracker.updateAssociatedTabUrl(tab.id, variantUrl);
+        if (inNewTab) {
+          await browser.tabs.create({ url: variantUrl, active: true });
+        } else {
+          await tabTracker.updateAssociatedTabUrl(tab.id, variantUrl);
+        }
       } catch (e) {
         console.warn('Failed to open variant via tabTracker, falling back to window.open:', e);
-        window.open(variantUrl, '_blank', 'noopener,noreferrer');
+        if (inNewTab) {
+          window.open(variantUrl, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = variantUrl;
+        }
       }
     },
-    []
+    [isMobile]
   );
 
   const handleCloseTmpTab = async (tab: TmpTab) => {

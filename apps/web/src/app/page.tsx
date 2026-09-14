@@ -17,7 +17,7 @@ import {
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import { getStoredDeviceName, setStoredDeviceName, getOrCreateDeviceId } from '@arcable/shared/utils';
-import { RaindropAuthState } from '@arcable/shared/types';
+import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -450,9 +450,22 @@ export default function HomePage() {
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
           currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
-          onOpenTab={(url: string) => {
+          onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
             if (typeof window !== 'undefined' && url) {
-              window.open(url, '_blank', 'noopener,noreferrer');
+              if (options?.inNewTab) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+              } else {
+                window.location.href = url;
+              }
+            }
+          }}
+          onOpenVariant={(url: string, _tab?: any, _variant?: any, options?: TabOpenOptions) => {
+            if (typeof window !== 'undefined' && url) {
+              if (options?.inNewTab) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+              } else {
+                window.location.href = url;
+              }
             }
           }}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}

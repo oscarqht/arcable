@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { TmpTab } from '../../types/workspace';
+import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -27,7 +27,7 @@ export interface VirtualSyncedSpaceCardProps {
   highlightedTabId?: string | null;
   audibleTabs?: AudibleTab[];
   showDeviceBadge?: boolean;
-  onOpenTab?: (url: string, tabId?: string, tab?: TmpTab) => void;
+  onOpenTab?: (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => void;
   onPromoteTab: (tab: TmpTab) => void;
   onCloseTab: (tab: TmpTab) => void;
   onRenameTab?: (tab: TmpTab, newTitle: string) => void;

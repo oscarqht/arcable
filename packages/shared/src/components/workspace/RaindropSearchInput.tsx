@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { RaindropSearchItem, RaindropSearchResult, RaindropCollectionItem } from '../../types/raindrop';
+import { TabOpenOptions } from '../../types/workspace';
 import { searchRaindrop } from '../../utils/raindropClient';
 import { cleanUrl } from '../../utils/format';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -13,7 +14,7 @@ export interface RaindropSearchInputProps {
   hasRaindropAuth?: boolean;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
-  onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   compact?: boolean;
   placeholder?: string;
   searchQuery?: string;
@@ -241,34 +242,44 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     return list;
   }, [searchResults]);
 
-  const handleSelectBookmark = (item: RaindropSearchItem) => {
+  const handleSelectBookmark = (item: RaindropSearchItem, e?: React.MouseEvent | React.KeyboardEvent) => {
     if (item.link) {
+      const inNewTab = Boolean(e && (e.shiftKey || e.ctrlKey || e.metaKey));
       if (onOpenTab) {
-        onOpenTab(item.link);
+        onOpenTab(item.link, undefined, { inNewTab, event: e as any });
       } else if (typeof window !== 'undefined') {
-        window.open(item.link, '_blank', 'noopener,noreferrer');
+        if (inNewTab) {
+          window.open(item.link, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = item.link;
+        }
       }
     }
     handleClear(false);
   };
 
-  const handleSelectCollection = (collection: RaindropCollectionItem) => {
+  const handleSelectCollection = (collection: RaindropCollectionItem, e?: React.MouseEvent | React.KeyboardEvent) => {
     const collectionUrl = `https://app.raindrop.io/my/${collection._id}`;
+    const inNewTab = Boolean(e && (e.shiftKey || e.ctrlKey || e.metaKey));
     if (onOpenTab) {
-      onOpenTab(collectionUrl);
+      onOpenTab(collectionUrl, undefined, { inNewTab, event: e as any });
     } else if (typeof window !== 'undefined') {
-      window.open(collectionUrl, '_blank', 'noopener,noreferrer');
+      if (inNewTab) {
+        window.open(collectionUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        window.location.href = collectionUrl;
+      }
     }
     handleClear(false);
   };
 
-  const handleSelectCurrent = () => {
+  const handleSelectCurrent = (e?: React.KeyboardEvent) => {
     if (highlightedIndex >= 0 && highlightedIndex < selectableItems.length) {
       const selected = selectableItems[highlightedIndex];
       if (selected.type === 'collection') {
-        handleSelectCollection(selected.data);
+        handleSelectCollection(selected.data, e);
       } else {
-        handleSelectBookmark(selected.data);
+        handleSelectBookmark(selected.data, e);
       }
     }
   };
@@ -286,7 +297,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      handleSelectCurrent();
+      handleSelectCurrent(e);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       handleClear(false);
@@ -765,7 +776,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
                     key={col._id}
                     className="raindrop-search-row"
                     data-index={itemIndex}
-                    onClick={() => handleSelectCollection(col)}
+                    onClick={(e) => handleSelectCollection(col, e)}
                     onMouseEnter={() => setHighlightedIndex(itemIndex)}
                     style={{
                       display: 'flex',
@@ -900,7 +911,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
                       key={item._id}
                       className="raindrop-search-row"
                       data-index={itemIndex}
-                      onClick={() => handleSelectBookmark(item)}
+                      onClick={(e) => handleSelectBookmark(item, e)}
                       onMouseEnter={() => setHighlightedIndex(itemIndex)}
                       style={{
                         display: 'flex',

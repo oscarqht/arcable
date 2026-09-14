@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Tab } from '../../types/workspace';
+import { Tab, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
@@ -26,7 +26,7 @@ export interface PinnedTabsShelfProps {
   tabAssociations?: TabAssociationMap;
   isDarkTheme?: boolean;
   shelfBg?: string;
-  onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
@@ -205,12 +205,17 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   setDropPosition(null);
                 }
               }}
-              onClick={() => {
+              onClick={(e) => {
                 if (tab.url) {
+                  const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                   if (onOpenTab) {
-                    onOpenTab(tab.url, tab.id);
+                    onOpenTab(tab.url, tab.id, { inNewTab, event: e });
                   } else {
-                    window.open(tab.url, '_blank', 'noopener,noreferrer');
+                    if (inNewTab) {
+                      window.open(tab.url, '_blank', 'noopener,noreferrer');
+                    } else {
+                      window.location.href = tab.url;
+                    }
                   }
                 }
               }}
@@ -272,9 +277,9 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     id: 'open-tab',
                     label: 'Open in new tab',
                     icon: <ExternalLinkIcon size={14} />,
-                    onClick: () => {
+                    onClick: (e?: any) => {
                       if (tab.url) {
-                        if (onOpenTab) onOpenTab(tab.url, tab.id);
+                        if (onOpenTab) onOpenTab(tab.url, tab.id, { inNewTab: true, event: e });
                         else window.open(tab.url, '_blank', 'noopener,noreferrer');
                       }
                     },

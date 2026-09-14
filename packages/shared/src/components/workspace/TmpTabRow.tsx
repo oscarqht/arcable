@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { TmpTab } from '../../types/workspace';
+import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
@@ -31,7 +31,7 @@ export interface TmpTabRowProps {
   isMuted?: boolean;
   badge?: string | number | null;
   showDeviceBadge?: boolean;
-  onOpen?: (url: string, tabId?: string, tab?: TmpTab) => void;
+  onOpen?: (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
@@ -123,10 +123,15 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     if (isEditing) return;
     e.preventDefault();
     if (tab.url) {
+      const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
       if (onOpen) {
-        onOpen(tab.url, tab.id, tab);
+        onOpen(tab.url, tab.id, tab, { inNewTab, event: e });
       } else {
-        window.open(tab.url, '_blank', 'noopener,noreferrer');
+        if (inNewTab) {
+          window.open(tab.url, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = tab.url;
+        }
       }
     }
   };

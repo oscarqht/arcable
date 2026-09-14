@@ -4,6 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Tab,
+  TabOpenOptions,
   WorkspaceWidget,
   WidgetStyle,
   WidgetSize,
@@ -51,7 +52,7 @@ export interface FavouriteTabsShelfProps {
   widgets?: WorkspaceWidget[];
   tabAssociations?: TabAssociationMap;
   highlightedTabId?: string | null;
-  onOpenTab?: (url: string, tabId?: string) => void;
+  onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   audibleTabs?: AudibleTab[];
@@ -446,9 +447,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       id: 'open-tab',
                       label: isAssociated ? 'Switch to tab' : 'Open in new tab',
                       icon: <ExternalLinkIcon size={14} />,
-                      onClick: () => {
+                      onClick: (e?: any) => {
                         if (onOpenTab) {
-                          onOpenTab(tab.url, tab.id);
+                          onOpenTab(tab.url, tab.id, { inNewTab: true, event: e });
                         } else {
                           window.open(tab.url, '_blank', 'noopener,noreferrer');
                         }
@@ -540,12 +541,17 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onDragEnd={handleDragEnd}
                 onMouseEnter={() => handleItemMouseEnter(tab.id)}
                 onMouseLeave={() => handleItemMouseLeave(tab.id)}
-                onClick={() => {
+                onClick={(e) => {
                   if (tab.url) {
+                    const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                     if (onOpenTab) {
-                      onOpenTab(tab.url, tab.id);
+                      onOpenTab(tab.url, tab.id, { inNewTab, event: e });
                     } else {
-                      window.open(tab.url, '_blank', 'noopener,noreferrer');
+                      if (inNewTab) {
+                        window.open(tab.url, '_blank', 'noopener,noreferrer');
+                      } else {
+                        window.location.href = tab.url;
+                      }
                     }
                   }
                 }}
