@@ -11,7 +11,6 @@ import {
   CloseIcon,
   DeviceModal,
   BackupRestoreModal,
-  LogInIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
@@ -789,36 +788,6 @@ export default function HomePage() {
               <span style={{ fontSize: '13px', display: 'inline-flex' }}>⚙️</span>
               <span className="header-btn-text">Sync Settings</span>
             </button>
-
-            {/* Login Button (only when unauthenticated) */}
-            {!isAuthenticated && (
-              <button
-                type="button"
-                className="header-action-btn"
-                onClick={() => setIsAuthModalOpen(true)}
-                disabled={isOverallLoading}
-                title="Sign In"
-                style={{
-                  border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
-                  background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
-                  color: isDark ? '#38bdf8' : '#0284c7',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  padding: '5px 12px',
-                  borderRadius: '8px',
-                  cursor: isOverallLoading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '5px',
-                  transition: 'all 0.15s ease',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <LogInIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
-                <span className="header-btn-text">Login</span>
-              </button>
-            )}
           </div>
         }
       />
