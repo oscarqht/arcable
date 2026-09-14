@@ -721,7 +721,8 @@ export const App: React.FC = () => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
+        maxHeight: '100dvh',
         width: '100%',
         overflow: 'hidden',
         overscrollBehavior: 'none',

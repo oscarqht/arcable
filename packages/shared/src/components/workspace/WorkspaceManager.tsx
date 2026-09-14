@@ -1448,7 +1448,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         width: '100%',
         flex: compact ? '1 0 auto' : undefined,
         minHeight: compact ? '100%' : undefined,
-        paddingBottom: compact ? '80px' : undefined,
+        paddingBottom: compact ? 'calc(150px + env(safe-area-inset-bottom, 0px))' : undefined,
         boxSizing: 'border-box',
       }}
     >
@@ -2293,7 +2293,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         <div
           style={{
             position: 'fixed',
-            bottom: '12px',
+            bottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
             left: '16px',
             right: '16px',
             zIndex: 30,
