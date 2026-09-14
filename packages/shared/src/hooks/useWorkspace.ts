@@ -16,6 +16,13 @@ import {
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
+import {
+  getSyncProvider,
+  getSupabaseSession,
+  performSupabaseSync,
+  getSyncServerUrl,
+} from '../utils/supabaseSync';
+
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
 export const FOLDER_COLLAPSE_STORAGE_PREFIX = 'arcable_collapse_folder_';
@@ -1896,6 +1903,65 @@ export function useWorkspace() {
     }
   }, [data, applyLatestSnapshot]);
 
+  // Supabase Server Sync Trigger
+  const syncWithSupabaseServer = useCallback(async (params?: { serverUrl?: string }): Promise<{ success: boolean; error?: string; serverVersion?: number }> => {
+    setIsSyncing(true);
+    try {
+      const res = await performSupabaseSync({
+        currentState: data,
+        onApplySnapshot: (snapshot) => {
+          applyLatestSnapshot(snapshot);
+        },
+        onApplyDiffs: (diffs) => {
+          saveWorkspaceData((prev) => replayOperations(prev, diffs));
+        },
+        serverUrl: params?.serverUrl,
+      });
+      return res;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [data, applyLatestSnapshot, saveWorkspaceData]);
+
+  // Auto-sync with Supabase when operations are queued and user is logged in
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let debounceTimer: any = null;
+
+    const triggerSyncDebounced = () => {
+      if (getSyncProvider() !== 'supabase') return;
+      if (!getSupabaseSession()) return;
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void syncWithSupabaseServer();
+      }, 800);
+    };
+
+    const handleOpSaved = () => {
+      triggerSyncDebounced();
+    };
+
+    const handleFocusOrOnline = () => {
+      if (getSyncProvider() === 'supabase' && getSupabaseSession()) {
+        void syncWithSupabaseServer();
+      }
+    };
+
+    window.addEventListener('arcable_pending_op_saved', handleOpSaved);
+    window.addEventListener('focus', handleFocusOrOnline);
+    window.addEventListener('online', handleFocusOrOnline);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener('arcable_pending_op_saved', handleOpSaved);
+      window.removeEventListener('focus', handleFocusOrOnline);
+      window.removeEventListener('online', handleFocusOrOnline);
+    };
+  }, [syncWithSupabaseServer]);
+
+
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
       saveWorkspaceData((prev) => {
@@ -2030,8 +2096,9 @@ export function useWorkspace() {
     importWorkspaceData,
     saveWorkspaceData,
     applyLatestSnapshot,
-    // Raindrop sync
+    // Raindrop & Supabase sync
     syncWithRaindropToken,
+    syncWithSupabaseServer,
     isSyncing,
     lastSyncResult,
     // Hierarchy queries

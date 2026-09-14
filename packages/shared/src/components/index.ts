@@ -3,6 +3,8 @@ export * from './Card';
 export * from './Header';
 export * from './Badge';
 export * from './RaindropAuthCard';
+export * from './SupabaseAuthCard';
+
 export * from './Icons';
 export * from './workspace/SpaceModal';
 export * from './workspace/ConvertSpaceModal';

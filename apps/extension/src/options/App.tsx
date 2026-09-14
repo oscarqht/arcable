@@ -5,12 +5,21 @@ import {
   Card,
   DeviceModal,
   RaindropAuthCard,
+  SupabaseAuthCard,
   CopyIcon,
   ExternalLinkIcon,
   RefreshIcon,
   LaptopIcon,
 } from '@arcable/shared/components';
-import { RaindropAuthState, ExtensionResponse, SyncResult, DeviceSyncRecord } from '@arcable/shared/types';
+import {
+  RaindropAuthState,
+  ExtensionResponse,
+  SyncResult,
+  DeviceSyncRecord,
+  SupabaseSessionTokens,
+  SyncProvider,
+  WorkspaceOperation,
+} from '@arcable/shared/types';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
@@ -21,8 +30,16 @@ import {
   mergeCustomCodeRules,
   mergeRunCodeRules,
   createWorkspaceOperation,
+  getSyncProvider,
+  setSyncProvider,
+  getSupabaseSession,
+  setSupabaseSession,
+  getSyncServerUrl,
+  setSyncServerUrl,
+  getStoredServerVersion,
+  performSupabaseSync,
 } from '@arcable/shared/utils';
-import { WorkspaceOperation } from '@arcable/shared/types';
+
 import { browser, openWorkspaceSafely } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
@@ -51,6 +68,14 @@ export const App: React.FC = () => {
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Supabase / Arcable Cloud state
+  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
+  const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
+  const [supabaseServerUrl, setSupabaseServerUrlState] = useState<string>('http://localhost:3000');
+  const [supabaseVersion, setSupabaseVersionState] = useState<number>(1);
+  const [isSupabaseSyncing, setIsSupabaseSyncing] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
 
   // Device state
   const [deviceId, setDeviceId] = useState('');
@@ -95,6 +120,9 @@ export const App: React.FC = () => {
     browser.storage.local.get([
       'arcable_last_synced_at',
       'arcable_device_name',
+      'arcable_sync_provider',
+      'arcable_supabase_session',
+      'arcable_supabase_server_url',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
@@ -103,6 +131,22 @@ export const App: React.FC = () => {
         setDeviceName(res.arcable_device_name);
         setDeviceNameInput(res.arcable_device_name);
       }
+      if (res.arcable_sync_provider) {
+        setSyncProviderState(res.arcable_sync_provider);
+      } else {
+        setSyncProviderState(getSyncProvider());
+      }
+      if (res.arcable_supabase_session) {
+        setSupabaseSessionState(res.arcable_supabase_session);
+      } else {
+        setSupabaseSessionState(getSupabaseSession());
+      }
+      if (res.arcable_supabase_server_url) {
+        setSupabaseServerUrlState(res.arcable_supabase_server_url);
+      } else {
+        setSupabaseServerUrlState(getSyncServerUrl());
+      }
+      setSupabaseVersionState(getStoredServerVersion());
     });
 
     // 4. Listen to storage changes
@@ -120,12 +164,51 @@ export const App: React.FC = () => {
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
+        if (changes.arcable_sync_provider) {
+          setSyncProviderState(changes.arcable_sync_provider.newValue as SyncProvider);
+        }
+        if (changes.arcable_supabase_session) {
+          setSupabaseSessionState(changes.arcable_supabase_session.newValue as SupabaseSessionTokens | null);
+        }
+        if (changes.arcable_supabase_server_url) {
+          setSupabaseServerUrlState(changes.arcable_supabase_server_url.newValue as string);
+        }
       }
     };
 
+    // 5. Listen to runtime messages for auth bridge completion
+    const handleRuntimeMessage = (msg: any) => {
+      if (msg && msg.type === 'SUPABASE_SESSION_CHANGED') {
+        setSupabaseSessionState(msg.session || null);
+        if (msg.session) {
+          showToast('Connected to Arcable Cloud!', 'success');
+        }
+      }
+    };
+
+    // 6. Automatically re-check session when user returns/focuses Options tab
+    const handleTabFocus = () => {
+      browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']).then((res: any) => {
+        if (res.arcable_supabase_session) {
+          setSupabaseSessionState(res.arcable_supabase_session);
+        }
+        if (res.arcable_sync_provider) {
+          setSyncProviderState(res.arcable_sync_provider);
+        }
+      });
+    };
+
+    window.addEventListener('focus', handleTabFocus);
+    window.addEventListener('visibilitychange', handleTabFocus);
+
     browser.storage.onChanged.addListener(handleStorageChange);
+    browser.runtime.onMessage.addListener(handleRuntimeMessage);
+
     return () => {
+      window.removeEventListener('focus', handleTabFocus);
+      window.removeEventListener('visibilitychange', handleTabFocus);
       browser.storage.onChanged.removeListener(handleStorageChange);
+      browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
   }, []);
 
@@ -195,6 +278,133 @@ export const App: React.FC = () => {
       setAuthLoading(false);
     }
   };
+
+  const handleLoginWithGoogle = async () => {
+    setSupabaseError(null);
+    try {
+      await browser.runtime.sendMessage({ type: 'SUPABASE_START_OAUTH' });
+      showToast('Opening Google sign-in...', 'info');
+    } catch (err: any) {
+      setSupabaseError(err?.message || 'Failed to start Google OAuth');
+    }
+  };
+
+  const handleSupabaseLogout = async () => {
+    try {
+      await browser.runtime.sendMessage({ type: 'SUPABASE_LOGOUT' });
+      setSupabaseSession(null);
+      setSupabaseSessionState(null);
+      showToast('Disconnected from Arcable Cloud', 'info');
+    } catch (err: any) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  const handleChangeServerUrl = (url: string) => {
+    setSyncServerUrl(url);
+    setSupabaseServerUrlState(url);
+    void browser.storage.local.set({ arcable_supabase_server_url: url });
+    showToast(`Server URL updated to ${url}`, 'success');
+  };
+
+  const handleSupabaseSyncNow = async () => {
+    if (!supabaseSession) {
+      showToast('Please sign in first', 'warning');
+      return;
+    }
+    setIsSupabaseSyncing(true);
+    setSupabaseError(null);
+    try {
+      let localState: any = undefined;
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem('arcable_workspace_data');
+        if (stored) {
+          try {
+            localState = JSON.parse(stored);
+          } catch {}
+        }
+      }
+
+      if (!localState) {
+        showToast('No workspace data found locally', 'warning');
+        return;
+      }
+
+      const res = await performSupabaseSync({
+        currentState: localState,
+        serverUrl: supabaseServerUrl,
+        session: supabaseSession,
+        onApplySnapshot: (snap) => {
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snap));
+          }
+        },
+      });
+
+      if (res.success) {
+        if (res.serverVersion) setSupabaseVersionState(res.serverVersion);
+        showToast('Cloud sync complete!', 'success');
+      } else {
+        setSupabaseError(res.error || 'Sync failed');
+        showToast(res.error || 'Sync failed', 'warning');
+      }
+    } catch (err: any) {
+      setSupabaseError(err?.message || 'Sync failed');
+    } finally {
+      setIsSupabaseSyncing(false);
+    }
+  };
+
+  const handleProviderToggle = (provider: SyncProvider) => {
+    setSyncProvider(provider);
+    setSyncProviderState(provider);
+    void browser.storage.local.set({ arcable_sync_provider: provider });
+    showToast(
+      `Sync provider switched to ${provider === 'supabase' ? 'Arcable Cloud' : 'Raindrop.io'}`,
+      'info'
+    );
+  };
+
+  const handleRefreshSession = async () => {
+    const res: any = await browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']);
+    if (res.arcable_supabase_session) {
+      setSupabaseSessionState(res.arcable_supabase_session);
+      showToast('Connected to Arcable Cloud!', 'success');
+    } else {
+      showToast('No active session found. Please complete sign-in in the login tab.', 'info');
+    }
+  };
+
+  const handleManualTokenImport = async (tokenInput: string) => {
+    try {
+      let session: any = null;
+      const clean = tokenInput.trim();
+      if (clean.startsWith('{')) {
+        session = JSON.parse(clean);
+      } else {
+        session = { access_token: clean, refresh_token: '' };
+      }
+
+      if (session && session.access_token) {
+        await browser.storage.local.set({
+          arcable_supabase_session: session,
+          arcable_sync_provider: 'supabase',
+        });
+        setSupabaseSession(session);
+        setSyncProvider('supabase');
+        setSupabaseSessionState(session);
+        setSyncProviderState('supabase');
+        showToast('Connected to Arcable Cloud successfully!', 'success');
+        return true;
+      }
+      throw new Error('Invalid token structure');
+    } catch (err: any) {
+      showToast('Import failed: ' + (err.message || 'Invalid format'), 'warning');
+      return false;
+    }
+  };
+
+
 
   const handleManualSync = async () => {
     if (!authState.isAuthenticated) {
@@ -486,7 +696,7 @@ export const App: React.FC = () => {
           }}
         >
           {[
-            { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
+            { id: 'sync', label: 'Sync & Cloud', icon: '🔄' },
             { id: 'device', label: 'Device & Identity', icon: '💻' },
             { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
             { id: 'run-code', label: 'Run Code', icon: '⚡' },
@@ -533,68 +743,135 @@ export const App: React.FC = () => {
 
       {/* Main Content Sections */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* TAB 1: SYNC & RAINDROP */}
+        {/* TAB 1: SYNC & CLOUD */}
         {activeTab === 'sync' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <RaindropAuthCard
-              authState={authState}
-              isLoading={authLoading}
-              errorMessage={authError}
-              onLoginWithToken={handleLoginWithToken}
-              onLoginWithOAuth={handleLoginWithOAuth}
-              onLogout={handleLogout}
-              onClearError={() => setAuthError(null)}
-              title="Raindrop.io Cloud Sync"
-              subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
-            />
-
-            {authState.isAuthenticated && (
-              <Card
-                title="Sync Status"
-                subtitle="Manage your cloud synchronization with Raindrop"
-                style={{ borderRadius: '16px', padding: '24px' }}
+            {/* Sync Provider Selector */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                padding: '4px',
+                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.6)' : '#e2e8f0',
+                borderRadius: '12px',
+                width: 'fit-content',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => handleProviderToggle('supabase')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  backgroundColor: syncProvider === 'supabase' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                  color: syncProvider === 'supabase' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                  boxShadow: syncProvider === 'supabase' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                    padding: '14px 18px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                    borderRadius: '12px',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                      Last Cloud Sync
-                    </div>
-                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                      {lastSyncAt ? formatDate(lastSyncAt) : 'Not synced yet in this session'}
-                    </div>
-                  </div>
+                🌌 Arcable Cloud (Google OAuth)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleProviderToggle('raindrop')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  backgroundColor: syncProvider === 'raindrop' ? (isDark ? '#3b82f6' : '#ffffff') : 'transparent',
+                  color: syncProvider === 'raindrop' ? (isDark ? '#ffffff' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                  boxShadow: syncProvider === 'raindrop' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                💧 Raindrop.io
+              </button>
+            </div>
 
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleManualSync}
-                    isLoading={isSyncing}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                    }}
+            {syncProvider === 'supabase' ? (
+              <SupabaseAuthCard
+                session={supabaseSession}
+                onLoginWithGoogle={handleLoginWithGoogle}
+                onLogout={handleSupabaseLogout}
+                onRefreshSession={handleRefreshSession}
+                onImportToken={handleManualTokenImport}
+                serverUrl={supabaseServerUrl}
+                onChangeServerUrl={handleChangeServerUrl}
+                onSyncNow={handleSupabaseSyncNow}
+                isSyncing={isSupabaseSyncing}
+                errorMessage={supabaseError}
+                serverVersion={supabaseVersion}
+              />
+            ) : (
+              <>
+                <RaindropAuthCard
+                  authState={authState}
+                  isLoading={authLoading}
+                  errorMessage={authError}
+                  onLoginWithToken={handleLoginWithToken}
+                  onLoginWithOAuth={handleLoginWithOAuth}
+                  onLogout={handleLogout}
+                  onClearError={() => setAuthError(null)}
+                  title="Raindrop.io Cloud Sync"
+                  subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
+                />
+
+                {authState.isAuthenticated && (
+                  <Card
+                    title="Sync Status"
+                    subtitle="Manage your cloud synchronization with Raindrop"
+                    style={{ borderRadius: '16px', padding: '24px' }}
                   >
-                    <RefreshIcon size={14} />
-                    <span>Sync Now</span>
-                  </Button>
-                </div>
-              </Card>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        padding: '14px 18px',
+                        backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                        borderRadius: '12px',
+                        border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                          Last Cloud Sync
+                        </div>
+                        <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                          {lastSyncAt ? formatDate(lastSyncAt) : 'Not synced yet in this session'}
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={handleManualSync}
+                        isLoading={isSyncing}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 16px',
+                          borderRadius: '8px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        <RefreshIcon size={14} />
+                        <span>Sync Now</span>
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+              </>
             )}
           </div>
         )}

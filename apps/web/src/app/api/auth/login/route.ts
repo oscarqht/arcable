@@ -4,8 +4,15 @@ import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
+function getSafeOrigin(req: NextRequest): string {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || req.nextUrl.host || 'localhost:3000';
+  const proto = req.headers.get('x-forwarded-proto') || req.nextUrl.protocol.replace(':', '') || 'http';
+  const cleanHost = host.startsWith('0.0.0.0') ? host.replace('0.0.0.0', 'localhost') : host;
+  return `${proto}://${cleanHost}`;
+}
+
 export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin;
+  const safeOrigin = getSafeOrigin(request);
   const searchParams = request.nextUrl.searchParams;
   const fromExt = searchParams.get('ext') === 'true';
   const extId = searchParams.get('extId') || '';
@@ -14,13 +21,13 @@ export async function GET(request: NextRequest) {
 
   if (!clientId) {
     return NextResponse.redirect(
-      new URL('/?error=' + encodeURIComponent('RAINDROP_CLIENT_ID is not configured in environment variables.'), request.url)
+      new URL('/?error=' + encodeURIComponent('RAINDROP_CLIENT_ID is not configured in environment variables.'), safeOrigin)
     );
   }
 
   const payloadObj = {
     id: crypto.randomUUID(),
-    origin,
+    origin: safeOrigin,
     fromExt,
     extId,
   };

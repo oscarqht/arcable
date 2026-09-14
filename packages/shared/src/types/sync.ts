@@ -57,3 +57,33 @@ export interface SyncResult {
   error?: string;
   syncedAt?: number;
 }
+
+export type SyncProvider = 'supabase' | 'raindrop' | 'local';
+
+export interface SupabaseSyncRequest {
+  baseVersion: number;
+  deviceId: string;
+  deviceName?: string;
+  operations: WorkspaceOperation[];
+  initialState?: ArcableWorkspaceData;
+}
+
+export interface SupabaseSyncResponse {
+  success: boolean;
+  serverVersion: number;
+  diffs?: WorkspaceOperation[];
+  fullState?: ArcableWorkspaceData;
+  error?: string;
+}
+
+export interface SupabaseSessionTokens {
+  access_token: string;
+  refresh_token: string;
+  expires_at?: number;
+  user?: {
+    id: string;
+    email?: string;
+    user_metadata?: Record<string, any>;
+  };
+}
+

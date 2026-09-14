@@ -158,7 +158,23 @@ browser.runtime.onMessage.addListener(
     const message = rawMessage as ExtensionMessage;
 
     // Handle OAuth bridge event from content script
-    if (rawMessage && rawMessage.type === 'oauth_bridge_success') {
+    if (rawMessage && (rawMessage.type === 'oauth_bridge_success' || rawMessage.type === 'oauth_success')) {
+      if (rawMessage.provider === 'supabase') {
+        const session = rawMessage.tokens;
+        if (session && session.access_token) {
+          await browser.storage.local.set({
+            arcable_supabase_session: session,
+            arcable_sync_provider: 'supabase',
+          });
+          void browser.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session,
+          }).catch(() => {});
+          return { success: true, data: session };
+        }
+        return { success: false, error: 'Invalid Supabase session' };
+      }
+
       const auth = await processOAuthTokens(rawMessage.tokens);
       return { success: Boolean(auth), data: auth };
     }
@@ -358,6 +374,45 @@ browser.runtime.onMessage.addListener(
         return { success: true };
       }
 
+      // Supabase: Start Google OAuth Flow
+      case 'SUPABASE_START_OAUTH': {
+        try {
+          const extensionId = browser.runtime.id;
+          const stored: any = await browser.storage.local.get(['arcable_supabase_server_url']);
+          const serverUrl = String(stored.arcable_supabase_server_url || 'http://localhost:3000').replace(/\/+$/, '');
+          const authUrl = `${serverUrl}/auth/extension-login?extId=${extensionId}`;
+          await browser.tabs.create({ url: authUrl });
+          return { success: true, data: { status: 'opened_tab' } };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to start Google OAuth' };
+        }
+      }
+
+      // Supabase: Logout
+      case 'SUPABASE_LOGOUT': {
+        try {
+          await browser.storage.local.remove(['arcable_supabase_session']);
+          void browser.runtime.sendMessage({
+            type: 'SUPABASE_SESSION_CHANGED',
+            session: null,
+          }).catch(() => {});
+          return { success: true };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to logout from Supabase' };
+        }
+      }
+
+      // Supabase: Get Session
+      case 'SUPABASE_GET_SESSION': {
+        try {
+          const stored = await browser.storage.local.get(['arcable_supabase_session']);
+          return { success: true, data: stored.arcable_supabase_session || null };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to retrieve Supabase session' };
+        }
+      }
+
+
       // Raindrop: Create Bookmark
       case 'RAINDROP_SAVE_BOOKMARK': {
         const auth = await getStoredAuthState();
@@ -435,6 +490,11 @@ browser.runtime.onMessage.addListener(
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
       case 'RAINDROP_SYNC_WORKSPACE': {
+        const storedGoogle: any = await browser.storage.local.get(['arcable_supabase_session']);
+        if (storedGoogle.arcable_supabase_session?.access_token) {
+          return { success: false, error: 'Google OAuth is active. Raindrop sync is disabled.' };
+        }
+
         const auth = await getStoredAuthState();
         if (!auth.isAuthenticated || !auth.accessToken) {
           return { success: false, error: 'Not authenticated with Raindrop' };
@@ -820,8 +880,18 @@ async function triggerBackgroundSync(): Promise<void> {
   isBackgroundSyncInFlight = true;
 
   try {
+    // 1. if user has logged in to google oauth, ONLY sync with supabase, NEVER raindrop;
+    const storedAuth: any = await browser.storage.local.get(['arcable_supabase_session']);
+    if (storedAuth.arcable_supabase_session?.access_token) {
+      return;
+    }
+
+    // 2. if user has NOT logged in to google oauth, but has logged in to raindrop, ONLY sync with raindrop;
     const auth = await getStoredAuthState();
-    if (!auth.isAuthenticated || !auth.accessToken) return;
+    if (!auth.isAuthenticated || !auth.accessToken) {
+      // 3. if user has logged in to none, don't perform any sync at all.
+      return;
+    }
 
     const storedData = await browser.storage.local.get([
       'arcable_workspace_snapshot',
@@ -942,7 +1012,26 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
 // Listen for external messages (e.g. from web app OAuth redirect)
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
-    if (message && message.type === 'oauth_success') {
+    if (message && (message.type === 'oauth_success' || message.type === 'oauth_bridge_success')) {
+      if (message.provider === 'supabase') {
+        const session = message.tokens;
+        if (session && session.access_token) {
+          void browser.storage.local.set({
+            arcable_supabase_session: session,
+            arcable_sync_provider: 'supabase',
+          }).then(() => {
+            void browser.runtime.sendMessage({
+              type: 'SUPABASE_SESSION_CHANGED',
+              session,
+            }).catch(() => {});
+          });
+          if (sendResponse) {
+            sendResponse({ success: true, session });
+          }
+          return true;
+        }
+      }
+
       void processOAuthTokens(message.tokens).then((auth) => {
         if (sendResponse) {
           sendResponse({ success: Boolean(auth), auth });
