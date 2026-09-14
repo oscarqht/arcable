@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -11,6 +11,120 @@ export default function ExtensionLoginPage() {
   const [status, setStatus] = useState<'idle' | 'authenticating' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [tokensData, setTokensData] = useState<any>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [resyncSuccess, setResyncSuccess] = useState(false);
+  const broadcastIntervalRef = useRef<any>(null);
+
+  const broadcastTokensToExtension = (tokens: any) => {
+    if (!tokens || typeof window === 'undefined') return;
+
+    // 1. Save to localStorage for content script polling
+    try {
+      window.localStorage.setItem(
+        'arcable_pending_auth_session',
+        JSON.stringify({
+          type: 'oauth_success',
+          provider: 'supabase',
+          tokens,
+          timestamp: Date.now(),
+        })
+      );
+    } catch {}
+
+    // 2. Post message to current window (relaxed target origin '*')
+    try {
+      window.postMessage(
+        {
+          type: 'oauth_success',
+          provider: 'supabase',
+          tokens,
+        },
+        '*'
+      );
+      window.postMessage(
+        {
+          type: 'oauth_bridge_success',
+          provider: 'supabase',
+          tokens,
+        },
+        '*'
+      );
+    } catch {}
+
+    // 3. Dispatch DOM CustomEvent for content scripts
+    try {
+      document.dispatchEvent(
+        new CustomEvent('arcable_oauth_relay', {
+          detail: {
+            type: 'oauth_bridge_success',
+            provider: 'supabase',
+            tokens,
+          },
+        })
+      );
+    } catch {}
+
+    // 4. If extId query param present, also attempt direct chrome.runtime message
+    const params = new URLSearchParams(window.location.search);
+    const extId = params.get('extId');
+    if (extId && typeof (window as any).chrome !== 'undefined' && (window as any).chrome?.runtime?.sendMessage) {
+      try {
+        (window as any).chrome.runtime.sendMessage(
+          extId,
+          {
+            type: 'oauth_bridge_success',
+            provider: 'supabase',
+            tokens,
+          },
+          () => {}
+        );
+        (window as any).chrome.runtime.sendMessage(
+          extId,
+          {
+            type: 'oauth_success',
+            provider: 'supabase',
+            tokens,
+          },
+          () => {}
+        );
+      } catch (e) {
+        console.warn('Could not directly message extension runtime:', e);
+      }
+    }
+  };
+
+  const handleSessionSuccess = (session: any) => {
+    setStatus('success');
+    setUserEmail(session.user?.email || null);
+
+    const tokens = {
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_at: session.expires_at,
+      user: {
+        id: session.user?.id,
+        email: session.user?.email,
+        user_metadata: session.user?.user_metadata,
+      },
+    };
+
+    setTokensData(tokens);
+
+    // Initial broadcast
+    broadcastTokensToExtension(tokens);
+
+    // Continuous broadcast for next 8 seconds to handle tab switches or async content script load
+    if (broadcastIntervalRef.current) clearInterval(broadcastIntervalRef.current);
+    let attempts = 0;
+    broadcastIntervalRef.current = setInterval(() => {
+      attempts++;
+      broadcastTokensToExtension(tokens);
+      if (attempts >= 8) {
+        clearInterval(broadcastIntervalRef.current);
+      }
+    }, 1000);
+  };
 
   useEffect(() => {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -37,7 +151,9 @@ export default function ExtensionLoginPage() {
       }
     });
 
-    const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
         handleSessionSuccess(session);
       }
@@ -45,53 +161,9 @@ export default function ExtensionLoginPage() {
 
     return () => {
       subscription.unsubscribe();
+      if (broadcastIntervalRef.current) clearInterval(broadcastIntervalRef.current);
     };
   }, []);
-
-  const handleSessionSuccess = (session: any) => {
-    setStatus('success');
-    setUserEmail(session.user?.email || null);
-
-    const tokens = {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: session.expires_at,
-      user: {
-        id: session.user?.id,
-        email: session.user?.email,
-        user_metadata: session.user?.user_metadata,
-      },
-    };
-
-    // 1. Post message to current window for content-script oauth-bridge
-    if (typeof window !== 'undefined') {
-      window.postMessage(
-        {
-          type: 'oauth_success',
-          provider: 'supabase',
-          tokens,
-        },
-        window.location.origin
-      );
-
-      // 2. If extId query param present, also attempt direct chrome.runtime message
-      const params = new URLSearchParams(window.location.search);
-      const extId = params.get('extId');
-      if (extId && typeof (window as any).chrome !== 'undefined' && (window as any).chrome?.runtime?.sendMessage) {
-        try {
-          (window as any).chrome.runtime.sendMessage(extId, {
-            type: 'oauth_bridge_success',
-            provider: 'supabase',
-            tokens,
-          }, () => {
-            // Ignore callback error if receiver tab closed
-          });
-        } catch (e) {
-          console.warn('Could not directly message extension runtime:', e);
-        }
-      }
-    }
-  };
 
   const handleGoogleLogin = async () => {
     if (!supabase) return;
@@ -116,6 +188,24 @@ export default function ExtensionLoginPage() {
     }
   };
 
+  const handleManualResync = () => {
+    if (tokensData) {
+      broadcastTokensToExtension(tokensData);
+      setResyncSuccess(true);
+      setTimeout(() => setResyncSuccess(false), 3000);
+    }
+  };
+
+  const handleCopyToken = () => {
+    if (tokensData && typeof navigator !== 'undefined') {
+      const tokenPayload = JSON.stringify(tokensData);
+      navigator.clipboard.writeText(tokenPayload).then(() => {
+        setCopiedToken(true);
+        setTimeout(() => setCopiedToken(false), 3000);
+      });
+    }
+  };
+
   return (
     <div
       style={{
@@ -132,7 +222,7 @@ export default function ExtensionLoginPage() {
     >
       <div
         style={{
-          maxWidth: '440px',
+          maxWidth: '460px',
           width: '100%',
           backgroundColor: '#1e293b',
           borderRadius: '20px',
@@ -153,24 +243,64 @@ export default function ExtensionLoginPage() {
         {status === 'success' ? (
           <div
             style={{
-              padding: '20px',
+              padding: '24px 20px',
               backgroundColor: 'rgba(34, 197, 94, 0.1)',
               border: '1px solid rgba(34, 197, 94, 0.3)',
-              borderRadius: '12px',
+              borderRadius: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
             }}
           >
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4ade80', margin: '0 0 6px 0' }}>
+            <div style={{ fontSize: '32px' }}>✅</div>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4ade80', margin: 0 }}>
               Connected Successfully!
             </h3>
             {userEmail && (
-              <p style={{ fontSize: '13px', color: '#cbd5e1', margin: '0 0 12px 0' }}>
+              <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0 }}>
                 Signed in as <strong>{userEmail}</strong>
               </p>
             )}
-            <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0 }}>
-              Your credentials have been transferred to Arcable. You can safely close this window now.
+            <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0, lineHeight: 1.4 }}>
+              Your credentials are being relayed to your Arcable Extension. You can return to the Arcable Options page.
             </p>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={handleManualResync}
+                style={{
+                  padding: '8px 14px',
+                  backgroundColor: '#3b82f6',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                {resyncSuccess ? '✓ Transferred!' : 'Re-send to Extension'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyToken}
+                style={{
+                  padding: '8px 14px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  color: '#cbd5e1',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {copiedToken ? '✓ Copied!' : 'Copy Token'}
+              </button>
+            </div>
           </div>
         ) : (
           <div>

@@ -158,7 +158,7 @@ browser.runtime.onMessage.addListener(
     const message = rawMessage as ExtensionMessage;
 
     // Handle OAuth bridge event from content script
-    if (rawMessage && rawMessage.type === 'oauth_bridge_success') {
+    if (rawMessage && (rawMessage.type === 'oauth_bridge_success' || rawMessage.type === 'oauth_success')) {
       if (rawMessage.provider === 'supabase') {
         const session = rawMessage.tokens;
         if (session && session.access_token) {
@@ -997,7 +997,26 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
 // Listen for external messages (e.g. from web app OAuth redirect)
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
-    if (message && message.type === 'oauth_success') {
+    if (message && (message.type === 'oauth_success' || message.type === 'oauth_bridge_success')) {
+      if (message.provider === 'supabase') {
+        const session = message.tokens;
+        if (session && session.access_token) {
+          void browser.storage.local.set({
+            arcable_supabase_session: session,
+            arcable_sync_provider: 'supabase',
+          }).then(() => {
+            void browser.runtime.sendMessage({
+              type: 'SUPABASE_SESSION_CHANGED',
+              session,
+            }).catch(() => {});
+          });
+          if (sendResponse) {
+            sendResponse({ success: true, session });
+          }
+          return true;
+        }
+      }
+
       void processOAuthTokens(message.tokens).then((auth) => {
         if (sendResponse) {
           sendResponse({ success: Boolean(auth), auth });

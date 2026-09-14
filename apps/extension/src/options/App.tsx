@@ -186,10 +186,27 @@ export const App: React.FC = () => {
       }
     };
 
+    // 6. Automatically re-check session when user returns/focuses Options tab
+    const handleTabFocus = () => {
+      browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']).then((res: any) => {
+        if (res.arcable_supabase_session) {
+          setSupabaseSessionState(res.arcable_supabase_session);
+        }
+        if (res.arcable_sync_provider) {
+          setSyncProviderState(res.arcable_sync_provider);
+        }
+      });
+    };
+
+    window.addEventListener('focus', handleTabFocus);
+    window.addEventListener('visibilitychange', handleTabFocus);
+
     browser.storage.onChanged.addListener(handleStorageChange);
     browser.runtime.onMessage.addListener(handleRuntimeMessage);
 
     return () => {
+      window.removeEventListener('focus', handleTabFocus);
+      window.removeEventListener('visibilitychange', handleTabFocus);
       browser.storage.onChanged.removeListener(handleStorageChange);
       browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     };
@@ -347,6 +364,46 @@ export const App: React.FC = () => {
       'info'
     );
   };
+
+  const handleRefreshSession = async () => {
+    const res: any = await browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider']);
+    if (res.arcable_supabase_session) {
+      setSupabaseSessionState(res.arcable_supabase_session);
+      showToast('Connected to Arcable Cloud!', 'success');
+    } else {
+      showToast('No active session found. Please complete sign-in in the login tab.', 'info');
+    }
+  };
+
+  const handleManualTokenImport = async (tokenInput: string) => {
+    try {
+      let session: any = null;
+      const clean = tokenInput.trim();
+      if (clean.startsWith('{')) {
+        session = JSON.parse(clean);
+      } else {
+        session = { access_token: clean, refresh_token: '' };
+      }
+
+      if (session && session.access_token) {
+        await browser.storage.local.set({
+          arcable_supabase_session: session,
+          arcable_sync_provider: 'supabase',
+        });
+        setSupabaseSession(session);
+        setSyncProvider('supabase');
+        setSupabaseSessionState(session);
+        setSyncProviderState('supabase');
+        showToast('Connected to Arcable Cloud successfully!', 'success');
+        return true;
+      }
+      throw new Error('Invalid token structure');
+    } catch (err: any) {
+      showToast('Import failed: ' + (err.message || 'Invalid format'), 'warning');
+      return false;
+    }
+  };
+
 
 
   const handleManualSync = async () => {
@@ -743,6 +800,8 @@ export const App: React.FC = () => {
                 session={supabaseSession}
                 onLoginWithGoogle={handleLoginWithGoogle}
                 onLogout={handleSupabaseLogout}
+                onRefreshSession={handleRefreshSession}
+                onImportToken={handleManualTokenImport}
                 serverUrl={supabaseServerUrl}
                 onChangeServerUrl={handleChangeServerUrl}
                 onSyncNow={handleSupabaseSyncNow}
