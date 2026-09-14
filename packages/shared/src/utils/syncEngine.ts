@@ -1,4 +1,4 @@
-import { ArcableWorkspaceData, Space, Folder, Tab, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 import { getDescendantFolderIds } from './treeUtils';
@@ -503,6 +503,8 @@ export function applyOperation(
       const tabData: Tab = {
         id: op.entityId,
         url: op.payload?.url || 'https://arcable.dev',
+        urlVariants: op.payload?.urlVariants?.map((variant: TabUrlVariant) => ({ ...variant })),
+        defaultVariantId: op.payload?.defaultVariantId,
         pinned: isPinned,
         favourite: isFav || undefined,
         customTitle: op.payload?.customTitle,
