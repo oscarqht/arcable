@@ -14,6 +14,7 @@ import {
   removeStoredPendingOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
+import { getSyncProvider, getSupabaseSession } from '../../utils/supabaseSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
@@ -189,6 +190,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateWidget,
     removeWidget,
     reorderWidget,
+    syncWithSupabaseServer,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -932,6 +934,28 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const pendingOps = getStoredPendingOperations();
         const syncedOpIds = pendingOps.map((op) => op.id);
 
+        const provider = getSyncProvider();
+        if (provider === 'supabase' && getSupabaseSession()) {
+          const res = await syncWithSupabaseServer();
+          if (currentSeq === syncSeqRef.current) {
+            if (res.success) {
+              if (!isCurrentSyncSilentRef.current) {
+                setSyncFeedback({
+                  message: `✓ Synced with Arcable Cloud (v${res.serverVersion || 1})`,
+                });
+              }
+            } else {
+              if (!isCurrentSyncSilentRef.current) {
+                setSyncFeedback({
+                  message: res.error || 'Failed to sync with Arcable Cloud.',
+                  isError: true,
+                });
+              }
+            }
+          }
+          return;
+        }
+
         if (onSyncRaindrop) {
           const res = await onSyncRaindrop({
             localState: data,
@@ -1065,7 +1089,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Auto-sync on mount if authenticated
   useEffect(() => {
-    if (autoSync && (onSyncRaindrop || raindropToken)) {
+    const hasSupabase = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
+    if (autoSync && (onSyncRaindrop || raindropToken || hasSupabase)) {
       performSync(true);
     }
   }, [autoSync, Boolean(onSyncRaindrop), Boolean(raindropToken)]);

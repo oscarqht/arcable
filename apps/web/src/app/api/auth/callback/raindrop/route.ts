@@ -18,7 +18,10 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
-  const baseUrl = new URL('/', request.url);
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host || 'localhost:3000';
+  const proto = request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', '') || 'http';
+  const cleanHost = host.startsWith('0.0.0.0') ? host.replace('0.0.0.0', 'localhost') : host;
+  const baseUrl = new URL('/', `${proto}://${cleanHost}`);
 
   if (error) {
     baseUrl.searchParams.set('error', errorDescription || error);

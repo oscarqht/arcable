@@ -8,7 +8,6 @@ import {
   DropletIcon,
   PlusIcon,
   DevicesIcon,
-  SearchIcon,
   CloseIcon,
   DeviceModal,
   BackupRestoreModal,
@@ -16,8 +15,22 @@ import {
   LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName, getOrCreateDeviceId } from '@arcable/shared/utils';
-import { RaindropAuthState } from '@arcable/shared/types';
+import {
+  getStoredDeviceName,
+  setStoredDeviceName,
+  getOrCreateDeviceId,
+  getSyncProvider,
+  setSyncProvider,
+  getSupabaseSession,
+  setSupabaseSession,
+  setupSupabaseRealtime,
+} from '@arcable/shared/utils';
+import { RaindropAuthState, SupabaseSessionTokens, SyncProvider } from '@arcable/shared/types';
+import { createClient } from '@supabase/supabase-js';
+import { AuthModal } from '../components/AuthModal';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -25,7 +38,16 @@ export default function HomePage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Active sync provider: 'supabase' | 'raindrop' | 'local'
+  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
+
+  // Supabase Auth State
+  const [supabaseClient, setSupabaseClient] = useState<any>(null);
+  const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
+  const [supabaseLoading, setSupabaseLoading] = useState(true);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -34,8 +56,9 @@ export default function HomePage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Load auth status from API on mount
+  // Initialize Auth & Supabase
   useEffect(() => {
+    // 1. Check URL parameters and hash
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const err = params.get('error');
@@ -47,10 +70,115 @@ export default function HomePage() {
       if (auth === 'success') {
         window.history.replaceState({}, '', window.location.pathname);
       }
+
+      // Initial provider
+      setSyncProviderState(getSyncProvider());
     }
 
+    // 2. Initialize Supabase Client
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      setSupabaseClient(client);
+
+      // Check current session or callback hash
+      client.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.warn('Supabase getSession error:', error.message);
+        }
+
+        if (session) {
+          const tokens: SupabaseSessionTokens = {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+            user: {
+              id: session.user.id,
+              email: session.user.email,
+              user_metadata: session.user.user_metadata,
+            },
+          };
+          setSupabaseSession(tokens);
+          setSupabaseSessionState(tokens);
+          setSyncProvider('supabase');
+          setSyncProviderState('supabase');
+
+          // Clean hash
+          if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } else {
+          // Check local stored session
+          const stored = getSupabaseSession();
+          if (stored) {
+            setSupabaseSessionState(stored);
+          }
+        }
+        setSupabaseLoading(false);
+      });
+
+      // Listen to auth changes
+      const {
+        data: { subscription },
+      } = client.auth.onAuthStateChange((event, session) => {
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+          const tokens: SupabaseSessionTokens = {
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+            user: {
+              id: session.user.id,
+              email: session.user.email,
+              user_metadata: session.user.user_metadata,
+            },
+          };
+          setSupabaseSession(tokens);
+          setSupabaseSessionState(tokens);
+          setSyncProvider('supabase');
+          setSyncProviderState('supabase');
+
+          if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setSupabaseSession(null);
+          setSupabaseSessionState(null);
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    } else {
+      setSupabaseLoading(false);
+    }
+
+    // 3. Check Raindrop auth status
     fetchAuthState();
   }, []);
+
+  // Supabase Realtime Listener (multi-device instantaneous updates)
+  useEffect(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !supabaseSession?.access_token || !supabaseSession.user?.id) {
+      return;
+    }
+
+    const unsubscribe = setupSupabaseRealtime({
+      supabaseUrl: SUPABASE_URL,
+      supabaseAnonKey: SUPABASE_ANON_KEY,
+      accessToken: supabaseSession.access_token,
+      userId: supabaseSession.user.id,
+      onRemoteUpdate: () => {
+        // Instant trigger remote sync when workspace updated by another client
+        if (workspaceRef.current) {
+          void workspaceRef.current.triggerSync();
+        }
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [supabaseSession]);
 
   const fetchAuthState = async () => {
     setAuthLoading(true);
@@ -70,29 +198,127 @@ export default function HomePage() {
         }
       }
     } catch (e) {
-      console.error('Failed to fetch auth state:', e);
+      console.error('Failed to fetch Raindrop auth state:', e);
     } finally {
       setAuthLoading(false);
     }
   };
 
-  const handleLoginWithOAuth = () => {
+  // Google OAuth via Supabase
+  const handleLoginWithGoogle = async () => {
+    if (!supabaseClient) {
+      throw new Error('Supabase is not configured. Please check your environment variables.');
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: origin,
+      },
+    });
+    if (error) {
+      throw error;
+    }
+  };
+
+  const handleLogoutSupabase = async () => {
+    if (supabaseClient) {
+      try {
+        await supabaseClient.auth.signOut();
+      } catch (e) {
+        console.warn('Signout error:', e);
+      }
+    }
+    setSupabaseSession(null);
+    setSupabaseSessionState(null);
+  };
+
+  const handleImportSupabaseToken = async (rawInput: string) => {
+    let parsedTokens: SupabaseSessionTokens;
+    try {
+      const obj = JSON.parse(rawInput);
+      if (obj.tokens && obj.tokens.access_token) {
+        parsedTokens = {
+          access_token: obj.tokens.access_token,
+          refresh_token: obj.tokens.refresh_token || '',
+          expires_at: obj.tokens.expires_at,
+          user: obj.tokens.user,
+        };
+      } else if (obj.access_token) {
+        parsedTokens = {
+          access_token: obj.access_token,
+          refresh_token: obj.refresh_token || '',
+          expires_at: obj.expires_at,
+          user: obj.user,
+        };
+      } else {
+        throw new Error('Missing access_token');
+      }
+    } catch {
+      parsedTokens = {
+        access_token: rawInput.trim(),
+        refresh_token: '',
+        user: { id: 'imported_user', email: 'Imported Session' },
+      };
+    }
+    setSupabaseSession(parsedTokens);
+    setSupabaseSessionState(parsedTokens);
+    setSyncProvider('supabase');
+    setSyncProviderState('supabase');
+  };
+
+  // Raindrop OAuth & Token
+  const handleLoginWithRaindropOAuth = () => {
     setAuthError(null);
     window.location.href = '/api/auth/login';
   };
 
-  const handleLogout = async () => {
+  const handleLoginWithRaindropToken = async (token: string) => {
+    const res = await fetch('/api/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to authenticate with Raindrop token.');
+    }
+    setAuthState({
+      isAuthenticated: true,
+      user: data.user,
+      accessToken: data.token,
+      authType: 'token',
+    });
+    setSyncProvider('raindrop');
+    setSyncProviderState('raindrop');
+  };
+
+  const handleLogoutRaindrop = async () => {
     setAuthLoading(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
       setAuthState({ isAuthenticated: false });
     } catch (e) {
-      console.error('Logout error:', e);
+      console.error('Raindrop logout error:', e);
     } finally {
       setAuthLoading(false);
     }
   };
 
+  const handleSelectProvider = (provider: SyncProvider) => {
+    setSyncProvider(provider);
+    setSyncProviderState(provider);
+  };
+
+  const handleLogoutActive = async () => {
+    if (supabaseSession?.access_token) {
+      await handleLogoutSupabase();
+    } else if (authState.isAuthenticated) {
+      await handleLogoutRaindrop();
+    }
+  };
+
+  // Workspace Sync & Management Handlers
   const handleSyncWorkspace = async (syncParams?: {
     localState: any;
     deviceId: string;
@@ -294,6 +520,11 @@ export default function HomePage() {
     }
   }, []);
 
+  const isSupabaseActive = Boolean(supabaseSession?.access_token);
+  const isRaindropActive = Boolean(authState.isAuthenticated && authState.user);
+  const isAuthenticated = isSupabaseActive || isRaindropActive;
+  const isOverallLoading = authLoading || supabaseLoading;
+
   return (
     <div
       style={{
@@ -308,17 +539,62 @@ export default function HomePage() {
       <Header
         title="Arcable"
         leftContent={
-          authState.isAuthenticated && authState.user ? (
+          isSupabaseActive ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
+              <span
+                className="header-user-info"
+                style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}
+              >
+                Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{supabaseSession?.user?.email || 'Cloud User'}</strong>
+              </span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#d1fae5',
+                  color: isDark ? '#34d399' : '#059669',
+                  border: isDark ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid #a7f3d0',
+                }}
+              >
+                Cloud
+              </span>
+            </div>
+          ) : isRaindropActive ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px' }}>
+              <span
+                className="header-user-info"
+                style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}
+              >
+                Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{authState.user?.name}</strong>
+              </span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe',
+                  color: isDark ? '#38bdf8' : '#0284c7',
+                  border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
+                }}
+              >
+                Raindrop
+              </span>
+            </div>
+          ) : (
             <span
               className="header-user-info"
-              style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '6px' }}
+              style={{ fontSize: '12px', color: isDark ? '#64748b' : '#94a3b8', marginLeft: '6px' }}
             >
-              Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{authState.user.name}</strong>
+              Offline / Local Mode
             </span>
-          ) : null
+          )
         }
         actions={
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Sync Action Button */}
             <button
               type="button"
               className="header-action-btn"
@@ -328,7 +604,13 @@ export default function HomePage() {
                 }
               }}
               disabled={isSyncing}
-              title={isSyncing ? 'Syncing...' : 'Raindrop Sync'}
+              title={
+                isSyncing
+                  ? 'Syncing...'
+                  : isSupabaseActive
+                  ? 'Sync with Arcable Cloud'
+                  : 'Sync with Raindrop'
+              }
               style={{
                 border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                 background: isDark
@@ -356,11 +638,18 @@ export default function HomePage() {
                   animation: isSyncing ? 'spin 1s linear infinite' : 'none',
                 }}
               >
-                <DropletIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
+                {isSupabaseActive ? (
+                  <span style={{ fontSize: '13px' }}>⚡</span>
+                ) : (
+                  <DropletIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
+                )}
               </span>
-              <span className="header-btn-text">{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+              <span className="header-btn-text">
+                {isSyncing ? 'Syncing...' : isSupabaseActive ? 'Cloud Sync' : 'Raindrop Sync'}
+              </span>
             </button>
 
+            {/* New Space Button */}
             <button
               type="button"
               className="header-action-btn"
@@ -441,22 +730,50 @@ export default function HomePage() {
               <span className="header-btn-text">Backup</span>
             </button>
 
-            {authState.isAuthenticated ? (
+            {/* Account / Provider Switcher Button */}
+            <button
+              type="button"
+              className="header-action-btn"
+              onClick={() => setIsAuthModalOpen(true)}
+              title="Account & Sync Settings"
+              style={{
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
+              }}
+            >
+              <span style={{ fontSize: '13px', display: 'inline-flex' }}>⚙️</span>
+              <span className="header-btn-text">Sync Settings</span>
+            </button>
+
+            {/* Login / Logout Button */}
+            {isAuthenticated ? (
               <button
                 type="button"
                 className="header-action-btn"
-                onClick={handleLogout}
-                disabled={authLoading}
-                title={authLoading ? 'Logging out...' : 'Logout'}
+                onClick={handleLogoutActive}
+                disabled={isOverallLoading}
+                title="Log Out"
                 style={{
                   border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
                   background: isDark ? '#151e2e' : '#ffffff',
-                  color: isDark ? '#cbd5e1' : '#475569',
+                  color: isDark ? '#f87171' : '#dc2626',
                   fontSize: '12px',
                   fontWeight: 600,
                   padding: '5px 12px',
                   borderRadius: '8px',
-                  cursor: authLoading ? 'not-allowed' : 'pointer',
+                  cursor: isOverallLoading ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -465,16 +782,16 @@ export default function HomePage() {
                   boxSizing: 'border-box',
                 }}
               >
-                <LogOutIcon size={14} color={isDark ? '#cbd5e1' : '#475569'} />
-                <span className="header-btn-text">{authLoading ? 'Logging out...' : 'Logout'}</span>
+                <LogOutIcon size={14} color={isDark ? '#f87171' : '#dc2626'} />
+                <span className="header-btn-text">Logout</span>
               </button>
             ) : (
               <button
                 type="button"
                 className="header-action-btn"
-                onClick={handleLoginWithOAuth}
-                disabled={authLoading}
-                title={authLoading ? 'Connecting...' : 'Login'}
+                onClick={() => setIsAuthModalOpen(true)}
+                disabled={isOverallLoading}
+                title="Sign In"
                 style={{
                   border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                   background: isDark ? 'rgba(56, 189, 248, 0.18)' : '#e0f2fe',
@@ -483,7 +800,7 @@ export default function HomePage() {
                   fontWeight: 600,
                   padding: '5px 12px',
                   borderRadius: '8px',
-                  cursor: authLoading ? 'not-allowed' : 'pointer',
+                  cursor: isOverallLoading ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -493,12 +810,55 @@ export default function HomePage() {
                 }}
               >
                 <LogInIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
-                <span className="header-btn-text">{authLoading ? 'Connecting...' : 'Login'}</span>
+                <span className="header-btn-text">Login</span>
               </button>
             )}
           </div>
         }
       />
+
+      {/* Error Banner */}
+      {authError && (
+        <div
+          style={{
+            maxWidth: '1440px',
+            width: '100%',
+            margin: '12px auto 0 auto',
+            padding: '10px 20px',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fee2e2',
+              border: isDark ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid #fca5a5',
+              color: isDark ? '#fca5a5' : '#b91c1c',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span>{authError}</span>
+            <button
+              type="button"
+              onClick={() => setAuthError(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                padding: '4px',
+              }}
+            >
+              <CloseIcon size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <main
         className="main-content"
@@ -525,6 +885,29 @@ export default function HomePage() {
         />
       </main>
 
+      {/* Auth & Provider Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        supabaseSession={supabaseSession}
+        onLoginWithGoogle={handleLoginWithGoogle}
+        onLogoutSupabase={handleLogoutSupabase}
+        onImportSupabaseToken={handleImportSupabaseToken}
+        raindropAuthState={authState}
+        onLoginWithRaindropOAuth={handleLoginWithRaindropOAuth}
+        onLoginWithRaindropToken={handleLoginWithRaindropToken}
+        onLogoutRaindrop={handleLogoutRaindrop}
+        activeProvider={syncProvider}
+        onSelectProvider={handleSelectProvider}
+        onSyncNow={async () => {
+          if (workspaceRef.current) {
+            await workspaceRef.current.triggerSync();
+          }
+        }}
+        isSyncing={isSyncing}
+      />
+
+      {/* Devices Modal */}
       <DeviceModal
         isOpen={isDeviceModalOpen}
         onClose={() => setIsDeviceModalOpen(false)}
@@ -535,6 +918,7 @@ export default function HomePage() {
         onDeleteOtherDevices={authState.isAuthenticated ? handleDeleteOtherDevices : undefined}
       />
 
+      {/* Backup & Restore Modal */}
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
