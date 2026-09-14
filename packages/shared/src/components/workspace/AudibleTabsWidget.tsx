@@ -35,7 +35,7 @@ export const AudibleTabsWidget: React.FC<AudibleTabsWidgetProps> = ({
       }}
       style={{
         position: 'fixed',
-        bottom: '56px',
+        bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))',
         left: '16px',
         zIndex: 35,
         display: 'flex',
