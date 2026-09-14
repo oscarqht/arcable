@@ -54,6 +54,8 @@ export interface ExtensionResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  pending?: boolean;
+  message?: string;
 }
 
 export * from './raindrop';

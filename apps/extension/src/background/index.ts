@@ -170,6 +170,10 @@ async function saveAuthState(auth: RaindropAuthState): Promise<void> {
   }
   await browser.storage.local.set(updates);
   void syncSidePanelBehavior(Boolean(auth && auth.isAuthenticated && auth.accessToken));
+  void browser.runtime.sendMessage({
+    type: 'RAINDROP_AUTH_CHANGED',
+    auth,
+  }).catch(() => {});
 }
 
 // Helper to clear auth state
@@ -181,6 +185,10 @@ async function clearAuthState(): Promise<void> {
     await browser.storage.local.set({ arcable_sync_provider: 'local' });
   }
   void syncSidePanelBehavior(false);
+  void browser.runtime.sendMessage({
+    type: 'RAINDROP_AUTH_CHANGED',
+    auth: { isAuthenticated: false },
+  }).catch(() => {});
 }
 
 // Process OAuth tokens received via bridge or launchWebAuthFlow
@@ -379,35 +387,60 @@ browser.runtime.onMessage.addListener(
       case 'RAINDROP_START_OAUTH': {
         try {
           const extensionId = browser.runtime.id;
-          const extensionRedirect = browser.identity.getRedirectURL('raindrop');
-          const statePayload = {
+          const hasIdentity =
+            typeof browser?.identity?.launchWebAuthFlow === 'function' &&
+            typeof browser?.identity?.getRedirectURL === 'function';
+
+          let extensionRedirect: string | undefined;
+          if (hasIdentity) {
+            try {
+              extensionRedirect = browser.identity.getRedirectURL('raindrop');
+            } catch (err) {
+              console.warn('[Arcable] Failed to get identity redirect URL for Raindrop:', err);
+            }
+          }
+
+          const statePayload: Record<string, any> = {
             extensionId,
             fromExt: true,
             provider: 'raindrop',
-            extensionRedirect,
           };
+          if (extensionRedirect) {
+            statePayload.extensionRedirect = extensionRedirect;
+          }
+
           const stateStr = encodeURIComponent(JSON.stringify(statePayload));
           const authUrl = `https://oh-auth.vercel.app/auth/raindrop?state=${stateStr}`;
 
-          const responseUrl = await browser.identity.launchWebAuthFlow({
-            url: authUrl,
-            interactive: true,
-          });
-          const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
-          if (!tokens?.access_token) {
-            return { success: false, error: 'Raindrop OAuth completed without an access token.' };
-          }
+          if (hasIdentity && extensionRedirect) {
+            const responseUrl = await browser.identity.launchWebAuthFlow({
+              url: authUrl,
+              interactive: true,
+            });
+            const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
+            if (!tokens?.access_token) {
+              return { success: false, error: 'Raindrop OAuth completed without an access token.' };
+            }
 
-          const auth = await processOAuthTokens({
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-            expires_in: tokens.expires_in || 2592000,
-          });
-          return auth
-            ? { success: true, data: auth }
-            : { success: false, error: 'Could not validate the Raindrop OAuth session.' };
+            const auth = await processOAuthTokens({
+              access_token: tokens.access_token,
+              refresh_token: tokens.refresh_token,
+              expires_in: tokens.expires_in || 2592000,
+            });
+            return auth
+              ? { success: true, data: auth }
+              : { success: false, error: 'Could not validate the Raindrop OAuth session.' };
+          } else {
+            // Fallback for Firefox Android or environments without browser.identity
+            await browser.tabs.create({ url: authUrl });
+            return {
+              success: true,
+              pending: true,
+              message: 'Opened authorization in a new tab. Please complete sign-in there.',
+            };
+          }
         } catch (err: any) {
-          console.warn('[Arcable] Raindrop identity OAuth failed:', err);
+          console.warn('[Arcable] Raindrop OAuth failed:', err);
           return { success: false, error: err?.message || 'Failed to complete Raindrop OAuth' };
         }
       }
@@ -424,30 +457,53 @@ browser.runtime.onMessage.addListener(
           const extensionId = browser.runtime.id;
           const stored: any = await browser.storage.local.get(['arcable_supabase_server_url']);
           const serverUrl = String(stored.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
-          const extensionRedirect = browser.identity.getRedirectURL('supabase');
           const authUrl = new URL(`${serverUrl}/auth/extension-login`);
           authUrl.searchParams.set('extId', extensionId);
-          authUrl.searchParams.set('extensionRedirect', extensionRedirect);
 
-          const responseUrl = await browser.identity.launchWebAuthFlow({
-            url: authUrl.toString(),
-            interactive: true,
-          });
-          const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
-          if (!tokens?.access_token) {
-            return { success: false, error: 'Google OAuth completed without a Supabase session.' };
+          const hasIdentity =
+            typeof browser?.identity?.launchWebAuthFlow === 'function' &&
+            typeof browser?.identity?.getRedirectURL === 'function';
+
+          let extensionRedirect: string | undefined;
+          if (hasIdentity) {
+            try {
+              extensionRedirect = browser.identity.getRedirectURL('supabase');
+            } catch (err) {
+              console.warn('[Arcable] Failed to get identity redirect URL for Supabase:', err);
+            }
           }
 
-          const session = {
-            ...tokens,
-            refresh_token: tokens.refresh_token || '',
-          };
-          if (!(await saveSupabaseOAuthSession(session))) {
-            return { success: false, error: 'Failed to save the Google OAuth session.' };
+          if (hasIdentity && extensionRedirect) {
+            authUrl.searchParams.set('extensionRedirect', extensionRedirect);
+
+            const responseUrl = await browser.identity.launchWebAuthFlow({
+              url: authUrl.toString(),
+              interactive: true,
+            });
+            const tokens = responseUrl ? parseExtensionOAuthCallback(responseUrl) : null;
+            if (!tokens?.access_token) {
+              return { success: false, error: 'Google OAuth completed without a Supabase session.' };
+            }
+
+            const session = {
+              ...tokens,
+              refresh_token: tokens.refresh_token || '',
+            };
+            if (!(await saveSupabaseOAuthSession(session))) {
+              return { success: false, error: 'Failed to save the Google OAuth session.' };
+            }
+            return { success: true, data: session };
+          } else {
+            // Fallback for Firefox Android or environments without browser.identity
+            await browser.tabs.create({ url: authUrl.toString() });
+            return {
+              success: true,
+              pending: true,
+              message: 'Opened Google Sign-In in a new tab. Please complete sign-in there.',
+            };
           }
-          return { success: true, data: session };
         } catch (err: any) {
-          console.warn('[Arcable] Google identity OAuth failed:', err);
+          console.warn('[Arcable] Google OAuth failed:', err);
           return { success: false, error: err?.message || 'Failed to complete Google OAuth' };
         }
       }

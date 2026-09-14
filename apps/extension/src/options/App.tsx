@@ -237,7 +237,28 @@ export const App: React.FC = () => {
       if (msg && msg.type === 'SUPABASE_SESSION_CHANGED') {
         setSupabaseSessionState(msg.session || null);
         if (msg.session) {
+          setSyncProvider('supabase');
+          setSyncProviderState('supabase');
           showToast('Connected to Arcable Cloud!', 'success');
+        } else {
+          const resolved = resolveSyncProvider(false, Boolean(authState.isAuthenticated));
+          setSyncProvider(resolved);
+          setSyncProviderState(resolved);
+        }
+      } else if (msg && msg.type === 'RAINDROP_AUTH_CHANGED') {
+        if (msg.auth && msg.auth.isAuthenticated) {
+          setAuthState(msg.auth);
+          const isGoogle = Boolean(supabaseSession?.access_token);
+          const resolved = resolveSyncProvider(isGoogle, true);
+          setSyncProvider(resolved);
+          setSyncProviderState(resolved);
+          showToast('Connected to Raindrop.io successfully!', 'success');
+        } else {
+          setAuthState({ isAuthenticated: false });
+          const isGoogle = Boolean(supabaseSession?.access_token);
+          const resolved = resolveSyncProvider(isGoogle, false);
+          setSyncProvider(resolved);
+          setSyncProviderState(resolved);
         }
       }
     };
@@ -332,7 +353,14 @@ export const App: React.FC = () => {
       const res: any = await browser.runtime.sendMessage({
         type: 'RAINDROP_START_OAUTH',
       });
-      if (!res?.success || !res.data?.isAuthenticated) {
+      if (!res?.success) {
+        throw new Error(res?.error || 'Failed to start OAuth');
+      }
+      if (res.pending) {
+        showToast(res.message || 'Please complete sign-in in the opened tab, then return here.', 'info');
+        return;
+      }
+      if (!res.data?.isAuthenticated) {
         throw new Error(res?.error || 'Raindrop OAuth did not return an authenticated session.');
       }
       setAuthState(res.data);
@@ -371,7 +399,14 @@ export const App: React.FC = () => {
     setSupabaseError(null);
     try {
       const res: any = await browser.runtime.sendMessage({ type: 'SUPABASE_START_OAUTH' });
-      if (!res?.success || !res.data?.access_token) {
+      if (!res?.success) {
+        throw new Error(res?.error || 'Failed to start Google OAuth');
+      }
+      if (res.pending) {
+        showToast(res.message || 'Please complete sign-in in the opened tab, then return here.', 'info');
+        return;
+      }
+      if (!res.data?.access_token) {
         throw new Error(res?.error || 'Google OAuth did not return a Supabase session.');
       }
       setSupabaseSession(res.data);
