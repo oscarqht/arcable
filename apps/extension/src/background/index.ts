@@ -20,6 +20,10 @@ import {
   renameRaindropDevice,
   deleteRaindropDevice,
   deleteAllOtherRaindropDevices,
+  fetchSupabaseDevices,
+  renameSupabaseDevice,
+  deleteSupabaseDevice,
+  deleteAllOtherSupabaseDevices,
   getDefaultDeviceName,
   searchRaindrop,
   getDefaultServerUrl,
@@ -407,6 +411,117 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: stored.arcable_supabase_session || null };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to retrieve Supabase session' };
+        }
+      }
+
+      // Supabase: Fetch Devices
+      case 'SUPABASE_GET_DEVICES': {
+        const storedAuth: any = await browser.storage.local.get([
+          'arcable_supabase_session',
+          'arcable_supabase_server_url',
+        ]);
+        const session = storedAuth.arcable_supabase_session;
+        if (!session?.access_token) {
+          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+        }
+        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const payload = message.payload as { currentDeviceId?: string; currentDeviceName?: string } | undefined;
+        try {
+          const effectiveCurrentDeviceId = payload?.currentDeviceId || await getOrCreateExtensionDeviceId();
+          const effectiveCurrentDeviceName = payload?.currentDeviceName || await getExtensionDeviceName();
+          const result = await fetchSupabaseDevices({
+            serverUrl,
+            session,
+            currentDeviceId: effectiveCurrentDeviceId,
+            currentDeviceName: effectiveCurrentDeviceName,
+          });
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch devices from Supabase' };
+        }
+      }
+
+      // Supabase: Rename Device
+      case 'SUPABASE_RENAME_DEVICE': {
+        const storedAuth: any = await browser.storage.local.get([
+          'arcable_supabase_session',
+          'arcable_supabase_server_url',
+        ]);
+        const session = storedAuth.arcable_supabase_session;
+        if (!session?.access_token) {
+          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+        }
+        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const payload = message.payload as { deviceId: string; newName: string } | undefined;
+        if (!payload?.deviceId || !payload?.newName) {
+          return { success: false, error: 'deviceId and newName are required' };
+        }
+        try {
+          const result = await renameSupabaseDevice({
+            serverUrl,
+            session,
+            deviceId: payload.deviceId,
+            newName: payload.newName,
+          });
+          const currentExtDeviceId = await getOrCreateExtensionDeviceId();
+          if (payload.deviceId === currentExtDeviceId) {
+            await browser.storage.local.set({ arcable_device_name: payload.newName });
+          }
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to rename device in Supabase' };
+        }
+      }
+
+      // Supabase: Delete Device
+      case 'SUPABASE_DELETE_DEVICE': {
+        const storedAuth: any = await browser.storage.local.get([
+          'arcable_supabase_session',
+          'arcable_supabase_server_url',
+        ]);
+        const session = storedAuth.arcable_supabase_session;
+        if (!session?.access_token) {
+          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+        }
+        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const payload = message.payload as { deviceId: string } | undefined;
+        if (!payload?.deviceId) {
+          return { success: false, error: 'deviceId is required' };
+        }
+        try {
+          const result = await deleteSupabaseDevice({
+            serverUrl,
+            session,
+            deviceId: payload.deviceId,
+          });
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to delete device from Supabase' };
+        }
+      }
+
+      // Supabase: Delete All Other Devices
+      case 'SUPABASE_DELETE_OTHER_DEVICES': {
+        const storedAuth: any = await browser.storage.local.get([
+          'arcable_supabase_session',
+          'arcable_supabase_server_url',
+        ]);
+        const session = storedAuth.arcable_supabase_session;
+        if (!session?.access_token) {
+          return { success: false, error: 'Not authenticated with Supabase / Google OAuth' };
+        }
+        const serverUrl = String(storedAuth.arcable_supabase_server_url || getDefaultServerUrl()).replace(/\/+$/, '');
+        const payload = message.payload as { keepDeviceId?: string } | undefined;
+        try {
+          const effectiveKeepDeviceId = payload?.keepDeviceId || await getOrCreateExtensionDeviceId();
+          const result = await deleteAllOtherSupabaseDevices({
+            serverUrl,
+            session,
+            keepDeviceId: effectiveKeepDeviceId,
+          });
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to delete other devices from Supabase' };
         }
       }
 

@@ -785,6 +785,7 @@ export function replayOperations(
     runCodeInPageRules: [...(baseline.runCodeInPageRules || [])],
     activeSpaceId: baseline.activeSpaceId,
     version: baseline.version || 1,
+    devices: baseline.devices ? { ...baseline.devices } : undefined,
   };
 
   for (const op of sorted) {

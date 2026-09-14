@@ -111,6 +111,9 @@ export const App: React.FC = () => {
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
+  const isGoogleLoggedIn = Boolean(hasSupabaseAuth && supabaseSession?.access_token);
+  const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && hasRaindropAuth);
+
   // Authoritative server state fetcher for Supabase
   const loadCloudWorkspace = useCallback(async (sessionTokens?: SupabaseSessionTokens | null) => {
     const activeTokens = sessionTokens !== undefined ? sessionTokens : (supabaseSession || getSupabaseSession());
@@ -264,8 +267,8 @@ export const App: React.FC = () => {
     });
 
     browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((res: any) => {
-      if (res && res.success && res.data?.isAuthenticated) {
-        setHasRaindropAuth(true);
+      if (res && res.success) {
+        setHasRaindropAuth(Boolean(res.data?.isAuthenticated));
       }
     });
 
@@ -392,9 +395,14 @@ export const App: React.FC = () => {
           setSupabaseSessionState(null);
           setSupabaseSession(null);
         }
-        if (res.arcable_raindrop_auth) {
-          setHasRaindropAuth(Boolean(res.arcable_raindrop_auth.isAuthenticated));
+        if (res.arcable_raindrop_auth !== undefined) {
+          setHasRaindropAuth(Boolean(res.arcable_raindrop_auth?.isAuthenticated));
         }
+        browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((r: any) => {
+          if (r && r.success) {
+            setHasRaindropAuth(Boolean(r.data?.isAuthenticated));
+          }
+        });
       });
     };
 
@@ -448,58 +456,119 @@ export const App: React.FC = () => {
   };
 
   const handleSearchRaindrop = async (query: string) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_SEARCH',
-      payload: { query },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to search Raindrop');
+    try {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'RAINDROP_SEARCH',
+        payload: { query },
+      });
+      if (!res || !res.success) {
+        if (res?.error === 'Not authenticated with Raindrop') {
+          return { items: [], collections: [] };
+        }
+        throw new Error(res?.error || 'Failed to search Raindrop');
+      }
+      return res.data || { items: [], collections: [] };
+    } catch (err: any) {
+      if (err?.message === 'Not authenticated with Raindrop') {
+        return { items: [], collections: [] };
+      }
+      throw err;
     }
-    return res.data || { items: [], collections: [] };
   };
 
   const handleFetchDevices = async () => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_GET_DEVICES',
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to fetch devices');
+    if (isGoogleLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'SUPABASE_GET_DEVICES',
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to fetch devices from Supabase');
+      }
+      return res.data || [];
     }
-    return res.data || [];
+    if (isRaindropLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'RAINDROP_GET_DEVICES',
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to fetch devices from Raindrop');
+      }
+      return res.data || [];
+    }
+    return [];
   };
 
   const handleRenameDevice = async (deviceId: string, newName: string) => {
     setStoredDeviceName(newName);
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_RENAME_DEVICE',
-      payload: { deviceId, newName },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to rename device');
+    if (isGoogleLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'SUPABASE_RENAME_DEVICE',
+        payload: { deviceId, newName },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to rename device in Supabase');
+      }
+      return res.data || [];
     }
-    return res.data || [];
+    if (isRaindropLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'RAINDROP_RENAME_DEVICE',
+        payload: { deviceId, newName },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to rename device in Raindrop');
+      }
+      return res.data || [];
+    }
+    return [];
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_DELETE_DEVICE',
-      payload: { deviceId },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to delete device');
+    if (isGoogleLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'SUPABASE_DELETE_DEVICE',
+        payload: { deviceId },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to delete device from Supabase');
+      }
+      return res.data || [];
     }
-    return res.data || [];
+    if (isRaindropLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'RAINDROP_DELETE_DEVICE',
+        payload: { deviceId },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to delete device from Raindrop');
+      }
+      return res.data || [];
+    }
+    return [];
   };
 
   const handleDeleteOtherDevices = async (keepDeviceId: string) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_DELETE_OTHER_DEVICES',
-      payload: { keepDeviceId },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to delete other devices');
+    if (isGoogleLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'SUPABASE_DELETE_OTHER_DEVICES',
+        payload: { keepDeviceId },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to delete other devices from Supabase');
+      }
+      return res.data || [];
     }
-    return res.data || [];
+    if (isRaindropLoggedIn) {
+      const res: any = await browser.runtime.sendMessage({
+        type: 'RAINDROP_DELETE_OTHER_DEVICES',
+        payload: { keepDeviceId },
+      });
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to delete other devices from Raindrop');
+      }
+      return res.data || [];
+    }
+    return [];
   };
 
   const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
@@ -713,9 +782,6 @@ export const App: React.FC = () => {
     return res.data;
   };
 
-  const isGoogleLoggedIn = Boolean(hasSupabaseAuth && supabaseSession?.access_token);
-  const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && hasRaindropAuth);
-
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
       id: isGoogleLoggedIn ? 'sync-cloud' : isRaindropLoggedIn ? 'sync-raindrop' : 'connect-sync',
@@ -876,8 +942,9 @@ export const App: React.FC = () => {
           onMediaControl={handleMediaControl}
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
+          hasRaindropAuth={hasRaindropAuth}
           onSyncRaindrop={isRaindropLoggedIn ? handleSyncRaindrop : undefined}
-          onSearchRaindrop={isRaindropLoggedIn ? handleSearchRaindrop : undefined}
+          onSearchRaindrop={handleSearchRaindrop}
           onSyncStateChange={setIsSyncing}
         />
       </div>
@@ -885,10 +952,12 @@ export const App: React.FC = () => {
       <DeviceModal
         isOpen={isDeviceModalOpen}
         onClose={() => setIsDeviceModalOpen(false)}
-        onFetchDevices={handleFetchDevices}
-        onRenameDevice={handleRenameDevice}
-        onDeleteDevice={handleDeleteDevice}
-        onDeleteOtherDevices={handleDeleteOtherDevices}
+        syncProvider={isGoogleLoggedIn ? 'supabase' : isRaindropLoggedIn ? 'raindrop' : undefined}
+        currentDeviceId={currentDeviceId || undefined}
+        onFetchDevices={isGoogleLoggedIn || isRaindropLoggedIn ? handleFetchDevices : undefined}
+        onRenameDevice={isGoogleLoggedIn || isRaindropLoggedIn ? handleRenameDevice : undefined}
+        onDeleteDevice={isGoogleLoggedIn || isRaindropLoggedIn ? handleDeleteDevice : undefined}
+        onDeleteOtherDevices={isGoogleLoggedIn || isRaindropLoggedIn ? handleDeleteOtherDevices : undefined}
       />
 
       <BackupRestoreModal

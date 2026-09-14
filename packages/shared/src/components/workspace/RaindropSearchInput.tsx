@@ -10,6 +10,7 @@ import { SearchIcon, CloseIcon, DropletIcon, ExternalLinkIcon } from '../Icons';
 
 export interface RaindropSearchInputProps {
   raindropToken?: string;
+  hasRaindropAuth?: boolean;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
   onOpenTab?: (url: string, tabId?: string) => void;
@@ -27,17 +28,26 @@ type SaveStatus = 'idle' | 'saving' | 'success' | 'error';
 
 export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   raindropToken,
+  hasRaindropAuth,
   onSearchRaindrop,
   onSaveToRaindrop,
   onOpenTab,
   compact = false,
-  placeholder = 'Search Raindrop & filter spaces...',
+  placeholder,
   searchQuery,
   onSearchChange,
 }) => {
   const { isDark } = useSystemTheme();
   const [internalQuery, setInternalQuery] = useState(searchQuery || '');
   const query = searchQuery !== undefined ? searchQuery : internalQuery;
+
+  const isRaindropLoggedIn = hasRaindropAuth !== undefined ? hasRaindropAuth : Boolean(raindropToken);
+  const effectivePlaceholder =
+    placeholder !== undefined
+      ? placeholder
+      : isRaindropLoggedIn
+      ? 'Search Raindrop & filter spaces...'
+      : 'Search & filter spaces...';
 
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<RaindropSearchResult | null>(null);
@@ -130,8 +140,13 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
           results = await onSearchRaindrop(trimmed);
         } else if (raindropToken) {
           results = await searchRaindrop(raindropToken, trimmed);
-        } else if (typeof window !== 'undefined') {
-          // Fallback to web API route
+        } else if (
+          typeof window !== 'undefined' &&
+          window.location?.protocol &&
+          !window.location.protocol.includes('extension') &&
+          window.location.protocol.startsWith('http')
+        ) {
+          // Fallback to web API route (web app HTTP/HTTPS environments only)
           const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(trimmed)}`);
           if (res.ok) {
             results = await res.json();
@@ -148,6 +163,9 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
         }
       } catch (err: any) {
         if (requestId === activeRequestIdRef.current) {
+          if (err?.name === 'AbortError' || err?.message?.toLowerCase().includes('aborted')) {
+            return;
+          }
           console.warn('[RaindropSearchInput] Search failed:', err);
           setSearchError(err?.message || 'Search failed');
           setSearchResults({ items: [], collections: [] });
@@ -362,7 +380,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
             ref={inputRef}
             type="text"
             value={query}
-            placeholder={placeholder}
+            placeholder={effectivePlaceholder}
             onChange={handleInputChange}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}

@@ -92,6 +92,8 @@ export interface WorkspaceManagerProps {
   onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   raindropToken?: string;
+  hasRaindropAuth?: boolean;
+  searchPlaceholder?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
   autoSync?: boolean;
@@ -139,6 +141,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onToggleTabMute,
       onMediaControl,
       raindropToken,
+      hasRaindropAuth,
+      searchPlaceholder,
       onSearchRaindrop,
       onSaveToRaindrop,
       autoSync = true,
@@ -1540,6 +1544,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       {!hideSearchBar && (
         <RaindropSearchInput
           raindropToken={raindropToken}
+          hasRaindropAuth={hasRaindropAuth}
+          placeholder={searchPlaceholder}
           onSearchRaindrop={onSearchRaindrop}
           onSaveToRaindrop={onSaveToRaindrop}
           onOpenTab={handleOpenTabWithSearchClear}

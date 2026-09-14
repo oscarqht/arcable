@@ -47,6 +47,7 @@ export async function POST(request: Request) {
   const {
     baseVersion = 1,
     deviceId = 'unknown_device',
+    deviceName,
     operations = [],
     initialState,
   } = body;
@@ -95,6 +96,15 @@ export async function POST(request: Request) {
 
       const initialVersion = 1 + operations.length;
       finalState.version = initialVersion;
+      if (deviceId) {
+        finalState.devices = {
+          [deviceId]: {
+            deviceId,
+            deviceName: deviceName || 'Device',
+            lastSyncAt: Date.now(),
+          },
+        };
+      }
 
       // Insert snapshot
       const { error: insertErr } = await supabase
@@ -140,6 +150,23 @@ export async function POST(request: Request) {
 
     // Subcase 2A: Client has no operations to push (Poll / Sync check)
     if (operations.length === 0) {
+      if (deviceId && currentServerState) {
+        const existingDevices = { ...(currentServerState.devices || {}) };
+        existingDevices[deviceId] = {
+          deviceId,
+          deviceName: deviceName || existingDevices[deviceId]?.deviceName || 'Device',
+          lastSyncAt: Date.now(),
+        };
+        currentServerState.devices = existingDevices;
+        await supabase
+          .from('workspaces')
+          .update({
+            state: currentServerState,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', userId);
+      }
+
       const response: SupabaseSyncResponse = {
         success: true,
         serverVersion: currentServerVersion,
@@ -152,6 +179,16 @@ export async function POST(request: Request) {
     const newServerVersion = currentServerVersion + operations.length;
     const reconciledState = replayOperations(currentServerState, operations);
     reconciledState.version = newServerVersion;
+
+    if (deviceId) {
+      const existingDevices = { ...(reconciledState.devices || {}) };
+      existingDevices[deviceId] = {
+        deviceId,
+        deviceName: deviceName || existingDevices[deviceId]?.deviceName || 'Device',
+        lastSyncAt: Date.now(),
+      };
+      reconciledState.devices = existingDevices;
+    }
 
     // Update snapshot
     const { error: updateErr } = await supabase

@@ -49,6 +49,25 @@ export async function GET(request: Request) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const deviceId = searchParams.get('deviceId')?.trim();
+    const deviceName = searchParams.get('deviceName')?.trim();
+
+    if (deviceId && record.state) {
+      const state = record.state as any;
+      const devices = { ...(state.devices || {}) };
+      devices[deviceId] = {
+        deviceId,
+        deviceName: deviceName || devices[deviceId]?.deviceName || 'Device',
+        lastSyncAt: Date.now(),
+      };
+      state.devices = devices;
+      void supabase
+        .from('workspaces')
+        .update({ state, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+    }
+
     return NextResponse.json(
       {
         success: true,

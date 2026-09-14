@@ -1,5 +1,6 @@
 import { CustomCodeRule, RunCodeRule } from './customCode';
-export type { CustomCodeRule, RunCodeRule };
+import type { DeviceSyncRecord } from './sync';
+export type { CustomCodeRule, RunCodeRule, DeviceSyncRecord };
 
 export interface Tab {
   id: string;
@@ -105,6 +106,7 @@ export interface ArcableWorkspaceData {
   runCodeInPageRules?: RunCodeRule[];
   activeSpaceId: string;
   version?: number;
+  devices?: Record<string, DeviceSyncRecord>;
 }
 
 export interface TmpTab {

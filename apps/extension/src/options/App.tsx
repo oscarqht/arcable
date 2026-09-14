@@ -1101,45 +1101,92 @@ export const App: React.FC = () => {
       </main>
 
       {/* Device Management Modal */}
-      {isDeviceModalOpen && (
-        <DeviceModal
-          isOpen={isDeviceModalOpen}
-          onClose={() => setIsDeviceModalOpen(false)}
-          currentDeviceId={deviceId}
-          onFetchDevices={async () => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_GET_DEVICES',
-              payload: { currentDeviceId: deviceId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data || [];
-          }}
-          onRenameDevice={async (devId, newName) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_RENAME_DEVICE',
-              payload: { deviceId: devId, newName },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            if (devId === deviceId) {
-              setDeviceName(newName);
-              setDeviceNameInput(newName);
-            }
-            return res?.data;
-          }}
-          onDeleteDevice={async (devId) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_DELETE_DEVICE',
-              payload: { deviceId: devId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data;
-          }}
-          onDeleteOtherDevices={async (keepId) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_DELETE_OTHER_DEVICES',
-              payload: { keepDeviceId: keepId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data;
-          }}
-        />
-      )}
+      {isDeviceModalOpen && (() => {
+        const isGoogleLoggedIn = Boolean(supabaseSession?.access_token);
+        const isRaindropLoggedIn = Boolean(!isGoogleLoggedIn && authState.isAuthenticated);
+
+        return (
+          <DeviceModal
+            isOpen={isDeviceModalOpen}
+            onClose={() => setIsDeviceModalOpen(false)}
+            syncProvider={isGoogleLoggedIn ? 'supabase' : isRaindropLoggedIn ? 'raindrop' : undefined}
+            currentDeviceId={deviceId}
+            onFetchDevices={async () => {
+              if (isGoogleLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'SUPABASE_GET_DEVICES',
+                  payload: { currentDeviceId: deviceId, currentDeviceName: deviceName },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data || [];
+              }
+              if (isRaindropLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'RAINDROP_GET_DEVICES',
+                  payload: { currentDeviceId: deviceId },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data || [];
+              }
+              return [];
+            }}
+            onRenameDevice={async (devId, newName) => {
+              if (isGoogleLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'SUPABASE_RENAME_DEVICE',
+                  payload: { deviceId: devId, newName },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                if (devId === deviceId) {
+                  setDeviceName(newName);
+                  setDeviceNameInput(newName);
+                }
+                return res?.data;
+              }
+              if (isRaindropLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'RAINDROP_RENAME_DEVICE',
+                  payload: { deviceId: devId, newName },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                if (devId === deviceId) {
+                  setDeviceName(newName);
+                  setDeviceNameInput(newName);
+                }
+                return res?.data;
+              }
+            }}
+            onDeleteDevice={async (devId) => {
+              if (isGoogleLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'SUPABASE_DELETE_DEVICE',
+                  payload: { deviceId: devId },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data;
+              }
+              if (isRaindropLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'RAINDROP_DELETE_DEVICE',
+                  payload: { deviceId: devId },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data;
+              }
+            }}
+            onDeleteOtherDevices={async (keepId) => {
+              if (isGoogleLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'SUPABASE_DELETE_OTHER_DEVICES',
+                  payload: { keepDeviceId: keepId },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data;
+              }
+              if (isRaindropLoggedIn) {
+                const res = (await browser.runtime.sendMessage({
+                  type: 'RAINDROP_DELETE_OTHER_DEVICES',
+                  payload: { keepDeviceId: keepId },
+                })) as ExtensionResponse<DeviceSyncRecord[]>;
+                return res?.data;
+              }
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

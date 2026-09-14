@@ -6,6 +6,7 @@ import {
   SupabaseSyncResponse,
   SupabaseSessionTokens,
   SyncProvider,
+  DeviceSyncRecord,
 } from '../types/sync';
 import {
   getOrCreateDeviceId,
@@ -13,6 +14,7 @@ import {
   getStoredPendingOperations,
   removeStoredPendingOperations,
   replayOperations,
+  sortDevicesByLastSync,
 } from './syncEngine';
 
 
@@ -425,4 +427,233 @@ export async function performSupabaseSync(params: {
   }
 
   return { success: true, serverVersion: res.serverVersion };
+}
+
+/**
+ * Fetches all registered devices from Supabase / Arcable Cloud.
+ */
+export async function fetchSupabaseDevices(params?: {
+  serverUrl?: string;
+  session?: SupabaseSessionTokens | null;
+  currentDeviceId?: string;
+  currentDeviceName?: string;
+}): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const baseHost = params?.serverUrl || getSyncServerUrl();
+  const session = params?.session !== undefined ? params?.session : getSupabaseSession();
+
+  if (!session?.access_token) {
+    return {
+      success: false,
+      devices: [],
+      error: 'Not authenticated with Supabase / Google OAuth.',
+    };
+  }
+
+  const queryParams = new URLSearchParams();
+  if (params?.currentDeviceId) queryParams.set('deviceId', params.currentDeviceId);
+  if (params?.currentDeviceName) queryParams.set('deviceName', params.currentDeviceName);
+
+  const qs = queryParams.toString();
+  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices${qs ? `?${qs}` : ''}`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return {
+        success: false,
+        devices: [],
+        error: `Server error (${res.status}): ${errText || res.statusText}`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      devices: sortDevicesByLastSync(data.devices || []),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      devices: [],
+      error: err?.message || 'Network request failed',
+    };
+  }
+}
+
+/**
+ * Renames a device in Supabase / Arcable Cloud.
+ */
+export async function renameSupabaseDevice(params: {
+  serverUrl?: string;
+  session?: SupabaseSessionTokens | null;
+  deviceId: string;
+  newName: string;
+}): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const baseHost = params.serverUrl || getSyncServerUrl();
+  const session = params.session !== undefined ? params.session : getSupabaseSession();
+
+  if (!session?.access_token) {
+    return {
+      success: false,
+      devices: [],
+      error: 'Not authenticated with Supabase / Google OAuth.',
+    };
+  }
+
+  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        deviceId: params.deviceId,
+        newName: params.newName,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return {
+        success: false,
+        devices: [],
+        error: `Server error (${res.status}): ${errText || res.statusText}`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      devices: sortDevicesByLastSync(data.devices || []),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      devices: [],
+      error: err?.message || 'Network request failed',
+    };
+  }
+}
+
+/**
+ * Deletes a single device from Supabase / Arcable Cloud.
+ */
+export async function deleteSupabaseDevice(params: {
+  serverUrl?: string;
+  session?: SupabaseSessionTokens | null;
+  deviceId: string;
+}): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const baseHost = params.serverUrl || getSyncServerUrl();
+  const session = params.session !== undefined ? params.session : getSupabaseSession();
+
+  if (!session?.access_token) {
+    return {
+      success: false,
+      devices: [],
+      error: 'Not authenticated with Supabase / Google OAuth.',
+    };
+  }
+
+  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        deviceId: params.deviceId,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return {
+        success: false,
+        devices: [],
+        error: `Server error (${res.status}): ${errText || res.statusText}`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      devices: sortDevicesByLastSync(data.devices || []),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      devices: [],
+      error: err?.message || 'Network request failed',
+    };
+  }
+}
+
+/**
+ * Deletes all other devices except keepDeviceId from Supabase / Arcable Cloud.
+ */
+export async function deleteAllOtherSupabaseDevices(params: {
+  serverUrl?: string;
+  session?: SupabaseSessionTokens | null;
+  keepDeviceId: string;
+}): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
+  const baseHost = params.serverUrl || getSyncServerUrl();
+  const session = params.session !== undefined ? params.session : getSupabaseSession();
+
+  if (!session?.access_token) {
+    return {
+      success: false,
+      devices: [],
+      error: 'Not authenticated with Supabase / Google OAuth.',
+    };
+  }
+
+  const endpoint = `${baseHost.replace(/\/+$/, '')}/api/sync/devices`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        deviceId: params.keepDeviceId,
+        allOther: true,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return {
+        success: false,
+        devices: [],
+        error: `Server error (${res.status}): ${errText || res.statusText}`,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      devices: sortDevicesByLastSync(data.devices || []),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      devices: [],
+      error: err?.message || 'Network request failed',
+    };
+  }
 }

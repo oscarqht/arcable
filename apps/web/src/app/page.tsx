@@ -25,6 +25,10 @@ import {
   setupSupabaseRealtime,
   fetchServerWorkspaceState,
   setStoredServerVersion,
+  fetchSupabaseDevices,
+  renameSupabaseDevice,
+  deleteSupabaseDevice,
+  deleteAllOtherSupabaseDevices,
 } from '@arcable/shared/utils';
 import { RaindropAuthState, SupabaseSessionTokens, SyncProvider } from '@arcable/shared/types';
 import { createClient } from '@supabase/supabase-js';
@@ -478,6 +482,55 @@ export default function HomePage() {
     }
   };
 
+  const handleFetchSupabaseDevices = async () => {
+    const devId = getOrCreateDeviceId();
+    const devName = getStoredDeviceName(undefined, 'Web App');
+    const res = await fetchSupabaseDevices({
+      session: supabaseSession,
+      currentDeviceId: devId,
+      currentDeviceName: devName,
+    });
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to fetch devices from Supabase');
+    }
+    return res.devices;
+  };
+
+  const handleRenameSupabaseDevice = async (deviceId: string, newName: string) => {
+    setStoredDeviceName(newName);
+    const res = await renameSupabaseDevice({
+      session: supabaseSession,
+      deviceId,
+      newName,
+    });
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to rename device in Supabase');
+    }
+    return res.devices;
+  };
+
+  const handleDeleteSupabaseDevice = async (deviceId: string) => {
+    const res = await deleteSupabaseDevice({
+      session: supabaseSession,
+      deviceId,
+    });
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to delete device from Supabase');
+    }
+    return res.devices;
+  };
+
+  const handleDeleteOtherSupabaseDevices = async (keepDeviceId: string) => {
+    const res = await deleteAllOtherSupabaseDevices({
+      session: supabaseSession,
+      keepDeviceId,
+    });
+    if (!res.success) {
+      throw new Error(res.error || 'Failed to delete other devices from Supabase');
+    }
+    return res.devices;
+  };
+
   const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
@@ -490,6 +543,7 @@ export default function HomePage() {
 
   const isSupabaseActive = Boolean(supabaseSession?.access_token);
   const isRaindropActive = Boolean(!isSupabaseActive && authState.isAuthenticated && authState.user);
+  const hasRaindropAuth = Boolean(authState.isAuthenticated && authState.accessToken);
   const isAuthenticated = isSupabaseActive || isRaindropActive;
   const isOverallLoading = authLoading || supabaseLoading;
 
@@ -824,7 +878,8 @@ export default function HomePage() {
           showJsonInspector={true}
           showWidgets={true}
           defaultViewMode="grid"
-          raindropToken={isRaindropActive ? authState.accessToken : undefined}
+          raindropToken={hasRaindropAuth ? authState.accessToken : undefined}
+          hasRaindropAuth={hasRaindropAuth}
           currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
           onOpenTab={(url: string) => {
             if (typeof window !== 'undefined' && url) {
@@ -832,7 +887,7 @@ export default function HomePage() {
             }
           }}
           onSyncRaindrop={isRaindropActive ? handleSyncWorkspace : undefined}
-          onSearchRaindrop={isRaindropActive ? handleSearchRaindrop : undefined}
+          onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSyncStateChange={setIsSyncing}
         />
       </main>
@@ -873,11 +928,37 @@ export default function HomePage() {
       <DeviceModal
         isOpen={isDeviceModalOpen}
         onClose={() => setIsDeviceModalOpen(false)}
-        raindropToken={authState.accessToken}
-        onFetchDevices={authState.isAuthenticated ? handleFetchDevices : undefined}
-        onRenameDevice={authState.isAuthenticated ? handleRenameDevice : undefined}
-        onDeleteDevice={authState.isAuthenticated ? handleDeleteDevice : undefined}
-        onDeleteOtherDevices={authState.isAuthenticated ? handleDeleteOtherDevices : undefined}
+        syncProvider={isSupabaseActive ? 'supabase' : isRaindropActive ? 'raindrop' : undefined}
+        raindropToken={isRaindropActive ? authState.accessToken : undefined}
+        currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
+        onFetchDevices={
+          isSupabaseActive
+            ? handleFetchSupabaseDevices
+            : isRaindropActive
+            ? handleFetchDevices
+            : undefined
+        }
+        onRenameDevice={
+          isSupabaseActive
+            ? handleRenameSupabaseDevice
+            : isRaindropActive
+            ? handleRenameDevice
+            : undefined
+        }
+        onDeleteDevice={
+          isSupabaseActive
+            ? handleDeleteSupabaseDevice
+            : isRaindropActive
+            ? handleDeleteDevice
+            : undefined
+        }
+        onDeleteOtherDevices={
+          isSupabaseActive
+            ? handleDeleteOtherSupabaseDevices
+            : isRaindropActive
+            ? handleDeleteOtherDevices
+            : undefined
+        }
       />
 
       {/* Backup & Restore Modal */}
