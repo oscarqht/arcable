@@ -578,7 +578,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: '6px 8px',
+                      height: '28px',
+                      minHeight: '28px',
+                      padding: '0 8px',
+                      boxSizing: 'border-box',
                       borderRadius: '8px',
                       cursor: 'pointer',
                       backgroundColor: 'transparent',
@@ -618,6 +621,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         flex: 1,
+                        lineHeight: '16px',
                       }}
                     >
                       {subfolder.name}
@@ -661,7 +665,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    padding: '6px 8px',
+                    height: '28px',
+                    minHeight: '28px',
+                    padding: '0 8px',
+                    boxSizing: 'border-box',
                     borderRadius: '8px',
                     cursor: 'pointer',
                     backgroundColor: isHighlighted
@@ -702,6 +709,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       whiteSpace: 'nowrap',
                       flex: hasVariants ? '0 1 auto' : 1,
                       minWidth: hasVariants ? '40px' : 0,
+                      lineHeight: '16px',
                     }}
                   >
                     {tab.customTitle || tab.url}
@@ -711,12 +719,14 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        borderRadius: '6px',
+                        borderRadius: '5px',
                         border: `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.14)'}`,
                         overflow: 'hidden',
                         flexShrink: 1,
                         minWidth: 0,
                         backgroundColor: effectiveDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.04)',
+                        height: '18px',
+                        boxSizing: 'border-box',
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -747,17 +757,20 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                               background: isMatch ? (effectiveDark ? '#0284c7' : '#0ea5e9') : 'transparent',
                               color: isMatch ? '#ffffff' : (effectiveDark ? '#cbd5e1' : '#475569'),
                               fontWeight: isMatch ? 700 : 500,
-                              fontSize: '11px',
-                              padding: '2px 7px',
+                              fontSize: '10.5px',
+                              padding: '0 6px',
                               cursor: 'pointer',
                               maxWidth: '80px',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
                               transition: 'all 0.12s ease',
-                              height: '20px',
+                              height: '100%',
                               lineHeight: '16px',
                               flexShrink: 1,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
                             }}
                             onMouseEnter={(e) => {
                               if (!isMatch) {
