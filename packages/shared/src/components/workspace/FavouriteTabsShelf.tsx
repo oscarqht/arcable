@@ -1473,27 +1473,15 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               {/* 9. Quick Search Widget */}
               {widget.style === 'search' && (() => {
                 const searchConfig = (widget.config as SearchConfig) || {};
-                const engine = searchConfig.engine || 'google';
+                const engine = searchConfig.engine === 'custom' ? 'custom' : 'google';
                 const engineIcon =
                   engine === 'google'
                     ? '🔍'
-                    : engine === 'perplexity'
-                    ? '⚡'
-                    : engine === 'duckduckgo'
-                    ? '🦆'
-                    : engine === 'bing'
-                    ? '🌐'
-                    : '⚙️';
+                    : searchConfig.customIcon?.trim() || '⚙️';
                 const engineName =
                   engine === 'google'
                     ? 'Google'
-                    : engine === 'perplexity'
-                    ? 'Perplexity'
-                    : engine === 'duckduckgo'
-                    ? 'DuckDuckGo'
-                    : engine === 'bing'
-                    ? 'Bing'
-                    : 'Search';
+                    : searchConfig.customName?.trim() || 'Custom';
 
                 return (
                   <div
