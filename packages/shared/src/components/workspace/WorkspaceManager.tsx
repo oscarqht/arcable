@@ -2420,40 +2420,43 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
-          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (
-            <ActionDropdown
-              items={bottomBarMenuItems}
-              isDarkTheme={isDark}
-              align="right"
-              buttonTitle={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'More options'}
-              triggerIcon={
-                isCurrentlySyncing ? (
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '15px',
-                      lineHeight: 1,
-                      animation: 'arcable-spin 1s linear infinite',
-                    }}
-                  >
-                    💧
-                  </span>
-                ) : undefined
-              }
-              buttonStyle={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '9999px',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: isDark ? '#cbd5e1' : '#475569',
-              }}
-            />
-          )}
+          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (() => {
+            const isCloudSyncing = getSyncProvider() === 'supabase' && Boolean(getSupabaseSession());
+            return (
+              <ActionDropdown
+                items={bottomBarMenuItems}
+                isDarkTheme={isDark}
+                align="right"
+                buttonTitle={isCurrentlySyncing ? (isCloudSyncing ? 'Syncing with Arcable Cloud...' : 'Syncing with Raindrop...') : 'More options'}
+                triggerIcon={
+                  isCurrentlySyncing ? (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '15px',
+                        lineHeight: 1,
+                        animation: 'arcable-spin 1s linear infinite',
+                      }}
+                    >
+                      {isCloudSyncing ? '☁️' : '💧'}
+                    </span>
+                  ) : undefined
+                }
+                buttonStyle={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '9999px',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: isDark ? '#cbd5e1' : '#475569',
+                }}
+              />
+            );
+          })()}
         </div>
       )}
 

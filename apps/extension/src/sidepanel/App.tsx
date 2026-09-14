@@ -6,9 +6,22 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space } from '@arcable/shared/types';
+import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, SupabaseSessionTokens, SyncProvider } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces } from '@arcable/shared/hooks';
-import { getOrCreateDeviceId, getStoredDeviceName, setStoredDeviceName, getStoredPendingOperations, replayOperations, areUrlsMatching, getSpaceThemeStyles, SpaceThemeTokens } from '@arcable/shared/utils';
+import {
+  getOrCreateDeviceId,
+  getStoredDeviceName,
+  setStoredDeviceName,
+  getStoredPendingOperations,
+  replayOperations,
+  areUrlsMatching,
+  getSpaceThemeStyles,
+  SpaceThemeTokens,
+  getSyncProvider,
+  setSyncProvider,
+  getSupabaseSession,
+  setSupabaseSession,
+} from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
@@ -87,6 +100,9 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [hasSupabaseAuth, setHasSupabaseAuth] = useState(false);
+  const [supabaseSession, setSupabaseSessionState] = useState<SupabaseSessionTokens | null>(null);
+  const [syncProvider, setSyncProviderState] = useState<SyncProvider>('supabase');
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -144,14 +160,23 @@ export const App: React.FC = () => {
     });
 
 
-    // Check initial Raindrop auth & cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
+    // Check initial Raindrop & Supabase auth, and cached snapshot
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_supabase_session', 'arcable_sync_provider', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
         const devId = getOrCreateDeviceId();
         setCurrentDeviceId(devId);
         void browser.storage.local.set({ arcable_device_id: devId });
+      }
+      if (res.arcable_sync_provider) {
+        setSyncProviderState(res.arcable_sync_provider);
+        setSyncProvider(res.arcable_sync_provider);
+      }
+      if (res.arcable_supabase_session && res.arcable_supabase_session.access_token) {
+        setHasSupabaseAuth(true);
+        setSupabaseSessionState(res.arcable_supabase_session);
+        setSupabaseSession(res.arcable_supabase_session);
       }
       const auth = res.arcable_raindrop_auth;
       if (auth && auth.isAuthenticated) {
@@ -203,9 +228,28 @@ export const App: React.FC = () => {
       }
     });
 
+    browser.runtime.sendMessage({ type: 'SUPABASE_GET_SESSION' }).then((res: any) => {
+      if (res && res.success && res.data?.access_token) {
+        setHasSupabaseAuth(true);
+        setSupabaseSessionState(res.data);
+        setSupabaseSession(res.data);
+      }
+    });
+
     // Listen for storage changes (e.g. login/logout in options or background sync updates)
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
+        if (changes.arcable_supabase_session) {
+          const sess = changes.arcable_supabase_session.newValue;
+          const isAuth = Boolean(sess?.access_token);
+          setHasSupabaseAuth(isAuth);
+          setSupabaseSessionState(sess || null);
+          setSupabaseSession(sess || null);
+        }
+        if (changes.arcable_sync_provider?.newValue) {
+          setSyncProviderState(changes.arcable_sync_provider.newValue);
+          setSyncProvider(changes.arcable_sync_provider.newValue);
+        }
         if (changes.arcable_raindrop_auth) {
           setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
         }
@@ -281,6 +325,28 @@ export const App: React.FC = () => {
 
     updateActiveTab();
 
+    const handleFocus = () => {
+      browser.storage.local.get(['arcable_supabase_session', 'arcable_sync_provider', 'arcable_raindrop_auth']).then((res: any) => {
+        if (res.arcable_supabase_session?.access_token) {
+          setHasSupabaseAuth(true);
+          setSupabaseSessionState(res.arcable_supabase_session);
+          setSupabaseSession(res.arcable_supabase_session);
+        } else {
+          setHasSupabaseAuth(false);
+          setSupabaseSessionState(null);
+        }
+        if (res.arcable_sync_provider) {
+          setSyncProviderState(res.arcable_sync_provider);
+          setSyncProvider(res.arcable_sync_provider);
+        }
+        if (res.arcable_raindrop_auth) {
+          setHasRaindropAuth(Boolean(res.arcable_raindrop_auth.isAuthenticated));
+        }
+      });
+    };
+
+    window.addEventListener('focus', handleFocus);
+
     // Listen to tab activation changes
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onActivated) {
       const listener = () => updateActiveTab();
@@ -290,6 +356,7 @@ export const App: React.FC = () => {
         unsubTmpTabs();
         unsubAudible();
         unsubActivated();
+        window.removeEventListener('focus', handleFocus);
         chrome.tabs.onActivated.removeListener(listener);
         browser.storage.onChanged.removeListener(handleStorageChange);
       };
@@ -300,6 +367,7 @@ export const App: React.FC = () => {
       unsubTmpTabs();
       unsubAudible();
       unsubActivated();
+      window.removeEventListener('focus', handleFocus);
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
@@ -635,10 +703,18 @@ export const App: React.FC = () => {
     return res.data;
   };
 
+  const isGoogleLoggedIn = hasSupabaseAuth;
+
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
-      id: 'sync-raindrop',
-      label: isSyncing ? 'Syncing...' : hasRaindropAuth ? 'Raindrop Sync' : 'Connect Raindrop.io',
+      id: isGoogleLoggedIn ? 'sync-cloud' : 'sync-raindrop',
+      label: isSyncing
+        ? 'Syncing...'
+        : isGoogleLoggedIn
+        ? '☁️ Cloud Sync'
+        : hasRaindropAuth
+        ? 'Raindrop Sync'
+        : 'Connect Cloud Sync',
       icon: (
         <span
           style={{
@@ -649,14 +725,24 @@ export const App: React.FC = () => {
             animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
           }}
         >
-          💧
+          {isGoogleLoggedIn ? '☁️' : '💧'}
         </span>
       ),
       onClick: async () => {
+        if (isGoogleLoggedIn) {
+          setSyncProvider('supabase');
+          setSyncProviderState('supabase');
+          if (workspaceRef.current) {
+            await workspaceRef.current.triggerSync();
+          }
+          return;
+        }
+
         if (!hasRaindropAuth) {
           browser.runtime.openOptionsPage();
           return;
         }
+
         if (workspaceRef.current) {
           await workspaceRef.current.triggerSync();
         }
