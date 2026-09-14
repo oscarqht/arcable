@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useContext } from 'react';
 
 import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
@@ -11,6 +11,8 @@ import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { EnvironmentUrlContext } from './EnvironmentUrlContext';
+import { resolveEnvironmentUrl } from '../../utils/environment';
 import {
   CopyIcon,
   CheckIcon,
@@ -92,6 +94,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
+  const environmentValues = useContext(EnvironmentUrlContext);
+  const resolvedUrl = resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url;
   const [isLocallyPaused, setIsLocallyPaused] = useState(false);
 
   useEffect(() => {
@@ -104,8 +108,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
 
-  const domain = getDomain(tab.url);
-  const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled Tab';
+  const domain = getDomain(resolvedUrl);
+  const displayTitle = tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
   const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
 
   const handleClick = (e: React.MouseEvent) => {
@@ -328,7 +332,7 @@ export const TabRow: React.FC<TabRowProps> = ({
           }}
         >
           <TabFavicon
-            url={tab.url}
+            url={resolvedUrl}
             customEmojiIcon={tab.customEmojiIcon}
             size={18}
             emojiSize={18}
@@ -403,7 +407,8 @@ export const TabRow: React.FC<TabRowProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {tab.urlVariants!.map((v, idx) => {
-              const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, v.url));
+              const resolvedVariantUrl = resolveEnvironmentUrl(v.url, environmentValues).url || v.url;
+              const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, resolvedVariantUrl));
               return (
                 <button
                   key={v.id || idx}
@@ -424,7 +429,7 @@ export const TabRow: React.FC<TabRowProps> = ({
                       }
                     }
                   }}
-                  title={`${v.name}: ${v.url}`}
+                  title={`${v.name}: ${resolvedVariantUrl}`}
                   style={{
                     border: 'none',
                     borderRight:

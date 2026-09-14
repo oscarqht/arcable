@@ -30,8 +30,11 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
+import { EnvironmentModal } from './EnvironmentModal';
+import { EnvironmentUrlContext } from './EnvironmentUrlContext';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
+import { resolveEnvironmentUrl } from '../../utils/environment';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -202,10 +205,35 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     removeWidget,
     reorderWidget,
     isSyncing: hookIsSyncing,
+    createEnvironment,
+    updateEnvironment,
+    deleteEnvironment,
+    createEnvironmentVariable,
+    renameEnvironmentVariable,
+    deleteEnvironmentVariable,
   } = useWorkspace();
 
   const isMobile = useIsMobile();
   const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
+
+  const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('arcable_selected_environment_id') || '';
+  });
+  const selectedEnvironment = useMemo(() => {
+    const environments = data.environments || [];
+    return environments.find((environment) => environment.id === selectedEnvironmentId)
+      || environments.find((environment) => environment.name === 'Default')
+      || environments[0];
+  }, [data.environments, selectedEnvironmentId]);
+  const setLocalSelectedEnvironment = useCallback((id: string) => {
+    setSelectedEnvironmentId(id);
+    try { window.localStorage.setItem('arcable_selected_environment_id', id); } catch {}
+  }, []);
+  useEffect(() => {
+    if (selectedEnvironment && selectedEnvironment.id !== selectedEnvironmentId) setLocalSelectedEnvironment(selectedEnvironment.id);
+  }, [selectedEnvironment, selectedEnvironmentId, setLocalSelectedEnvironment]);
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -272,17 +300,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
+      const isSavedTab = Boolean(tabId && data.tabs.some((tab) => tab.id === tabId));
+      const resolution = isSavedTab ? resolveEnvironmentUrl(url, selectedEnvironment?.values || {}) : { url };
+      if (!resolution.url) {
+        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
+        return;
+      }
       if (onOpenTab) {
-        onOpenTab(url, tabId, undefined, options);
-      } else if (typeof window !== 'undefined' && url) {
+        onOpenTab(resolution.url, tabId, undefined, options);
+      } else if (typeof window !== 'undefined' && resolution.url) {
         if (options?.inNewTab) {
-          window.open(url, '_blank', 'noopener,noreferrer');
+          window.open(resolution.url, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = url;
+          window.location.href = resolution.url;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, onOpenTab, data.tabs, selectedEnvironment]
   );
 
   const handleOpenVariant = useCallback(
@@ -290,19 +324,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
+      const resolution = resolveEnvironmentUrl(variantUrl, selectedEnvironment?.values || {});
+      if (!resolution.url) {
+        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
+        return;
+      }
       if (onOpenVariant) {
-        onOpenVariant(variantUrl, tab, variant, options);
+        onOpenVariant(resolution.url, tab, variant, options);
       } else if (onOpenTab) {
-        onOpenTab(variantUrl, tab.id, undefined, options);
-      } else if (typeof window !== 'undefined' && variantUrl) {
+        onOpenTab(resolution.url, tab.id, undefined, options);
+      } else if (typeof window !== 'undefined' && resolution.url) {
         if (options?.inNewTab) {
-          window.open(variantUrl, '_blank', 'noopener,noreferrer');
+          window.open(resolution.url, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = variantUrl;
+          window.location.href = resolution.url;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab, selectedEnvironment]
   );
 
   const performSyncRef = useRef<((silent?: boolean) => Promise<SyncResult | void>) | null>(null);
@@ -1531,6 +1570,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
   return (
+    <EnvironmentUrlContext.Provider value={selectedEnvironment?.values || {}}>
     <div
       style={{
         display: 'flex',
@@ -1544,6 +1584,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }}
     >
 
+      {!compact && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setIsEnvironmentModalOpen(true)}>
+            Environments{selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}
+          </Button>
+        </div>
+      )}
 
       {/* Global Favourite Tabs Shelf (Unified with Draggable Widgets) */}
       <FavouriteTabsShelf
@@ -2495,9 +2542,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
-          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (
+          {(bottomBarMenuItems?.length || true) && (
             <ActionDropdown
-              items={bottomBarMenuItems}
+              items={[
+                {
+                  id: 'environments',
+                  label: `Environments${selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}`,
+                  onClick: () => setIsEnvironmentModalOpen(true),
+                  dividerAfter: Boolean(bottomBarMenuItems?.length),
+                },
+                ...(bottomBarMenuItems || []),
+              ]}
               isDarkTheme={isDark}
               align="right"
               buttonTitle={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'More options'}
@@ -2550,6 +2605,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             createSpace(spaceData);
           }
         }}
+      />
+
+      <EnvironmentModal
+        isOpen={isEnvironmentModalOpen}
+        onClose={() => setIsEnvironmentModalOpen(false)}
+        environments={data.environments || []}
+        variables={data.environmentVariables || []}
+        selectedEnvironmentId={selectedEnvironment?.id || ''}
+        onSelect={setLocalSelectedEnvironment}
+        onCreateEnvironment={(name) => {
+          const environment = createEnvironment(name);
+          if (environment) setLocalSelectedEnvironment(environment.id);
+        }}
+        onUpdateEnvironment={updateEnvironment}
+        onDeleteEnvironment={deleteEnvironment}
+        onCreateVariable={createEnvironmentVariable}
+        onRenameVariable={renameEnvironmentVariable}
+        onDeleteVariable={deleteEnvironmentVariable}
       />
 
       <ConvertSpaceModal
@@ -3021,5 +3094,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         </div>
       )}
     </div>
+    </EnvironmentUrlContext.Provider>
   );
 });
