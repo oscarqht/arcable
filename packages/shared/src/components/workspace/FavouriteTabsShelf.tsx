@@ -34,12 +34,6 @@ import {
   MoreHorizontalIcon,
   MinusIcon,
   SlashIcon,
-  CalendarIcon,
-  ClockIcon,
-  SearchIcon,
-  CloudSunIcon,
-  StickyNoteIcon,
-  HourglassIcon,
 } from '../Icons';
 import {
   PomodoroPopover,
@@ -1674,7 +1668,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <CalendarIcon size={14} color="#ef4444" />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>📅</span>
             <span>Calendar</span>
           </button>
 
@@ -1707,7 +1701,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <ClockIcon size={14} color={shelfTheme.primaryColor} />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>⏰</span>
             <span>Digital Clock</span>
           </button>
 
@@ -1740,7 +1734,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <ClockIcon size={14} color={shelfTheme.textColor} />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>🕒</span>
             <span>Analog Clock</span>
           </button>
 
@@ -1773,7 +1767,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <CalendarIcon size={14} color={shelfTheme.primaryColor} />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>📆</span>
             <span>Date & Time</span>
           </button>
 
@@ -1806,7 +1800,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <span style={{ fontSize: '13px', lineHeight: 1 }}>🍅</span>
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>🍅</span>
             <span>Pomodoro Timer</span>
           </button>
 
@@ -1839,7 +1833,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <HourglassIcon size={14} color="#6366f1" />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>⏳</span>
             <span>Countdown</span>
           </button>
 
@@ -1872,7 +1866,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <StickyNoteIcon size={14} color="#f59e0b" />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>📝</span>
             <span>Sticky Note</span>
           </button>
 
@@ -1905,7 +1899,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <CloudSunIcon size={14} color="#0284c7" />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>🌤️</span>
             <span>Weather & Temp</span>
           </button>
 
@@ -1938,7 +1932,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            <SearchIcon size={14} color="#10b981" />
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>🔍</span>
             <span>Quick Search</span>
           </button>
         </div>,
