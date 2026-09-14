@@ -1,3 +1,5 @@
+export const WEATHER_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
 export interface WeatherData {
   temperature: number;
   tempUnit: 'c' | 'f';

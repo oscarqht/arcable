@@ -6,3 +6,4 @@ export * from './treeUtils';
 export * from './dragState';
 export * from './spaceTheme';
 export * from './customCodeUtils';
+export * from './weatherService';
