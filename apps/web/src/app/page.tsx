@@ -259,6 +259,10 @@ export default function HomePage() {
       provider: 'google',
       options: {
         redirectTo: origin,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
       },
     });
     if (error) {
@@ -269,7 +273,7 @@ export default function HomePage() {
   const handleLogoutSupabase = async () => {
     if (supabaseClient) {
       try {
-        await supabaseClient.auth.signOut();
+        await supabaseClient.auth.signOut({ scope: 'local' });
       } catch (e) {
         console.warn('Signout error:', e);
       }

@@ -106,6 +106,7 @@ export default function ExtensionLoginPage() {
       access_token: session.access_token,
       refresh_token: session.refresh_token,
       expires_at: session.expires_at,
+      expires_in: session.expires_in,
       user: {
         id: session.user?.id,
         email: session.user?.email,
@@ -122,6 +123,7 @@ export default function ExtensionLoginPage() {
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
           expires_at: tokens.expires_at,
+          expires_in: tokens.expires_in,
           user: tokens.user,
         })
       );
@@ -192,6 +194,10 @@ export default function ExtensionLoginPage() {
         provider: 'google',
         options: {
           redirectTo: typeof window !== 'undefined' ? window.location.href : undefined,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
       });
 

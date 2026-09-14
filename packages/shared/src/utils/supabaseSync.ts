@@ -16,9 +16,9 @@ import {
   replayOperations,
   sortDevicesByLastSync,
 } from './syncEngine';
-import { areSupabaseSessionsEquivalent } from './supabaseSession';
+import { areSupabaseSessionsEquivalent, isSessionExpiringSoon } from './supabaseSession';
 
-export { areSupabaseSessionsEquivalent } from './supabaseSession';
+export { areSupabaseSessionsEquivalent, isSessionExpiringSoon } from './supabaseSession';
 export { resolveSyncProvider } from './syncProvider';
 
 
@@ -186,33 +186,33 @@ export function setSupabaseSession(session: SupabaseSessionTokens | null): void 
   } catch {}
 }
 
-/**
- * Checks whether a session's access token is expired or expiring soon.
- * @param session The Supabase session object.
- * @param marginSeconds Number of seconds before actual expiration to consider "expiring soon" (default: 300s / 5 min).
- */
-export function isSessionExpiringSoon(session: SupabaseSessionTokens, marginSeconds = 300): boolean {
-  if (!session?.access_token) return true;
-  if (!session.expires_at) return false;
-  const expiresAtMs = session.expires_at > 1e11 ? session.expires_at : session.expires_at * 1000;
-  return Date.now() + marginSeconds * 1000 >= expiresAtMs;
-}
-
 let inFlightRefreshPromise: Promise<SupabaseSessionTokens | null> | null = null;
 
 /**
  * Refreshes an existing Supabase OAuth session using its refresh_token.
- * Uses promise deduplication so multiple concurrent calls share a single refresh request.
+ * Uses promise deduplication so multiple concurrent calls share a single refresh request,
+ * and checks storage first to avoid duplicate refresh rotation conflicts across devices/tabs.
  */
 export async function refreshSupabaseSession(
   session?: SupabaseSessionTokens | null,
   serverUrl?: string
 ): Promise<SupabaseSessionTokens | null> {
+  // Check if storage already has a fresher, unexpired session different from the calling session
+  const storedSession = getSupabaseSession();
+  if (
+    storedSession?.access_token &&
+    session?.access_token &&
+    storedSession.access_token !== session.access_token &&
+    !isSessionExpiringSoon(storedSession, 60)
+  ) {
+    return storedSession;
+  }
+
   if (inFlightRefreshPromise) {
     return inFlightRefreshPromise;
   }
 
-  const activeSession = session !== undefined ? session : getSupabaseSession();
+  const activeSession = session !== undefined ? session : storedSession;
   if (!activeSession?.refresh_token) {
     console.warn('[SupabaseSync] Cannot refresh session: no refresh_token present.');
     return null;
@@ -234,6 +234,15 @@ export async function refreshSupabaseSession(
       });
 
       if (!res.ok) {
+        // Before giving up, check if another process updated the stored session concurrently
+        const latestStored = getSupabaseSession();
+        if (
+          latestStored?.access_token &&
+          latestStored.access_token !== activeSession.access_token &&
+          !isSessionExpiringSoon(latestStored, 60)
+        ) {
+          return latestStored;
+        }
         const errText = await res.text().catch(() => '');
         console.warn(`[SupabaseSync] Token refresh endpoint returned status ${res.status}:`, errText);
         return null;
@@ -254,6 +263,15 @@ export async function refreshSupabaseSession(
 
       return null;
     } catch (err) {
+      // Check if stored session was refreshed concurrently despite network error
+      const latestStored = getSupabaseSession();
+      if (
+        latestStored?.access_token &&
+        latestStored.access_token !== activeSession.access_token &&
+        !isSessionExpiringSoon(latestStored, 60)
+      ) {
+        return latestStored;
+      }
       console.warn('[SupabaseSync] Network error refreshing session:', err);
       return null;
     } finally {
@@ -266,13 +284,23 @@ export async function refreshSupabaseSession(
 
 /**
  * Ensures a valid (unexpired) session is returned, proactively refreshing if close to expiry.
+ * Prefers fresher unexpired stored sessions over potentially stale function arguments.
  */
 export async function getOrRefreshValidSupabaseSession(params?: {
   session?: SupabaseSessionTokens | null;
   serverUrl?: string;
   marginSeconds?: number;
 }): Promise<SupabaseSessionTokens | null> {
-  const session = params?.session !== undefined ? params.session : getSupabaseSession();
+  const storedSession = getSupabaseSession();
+  let session = params?.session !== undefined ? params.session : storedSession;
+  if (
+    storedSession?.access_token &&
+    session?.access_token &&
+    storedSession.access_token !== session.access_token &&
+    !isSessionExpiringSoon(storedSession, params?.marginSeconds ?? 300)
+  ) {
+    session = storedSession;
+  }
   if (!session) return null;
 
   if (isSessionExpiringSoon(session, params?.marginSeconds ?? 300) && session.refresh_token) {
@@ -328,11 +356,46 @@ export async function authenticatedSupabaseFetch(
     // If unauthorized / token expired, attempt reactive refresh
     if (res.status === 401 && session.refresh_token) {
       console.log('[SupabaseSync] Received 401 from server. Attempting reactive token refresh...');
+      // Before refreshing, check if storage was already updated with a newer, valid session
+      const stored = getSupabaseSession();
+      if (
+        stored?.access_token &&
+        stored.access_token !== session.access_token &&
+        !isSessionExpiringSoon(stored, 60)
+      ) {
+        session = stored;
+        res = await makeRequest(session.access_token);
+        if (res.ok) {
+          return {
+            success: true,
+            response: res,
+            session,
+          };
+        }
+      }
+
       const refreshed = await refreshSupabaseSession(session, baseHost);
       if (refreshed && refreshed.access_token) {
         session = refreshed;
         res = await makeRequest(session.access_token);
       } else {
+        // As a final check before returning error, verify if storage has a working token
+        const finalStored = getSupabaseSession();
+        if (
+          finalStored?.access_token &&
+          finalStored.access_token !== session.access_token &&
+          !isSessionExpiringSoon(finalStored, 60)
+        ) {
+          session = finalStored;
+          res = await makeRequest(session.access_token);
+          if (res.ok) {
+            return {
+              success: true,
+              response: res,
+              session,
+            };
+          }
+        }
         return {
           success: false,
           status: 401,
@@ -595,7 +658,16 @@ export async function performSupabaseSync(params: {
   serverUrl?: string;
   session?: SupabaseSessionTokens | null;
 }): Promise<{ success: boolean; error?: string; serverVersion?: number }> {
-  let session = params.session !== undefined ? params.session : getSupabaseSession();
+  const storedSession = getSupabaseSession();
+  let session = params.session !== undefined ? params.session : storedSession;
+  if (
+    storedSession?.access_token &&
+    session?.access_token &&
+    storedSession.access_token !== session.access_token &&
+    !isSessionExpiringSoon(storedSession, 300)
+  ) {
+    session = storedSession;
+  }
   if (!session) {
     return { success: false, error: 'No active session' };
   }

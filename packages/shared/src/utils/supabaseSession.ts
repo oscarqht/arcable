@@ -19,3 +19,15 @@ export function areSupabaseSessionsEquivalent(
     return false;
   }
 }
+
+/**
+ * Checks whether a session's access token is expired or expiring soon.
+ * @param session The Supabase session object.
+ * @param marginSeconds Number of seconds before actual expiration to consider "expiring soon" (default: 300s / 5 min).
+ */
+export function isSessionExpiringSoon(session: SupabaseSessionTokens | null | undefined, marginSeconds = 300): boolean {
+  if (!session?.access_token) return true;
+  if (!session.expires_at) return false;
+  const expiresAtMs = session.expires_at > 1e11 ? session.expires_at : session.expires_at * 1000;
+  return Date.now() + marginSeconds * 1000 >= expiresAtMs;
+}

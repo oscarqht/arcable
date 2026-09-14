@@ -26,3 +26,20 @@ test('detects a genuinely changed Supabase session', () => {
 test('treats cleared nullish session values as equivalent', () => {
   assert.equal(areSupabaseSessionsEquivalent(null, undefined), true);
 });
+
+test('distinguishes distinct sessions from different devices for the same user', () => {
+  const deviceASession = {
+    access_token: 'device-a-jwt',
+    refresh_token: 'device-a-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: 'user-123', email: 'test@example.com' },
+  };
+  const deviceBSession = {
+    access_token: 'device-b-jwt',
+    refresh_token: 'device-b-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: 'user-123', email: 'test@example.com' },
+  };
+
+  assert.equal(areSupabaseSessionsEquivalent(deviceASession, deviceBSession), false);
+});
