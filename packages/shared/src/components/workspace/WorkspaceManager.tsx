@@ -46,6 +46,10 @@ import {
 
 export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
 
+// Minimum time between automatic (silent) sync attempts, e.g. from side panel
+// reload and window focus. Manual, user-triggered syncs are not throttled.
+const MIN_AUTO_SYNC_INTERVAL_MS = 30_000;
+
 export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
   openJsonModal: () => void;
@@ -951,6 +955,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const queuedManualSyncRef = useRef<boolean>(false);
   const queuedAutomaticSyncRef = useRef<boolean>(false);
   const syncSeqRef = useRef<number>(0);
+  const lastSyncCompletedAtRef = useRef<number>(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressedDuringCooldownRef = useRef<boolean>(false);
 
   const executeSyncCycle = async (silent: boolean): Promise<SyncResult | void> => {
     isCurrentSyncSilentRef.current = silent;
@@ -1052,6 +1059,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       return await syncPromise;
     } finally {
       activeSyncPromiseRef.current = null;
+      lastSyncCompletedAtRef.current = Date.now();
       if (queuedManualSyncRef.current) {
         queuedManualSyncRef.current = false;
         return executeSyncCycle(false);
@@ -1100,9 +1108,27 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   useEffect(() => {
     const checkAndSync = (silent: boolean = true) => {
       const hasRaindrop = Boolean(onSyncRaindrop || raindropToken);
-      if (autoSync && hasRaindrop) {
-        void performSyncRef.current?.(silent);
+      if (!autoSync || !hasRaindrop) return;
+
+      const elapsed = Date.now() - lastSyncCompletedAtRef.current;
+      if (silent && elapsed < MIN_AUTO_SYNC_INTERVAL_MS) {
+        // Within the cooldown window: remember that a sync was requested and
+        // schedule exactly one trailing sync for when the window closes,
+        // instead of firing (or dropping) one per trigger.
+        suppressedDuringCooldownRef.current = true;
+        if (!cooldownTimerRef.current) {
+          cooldownTimerRef.current = setTimeout(() => {
+            cooldownTimerRef.current = null;
+            if (suppressedDuringCooldownRef.current) {
+              suppressedDuringCooldownRef.current = false;
+              checkAndSync(true);
+            }
+          }, MIN_AUTO_SYNC_INTERVAL_MS - elapsed);
+        }
+        return;
       }
+
+      void performSyncRef.current?.(silent);
     };
 
     checkAndSync(true);
@@ -1138,6 +1164,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       window.addEventListener('online', handleFocusOrOnline);
       return () => {
         if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
+        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
         window.removeEventListener('arcable_raindrop_auth_changed', handleSessionChange);
         window.removeEventListener('arcable_pending_op_saved', handlePendingOperation);
         window.removeEventListener('focus', handleFocusOrOnline);
