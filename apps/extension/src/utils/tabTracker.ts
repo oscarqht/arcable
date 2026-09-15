@@ -1,6 +1,8 @@
 import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord } from '@arcable/shared/types';
 import {
   areUrlsMatching,
+  normalizeUrl,
+  resolveEnvironmentUrl,
   extractTabNotificationBadge,
   getOrCreateDeviceId,
   getStoredDeviceName,
@@ -28,9 +30,11 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
+  private currentEnvironmentValues: Record<string, string> = {};
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
+  private hasCompletedInitialSync = false;
 
   constructor() {
     this.setupListeners();
@@ -430,14 +434,35 @@ class TabTracker {
     }
     this.syncDebounceTimer = setTimeout(() => {
       this.syncDebounceTimer = null;
-      void this.syncWithWorkspace(this.currentWorkspaceTabs);
+      void this.syncWithWorkspace(this.currentWorkspaceTabs, this.currentEnvironmentValues);
     }, delayMs);
   }
 
+  /**
+   * Resolves the stored tab's URL template against the active environment's variable
+   * values, then compares it to the browser tab's live URL as full URLs (including the
+   * search/query string) — so a divergence is only flagged when they truly differ, not
+   * just because the stored URL still contains an unresolved `{{variable}}` placeholder.
+   */
+  private urlsMatchForDivergence(currentUrl: string, storedUrl: string): boolean {
+    if (!currentUrl || !storedUrl) return false;
+    const resolved = resolveEnvironmentUrl(storedUrl, this.currentEnvironmentValues).url || storedUrl;
+    return normalizeUrl(currentUrl) === normalizeUrl(resolved);
+  }
 
-  public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
+  /**
+   * Updates the active environment's variable values and immediately re-syncs so
+   * divergence flags are recomputed right away, instead of using stale values until
+   * some unrelated tab/data change happens to trigger the next syncWithWorkspace call.
+   */
+  public async setEnvironmentValues(environmentValues: Record<string, string>): Promise<TabAssociationMap> {
+    return this.syncWithWorkspace(this.currentWorkspaceTabs, environmentValues);
+  }
+
+  public async syncWithWorkspace(workspaceTabs: Tab[], environmentValues?: Record<string, string>): Promise<TabAssociationMap> {
     return this.runWithLock(async () => {
       this.currentWorkspaceTabs = workspaceTabs;
+      if (environmentValues !== undefined) this.currentEnvironmentValues = environmentValues;
       let allBrowserTabs: any[] = [];
       try {
         allBrowserTabs = await browser.tabs.query({});
@@ -456,6 +481,18 @@ class TabTracker {
       const assignedBrowserTabIds = new Set<number>();
       const assignedTabItemIds = new Set<string>();
 
+      // Only the first sync that actually carries real saved tabs (i.e. once the workspace has
+      // loaded on extension/sidepanel startup) is allowed to match already-open browser tabs
+      // against saved items on URL alone. This lets already-open tabs get recognized as their
+      // saved item instead of showing up as tmp tabs. Every later sync stays restricted to
+      // pendingCreations so manually opened tabs are never silently re-associated at runtime.
+      // Guarded on workspaceTabs.length: tab-event listeners (onCreated/onUpdated) can debounce
+      // into a sync with `currentWorkspaceTabs` still empty before the real workspace data has
+      // loaded — that call must not consume the one-shot flag, or the real sync that follows
+      // would lose its chance to do the broad match.
+      const isInitialSync = !this.hasCompletedInitialSync && workspaceTabs.length > 0;
+      if (isInitialSync) this.hasCompletedInitialSync = true;
+
       // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
       for (const [tabItemId, info] of Object.entries(currentAssociations)) {
         const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
@@ -468,7 +505,7 @@ class TabTracker {
           !assignedBrowserTabIds.has(matchingBrowserTab.id)
         ) {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-          if (areUrlsMatching(currentUrl, matchingWorkspaceItem.url)) {
+          if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url)) {
             const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
             newAssociations[tabItemId] = {
               tabItemId,
@@ -485,10 +522,16 @@ class TabTracker {
         }
       }
 
-      // Step 2: Direct matching ONLY for workspace items with pending creations (explicitly clicked to open)
-      // Manually opened tabs must never be automatically associated with saved tab items.
+      // Step 2: Direct matching for workspace items with pending creations (explicitly clicked to open),
+      // plus — on the initial sync only — every other unassociated saved item, so tabs that were
+      // already open when the extension loaded get recognized instead of becoming tmp tabs.
+      // Outside of the initial sync, manually opened tabs must never be automatically associated
+      // with saved tab items.
       const unassociatedWorkspaceTabs = workspaceTabs.filter(
-        (item) => !assignedTabItemIds.has(item.id) && Boolean(item.url) && this.pendingCreations.has(item.id)
+        (item) =>
+          !assignedTabItemIds.has(item.id) &&
+          Boolean(item.url) &&
+          (isInitialSync || this.pendingCreations.has(item.id))
       );
 
       for (const item of unassociatedWorkspaceTabs) {
@@ -887,7 +930,7 @@ class TabTracker {
           }
         }
 
-        const isDiverted = Boolean(currentUrl && originalUrl && !areUrlsMatching(currentUrl, originalUrl));
+        const isDiverted = Boolean(currentUrl && originalUrl && !this.urlsMatchForDivergence(currentUrl, originalUrl));
 
         associations[tabItemId] = {
           tabItemId,

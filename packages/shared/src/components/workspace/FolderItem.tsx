@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
@@ -11,6 +11,8 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { TabFavicon } from './TabFavicon';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { EnvironmentUrlContext } from './EnvironmentUrlContext';
+import { resolveEnvironmentUrl } from '../../utils/environment';
 import {
   CopyIcon,
   CheckIcon,
@@ -98,6 +100,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
+  const environmentValues = useContext(EnvironmentUrlContext);
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
@@ -701,10 +704,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         : 'rgba(0, 0, 0, 0.08)'
                       : 'transparent';
                   }}
-                  title={tab.customTitle || tab.url}
+                  title={tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
                 >
                   <TabFavicon
-                    url={tab.url}
+                    url={resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
                     customEmojiIcon={tab.customEmojiIcon}
                     size={16}
                     isDarkTheme={effectiveDark}
@@ -721,7 +724,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       lineHeight: '16px',
                     }}
                   >
-                    {tab.customTitle || tab.url}
+                    {tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
                   </span>
                   {hasVariants && (
                     <div
@@ -740,12 +743,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       onClick={(e) => e.stopPropagation()}
                     >
                       {tab.urlVariants!.map((variant, index) => {
-                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, variant.url));
+                        const resolvedVariantUrl = resolveEnvironmentUrl(variant.url, environmentValues).url || variant.url;
+                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, resolvedVariantUrl));
                         return (
                           <button
                             key={variant.id || index}
                             type="button"
-                            title={`${variant.name}: ${variant.url}`}
+                            title={`${variant.name}: ${resolvedVariantUrl}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();

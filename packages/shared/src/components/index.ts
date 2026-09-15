@@ -28,6 +28,8 @@ export * from './workspace/AudibleTabsWidget';
 export * from './workspace/BackupRestoreModal';
 export * from './workspace/ConfirmModal';
 export * from './workspace/VirtualSyncedSpaceCard';
+export * from './workspace/EnvironmentModal';
+export * from './workspace/EnvironmentUrlContext';
 export * from './workspace/widgets';
 
 

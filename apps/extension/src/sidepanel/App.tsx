@@ -111,6 +111,20 @@ export const App: React.FC = () => {
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
+  // Reads the currently selected environment's variable values from local storage,
+  // so divergence checks can resolve `{{variable}}` placeholders in stored tab URLs.
+  const getCurrentEnvironmentValues = useCallback((environments?: { id: string; name: string; values: Record<string, string> }[]): Record<string, string> => {
+    if (typeof window === 'undefined' || !environments || environments.length === 0) return {};
+    try {
+      const selectedId = window.localStorage.getItem('arcable_selected_environment_id') || '';
+      const environment =
+        environments.find((e) => e.id === selectedId) || environments.find((e) => e.name === 'Default') || environments[0];
+      return environment?.values || {};
+    } catch {
+      return {};
+    }
+  }, []);
+
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -119,14 +133,25 @@ export const App: React.FC = () => {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.tabs && Array.isArray(parsed.tabs)) {
-          void tabTracker.syncWithWorkspace(parsed.tabs);
+          void tabTracker.syncWithWorkspace(parsed.tabs, getCurrentEnvironmentValues(parsed.environments));
         }
       }
     } catch {}
-  }, []);
+  }, [getCurrentEnvironmentValues]);
 
   const handleTabsChange = useCallback((tabs: Tab[]) => {
-    void tabTracker.syncWithWorkspace(tabs);
+    let environmentValues: Record<string, string> = {};
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) environmentValues = getCurrentEnvironmentValues(JSON.parse(raw).environments);
+      } catch {}
+    }
+    void tabTracker.syncWithWorkspace(tabs, environmentValues);
+  }, [getCurrentEnvironmentValues]);
+
+  const handleEnvironmentValuesChange = useCallback((values: Record<string, string>) => {
+    void tabTracker.setEnvironmentValues(values);
   }, []);
 
 
@@ -851,6 +876,7 @@ export const App: React.FC = () => {
           onCloseAssociatedTab={handleCloseAssociatedTab}
           onResetDivertedUrl={handleResetDivertedUrl}
           onTabsChange={handleTabsChange}
+          onEnvironmentValuesChange={handleEnvironmentValuesChange}
           onCaptureCurrentTab={handleCaptureCurrentTab}
           bottomBarMenuItems={bottomBarMenuItems}
           audibleTabs={audibleTabs}

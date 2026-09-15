@@ -30,8 +30,11 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
+import { EnvironmentModal } from './EnvironmentModal';
+import { EnvironmentUrlContext } from './EnvironmentUrlContext';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
+import { resolveEnvironmentUrl } from '../../utils/environment';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -42,6 +45,8 @@ import {
   DropletIcon,
   EditIcon,
   TrashIcon,
+  GlobeIcon,
+  CheckIcon,
 } from '../Icons';
 
 export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
@@ -89,6 +94,7 @@ export interface WorkspaceManagerProps {
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onTabsChange?: (tabs: Tab[]) => void;
+  onEnvironmentValuesChange?: (values: Record<string, string>) => void;
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   bottomBarMenuItems?: ActionDropdownItem[];
@@ -139,6 +145,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onCloseAssociatedTab,
       onResetDivertedUrl,
       onTabsChange,
+      onEnvironmentValuesChange,
       onSearchChange,
       onSyncStateChange,
       bottomBarMenuItems,
@@ -202,10 +209,48 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     removeWidget,
     reorderWidget,
     isSyncing: hookIsSyncing,
+    createEnvironment,
+    updateEnvironment,
+    deleteEnvironment,
+    createEnvironmentVariable,
+    renameEnvironmentVariable,
+    deleteEnvironmentVariable,
   } = useWorkspace();
 
   const isMobile = useIsMobile();
   const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
+
+  const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('arcable_selected_environment_id') || '';
+  });
+  const selectedEnvironment = useMemo(() => {
+    const environments = data.environments || [];
+    return environments.find((environment) => environment.id === selectedEnvironmentId)
+      || environments.find((environment) => environment.name === 'Default')
+      || environments[0];
+  }, [data.environments, selectedEnvironmentId]);
+  const setLocalSelectedEnvironment = useCallback((id: string) => {
+    setSelectedEnvironmentId(id);
+    try { window.localStorage.setItem('arcable_selected_environment_id', id); } catch {}
+  }, []);
+  useEffect(() => {
+    if (selectedEnvironment && selectedEnvironment.id !== selectedEnvironmentId) setLocalSelectedEnvironment(selectedEnvironment.id);
+  }, [selectedEnvironment, selectedEnvironmentId, setLocalSelectedEnvironment]);
+
+  // Notify the host app immediately when the active environment (or its variable
+  // values) changes, so URL-divergence checks that resolve `{{variable}}` placeholders
+  // don't keep using stale values until some unrelated tab/data change triggers a resync.
+  const environmentValues = selectedEnvironment?.values || {};
+  const environmentValuesKey = JSON.stringify(environmentValues);
+  const lastNotifiedEnvironmentValuesKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastNotifiedEnvironmentValuesKeyRef.current === environmentValuesKey) return;
+    lastNotifiedEnvironmentValuesKeyRef.current = environmentValuesKey;
+    onEnvironmentValuesChange?.(environmentValues);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [environmentValuesKey, onEnvironmentValuesChange]);
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -272,17 +317,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
+      const isSavedTab = Boolean(tabId && data.tabs.some((tab) => tab.id === tabId));
+      const resolution = isSavedTab ? resolveEnvironmentUrl(url, selectedEnvironment?.values || {}) : { url };
+      if (!resolution.url) {
+        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
+        return;
+      }
       if (onOpenTab) {
-        onOpenTab(url, tabId, undefined, options);
-      } else if (typeof window !== 'undefined' && url) {
+        onOpenTab(resolution.url, tabId, undefined, options);
+      } else if (typeof window !== 'undefined' && resolution.url) {
         if (options?.inNewTab) {
-          window.open(url, '_blank', 'noopener,noreferrer');
+          window.open(resolution.url, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = url;
+          window.location.href = resolution.url;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, onOpenTab, data.tabs, selectedEnvironment]
   );
 
   const handleOpenVariant = useCallback(
@@ -290,19 +341,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
+      const resolution = resolveEnvironmentUrl(variantUrl, selectedEnvironment?.values || {});
+      if (!resolution.url) {
+        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
+        return;
+      }
       if (onOpenVariant) {
-        onOpenVariant(variantUrl, tab, variant, options);
+        onOpenVariant(resolution.url, tab, variant, options);
       } else if (onOpenTab) {
-        onOpenTab(variantUrl, tab.id, undefined, options);
-      } else if (typeof window !== 'undefined' && variantUrl) {
+        onOpenTab(resolution.url, tab.id, undefined, options);
+      } else if (typeof window !== 'undefined' && resolution.url) {
         if (options?.inNewTab) {
-          window.open(variantUrl, '_blank', 'noopener,noreferrer');
+          window.open(resolution.url, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = variantUrl;
+          window.location.href = resolution.url;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab, selectedEnvironment]
   );
 
   const performSyncRef = useRef<((silent?: boolean) => Promise<SyncResult | void>) | null>(null);
@@ -1531,6 +1587,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
   return (
+    <EnvironmentUrlContext.Provider value={selectedEnvironment?.values || {}}>
     <div
       style={{
         display: 'flex',
@@ -1544,6 +1601,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }}
     >
 
+      {!compact && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setIsEnvironmentModalOpen(true)}>
+            Environments{selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}
+          </Button>
+        </div>
+      )}
 
       {/* Global Favourite Tabs Shelf (Unified with Draggable Widgets) */}
       <FavouriteTabsShelf
@@ -2495,9 +2559,50 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
-          {bottomBarMenuItems && bottomBarMenuItems.length > 0 && (
+          {(data.environments || []).length >= 2 && (
             <ActionDropdown
-              items={bottomBarMenuItems}
+              items={[
+                ...(data.environments || []).map((environment, index, arr) => ({
+                  id: environment.id,
+                  label: environment.name,
+                  icon: environment.id === selectedEnvironment?.id ? <CheckIcon size={16} /> : undefined,
+                  onClick: () => setLocalSelectedEnvironment(environment.id),
+                  dividerAfter: index === arr.length - 1,
+                })),
+                {
+                  id: 'manage-environments',
+                  label: 'Manage Environments…',
+                  onClick: () => setIsEnvironmentModalOpen(true),
+                },
+              ]}
+              isDarkTheme={isDark}
+              align="right"
+              buttonTitle={`Environment: ${selectedEnvironment?.name || ''} (click to switch)`}
+              triggerIcon={<GlobeIcon size={16} />}
+              buttonStyle={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '9999px',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isDark ? '#cbd5e1' : '#475569',
+              }}
+            />
+          )}
+
+          {(bottomBarMenuItems?.length || true) && (
+            <ActionDropdown
+              items={[
+                {
+                  id: 'environments',
+                  label: `Environments${selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}`,
+                  onClick: () => setIsEnvironmentModalOpen(true),
+                  dividerAfter: Boolean(bottomBarMenuItems?.length),
+                },
+                ...(bottomBarMenuItems || []),
+              ]}
               isDarkTheme={isDark}
               align="right"
               buttonTitle={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'More options'}
@@ -2552,6 +2657,24 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }}
       />
 
+      <EnvironmentModal
+        isOpen={isEnvironmentModalOpen}
+        onClose={() => setIsEnvironmentModalOpen(false)}
+        environments={data.environments || []}
+        variables={data.environmentVariables || []}
+        selectedEnvironmentId={selectedEnvironment?.id || ''}
+        onSelect={setLocalSelectedEnvironment}
+        onCreateEnvironment={(name) => {
+          const environment = createEnvironment(name);
+          if (environment) setLocalSelectedEnvironment(environment.id);
+        }}
+        onUpdateEnvironment={updateEnvironment}
+        onDeleteEnvironment={deleteEnvironment}
+        onCreateVariable={createEnvironmentVariable}
+        onRenameVariable={renameEnvironmentVariable}
+        onDeleteVariable={deleteEnvironmentVariable}
+      />
+
       <ConvertSpaceModal
         isOpen={isConvertSpaceModalOpen}
         onClose={() => {
@@ -2597,6 +2720,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tab={editingTab}
         allFolders={data.folders}
         allSpaces={data.spaces}
+        environmentVariables={data.environmentVariables}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultFolderId={defaultTabFolderId}
         initialUrl={initialTabUrl}
@@ -3021,5 +3145,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         </div>
       )}
     </div>
+    </EnvironmentUrlContext.Provider>
   );
 });
