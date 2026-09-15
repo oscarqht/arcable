@@ -1018,7 +1018,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (result) {
             if (result.success) {
               setSyncFeedback({
-                message: `✓ Synced with Raindrop! (${result.opsAppliedCount || 0} operations)`,
+                message: '✓ Synced with Raindrop!',
               });
             } else {
               setSyncFeedback({
