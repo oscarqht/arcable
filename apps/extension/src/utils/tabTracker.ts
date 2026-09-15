@@ -34,6 +34,7 @@ class TabTracker {
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
+  private hasCompletedInitialSync = false;
 
   constructor() {
     this.setupListeners();
@@ -480,6 +481,18 @@ class TabTracker {
       const assignedBrowserTabIds = new Set<number>();
       const assignedTabItemIds = new Set<string>();
 
+      // Only the first sync that actually carries real saved tabs (i.e. once the workspace has
+      // loaded on extension/sidepanel startup) is allowed to match already-open browser tabs
+      // against saved items on URL alone. This lets already-open tabs get recognized as their
+      // saved item instead of showing up as tmp tabs. Every later sync stays restricted to
+      // pendingCreations so manually opened tabs are never silently re-associated at runtime.
+      // Guarded on workspaceTabs.length: tab-event listeners (onCreated/onUpdated) can debounce
+      // into a sync with `currentWorkspaceTabs` still empty before the real workspace data has
+      // loaded — that call must not consume the one-shot flag, or the real sync that follows
+      // would lose its chance to do the broad match.
+      const isInitialSync = !this.hasCompletedInitialSync && workspaceTabs.length > 0;
+      if (isInitialSync) this.hasCompletedInitialSync = true;
+
       // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
       for (const [tabItemId, info] of Object.entries(currentAssociations)) {
         const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
@@ -509,10 +522,16 @@ class TabTracker {
         }
       }
 
-      // Step 2: Direct matching ONLY for workspace items with pending creations (explicitly clicked to open)
-      // Manually opened tabs must never be automatically associated with saved tab items.
+      // Step 2: Direct matching for workspace items with pending creations (explicitly clicked to open),
+      // plus — on the initial sync only — every other unassociated saved item, so tabs that were
+      // already open when the extension loaded get recognized instead of becoming tmp tabs.
+      // Outside of the initial sync, manually opened tabs must never be automatically associated
+      // with saved tab items.
       const unassociatedWorkspaceTabs = workspaceTabs.filter(
-        (item) => !assignedTabItemIds.has(item.id) && Boolean(item.url) && this.pendingCreations.has(item.id)
+        (item) =>
+          !assignedTabItemIds.has(item.id) &&
+          Boolean(item.url) &&
+          (isInitialSync || this.pendingCreations.has(item.id))
       );
 
       for (const item of unassociatedWorkspaceTabs) {
