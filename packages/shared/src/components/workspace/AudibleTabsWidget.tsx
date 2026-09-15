@@ -130,6 +130,7 @@ export const AudibleTabsWidget: React.FC<AudibleTabsWidgetProps> = ({
               >
                 <TabFavicon
                   url={tab.url}
+                  favIconUrl={tab.favIconUrl}
                   size={16}
                   isDarkTheme={isDarkTheme}
                   showDomainFallback={true}

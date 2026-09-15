@@ -189,6 +189,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         >
           <TabFavicon
             url={tab.url}
+            favIconUrl={tab.favIconUrl}
             size={18}
             emojiSize={18}
             isDarkTheme={isDarkTheme}

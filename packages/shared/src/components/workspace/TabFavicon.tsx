@@ -6,6 +6,7 @@ import { GlobeIcon } from '../Icons';
 
 export interface TabFaviconProps {
   url?: string;
+  favIconUrl?: string;
   customEmojiIcon?: string;
   size?: number;
   emojiSize?: number;
@@ -19,6 +20,7 @@ export interface TabFaviconProps {
 
 export const TabFavicon: React.FC<TabFaviconProps> = ({
   url,
+  favIconUrl,
   customEmojiIcon,
   size = 18,
   emojiSize,
@@ -29,13 +31,16 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
   badge,
   style,
 }) => {
-  const candidates = useMemo(() => getFaviconCandidates(url), [url]);
+  const candidates = useMemo(
+    () => (favIconUrl ? [favIconUrl, ...getFaviconCandidates(url)] : getFaviconCandidates(url)),
+    [favIconUrl, url]
+  );
   const [candidateIndex, setCandidateIndex] = useState(0);
   const domain = useMemo(() => getDomain(url), [url]);
 
   useEffect(() => {
     setCandidateIndex(0);
-  }, [url]);
+  }, [favIconUrl, url]);
 
   const renderIcon = () => {
     if (customEmojiIcon) {
