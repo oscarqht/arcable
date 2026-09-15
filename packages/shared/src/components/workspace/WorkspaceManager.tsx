@@ -2737,7 +2737,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (editingTab) {
             updateTab(editingTab.id, tabData);
           } else {
-            const newTab = createTab(tabData);
+            const newTab = createTab({
+              ...tabData,
+              favIconUrl: promotingTmpTab?.favIconUrl,
+            });
             if (promotingTmpTab) {
               deleteTmpTab(promotingTmpTab.id);
               onTabPromoted?.(newTab, promotingTmpTab);

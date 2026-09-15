@@ -708,6 +708,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 >
                   <TabFavicon
                     url={resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                    favIconUrl={tab.favIconUrl}
                     customEmojiIcon={tab.customEmojiIcon}
                     size={16}
                     isDarkTheme={effectiveDark}

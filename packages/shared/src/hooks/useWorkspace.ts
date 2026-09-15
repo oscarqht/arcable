@@ -938,6 +938,7 @@ export function useWorkspace() {
     parentSpaceId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
+    favIconUrl?: string;
     pinned?: boolean;
     favourite?: boolean;
     parentFolderId?: string;
@@ -999,6 +1000,7 @@ export function useWorkspace() {
       favourite: isFav || undefined,
       customTitle: tabInput.customTitle?.trim() || undefined,
       customEmojiIcon: tabInput.customEmojiIcon?.trim() || undefined,
+      favIconUrl: tabInput.favIconUrl,
       parentSpaceId: targetSpaceId,
       parentFolderId: targetFolderId,
       order: maxOrder + 1000,
@@ -1498,6 +1500,7 @@ export function useWorkspace() {
     const savedTab = createTab({
       url: tmpTab.url,
       customTitle: tmpTab.customTitle || tmpTab.title,
+      favIconUrl: tmpTab.favIconUrl,
       parentSpaceId: targetSpaceId || activeSpace?.id,
       parentFolderId: targetFolderId,
     });

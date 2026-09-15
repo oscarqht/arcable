@@ -603,6 +603,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 >
                   <TabFavicon
                     url={tab.url}
+                    favIconUrl={tab.favIconUrl}
                     customEmojiIcon={tab.customEmojiIcon}
                     size={26}
                     emojiSize={26}

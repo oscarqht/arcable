@@ -333,6 +333,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         >
           <TabFavicon
             url={resolvedUrl}
+            favIconUrl={tab.favIconUrl}
             customEmojiIcon={tab.customEmojiIcon}
             size={18}
             emojiSize={18}
@@ -668,4 +669,3 @@ export const TabRow: React.FC<TabRowProps> = ({
   );
 
 };
-

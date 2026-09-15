@@ -30,6 +30,7 @@ export interface Tab {
   favourite?: boolean;     // Optional: if true, tab is a global favourite and does not belong to any space or folder
   customTitle?: string;
   customEmojiIcon?: string;
+  favIconUrl?: string;
   parentFolderId?: string; // Optional: if undefined/null, tab belongs to the root of the space (not applicable if favourite)
   parentSpaceId?: string;  // Optional: required when tab is not a favourite, undefined when favourite
   order?: number;          // Optional: custom sorting order

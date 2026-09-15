@@ -511,6 +511,7 @@ export function applyOperation(
         favourite: isFav || undefined,
         customTitle: op.payload?.customTitle,
         customEmojiIcon: op.payload?.customEmojiIcon,
+        favIconUrl: op.payload?.favIconUrl,
         parentSpaceId: isFav ? undefined : (op.payload?.parentSpaceId || cloned.activeSpaceId),
         parentFolderId: (isFav || isPinned) ? undefined : (op.payload?.parentFolderId || undefined),
         order: op.payload?.order !== undefined ? op.payload.order : undefined,
@@ -1341,4 +1342,3 @@ export function sortDevicesByLastSync(devices: DeviceSyncRecord[]): DeviceSyncRe
     return (a.deviceName || a.deviceId || '').localeCompare(b.deviceName || b.deviceId || '');
   });
 }
-
