@@ -542,11 +542,12 @@ class TabTracker {
       for (const item of unassociatedWorkspaceTabs) {
         if (assignedTabItemIds.has(item.id) || !item.url) continue;
 
+        const candidateUrls = [item.url, ...(item.urlVariants || []).map((v) => v.url)].filter(Boolean);
         const matchingBrowserTab = allBrowserTabs.find(
           (bt) =>
             bt.id !== undefined &&
             !assignedBrowserTabIds.has(bt.id) &&
-            areUrlsMatching(bt.url || bt.pendingUrl, item.url)
+            candidateUrls.some((candidate) => areUrlsMatching(bt.url || bt.pendingUrl, candidate))
         );
 
         if (matchingBrowserTab && matchingBrowserTab.id !== undefined) {
