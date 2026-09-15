@@ -25,6 +25,53 @@ export interface TmpTabsListProps {
   onAddTmpTab?: () => void;
 }
 
+interface MergedTmpTab extends TmpTab {
+  mergedDeviceCount?: number;
+  mergedDeviceNames?: string[];
+}
+
+function mergeTabsByUrl(tabs: TmpTab[], currentDeviceId?: string): MergedTmpTab[] {
+  const groupsByUrl = new Map<string, TmpTab[]>();
+  const order: string[] = [];
+  for (const tab of tabs) {
+    if (!groupsByUrl.has(tab.url)) {
+      groupsByUrl.set(tab.url, []);
+      order.push(tab.url);
+    }
+    groupsByUrl.get(tab.url)!.push(tab);
+  }
+
+  return order.map((url) => {
+    const group = groupsByUrl.get(url)!;
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    // Prefer the copy open on the current device as the representative row, so
+    // click/close/rename keep acting on this device's actual browser tab.
+    const representative =
+      group.find(
+        (t) => t.browserTabId !== undefined || (Boolean(currentDeviceId) && t.deviceId === currentDeviceId)
+      ) || group[0];
+
+    const deviceKey = (t: TmpTab) => t.deviceId || t.deviceName || 'unknown';
+    const uniqueDeviceNames = Array.from(
+      new Map(
+        group.map((t) => [
+          deviceKey(t),
+          t.deviceName || (t.deviceType === 'Web App' ? 'Web App' : 'Remote Device'),
+        ])
+      ).values()
+    );
+
+    return {
+      ...representative,
+      mergedDeviceCount: uniqueDeviceNames.length,
+      mergedDeviceNames: uniqueDeviceNames,
+    };
+  });
+}
+
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   tabs,
   currentDeviceId,
@@ -50,6 +97,8 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
       return null;
     }
   }
+
+  const mergedTabs = tabs ? mergeTabsByUrl(tabs, currentDeviceId) : [];
 
   return (
     <div
@@ -105,7 +154,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
                 fontWeight: 600,
               }}
             >
-              {tabs.length}
+              {mergedTabs.length}
             </span>
           </div>
         </div>
@@ -143,7 +192,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
                   fontWeight: 600,
                 }}
               >
-                {tabs ? tabs.length : 0}
+                {mergedTabs.length}
               </span>
             </div>
             <span
@@ -184,7 +233,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
       )}
 
       {/* Tab Rows or Empty State */}
-      {tabs && tabs.length > 0 ? (
+      {mergedTabs.length > 0 ? (
         <div
           style={{
             display: 'flex',
@@ -193,7 +242,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
             width: '100%',
           }}
         >
-          {tabs.map((tab) => {
+          {mergedTabs.map((tab) => {
           const audibleInfo =
             tab.browserTabId !== undefined
               ? audibleTabs?.find((a) => a.id === tab.browserTabId)
@@ -211,6 +260,8 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
               alwaysShowActions={alwaysShowActions}
               isHighlighted={highlightedTabId === tab.id}
               showDeviceBadge={showDeviceBadge}
+              mergedDeviceCount={tab.mergedDeviceCount}
+              mergedDeviceNames={tab.mergedDeviceNames}
               isAudible={isAudible}
               isMuted={isMuted}
               onOpen={onOpen}
