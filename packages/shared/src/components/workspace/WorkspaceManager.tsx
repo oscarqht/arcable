@@ -1166,6 +1166,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       const hasRaindrop = Boolean(onSyncRaindrop || raindropToken);
       if (!autoSync || !hasRaindrop) return;
 
+      // A side panel can mount or regain focus while the browser is waking up
+      // before its network connection is back. Leave automatic sync for the
+      // `online` event instead of issuing a fetch that is guaranteed to fail.
+      if (silent && typeof navigator !== 'undefined' && !navigator.onLine) return;
+
       const elapsed = Date.now() - lastSyncCompletedAtRef.current;
       if (silent && elapsed < MIN_AUTO_SYNC_INTERVAL_MS) {
         // Within the cooldown window: remember that a sync was requested and

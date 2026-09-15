@@ -625,6 +625,12 @@ function triggerDebouncedBackgroundSync(delayMs: number = 20000): void {
 // Helper for periodic background sync
 async function triggerBackgroundSync(): Promise<void> {
   if (isBackgroundSyncInFlight) return;
+
+  // Chrome/Firefox alarms still fire while the device is offline or waking.
+  // Avoid starting a fetch that cannot reach Raindrop; the next alarm (or a
+  // side-panel `online` event) will resume automatic synchronization.
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
   isBackgroundSyncInFlight = true;
 
   try {
