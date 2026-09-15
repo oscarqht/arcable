@@ -352,7 +352,7 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Not authenticated with Raindrop' };
         }
 
-        const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string; pendingOps?: any[] } | undefined;
+        const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string; pendingOps?: any[]; replaceBaseline?: boolean } | undefined;
         try {
           const effectiveDeviceId = payload?.deviceId || await getOrCreateExtensionDeviceId();
           const effectiveDeviceName = payload?.deviceName || await getExtensionDeviceName();
@@ -435,6 +435,7 @@ browser.runtime.onMessage.addListener(
             deviceId: effectiveDeviceId,
             deviceName: effectiveDeviceName,
             pendingOps: combinedPendingOps,
+            replaceBaseline: payload?.replaceBaseline,
           });
 
           if (result.success && result.latestSnapshot) {

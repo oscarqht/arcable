@@ -372,6 +372,7 @@ export const App: React.FC = () => {
     localState: any;
     deviceId: string;
     pendingOps: any[];
+    replaceBaseline?: boolean;
   }) => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SYNC_WORKSPACE',
@@ -380,6 +381,7 @@ export const App: React.FC = () => {
         localState: syncParams?.localState,
         deviceId: syncParams?.deviceId,
         pendingOps: syncParams?.pendingOps,
+        replaceBaseline: syncParams?.replaceBaseline,
       },
     });
     if (!res || !res.success) {
@@ -453,7 +455,7 @@ export const App: React.FC = () => {
     return res.data || [];
   };
 
-  const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
+  const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
       const sorted = getSortedSpaces(restoredSnapshot.spaces || []);
       const lastSelected = getStoredLastSpaceId();
@@ -471,10 +473,28 @@ export const App: React.FC = () => {
         arcable_workspace_snapshot: toSave,
         arcable_pending_ops: [],
       });
+
+      // A local restore has no corresponding operation-log entries, so a
+      // normal sync would merge remote history right over it and silently
+      // revert the restored data. Push the restored snapshot as a brand-new
+      // Raindrop baseline instead, so it becomes the authoritative state.
+      if (hasRaindropAuth) {
+        try {
+          await handleSyncRaindrop({
+            localState: toSave,
+            deviceId: getOrCreateDeviceId(),
+            pendingOps: [],
+            replaceBaseline: true,
+          });
+        } catch (err) {
+          console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
+        }
+      }
+
       syncTabsWithTracker();
       window.location.reload();
     }
-  }, [syncTabsWithTracker]);
+  }, [syncTabsWithTracker, hasRaindropAuth, handleSyncRaindrop]);
 
   const handleActiveSpaceChange = useCallback((activeSpace: Space | null) => {
     if (activeSpace?.id) {

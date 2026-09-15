@@ -585,6 +585,13 @@ export async function syncWorkspaceWithRaindrop(
     deviceId?: string;
     deviceName?: string;
     pendingOps?: WorkspaceOperation[];
+    // When true, treats `localState` as the authoritative full snapshot: the
+    // remote baseline and its operation log are discarded and replaced with a
+    // fresh sync file seeded from `localState`, instead of being merged with
+    // pending ops. Use this after a full workspace restore/import, where the
+    // restored data has no corresponding operation log entries and would
+    // otherwise be silently overwritten by the next merge with remote history.
+    replaceBaseline?: boolean;
   }
 ): Promise<SyncResult> {
   const clean = cleanRaindropToken(token);
@@ -625,20 +632,43 @@ export async function syncWorkspaceWithRaindrop(
       deviceId
     );
 
-    // 3. Load local pending operations (including offline edits) to push and reconcile
-    const pendingOps = options?.pendingOps !== undefined
-      ? options.pendingOps
-      : getStoredPendingOperations();
+    let outSyncFile: ArcableSyncFile;
+    let outSnapshot: ArcableWorkspaceData;
+    let opsAppliedCount: number;
 
-    // 4. Compact sync file & compute latest snapshot
-    const compacted = compactSyncFile(
-      remoteSyncFile,
-      deviceId,
-      pendingOps,
-      deviceName,
-      Date.now(),
-      options?.localState?.tmpTabs
-    );
+    if (options?.replaceBaseline) {
+      // Full-snapshot replace: ignore remote baseline/operations entirely and
+      // seed a brand-new sync file from localState, matching the semantics of
+      // restoring a backup.
+      const freshSyncFile = createInitialSyncFile(localState, deviceId, deviceName);
+      freshSyncFile.devices[deviceId] = {
+        deviceId,
+        deviceName: deviceName || freshSyncFile.devices[deviceId]?.deviceName,
+        lastSyncAt: Date.now(),
+      };
+      outSyncFile = freshSyncFile;
+      outSnapshot = freshSyncFile.baselineSnapshot;
+      opsAppliedCount = 0;
+    } else {
+      // 3. Load local pending operations (including offline edits) to push and reconcile
+      const pendingOps = options?.pendingOps !== undefined
+        ? options.pendingOps
+        : getStoredPendingOperations();
+
+      // 4. Compact sync file & compute latest snapshot
+      const compacted = compactSyncFile(
+        remoteSyncFile,
+        deviceId,
+        pendingOps,
+        deviceName,
+        Date.now(),
+        options?.localState?.tmpTabs
+      );
+
+      outSyncFile = compacted.syncFile;
+      outSnapshot = compacted.latestSnapshot;
+      opsAppliedCount = pendingOps.length;
+    }
 
     // 5. Delete existing sync-v4 items if present
     for (const item of existingItems) {
@@ -652,7 +682,7 @@ export async function syncWorkspaceWithRaindrop(
     }
 
     // 6. Upload updated ArcableSyncFile as sync-v4.json.txt
-    const fileContent = JSON.stringify(compacted.syncFile, null, 2);
+    const fileContent = JSON.stringify(outSyncFile, null, 2);
     const uploadResult = await uploadRaindropSyncFile(
       clean,
       collection._id,
@@ -670,9 +700,9 @@ export async function syncWorkspaceWithRaindrop(
       success: true,
       collectionId: collection._id,
       dataItemId: uploadedItemId,
-      latestSnapshot: compacted.latestSnapshot,
-      syncFile: compacted.syncFile,
-      opsAppliedCount: pendingOps.length,
+      latestSnapshot: outSnapshot,
+      syncFile: outSyncFile,
+      opsAppliedCount,
       syncedAt: Date.now(),
     };
   } catch (err: any) {

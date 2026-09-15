@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       deviceId: body?.deviceId,
       deviceName: body?.deviceName || getDefaultDeviceName('Web App'),
       pendingOps: body?.pendingOps,
+      replaceBaseline: body?.replaceBaseline,
     });
 
     if (!result.success) {

@@ -97,6 +97,7 @@ export default function HomePage() {
     localState: any;
     deviceId: string;
     pendingOps: any[];
+    replaceBaseline?: boolean;
   }) => {
     try {
       const res = await fetch('/api/raindrop/sync', {
@@ -108,6 +109,7 @@ export default function HomePage() {
           localState: syncParams?.localState,
           deviceId: syncParams?.deviceId,
           pendingOps: syncParams?.pendingOps,
+          replaceBaseline: syncParams?.replaceBaseline,
         }),
       });
 
@@ -217,12 +219,33 @@ export default function HomePage() {
     }
   };
 
-  const handleRestoreComplete = useCallback((restoredSnapshot: any) => {
+  const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
+      try {
+        window.localStorage.removeItem('arcable_pending_ops');
+      } catch {}
+
+      // A local restore has no corresponding operation-log entries, so a
+      // normal sync would merge remote history right over it and silently
+      // revert the restored data. Push the restored snapshot as a brand-new
+      // Raindrop baseline instead, so it becomes the authoritative state.
+      if (authState.isAuthenticated) {
+        try {
+          await handleSyncWorkspace({
+            localState: restoredSnapshot,
+            deviceId: getOrCreateDeviceId(),
+            pendingOps: [],
+            replaceBaseline: true,
+          });
+        } catch (err) {
+          console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
+        }
+      }
+
       window.location.reload();
     }
-  }, []);
+  }, [authState.isAuthenticated, handleSyncWorkspace]);
 
   return (
     <div
