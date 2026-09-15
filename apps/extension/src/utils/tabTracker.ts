@@ -7,7 +7,7 @@ import {
   savePendingOperation,
   createWorkspaceOperation,
 } from '@arcable/shared/utils';
-import { browser } from './browser';
+import { browser, isAndroidPlatform } from './browser';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
@@ -30,10 +30,24 @@ class TabTracker {
   private currentWorkspaceTabs: Tab[] = [];
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
+  private cachedIsAndroid: boolean | null = null;
 
   constructor() {
     this.setupListeners();
     void this.loadDeviceInfo();
+    void this.loadPlatformInfo();
+  }
+
+  public async loadPlatformInfo(): Promise<boolean> {
+    if (this.cachedIsAndroid !== null) {
+      return this.cachedIsAndroid;
+    }
+    try {
+      this.cachedIsAndroid = await isAndroidPlatform();
+    } catch {
+      this.cachedIsAndroid = false;
+    }
+    return this.cachedIsAndroid;
   }
 
   public async loadDeviceInfo(): Promise<{ deviceId: string; deviceName: string }> {
@@ -542,6 +556,22 @@ class TabTracker {
           rawUrl.startsWith('devtools://')
         ) {
           return false;
+        }
+        // Firefox for Android never lets the browser reach zero tabs: closing the
+        // last tab (e.g. via closeTmpTab) makes it auto-open a blank "New Tab" to
+        // replace it. Without this, that auto-created tab gets tracked right back
+        // into the tmp tabs list a moment after the user deleted it. Exclude
+        // untouched blank tabs from tracking on Android since they carry no real
+        // content yet — a genuine navigation will show up on the next sync once
+        // the user actually loads something.
+        if (this.cachedIsAndroid && !bt.title) {
+          const isBlankNewTab =
+            rawUrl === '' ||
+            rawUrl === 'about:blank' ||
+            rawUrl.startsWith('about:newtab') ||
+            rawUrl.startsWith('chrome://newtab') ||
+            rawUrl.startsWith('edge://newtab');
+          if (isBlankNewTab) return false;
         }
         return true;
       });
