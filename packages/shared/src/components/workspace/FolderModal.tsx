@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
-import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
+import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
 interface FolderModalProps {
   isOpen: boolean;
@@ -15,12 +15,15 @@ interface FolderModalProps {
   allSpaces: Space[];
   defaultSpaceId?: string;
   defaultParentFolderId?: string;
+  raindropToken?: string;
+  onSearchCovers?: (query: string) => Promise<string[]>;
   onDelete?: (folderId: string) => void;
   onSave: (folderData: {
     name: string;
     parentSpaceId: string;
     parentFolderId?: string;
     customEmojiIcon?: string;
+    coverUrl?: string;
   }) => void;
 }
 
@@ -32,6 +35,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   allSpaces,
   defaultSpaceId,
   defaultParentFolderId,
+  raindropToken,
+  onSearchCovers,
   onDelete,
   onSave,
 }) => {
@@ -39,7 +44,11 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [name, setName] = useState('');
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
-  const [customEmojiIcon, setCustomEmojiIcon] = useState('');
+  const [coverQuery, setCoverQuery] = useState('');
+  const [coverUrl, setCoverUrl] = useState<string | undefined>();
+  const [coverResults, setCoverResults] = useState<string[]>([]);
+  const [isSearchingCovers, setIsSearchingCovers] = useState(false);
+  const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
 
   const prevIsOpenRef = React.useRef(false);
   const prevFolderIdRef = React.useRef<string | null | undefined>(undefined);
@@ -53,18 +62,53 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         setName(folder.name || '');
         setParentSpaceId(folder.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
-        setCustomEmojiIcon(folder.customEmojiIcon || '');
+        setCoverQuery('');
+        setCoverUrl(folder.coverUrl);
       } else {
         setName('');
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultParentFolderId || '');
-        setCustomEmojiIcon('');
+        setCoverQuery('');
+        setCoverUrl(undefined);
       }
     }
 
     prevIsOpenRef.current = isOpen;
     prevFolderIdRef.current = folder?.id;
   }, [isOpen, folder, defaultSpaceId, defaultParentFolderId, allSpaces]);
+
+  useEffect(() => {
+    if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
+      setCoverResults([]);
+      setIsSearchingCovers(false);
+      setCoverSearchError(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearchingCovers(true);
+      try {
+        const results = onSearchCovers
+          ? await onSearchCovers(coverQuery)
+          : await searchRaindropCollectionCovers(raindropToken!, coverQuery);
+        if (!cancelled) {
+          setCoverResults(results.slice(0, 60));
+          setCoverSearchError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCoverResults([]);
+          setCoverSearchError('Could not search Raindrop covers. Try again shortly.');
+        }
+      } finally {
+        if (!cancelled) setIsSearchingCovers(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, raindropToken, onSearchCovers, coverQuery]);
 
   // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
   useEffect(() => {
@@ -109,7 +153,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
       name: name.trim(),
       parentSpaceId,
       parentFolderId: parentFolderId || undefined,
-      customEmojiIcon: customEmojiIcon.trim() || undefined,
+      customEmojiIcon: undefined,
+      coverUrl,
     });
     onClose();
   };
@@ -248,12 +293,30 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             </div>
           </div>
 
-          <EmojiPicker
-            value={customEmojiIcon}
-            onChange={setCustomEmojiIcon}
-            label="Emoji Icon"
-            allowClear
-          />
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>Folder Cover</label>
+            <input
+              type="search"
+              value={coverQuery}
+              onChange={(e) => setCoverQuery(e.target.value)}
+              placeholder="Search Raindrop covers"
+              disabled={!raindropToken && !onSearchCovers}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
+            />
+            {!raindropToken && !onSearchCovers ? (
+              <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search folder covers.</p>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop folder cover search results">
+                {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
+                {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
+                {!isSearchingCovers && coverResults.map((cover) => (
+                  <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this folder cover" aria-label="Use this folder cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
+                    <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', justifyContent: folder && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
             {folder && onDelete && (

@@ -283,17 +283,33 @@ export function createWorkspaceOperation(
 }
 
 /**
- * Loads pending un-synced operations from localStorage (deprecated - full JSON only).
+ * Loads pending un-synced operations from localStorage.
  */
 export function getStoredPendingOperations(): WorkspaceOperation[] {
-  return [];
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(PENDING_OPS_STORAGE_KEY);
+    const operations = raw ? JSON.parse(raw) : [];
+    return Array.isArray(operations) ? operations : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Appends an operation to the local pending operations queue (deprecated - full JSON only).
+ * Appends an operation to the local pending operations queue and notifies the
+ * workspace auto-sync listener.
  */
-export function savePendingOperation(_op: WorkspaceOperation): void {
-  // No-op: full JSON snapshots only, operations log deprecated
+export function savePendingOperation(op: WorkspaceOperation): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const pending = getStoredPendingOperations().filter((item) => item.id !== op.id);
+    pending.push(op);
+    window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(pending));
+    window.dispatchEvent(new CustomEvent('arcable_pending_op_saved'));
+  } catch (error) {
+    console.warn('Failed to save pending workspace operation:', error);
+  }
 }
 
 /**
@@ -309,10 +325,22 @@ export function clearStoredPendingOperations(): void {
 }
 
 /**
- * Removes specific synced operations (deprecated - full JSON only).
+ * Removes only the operations included in a completed sync. Operations made
+ * while that sync was in-flight must remain queued for the next cycle.
  */
-export function removeStoredPendingOperations(_syncedOpIds: string[]): void {
-  clearStoredPendingOperations();
+export function removeStoredPendingOperations(syncedOpIds: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const synced = new Set(syncedOpIds);
+    const remaining = getStoredPendingOperations().filter((operation) => !synced.has(operation.id));
+    if (remaining.length) {
+      window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(remaining));
+    } else {
+      window.localStorage.removeItem(PENDING_OPS_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Failed to remove synced workspace operations:', error);
+  }
 }
 
 /**
@@ -944,6 +972,41 @@ export function replayOperations(
   Object.assign(state, normalizeEnvironments(state.environmentVariables, state.environments));
 
   return state;
+}
+
+/**
+ * Applies the IDs acknowledged by an incremental Raindrop response without
+ * replacing the current optimistic workspace. The current state may contain
+ * edits created while the network request was in flight, so only server-issued
+ * entity IDs are copied from the older response snapshot.
+ */
+export function mergeIncrementalSyncSnapshot(
+  current: ArcableWorkspaceData,
+  synced: ArcableWorkspaceData
+): ArcableWorkspaceData {
+  const syncedSpaces = new Map(synced.spaces.map((space) => [space.id, space]));
+  const syncedFolders = new Map(synced.folders.map((folder) => [folder.id, folder]));
+  const syncedTabs = new Map(synced.tabs.map((tab) => [tab.id, tab]));
+
+  return {
+    ...current,
+    raindropRootCollectionId: synced.raindropRootCollectionId ?? current.raindropRootCollectionId,
+    raindropMetadataItemId: synced.raindropMetadataItemId !== undefined
+      ? synced.raindropMetadataItemId
+      : current.raindropMetadataItemId,
+    spaces: current.spaces.map((space) => {
+      const remoteId = syncedSpaces.get(space.id)?.raindropId;
+      return remoteId ? { ...space, raindropId: remoteId } : space;
+    }),
+    folders: current.folders.map((folder) => {
+      const remoteId = syncedFolders.get(folder.id)?.raindropId;
+      return remoteId ? { ...folder, raindropId: remoteId } : folder;
+    }),
+    tabs: current.tabs.map((tab) => {
+      const remoteId = syncedTabs.get(tab.id)?.raindropId;
+      return remoteId ? { ...tab, raindropId: remoteId } : tab;
+    }),
+  };
 }
 
 /**

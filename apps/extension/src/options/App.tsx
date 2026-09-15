@@ -3,19 +3,13 @@ import {
   Button,
   Badge,
   Card,
-  DeviceModal,
   RaindropAuthCard,
-  CopyIcon,
   ExternalLinkIcon,
   RefreshIcon,
-  LaptopIcon,
 } from '@arcable/shared/components';
-import { RaindropAuthState, ExtensionResponse, SyncResult, DeviceSyncRecord } from '@arcable/shared/types';
+import { RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
-  getOrCreateDeviceId,
-  getStoredDeviceName,
-  setStoredDeviceName,
   formatDate,
   extractRulesFromNenyaExport,
   mergeCustomCodeRules,
@@ -30,7 +24,7 @@ import packageJson from '../../package.json';
 
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
 
-type OptionsTab = 'sync' | 'device' | 'custom-code' | 'run-code' | 'about';
+type OptionsTab = 'sync' | 'custom-code' | 'run-code' | 'about';
 
 interface ToastInfo {
   message: string;
@@ -51,12 +45,6 @@ export const App: React.FC = () => {
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-
-  // Device state
-  const [deviceId, setDeviceId] = useState('');
-  const [deviceName, setDeviceName] = useState('');
-  const [deviceNameInput, setDeviceNameInput] = useState('');
-  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
 
   // Toast feedback
   const [toast, setToast] = useState<ToastInfo | null>(null);
@@ -84,28 +72,16 @@ export const App: React.FC = () => {
     // 1. Load Raindrop auth state
     fetchAuthState();
 
-    // 2. Load device info
-    const curDevId = getOrCreateDeviceId();
-    setDeviceId(curDevId);
-    const curDevName = getStoredDeviceName(undefined, 'Ext');
-    setDeviceName(curDevName);
-    setDeviceNameInput(curDevName);
-
-    // 3. Load sync & config info from storage
+    // 2. Load sync info from storage
     browser.storage.local.get([
       'arcable_last_synced_at',
-      'arcable_device_name',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
       }
-      if (res.arcable_device_name) {
-        setDeviceName(res.arcable_device_name);
-        setDeviceNameInput(res.arcable_device_name);
-      }
     });
 
-    // 4. Listen to storage changes
+    // 3. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
         if (changes.arcable_raindrop_auth) {
@@ -216,8 +192,6 @@ export const App: React.FC = () => {
       const res = (await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: {
-          deviceName,
-          deviceId,
           localState,
         },
       })) as ExtensionResponse<SyncResult>;
@@ -234,31 +208,6 @@ export const App: React.FC = () => {
       showToast(`Sync failed: ${err.message}`, 'warning');
     } finally {
       setIsSyncing(false);
-    }
-  };
-
-  const handleSaveDeviceName = async () => {
-    const clean = deviceNameInput.trim();
-    if (!clean) return;
-    setDeviceName(clean);
-    setStoredDeviceName(clean);
-    await browser.storage.local.set({ arcable_device_name: clean });
-
-    if (authState.isAuthenticated) {
-      try {
-        await browser.runtime.sendMessage({
-          type: 'RAINDROP_RENAME_DEVICE',
-          payload: { deviceId, newName: clean },
-        });
-      } catch {}
-    }
-    showToast('Device name saved', 'success');
-  };
-
-  const handleCopyDeviceId = () => {
-    if (deviceId) {
-      navigator.clipboard.writeText(deviceId);
-      showToast('Device ID copied to clipboard', 'info');
     }
   };
 
@@ -487,7 +436,6 @@ export const App: React.FC = () => {
         >
           {[
             { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
-            { id: 'device', label: 'Device & Identity', icon: '💻' },
             { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
             { id: 'run-code', label: 'Run Code', icon: '⚡' },
             { id: 'about', label: 'About', icon: 'ℹ️' },
@@ -599,121 +547,6 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: DEVICE & IDENTITY */}
-        {activeTab === 'device' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <Card
-              title="This Device"
-              subtitle="Identify this browser extension in your synced device list."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                <div>
-                  <label
-                    htmlFor="device-name-input"
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: isDark ? '#e2e8f0' : '#334155',
-                      display: 'block',
-                      marginBottom: '8px',
-                    }}
-                  >
-                    Custom Device Name
-                  </label>
-                  <div style={{ display: 'flex', gap: '10px', maxWidth: '480px' }}>
-                    <input
-                      id="device-name-input"
-                      type="text"
-                      value={deviceNameInput}
-                      onChange={(e) => setDeviceNameInput(e.target.value)}
-                      placeholder="e.g. Work MacBook, Home Chrome"
-                      style={{
-                        flex: 1,
-                        padding: '10px 14px',
-                        borderRadius: '8px',
-                        backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                        border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                        color: isDark ? '#f8fafc' : '#0f172a',
-                        fontSize: '14px',
-                        outline: 'none',
-                      }}
-                    />
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={handleSaveDeviceName}
-                      disabled={!deviceNameInput.trim() || deviceNameInput.trim() === deviceName}
-                      style={{ borderRadius: '8px', padding: '0 16px', fontWeight: 600 }}
-                    >
-                      Save Name
-                    </Button>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    padding: '14px 18px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                    borderRadius: '12px',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                      Unique Device ID
-                    </div>
-                    <div style={{ fontSize: '12px', fontFamily: 'monospace', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                      {deviceId || 'Generating...'}
-                    </div>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCopyDeviceId}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                  >
-                    <CopyIcon size={13} />
-                    <span>Copy ID</span>
-                  </Button>
-                </div>
-
-                {authState.isAuthenticated && (
-                  <div style={{ paddingTop: '8px' }}>
-                    <Button
-                      variant="outline"
-                      size="md"
-                      onClick={() => setIsDeviceModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        borderRadius: '8px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <LaptopIcon size={16} />
-                      <span>Manage All Linked Devices...</span>
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-        )}
-
         {/* TAB 3: CUSTOM JS & CSS */}
         {activeTab === 'custom-code' && (
           <CustomCodeTab
@@ -821,46 +654,6 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Device Management Modal */}
-      {isDeviceModalOpen && (
-        <DeviceModal
-          isOpen={isDeviceModalOpen}
-          onClose={() => setIsDeviceModalOpen(false)}
-          currentDeviceId={deviceId}
-          onFetchDevices={async () => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_GET_DEVICES',
-              payload: { currentDeviceId: deviceId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data || [];
-          }}
-          onRenameDevice={async (devId, newName) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_RENAME_DEVICE',
-              payload: { deviceId: devId, newName },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            if (devId === deviceId) {
-              setDeviceName(newName);
-              setDeviceNameInput(newName);
-            }
-            return res?.data;
-          }}
-          onDeleteDevice={async (devId) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_DELETE_DEVICE',
-              payload: { deviceId: devId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data;
-          }}
-          onDeleteOtherDevices={async (keepId) => {
-            const res = (await browser.runtime.sendMessage({
-              type: 'RAINDROP_DELETE_OTHER_DEVICES',
-              payload: { keepDeviceId: keepId },
-            })) as ExtensionResponse<DeviceSyncRecord[]>;
-            return res?.data;
-          }}
-        />
-      )}
     </div>
   );
 };

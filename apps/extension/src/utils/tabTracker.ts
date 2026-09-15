@@ -6,10 +6,9 @@ import {
   extractTabNotificationBadge,
   getOrCreateDeviceId,
   getStoredDeviceName,
-  savePendingOperation,
-  createWorkspaceOperation,
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
+import { reconcileTmpTabs } from './tmpTabDiff';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
@@ -278,7 +277,10 @@ class TabTracker {
 
   // Save tmp tabs strictly to local storage
   private async saveTmpTabs(tmpTabs: TmpTab[]): Promise<void> {
-    memoryTmpTabs = [...tmpTabs];
+    const reconciled = reconcileTmpTabs(memoryTmpTabs, tmpTabs);
+    if (!reconciled.changed) return;
+
+    memoryTmpTabs = reconciled.tabs;
     this.notifyTmpTabs(memoryTmpTabs);
 
     try {
@@ -782,13 +784,8 @@ class TabTracker {
         await browser.tabs.remove(browserTabId).catch(() => {});
         await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
-        const closedTab = currentTmpTabs.find((t) => t.browserTabId === browserTabId);
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
         await this.saveTmpTabs(updated);
-        if (closedTab) {
-          const devId = this.cachedDeviceId || getOrCreateDeviceId();
-          savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
-        }
       } catch (err) {
         console.warn('[TabTracker] Error closing tmp tab:', err);
       } finally {
@@ -1034,14 +1031,9 @@ class TabTracker {
           await this.removeTmpTabCustomTitle(tabId);
 
           const tmpTabs = await this.getTmpTabs();
-          const closedTab = tmpTabs.find((t) => t.browserTabId === tabId);
           const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
           if (updatedTmp.length !== tmpTabs.length) {
             await this.saveTmpTabs(updatedTmp);
-            if (closedTab) {
-              const devId = this.cachedDeviceId || getOrCreateDeviceId();
-              savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
-            }
           }
         });
       });

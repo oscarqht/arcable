@@ -43,6 +43,10 @@ export interface RaindropCollectionItem {
   title: string;
   count?: number;
   color?: string;
+  cover?: string[];
+  sort?: number;
+  created?: string;
+  lastUpdate?: string;
   parent?: { $id: number };
 }
 
@@ -76,6 +80,8 @@ export interface RaindropCreateItemInput {
   collectionId?: number;
   cover?: string;
   coverDataUrl?: string;
+  note?: string;
+  order?: number;
   pleaseParse?: Record<string, any>;
 }
 

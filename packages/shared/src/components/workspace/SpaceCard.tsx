@@ -16,6 +16,7 @@ import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
+import { SpaceIcon } from './SpaceIcon';
 import { FolderItem } from './FolderItem';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
@@ -311,7 +312,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             }}
           >
-            {space.emojiIcon || '📁'}
+            <SpaceIcon space={space} size={24} />
           </div>
 
           {/* Space Title */}

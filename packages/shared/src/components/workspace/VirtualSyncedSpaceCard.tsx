@@ -210,7 +210,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
                 letterSpacing: '-0.01em',
                 color: 'inherit',
               }}
-              title="Synced Open Tabs (Virtual Space)"
+              title="Open Tabs (local browser tabs)"
             >
               Open Tabs
             </h3>
@@ -242,7 +242,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
             isDarkTheme={themeStyles.isDark}
             visible={isMobile || isCardHovered || alwaysShowActions}
             hoverBg={themeStyles.actionHoverBg}
-            buttonTitle="Synced space options"
+            buttonTitle="Open tabs options"
             size="md"
           />
         </div>
@@ -355,7 +355,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
             >
               <span style={{ fontSize: '20px' }}>📲</span>
               <span style={{ fontSize: '13px', fontWeight: 600, color: themeStyles.textColor }}>
-                No active synced tabs from connected devices
+                No open tabs to show
               </span>
               <span
                 style={{
@@ -365,7 +365,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
                   lineHeight: 1.45,
                 }}
               >
-                Tabs open in your Arcable browser extension sync live across all connected devices.
+                Open browser tabs stay on this device until you save them to your workspace.
               </span>
               {onAddTmpTab && (
                 <button

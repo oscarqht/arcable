@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
-import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
+import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
 // Finds a "/" that starts a run of word characters ending at `cursor`, treating it as a
 // variable-insertion trigger (e.g. typing "/api" after "/" suggests the "api" variable).
@@ -170,6 +170,8 @@ interface TabModalProps {
   initialTitle?: string;
   initialPinned?: boolean;
   initialFavourite?: boolean;
+  raindropToken?: string;
+  onSearchCovers?: (query: string) => Promise<string[]>;
   onDelete?: (tabId: string) => void;
   onSave: (tabData: {
     url: string;
@@ -179,6 +181,7 @@ interface TabModalProps {
     parentFolderId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
+    favIconUrl?: string;
     pinned?: boolean;
     favourite?: boolean;
   }) => void;
@@ -197,13 +200,19 @@ export const TabModal: React.FC<TabModalProps> = ({
   initialTitle,
   initialPinned,
   initialFavourite,
+  raindropToken,
+  onSearchCovers,
   onDelete,
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
   const [url, setUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
-  const [customEmojiIcon, setCustomEmojiIcon] = useState('');
+  const [coverQuery, setCoverQuery] = useState('');
+  const [coverUrl, setCoverUrl] = useState<string | undefined>();
+  const [coverResults, setCoverResults] = useState<string[]>([]);
+  const [isSearchingCovers, setIsSearchingCovers] = useState(false);
+  const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
   const [favourite, setFavourite] = useState(false);
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
@@ -226,7 +235,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (tab) {
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
-        setCustomEmojiIcon(tab.customEmojiIcon || '');
+        setCoverQuery('');
+        setCoverUrl(tab.favIconUrl);
         setFavourite(Boolean(tab.favourite));
         setParentSpaceId(tab.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
@@ -243,7 +253,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       } else {
         setUrl(initialUrl || '');
         setCustomTitle(initialTitle || '');
-        setCustomEmojiIcon('');
+        setCoverQuery('');
+        setCoverUrl(undefined);
         setFavourite(Boolean(initialFavourite));
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
@@ -256,6 +267,40 @@ export const TabModal: React.FC<TabModalProps> = ({
     prevIsOpenRef.current = isOpen;
     prevTabIdRef.current = tab?.id;
   }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, allSpaces]);
+
+  useEffect(() => {
+    if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
+      setCoverResults([]);
+      setIsSearchingCovers(false);
+      setCoverSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearchingCovers(true);
+      try {
+        const results = onSearchCovers
+          ? await onSearchCovers(coverQuery)
+          : await searchRaindropCollectionCovers(raindropToken!, coverQuery);
+        if (!cancelled) {
+          setCoverResults(results.slice(0, 60));
+          setCoverSearchError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCoverResults([]);
+          setCoverSearchError('Could not search Raindrop covers. Try again shortly.');
+        }
+      } finally {
+        if (!cancelled) setIsSearchingCovers(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, raindropToken, onSearchCovers, coverQuery]);
 
   // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
   useEffect(() => {
@@ -365,7 +410,8 @@ export const TabModal: React.FC<TabModalProps> = ({
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,
-        customEmojiIcon: customEmojiIcon.trim() || undefined,
+        customEmojiIcon: undefined,
+        favIconUrl: coverUrl,
         pinned: false,
         favourite,
       });
@@ -383,7 +429,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       parentSpaceId: favourite ? undefined : parentSpaceId,
       parentFolderId: favourite ? undefined : parentFolderId || undefined,
       customTitle: customTitle.trim() || undefined,
-      customEmojiIcon: customEmojiIcon.trim() || undefined,
+      customEmojiIcon: undefined,
+      favIconUrl: coverUrl,
       pinned: false,
       favourite,
     });
@@ -820,13 +867,32 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
           </div>
 
-          <EmojiPicker
-
-            value={customEmojiIcon}
-            onChange={setCustomEmojiIcon}
-            label="Custom Emoji Icon"
-            allowClear
-          />
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
+              Tab Cover
+            </label>
+            <input
+              type="search"
+              value={coverQuery}
+              onChange={(e) => setCoverQuery(e.target.value)}
+              placeholder="Search Raindrop covers"
+              disabled={!raindropToken && !onSearchCovers}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
+            />
+            {!raindropToken && !onSearchCovers ? (
+              <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search tab covers.</p>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop tab cover search results">
+                {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
+                {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
+                {!isSearchingCovers && coverResults.map((cover) => (
+                  <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this tab cover" aria-label="Use this tab cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
+                    <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
 
           <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>

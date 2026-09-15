@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
   try {
     const result = await syncWorkspaceWithRaindrop(token, {
       localState: body?.localState,
+      pendingOps: body?.pendingOps,
+      replaceBaseline: body?.replaceBaseline,
     });
 
     if (!result.success) {

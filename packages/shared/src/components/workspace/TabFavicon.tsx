@@ -43,20 +43,6 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
   }, [favIconUrl, url]);
 
   const renderIcon = () => {
-    if (customEmojiIcon) {
-      return (
-        <span
-          style={{
-            fontSize: `${emojiSize || size}px`,
-            lineHeight: 1,
-            flexShrink: 0,
-          }}
-        >
-          {customEmojiIcon}
-        </span>
-      );
-    }
-
     if (candidateIndex < candidates.length) {
       const currentSrc = candidates[candidateIndex];
       return (
@@ -75,6 +61,20 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
             setCandidateIndex((prev) => prev + 1);
           }}
         />
+      );
+    }
+
+    if (customEmojiIcon) {
+      return (
+        <span
+          style={{
+            fontSize: `${emojiSize || size}px`,
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          {customEmojiIcon}
+        </span>
       );
     }
 

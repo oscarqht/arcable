@@ -13,6 +13,70 @@ export const RAINDROP_API_BASE = 'https://api.raindrop.io/rest/v1';
 export const RAINDROP_OAUTH_AUTH_URL = 'https://raindrop.io/oauth/authorize';
 export const RAINDROP_OAUTH_TOKEN_URL = 'https://raindrop.io/oauth/access_token';
 
+// OAuth API calls are limited to 120 requests per minute per user. Keep a
+// little headroom rather than sending sync fan-outs in a burst.
+const RAINDROP_API_ORIGIN = 'https://api.raindrop.io';
+const MIN_REQUEST_INTERVAL_MS = 600;
+const MAX_RATE_LIMIT_RETRIES = 3;
+let requestQueue: Promise<void> = Promise.resolve();
+let nextRequestAt = 0;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function getRetryDelay(response: Response): number {
+  const retryAfter = response.headers.get('retry-after');
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) return Math.max(MIN_REQUEST_INTERVAL_MS, seconds * 1000);
+    const date = Date.parse(retryAfter);
+    if (Number.isFinite(date)) return Math.max(MIN_REQUEST_INTERVAL_MS, date - Date.now());
+  }
+
+  const resetAtSeconds = Number(response.headers.get('x-ratelimit-reset'));
+  if (Number.isFinite(resetAtSeconds) && resetAtSeconds > 0) {
+    return Math.max(MIN_REQUEST_INTERVAL_MS, resetAtSeconds * 1000 - Date.now());
+  }
+
+  return MIN_REQUEST_INTERVAL_MS;
+}
+
+function paceFromRateLimitHeaders(response: Response): void {
+  const remaining = Number(response.headers.get('ratelimit-remaining'));
+  const resetAtSeconds = Number(response.headers.get('x-ratelimit-reset'));
+  if (!Number.isFinite(remaining) || remaining <= 0 || !Number.isFinite(resetAtSeconds)) return;
+
+  const remainingWindowMs = resetAtSeconds * 1000 - Date.now();
+  if (remainingWindowMs <= 0) return;
+  const interval = Math.ceil(remainingWindowMs / remaining);
+  nextRequestAt = Math.max(nextRequestAt, Date.now() + Math.max(MIN_REQUEST_INTERVAL_MS, interval));
+}
+
+async function fetchRaindropApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (!url.startsWith(RAINDROP_API_ORIGIN)) return fetch(input, init);
+
+  const request = async (): Promise<Response> => {
+    for (let attempt = 0; ; attempt += 1) {
+      const waitMs = Math.max(0, nextRequestAt - Date.now());
+      nextRequestAt = Math.max(nextRequestAt, Date.now()) + MIN_REQUEST_INTERVAL_MS;
+      if (waitMs > 0) await sleep(waitMs);
+
+      const response = await fetch(input, init);
+      paceFromRateLimitHeaders(response);
+      if (response.status !== 429 || attempt === MAX_RATE_LIMIT_RETRIES) return response;
+
+      const retryDelay = getRetryDelay(response);
+      nextRequestAt = Math.max(nextRequestAt, Date.now() + retryDelay);
+      console.warn(`[RaindropClient] Rate limited; retrying request after ${Math.ceil(retryDelay / 1000)}s.`);
+      await sleep(retryDelay);
+    }
+  };
+
+  const queuedRequest = requestQueue.then(request, request);
+  requestQueue = queuedRequest.then(() => undefined, () => undefined);
+  return queuedRequest;
+}
+
 /**
  * Strips 'Bearer ' prefix and whitespace from token string.
  */
@@ -29,7 +93,7 @@ export async function fetchRaindropUser(token: string): Promise<RaindropUserProf
   if (!cleanToken) return null;
 
   try {
-    const res = await fetch(`${RAINDROP_API_BASE}/user`, {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/user`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${cleanToken}`,
@@ -82,53 +146,100 @@ export async function fetchRaindropUser(token: string): Promise<RaindropUserProf
  * getOrCreateArcableCollection) rely on an empty result meaning "no such collection
  * exists yet", so swallowing a transient network/API failure here would make them
  * wrongly create a brand new duplicate "Arcable" collection instead of reusing the
- * existing one. The nested-children request is best-effort since the "Arcable"
- * collection is always a root collection.
+ * existing one. Children are required too: returning a partial collection inventory
+ * would make a caller overwrite its cache with an incomplete Arcable tree.
  */
-export async function fetchRaindropCollections(token: string): Promise<RaindropCollectionItem[]> {
+export async function fetchRaindropCollections(
+  token: string,
+  options?: { cacheBust?: string }
+): Promise<RaindropCollectionItem[]> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) return [];
 
-  const headers = {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${cleanToken}`,
     Accept: 'application/json',
   };
-
-  const results: RaindropCollectionItem[] = [];
-
-  // 1. Fetch root collections (required)
-  const rootRes = await fetch(`${RAINDROP_API_BASE}/collections`, {
+  if (options?.cacheBust) headers['Cache-Control'] = 'no-cache';
+  const query = options?.cacheBust ? `?cacheBust=${encodeURIComponent(options.cacheBust)}` : '';
+  const requestInit: RequestInit = {
     method: 'GET',
     headers,
-  });
+    cache: options?.cacheBust ? 'no-store' : undefined,
+  };
 
-  if (!rootRes.ok) {
-    throw new Error(`Failed to fetch Raindrop root collections (status ${rootRes.status}).`);
+  // Both endpoints are independent; fetching them together is important on
+  // startup because callers reconstruct the entire Arcable subtree from this
+  // single collection inventory.
+  const [rootRes, childResult] = await Promise.allSettled([
+    fetchRaindropApi(`${RAINDROP_API_BASE}/collections${query}`, requestInit),
+    fetchRaindropApi(`${RAINDROP_API_BASE}/collections/childrens${query}`, requestInit),
+  ]);
+
+  if (rootRes.status === 'rejected') {
+    throw new Error(`Failed to fetch Raindrop root collections: ${rootRes.reason instanceof Error ? rootRes.reason.message : String(rootRes.reason)}`);
   }
 
-  const rootData = (await rootRes.json()) as { items?: RaindropCollectionItem[] };
+  const rootResponse = rootRes.value;
+  if (!rootResponse.ok) {
+    throw new Error(`Failed to fetch Raindrop root collections (status ${rootResponse.status}).`);
+  }
+
+  const rootData = (await rootResponse.json()) as { items?: RaindropCollectionItem[] };
+  const results: RaindropCollectionItem[] = [];
   if (rootData.items && Array.isArray(rootData.items)) {
     results.push(...rootData.items);
   }
 
-  // 2. Fetch nested child collections (best-effort)
-  try {
-    const childRes = await fetch(`${RAINDROP_API_BASE}/collections/childrens`, {
-      method: 'GET',
-      headers,
-    });
-
-    if (childRes.ok) {
-      const childData = (await childRes.json()) as { items?: RaindropCollectionItem[] };
-      if (childData.items && Array.isArray(childData.items)) {
-        results.push(...childData.items);
-      }
-    }
-  } catch (error) {
-    console.warn('[RaindropClient] Error fetching nested child collections:', error);
+  if (childResult.status === 'rejected') {
+    throw new Error(`Failed to fetch Raindrop child collections: ${childResult.reason instanceof Error ? childResult.reason.message : String(childResult.reason)}`);
+  }
+  if (!childResult.value.ok) {
+    throw new Error(`Failed to fetch Raindrop child collections (status ${childResult.value.status}).`);
+  }
+  const childData = (await childResult.value.json()) as { items?: RaindropCollectionItem[] };
+  if (childData.items && Array.isArray(childData.items)) {
+    results.push(...childData.items);
   }
 
   return results;
+}
+
+/** Returns image URLs from Raindrop's collection cover/icon catalogue. */
+export async function searchRaindropCollectionCovers(token: string, text: string): Promise<string[]> {
+  const cleanToken = cleanRaindropToken(token);
+  const query = text.trim();
+  if (!cleanToken || !query) return [];
+
+  try {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collections/covers/${encodeURIComponent(query)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${cleanToken}`, Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as {
+      items?: Array<{ icons?: Array<{ png?: string; svg?: string }> }>;
+    };
+    const covers: string[] = [];
+    for (const item of data.items || []) {
+      for (const icon of item.icons || []) {
+        const cover = icon.png || icon.svg;
+        if (cover && !covers.includes(cover)) covers.push(cover);
+        if (covers.length === 60) return covers;
+      }
+    }
+    return covers;
+  } catch (error) {
+    console.warn('[RaindropClient] Failed to search collection covers:', error);
+  }
+
+  return [];
+}
+
+/** Finds the first relevance-ranked collection cover from Raindrop's catalogue. */
+export async function searchRaindropCollectionCover(token: string, text: string): Promise<string | undefined> {
+  return (await searchRaindropCollectionCovers(token, text))[0];
 }
 
 /**
@@ -185,7 +296,7 @@ export async function uploadRaindropCover(
   const ext = blob.type.includes('png') ? 'png' : 'jpeg';
   formData.append('cover', blob, `cover.${ext}`);
 
-  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}/cover`, {
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/${raindropId}/cover`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${cleanToken}`,
@@ -242,7 +353,15 @@ export async function createRaindropBookmark(
     payload.cover = input.cover;
   }
 
-  const res = await fetch(`${RAINDROP_API_BASE}/raindrop`, {
+  if (input.note !== undefined) {
+    payload.note = input.note;
+  }
+
+  if (input.order !== undefined) {
+    payload.order = input.order;
+  }
+
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${cleanToken}`,
@@ -287,13 +406,68 @@ export async function createRaindropBookmark(
   };
 }
 
+/** Creates up to 100 bookmarks in one Raindrop API call. */
+export async function createRaindropBookmarks(
+  token: string,
+  inputs: RaindropCreateItemInput[]
+): Promise<RaindropBookmarkItem[]> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken) throw new Error('Missing Raindrop authorization token.');
+  if (inputs.length === 0) return [];
+  if (inputs.length > 100) throw new Error('Raindrop batch creation accepts at most 100 bookmarks.');
+
+  const items = inputs.map((input) => {
+    if (!input.link) throw new Error('Link is required to create a bookmark.');
+    const item: Record<string, unknown> = {
+      link: input.link,
+      title: input.title || input.link,
+      pleaseParse: input.pleaseParse ?? {},
+    };
+    if (input.excerpt) item.excerpt = input.excerpt;
+    if (input.tags?.length) item.tags = input.tags;
+    if (input.collectionId !== undefined) item.collection = { $id: input.collectionId };
+    if (input.cover && !input.cover.startsWith('data:')) item.cover = input.cover;
+    if (input.note !== undefined) item.note = input.note;
+    if (input.order !== undefined) item.order = input.order;
+    return item;
+  });
+
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`Failed to create Raindrop bookmarks (${res.status}): ${errorText}`);
+  }
+
+  const data = (await res.json()) as { items?: any[] };
+  return (data.items || []).map((item) => ({
+    _id: item._id,
+    title: item.title || '',
+    excerpt: item.excerpt,
+    note: item.note,
+    link: item.link || '',
+    cover: item.cover,
+    tags: item.tags,
+    collectionId: item.collection?.$id,
+    created: item.created,
+    lastUpdate: item.lastUpdate,
+  }));
+}
+
 /**
  * Searches or lists bookmarks from Raindrop.io.
  */
 export async function fetchRaindropItems(
   token: string,
   collectionId: number = 0,
-  options?: { page?: number; perpage?: number; search?: string; sort?: string }
+  options?: { page?: number; perpage?: number; search?: string; sort?: string; nested?: boolean; cacheBust?: string }
 ): Promise<{ items: RaindropBookmarkItem[]; count: number }> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) {
@@ -303,16 +477,27 @@ export async function fetchRaindropItems(
   const perpage = options?.perpage || 25;
   const page = options?.page || 0;
   const sort = options?.sort || '-lastUpdate';
-  const searchParam = options?.search ? `&search=${encodeURIComponent(options.search)}` : '';
+  const params = new URLSearchParams({
+    perpage: String(perpage),
+    page: String(page),
+    sort,
+  });
+  if (options?.search) params.set('search', options.search);
+  if (options?.nested) params.set('nested', 'true');
+  if (options?.cacheBust) params.set('cacheBust', options.cacheBust);
 
-  const url = `${RAINDROP_API_BASE}/raindrops/${collectionId}?perpage=${perpage}&page=${page}&sort=${encodeURIComponent(sort)}${searchParam}`;
+  const url = `${RAINDROP_API_BASE}/raindrops/${collectionId}?${params.toString()}`;
 
-  const res = await fetch(url, {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${cleanToken}`,
+    Accept: 'application/json',
+  };
+  if (options?.cacheBust) headers['Cache-Control'] = 'no-cache';
+
+  const res = await fetchRaindropApi(url, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${cleanToken}`,
-      Accept: 'application/json',
-    },
+    headers,
+    cache: options?.cacheBust ? 'no-store' : undefined,
   });
 
   if (!res.ok) {
@@ -360,7 +545,7 @@ export async function fetchRaindropItem(
   if (!cleanToken || !raindropId) return null;
 
   try {
-    const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${cleanToken}`,
@@ -409,7 +594,8 @@ export async function fetchRaindropItem(
 export async function createRaindropCollection(
   token: string,
   title: string,
-  parentId?: number
+  parentId?: number,
+  options?: { color?: string; cover?: string[]; sort?: number }
 ): Promise<RaindropCollectionItem> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) {
@@ -425,7 +611,11 @@ export async function createRaindropCollection(
     payload.parent = { $id: parentId };
   }
 
-  const res = await fetch(`${RAINDROP_API_BASE}/collection`, {
+  if (options?.color) payload.color = options.color;
+  if (options?.cover?.length) payload.cover = options.cover;
+  if (options?.sort !== undefined) payload.sort = options.sort;
+
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${cleanToken}`,
@@ -444,6 +634,83 @@ export async function createRaindropCollection(
   return data.item;
 }
 
+/** Updates an Arcable-backed Raindrop collection, including hierarchy and cover. */
+export async function updateRaindropCollection(
+  token: string,
+  collectionId: number,
+  updates: { title?: string; parentId?: number | null; color?: string | null; cover?: string[]; sort?: number }
+): Promise<RaindropCollectionItem | null> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !collectionId) return null;
+
+  const payload: Record<string, unknown> = {};
+  if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.parentId !== undefined) payload.parent = updates.parentId === null ? {} : { $id: updates.parentId };
+  if (updates.color !== undefined) payload.color = updates.color;
+  if (updates.cover !== undefined) payload.cover = updates.cover;
+  if (updates.sort !== undefined) payload.sort = updates.sort;
+
+  try {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { item?: RaindropCollectionItem };
+    return data.item || null;
+  } catch (error) {
+    console.warn(`[RaindropClient] Failed to update collection ${collectionId}:`, error);
+    return null;
+  }
+}
+
+/** Removes a collection and its descendants from Raindrop. */
+export async function deleteRaindropCollection(token: string, collectionId: number): Promise<boolean> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !collectionId) return false;
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${cleanToken}`, Accept: 'application/json' },
+  });
+  return res.ok;
+}
+
+/** Fetches every item under one collection, optionally including all descendants. */
+export async function fetchAllRaindropItems(
+  token: string,
+  collectionId: number,
+  options?: { nested?: boolean; cacheBust?: string }
+): Promise<RaindropBookmarkItem[]> {
+  const items: RaindropBookmarkItem[] = [];
+  if (!Number.isFinite(collectionId)) return items;
+
+  const firstPage = await fetchRaindropItems(token, collectionId, {
+    page: 0,
+    perpage: 50,
+    sort: 'order',
+    nested: options?.nested,
+    cacheBust: options?.cacheBust,
+  });
+  items.push(...firstPage.items);
+  const pageCount = Math.ceil(firstPage.count / 50);
+  for (let page = 1; page < pageCount; page += 1) {
+    const result = await fetchRaindropItems(token, collectionId, {
+      page,
+      perpage: 50,
+      sort: 'order',
+      nested: options?.nested,
+      cacheBust: options?.cacheBust,
+    });
+    items.push(...result.items);
+  }
+  return items;
+}
+
 /**
  * Deletes a raindrop item (bookmark/file) in Raindrop.io.
  */
@@ -453,7 +720,7 @@ export async function deleteRaindropBookmark(token: string, raindropId: number):
     throw new Error('Missing Raindrop authorization token.');
   }
 
-  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/${raindropId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${cleanToken}`,
@@ -461,6 +728,30 @@ export async function deleteRaindropBookmark(token: string, raindropId: number):
     },
   });
 
+  return res.ok;
+}
+
+/** Removes up to 100 bookmarks from one collection in a single API call. */
+export async function deleteRaindropBookmarks(
+  token: string,
+  collectionId: number,
+  raindropIds: number[]
+): Promise<boolean> {
+  const cleanToken = cleanRaindropToken(token);
+  const ids = [...new Set(raindropIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!cleanToken) throw new Error('Missing Raindrop authorization token.');
+  if (ids.length === 0) return true;
+  if (ids.length > 100) throw new Error('Raindrop batch deletion accepts at most 100 bookmarks.');
+
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops/${collectionId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${cleanToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ ids }),
+  });
   return res.ok;
 }
 
@@ -476,7 +767,7 @@ export async function updateRaindropItem(
   if (!cleanToken || !itemId) return null;
 
   try {
-    const res = await fetch(`${RAINDROP_API_BASE}/raindrop/${itemId}`, {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/${itemId}`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${cleanToken}`,
@@ -521,14 +812,11 @@ export async function updateRaindropItem(
   }
 }
 
-/**
- * Uploads a file (e.g. sync-v5.json.txt) to a Raindrop collection using multipart/form-data.
- * Raindrop supports .txt, .md, .pdf document formats.
- */
+/** Uploads an explicitly named file to a Raindrop collection. */
 export async function uploadRaindropFile(
   token: string,
   collectionId: number,
-  fileName: string = 'sync-v5.json.txt',
+  fileName: string,
   content: string
 ): Promise<any> {
   const cleanToken = cleanRaindropToken(token);
@@ -551,7 +839,7 @@ export async function uploadRaindropFile(
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   formData.append('file', blob, safeFileName);
 
-  const res = await fetch(`${RAINDROP_API_BASE}/raindrop/file`, {
+  const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/file`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${cleanToken}`,
@@ -638,7 +926,7 @@ export async function fetchRaindropFileContent(token: string, fileUrl: string): 
       authHeaders['Authorization'] = `Bearer ${cleanToken}`;
     }
 
-    const res = await fetch(normalizedUrl, {
+    const res = await fetchRaindropApi(normalizedUrl, {
       method: 'GET',
       headers: authHeaders,
       redirect: 'manual',
@@ -666,7 +954,7 @@ export async function fetchRaindropFileContent(token: string, fileUrl: string): 
         redirectHeaders['Authorization'] = `Bearer ${cleanToken}`;
       }
 
-      const redirectRes = await fetch(redirectTarget, {
+      const redirectRes = await fetchRaindropApi(redirectTarget, {
         method: 'GET',
         headers: redirectHeaders,
       });
@@ -689,7 +977,7 @@ export async function fetchRaindropFileContent(token: string, fileUrl: string): 
 
   // Fallback: Try fetching with redirect: 'follow' without Authorization
   try {
-    const fallbackRes = await fetch(normalizedUrl, {
+    const fallbackRes = await fetchRaindropApi(normalizedUrl, {
       method: 'GET',
       headers: {
         Accept: 'text/plain, application/json, */*',
@@ -783,15 +1071,15 @@ export async function searchRaindrop(
 
   try {
     const [itemsRes, rootColRes, childColRes] = await Promise.allSettled([
-      fetch(`${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`, {
+      fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`, {
         method: 'GET',
         headers,
       }),
-      fetch(`${RAINDROP_API_BASE}/collections`, {
+      fetchRaindropApi(`${RAINDROP_API_BASE}/collections`, {
         method: 'GET',
         headers,
       }),
-      fetch(`${RAINDROP_API_BASE}/collections/childrens`, {
+      fetchRaindropApi(`${RAINDROP_API_BASE}/collections/childrens`, {
         method: 'GET',
         headers,
       }),

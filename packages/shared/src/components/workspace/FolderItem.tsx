@@ -616,7 +616,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         flexShrink: 0,
                       }}
                     >
-                      {subfolder.customEmojiIcon ? (
+                      {subfolder.coverUrl ? (
+                        <img src={subfolder.coverUrl} alt="" width="16" height="16" referrerPolicy="no-referrer" style={{ width: '16px', height: '16px', objectFit: 'contain' }} />
+                      ) : subfolder.customEmojiIcon ? (
                         <span style={{ fontSize: '15px', lineHeight: 1 }}>{subfolder.customEmojiIcon}</span>
                       ) : (
                         <FolderIcon size={16} color={effectiveDark ? '#a5c4b5' : '#4b7593'} />
@@ -890,14 +892,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               position: 'relative',
             }}
           >
-            {folder.customEmojiIcon ? (
+            {folder.coverUrl ? (
+              <img src={folder.coverUrl} alt="" width="18" height="18" referrerPolicy="no-referrer" style={{ width: '18px', height: '18px', objectFit: 'contain' }} />
+            ) : folder.customEmojiIcon ? (
               <span style={{ fontSize: '18px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
             ) : isExpanded || isSemiExpanded ? (
               <FolderOpenIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             ) : (
               <FolderIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             )}
-            {folder.customEmojiIcon && (
+            {!folder.coverUrl && folder.customEmojiIcon && (
               <span
                 style={{
                   position: 'absolute',

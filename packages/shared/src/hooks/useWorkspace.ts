@@ -125,149 +125,38 @@ export function getSortedSiblings(
     }));
 
   return [...matchingFolders, ...matchingTabs].sort((a, b) => {
+    // Bookmarks are rendered before folders at every level of the workspace tree.
+    // Keep each item's persisted order within its own group so manual ordering is
+    // still respected without allowing folders to appear between bookmarks.
+    if (a.type !== b.type) return a.type === 'tab' ? -1 : 1;
     if (a.order !== b.order) return a.order - b.order;
     return a.id.localeCompare(b.id);
   });
 }
 
+/** Picks a stable sparse order so a move normally updates only the moved item. */
+export function getSparseOrderBetween(
+  previousOrder: number | undefined,
+  nextOrder: number | undefined,
+  step: number = 1000
+): number | undefined {
+  const hasPrevious = Number.isFinite(previousOrder);
+  const hasNext = Number.isFinite(nextOrder);
+  if (hasPrevious && hasNext) {
+    const gap = nextOrder! - previousOrder!;
+    return gap > 1 ? previousOrder! + Math.floor(gap / 2) : undefined;
+  }
+  if (hasPrevious) return previousOrder! + step;
+  if (hasNext) return nextOrder! - step;
+  return step;
+}
+
 export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
-  activeSpaceId: 'space_personal',
+  activeSpaceId: '',
   version: 1,
-  spaces: [
-    {
-      id: 'space_personal',
-      name: 'Personal',
-      emojiIcon: '🏠',
-      colors: 'linear-gradient(135deg, #6ee7b7 0%, #34d399 45%, #38bdf8 100%)',
-      order: 1000,
-      createdAt: 1700000000000,
-      updatedAt: 1700000000000,
-    },
-    {
-      id: 'space_work',
-      name: 'Work',
-      emojiIcon: '💼',
-      colors: 'linear-gradient(135deg, #fef3c7 0%, #fed7aa 50%, #fb923c 100%)',
-      order: 2000,
-      createdAt: 1700000001000,
-      updatedAt: 1700000001000,
-    },
-  ],
-  folders: [
-    {
-      id: 'folder_dev',
-      name: 'Development',
-      customEmojiIcon: '💻',
-      parentSpaceId: 'space_personal',
-      isExpanded: true,
-      order: 1000,
-      createdAt: 1700000002000,
-      updatedAt: 1700000002000,
-    },
-    {
-      id: 'folder_docs',
-      name: 'Docs & Reference',
-      customEmojiIcon: '📚',
-      parentFolderId: 'folder_dev',
-      parentSpaceId: 'space_personal',
-      isExpanded: true,
-      order: 1000,
-      createdAt: 1700000003000,
-      updatedAt: 1700000003000,
-    },
-    {
-      id: 'folder_reads',
-      name: 'Daily Reads',
-      customEmojiIcon: '📰',
-      parentSpaceId: 'space_personal',
-      isExpanded: false,
-      order: 2000,
-      createdAt: 1700000004000,
-      updatedAt: 1700000004000,
-    },
-    {
-      id: 'folder_work_projects',
-      name: 'Active Projects',
-      customEmojiIcon: '🚀',
-      parentSpaceId: 'space_work',
-      isExpanded: true,
-      order: 1000,
-      createdAt: 1700000005000,
-      updatedAt: 1700000005000,
-    },
-  ],
-  tabs: [
-    {
-      id: 'tab_arcable',
-      url: 'https://arcable.dev',
-      pinned: false,
-      favourite: true,
-      customTitle: 'Arcable Hub',
-      customEmojiIcon: '✨',
-      order: 1000,
-      createdAt: 1700000006000,
-      updatedAt: 1700000006000,
-    },
-    {
-      id: 'tab_github',
-      url: 'https://github.com',
-      pinned: false,
-      customTitle: 'GitHub',
-      customEmojiIcon: '🐙',
-      parentFolderId: 'folder_dev',
-      parentSpaceId: 'space_personal',
-      order: 2000,
-      createdAt: 1700000007000,
-      updatedAt: 1700000007000,
-    },
-    {
-      id: 'tab_mdn',
-      url: 'https://developer.mozilla.org',
-      pinned: false,
-      customTitle: 'MDN Web Docs',
-      customEmojiIcon: '📖',
-      parentFolderId: 'folder_docs',
-      parentSpaceId: 'space_personal',
-      order: 1000,
-      createdAt: 1700000008000,
-      updatedAt: 1700000008000,
-    },
-    {
-      id: 'tab_hn',
-      url: 'https://news.ycombinator.com',
-      pinned: false,
-      customTitle: 'Hacker News',
-      customEmojiIcon: '⚡',
-      parentFolderId: 'folder_reads',
-      parentSpaceId: 'space_personal',
-      order: 1000,
-      createdAt: 1700000009000,
-      updatedAt: 1700000009000,
-    },
-    {
-      id: 'tab_notion',
-      url: 'https://notion.so',
-      pinned: true,
-      customTitle: 'Work Notion',
-      customEmojiIcon: '📝',
-      parentSpaceId: 'space_work',
-      order: 1000,
-      createdAt: 1700000010000,
-      updatedAt: 1700000010000,
-    },
-    {
-      id: 'tab_linear',
-      url: 'https://linear.app',
-      pinned: false,
-      customTitle: 'Linear Tracker',
-      customEmojiIcon: '📐',
-      parentFolderId: 'folder_work_projects',
-      parentSpaceId: 'space_work',
-      order: 1000,
-      createdAt: 1700000011000,
-      updatedAt: 1700000011000,
-    },
-  ],
+  spaces: [],
+  folders: [],
+  tabs: [],
   tmpTabs: [],
   widgets: [],
   customCodeRules: [],
@@ -275,6 +164,22 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
   environmentVariables: [],
   environments: [getDefaultEnvironment()],
 };
+
+/** Identifies the discontinued built-in demo workspace so it is never rendered or persisted again. */
+export function isLegacyDemoWorkspace(data: ArcableWorkspaceData | null | undefined): boolean {
+  if (!data || data.spaces?.length !== 2 || data.folders?.length !== 4 || data.tabs?.length !== 6) {
+    return false;
+  }
+
+  const spaceIds = new Set(data.spaces.map((space) => space.id));
+  const folderIds = new Set(data.folders.map((folder) => folder.id));
+  const tabIds = new Set(data.tabs.map((tab) => tab.id));
+  return (
+    ['space_personal', 'space_work'].every((id) => spaceIds.has(id)) &&
+    ['folder_dev', 'folder_docs', 'folder_reads', 'folder_work_projects'].every((id) => folderIds.has(id)) &&
+    ['tab_arcable', 'tab_github', 'tab_mdn', 'tab_hn', 'tab_notion', 'tab_linear'].every((id) => tabIds.has(id))
+  );
+}
 
 function readWorkspaceFromStorage(): ArcableWorkspaceData {
   if (typeof window === 'undefined') return DEFAULT_WORKSPACE;
@@ -289,7 +194,7 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       }
     }
 
-    if (!parsed || !Array.isArray(parsed.spaces) || parsed.spaces.length === 0) {
+    if (!parsed || isLegacyDemoWorkspace(parsed) || !Array.isArray(parsed.spaces) || parsed.spaces.length === 0) {
       parsed = { ...DEFAULT_WORKSPACE };
     }
 
@@ -297,7 +202,7 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
     const activeSpaceExists = sorted.some((s) => s.id === parsed.activeSpaceId);
     const resolvedActiveSpaceId = activeSpaceExists
       ? parsed.activeSpaceId
-      : (sorted[0]?.id || 'space_personal');
+      : (sorted[0]?.id || '');
 
     const normalizedEnvironments = normalizeEnvironments(parsed.environmentVariables, parsed.environments);
     const initial: ArcableWorkspaceData = {
@@ -505,7 +410,7 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   // ================= Space CRUD =================
-  const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; colors?: string }) => {
+  const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; coverUrl?: string }) => {
     const sorted = getSortedSpaces(data.spaces);
     const lastSpace = sorted[sorted.length - 1];
     const highestOrder = lastSpace
@@ -516,7 +421,7 @@ export function useWorkspace() {
       id: generateId('space'),
       name: spaceInput.name.trim() || 'New Space',
       emojiIcon: spaceInput.emojiIcon || '📁',
-      colors: spaceInput.colors?.trim() || undefined,
+      coverUrl: spaceInput.coverUrl,
       order: highestOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -539,16 +444,17 @@ export function useWorkspace() {
   }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
-    const opPayload: Record<string, any> = { ...updates };
+    const normalizedUpdates = { ...updates, ...('colors' in updates ? { colors: undefined } : {}) };
+    const opPayload: Record<string, any> = { ...normalizedUpdates };
     if ('emojiIcon' in updates) opPayload.emojiIcon = updates.emojiIcon ?? null;
-    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+    if ('colors' in normalizedUpdates) opPayload.colors = normalizedUpdates.colors ?? null;
 
     savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, opPayload));
 
     saveWorkspaceData((prev) => ({
       ...prev,
       spaces: prev.spaces.map((s) =>
-        s.id === id ? { ...s, ...updates, updatedAt: Date.now() } : s
+        s.id === id ? { ...s, ...normalizedUpdates, updatedAt: Date.now() } : s
       ),
     }));
   }, [saveWorkspaceData]);
@@ -733,6 +639,7 @@ export function useWorkspace() {
     parentSpaceId: string;
     parentFolderId?: string;
     customEmojiIcon?: string;
+    coverUrl?: string;
     colors?: string;
   }) => {
     const targetSpaceId = folderInput.parentSpaceId;
@@ -746,6 +653,7 @@ export function useWorkspace() {
       parentSpaceId: targetSpaceId,
       parentFolderId: targetFolderId,
       customEmojiIcon: folderInput.customEmojiIcon || '📁',
+      coverUrl: folderInput.coverUrl,
       colors: folderInput.colors?.trim() || undefined,
       isExpanded: true,
       order: maxOrder + 1000,
@@ -821,7 +729,13 @@ export function useWorkspace() {
         opPayload.order = destinationOrder;
       }
 
-      savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, opPayload));
+      // Expanded/collapsed is intentionally per-device UI state. Do not put a
+      // collapse-only change in the Raindrop outbox.
+      const remotePayload = { ...opPayload };
+      delete remotePayload.isExpanded;
+      if (Object.keys(remotePayload).length > 0) {
+        savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', id, remotePayload));
+      }
 
       // Find all descendant folder IDs
       const descendantFolderIds = getDescendantFolderIds(id, prev.folders);
@@ -832,9 +746,6 @@ export function useWorkspace() {
           return { ...f, ...finalUpdates, updatedAt: Date.now() };
         }
         if (descendantFolderIds.has(f.id) && f.parentSpaceId !== targetSpaceId) {
-          savePendingOperation(
-            createWorkspaceOperation('FOLDER_UPDATE', f.id, { parentSpaceId: targetSpaceId })
-          );
           return { ...f, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
         }
         return f;
@@ -847,9 +758,6 @@ export function useWorkspace() {
           (t.parentFolderId === id || (t.parentFolderId && descendantFolderIds.has(t.parentFolderId)))
         ) {
           if (t.parentSpaceId !== targetSpaceId) {
-            savePendingOperation(
-              createWorkspaceOperation('TAB_UPDATE', t.id, { parentSpaceId: targetSpaceId })
-            );
             return { ...t, parentSpaceId: targetSpaceId, updatedAt: Date.now() };
           }
         }
@@ -871,15 +779,11 @@ export function useWorkspace() {
       const nextExpanded = target ? (target.isExpanded === false ? true : false) : true;
       setLocalFolderExpanded(id, nextExpanded);
 
-      savePendingOperation(
-        createWorkspaceOperation('FOLDER_UPDATE', id, { isExpanded: nextExpanded })
-      );
-
       return {
         ...prev,
         folders: prev.folders.map((f) => {
           if (f.id !== id) return f;
-          return { ...f, isExpanded: nextExpanded, updatedAt: Date.now() };
+          return { ...f, isExpanded: nextExpanded };
         }),
       };
     });
@@ -889,21 +793,34 @@ export function useWorkspace() {
     saveWorkspaceData((prev) => {
       const descendantIds = recursive ? getDescendantFolderIds(id, prev.folders) : new Set<string>();
       const folderIdsToDelete = new Set<string>([id, ...descendantIds]);
+      const deletedFolder = prev.folders.find((f) => f.id === id);
+      const numericFolderId = /^\d+$/.test(id) ? Number(id) : undefined;
 
       folderIdsToDelete.forEach((fId) => {
         removeLocalFolderExpanded(fId);
-        savePendingOperation(createWorkspaceOperation('FOLDER_DELETE', fId));
       });
 
-      if (recursive) {
-        prev.tabs.forEach((t) => {
-          if (t.parentFolderId && folderIdsToDelete.has(t.parentFolderId)) {
-            savePendingOperation(createWorkspaceOperation('TAB_DELETE', t.id));
+      if (!recursive) {
+        prev.folders.forEach((folder) => {
+          if (folder.parentFolderId === id) {
+            savePendingOperation(createWorkspaceOperation('FOLDER_UPDATE', folder.id, {
+              parentFolderId: deletedFolder?.parentFolderId ?? null,
+            }));
+          }
+        });
+        prev.tabs.forEach((tab) => {
+          if (tab.parentFolderId === id) {
+            savePendingOperation(createWorkspaceOperation('TAB_UPDATE', tab.id, {
+              parentFolderId: deletedFolder?.parentFolderId ?? null,
+            }));
           }
         });
       }
+      savePendingOperation(createWorkspaceOperation('FOLDER_DELETE', id, {
+        raindropId: deletedFolder?.raindropId || numericFolderId,
+        recursive,
+      }));
 
-      const deletedFolder = prev.folders.find((f) => f.id === id);
       const fallbackParentFolderId = deletedFolder?.parentFolderId;
 
       return {
@@ -1130,12 +1047,24 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteTab = useCallback((id: string) => {
-    savePendingOperation(createWorkspaceOperation('TAB_DELETE', id));
-
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      tabs: prev.tabs.filter((t) => t.id !== id),
-    }));
+    saveWorkspaceData((prev) => {
+      const deletedTab = prev.tabs.find((tab) => tab.id === id);
+      const numericTabId = /^\d+$/.test(id) ? Number(id) : undefined;
+      const parent = deletedTab?.parentFolderId
+        ? prev.folders.find((folder) => folder.id === deletedTab.parentFolderId)
+        : prev.spaces.find((space) => space.id === deletedTab?.parentSpaceId);
+      const numericParentId = parent && /^\d+$/.test(parent.id) ? Number(parent.id) : undefined;
+      savePendingOperation(createWorkspaceOperation('TAB_DELETE', id, {
+        raindropId: deletedTab?.raindropId || numericTabId,
+        collectionId: deletedTab?.favourite
+          ? prev.raindropRootCollectionId
+          : parent?.raindropId || numericParentId,
+      }));
+      return {
+        ...prev,
+        tabs: prev.tabs.filter((t) => t.id !== id),
+      };
+    });
   }, [saveWorkspaceData]);
 
   const togglePinTab = useCallback((id: string) => {
@@ -1469,8 +1398,6 @@ export function useWorkspace() {
       updatedAt: Date.now(),
     };
 
-    savePendingOperation(createWorkspaceOperation('TMP_TAB_CREATE', newTmpTab.id, newTmpTab));
-
     saveWorkspaceData((prev) => {
       const existingIdx = (prev.tmpTabs || []).findIndex((t) => t.id === newTmpTab.id);
       let updatedTmp: TmpTab[];
@@ -1490,8 +1417,6 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const updateTmpTab = useCallback((id: string, updates: Partial<Omit<TmpTab, 'id'>>) => {
-    savePendingOperation(createWorkspaceOperation('TMP_TAB_UPDATE', id, updates));
-
     saveWorkspaceData((prev) => ({
       ...prev,
       tmpTabs: (prev.tmpTabs || []).map((t) => {
@@ -1506,8 +1431,6 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteTmpTab = useCallback((id: string) => {
-    savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', id));
-
     saveWorkspaceData((prev) => ({
       ...prev,
       tmpTabs: (prev.tmpTabs || []).filter((t) => t.id !== id),
@@ -2104,6 +2027,7 @@ export function useWorkspace() {
         if (b.order !== undefined) return 1;
         return (a.createdAt || 0) - (b.createdAt || 0);
       });
+      const originalOrder = allItems.map((item) => item.id);
 
       const sourceIdx = allItems.findIndex((i) => i.id === sourceId);
       const targetIdx = allItems.findIndex((i) => i.id === targetId);
@@ -2114,10 +2038,22 @@ export function useWorkspace() {
       const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
       allItems.splice(insertIdx, 0, moved);
 
+      if (allItems.every((item, index) => item.id === originalOrder[index])) return;
+
       const orderMap = new Map<string, number>();
-      allItems.forEach((item, idx) => {
-        orderMap.set(item.id, (idx + 1) * 1000);
-      });
+      const sparseOrder = getSparseOrderBetween(
+        allItems[insertIdx - 1]?.order,
+        allItems[insertIdx + 1]?.order
+      );
+      if (sparseOrder !== undefined) {
+        orderMap.set(sourceId, sparseOrder);
+      } else {
+        // Orders can eventually become adjacent after repeated midpoint moves.
+        // Only then pay the cost of compacting the full shelf.
+        allItems.forEach((item, idx) => {
+          orderMap.set(item.id, (idx + 1) * 1000);
+        });
+      }
 
       // Update tabs
       const updatedTabs = data.tabs.map((t) =>
@@ -2173,7 +2109,10 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const applyLatestSnapshot = useCallback((snapshot: ArcableWorkspaceData) => {
-    if (snapshot && Array.isArray(snapshot.spaces) && snapshot.spaces.length > 0) {
+    // An existing Arcable root can legitimately have no child collections yet.
+    // Treat that as an authoritative empty remote tree rather than retaining a
+    // stale local sample workspace.
+    if (snapshot && Array.isArray(snapshot.spaces)) {
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
         const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
@@ -2200,6 +2139,7 @@ export function useWorkspace() {
         });
 
         return {
+          raindropRootCollectionId: snapshot.raindropRootCollectionId ?? prev.raindropRootCollectionId,
           spaces: snapshot.spaces,
           folders: mergedFolders,
           tabs: snapshot.tabs || [],

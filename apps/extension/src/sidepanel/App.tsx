@@ -2,16 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   WorkspaceManager,
   WorkspaceManagerHandle,
-  DeviceModal,
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
 import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
-import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile } from '@arcable/shared/hooks';
+import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile, isLegacyDemoWorkspace } from '@arcable/shared/hooks';
 import {
   getOrCreateDeviceId,
   getStoredDeviceName,
-  setStoredDeviceName,
   getStoredPendingOperations,
   replayOperations,
   areUrlsMatching,
@@ -44,6 +42,38 @@ export function setStoredLastSpaceId(spaceId: string): void {
   } catch {}
 }
 
+/**
+ * Resolves the side panel's locally remembered space against the spaces that
+ * are actually available in a snapshot. A removed remembered space always
+ * falls back to the first space in the user's configured order.
+ */
+export function resolveSidepanelActiveSpaceId(
+  spaces: Space[] | undefined,
+  lastSelectedId?: string | null,
+  snapshotActiveId?: string
+): string | undefined {
+  const sorted = getSortedSpaces(spaces || []);
+  if (lastSelectedId) {
+    return sorted.find((space) => space.id === lastSelectedId)?.id || sorted[0]?.id;
+  }
+  return sorted.find((space) => space.id === snapshotActiveId)?.id || sorted[0]?.id;
+}
+
+function applySidepanelActiveSpace<T extends { spaces?: Space[]; activeSpaceId?: string }>(
+  snapshot: T,
+  lastSelectedId?: string | null
+): T {
+  const activeSpaceId = resolveSidepanelActiveSpaceId(
+    snapshot.spaces,
+    lastSelectedId,
+    snapshot.activeSpaceId
+  );
+  if (!activeSpaceId) return snapshot;
+
+  setStoredLastSpaceId(activeSpaceId);
+  return { ...snapshot, activeSpaceId };
+}
+
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
   const isMobileHook = useIsMobile();
@@ -62,17 +92,9 @@ export const App: React.FC = () => {
         const raw = window.localStorage.getItem('arcable_workspace_data');
         if (raw) {
           const parsed = JSON.parse(raw);
-          const sorted = getSortedSpaces(parsed.spaces || []);
           const lastSpaceId = getStoredLastSpaceId();
-          let activeId: string | undefined;
-
-          if (lastSpaceId && sorted.some((s: any) => s.id === lastSpaceId)) {
-            activeId = lastSpaceId;
-          } else if (sorted.some((s: any) => s.id === parsed.activeSpaceId)) {
-            activeId = parsed.activeSpaceId;
-          } else {
-            activeId = sorted[0]?.id;
-          }
+          const sorted = getSortedSpaces(parsed.spaces || []);
+          const activeId = resolveSidepanelActiveSpaceId(parsed.spaces, lastSpaceId, parsed.activeSpaceId);
 
           if (activeId) {
             setStoredLastSpaceId(activeId);
@@ -105,11 +127,37 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
+  const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  // A newly opened side panel must pull the complete Arcable collection tree
+  // before its optimistic local cache is allowed to issue automatic writes.
+  useEffect(() => {
+    if (!hasRaindropAuth) {
+      setRaindropHydrated(false);
+      return;
+    }
+    let cancelled = false;
+    void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((res: any) => {
+      if (cancelled) return;
+      if (res?.success && res.data && typeof window !== 'undefined') {
+        const pending = getStoredPendingOperations();
+        const hydrated = pending.length > 0 ? replayOperations(res.data, pending) : res.data;
+        const resolved = applySidepanelActiveSpace(hydrated, getStoredLastSpaceId());
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(resolved));
+        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: resolved }));
+        workspaceRef.current?.applySnapshot?.(resolved);
+      }
+      setRaindropHydrated(true);
+    }).catch((error) => {
+      console.warn('[Arcable Sidepanel] Initial Raindrop tree fetch failed:', error);
+    });
+    return () => { cancelled = true; };
+  }, [hasRaindropAuth]);
 
   // Reads the currently selected environment's variable values from local storage,
   // so divergence checks can resolve `{{variable}}` placeholders in stored tab URLs.
@@ -205,25 +253,22 @@ export const App: React.FC = () => {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
       }
 
-      if (isRaindropAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+      if (isRaindropAuth && isLegacyDemoWorkspace(res.arcable_workspace_snapshot)) {
+        void browser.storage.local.remove('arcable_workspace_snapshot');
+      } else if (isRaindropAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         let snapshot = res.arcable_workspace_snapshot;
         const remainingOps = getStoredPendingOperations();
         if (remainingOps.length > 0) {
           snapshot = replayOperations(snapshot, remainingOps);
         }
 
-        const sorted = getSortedSpaces(snapshot.spaces || []);
-        const lastSelected = getStoredLastSpaceId() || res[SIDEPANEL_LAST_SPACE_KEY];
-        const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
-        const resolvedActiveSpaceId = spaceStillExists
-          ? lastSelected
-          : (sorted[0]?.id || 'space_personal');
-
-        setStoredLastSpaceId(resolvedActiveSpaceId);
+        const resolvedSnapshot = applySidepanelActiveSpace(
+          snapshot,
+          getStoredLastSpaceId() || res[SIDEPANEL_LAST_SPACE_KEY]
+        );
 
         const merged = {
-          ...snapshot,
-          activeSpaceId: resolvedActiveSpaceId,
+          ...resolvedSnapshot,
           folders: (snapshot.folders || []).map((f: any) => {
             const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
             setLocalFolderExpanded(f.id, isExp);
@@ -236,7 +281,7 @@ export const App: React.FC = () => {
         window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
         workspaceRef.current?.applySnapshot?.(merged);
-        workspaceRef.current?.setActiveSpace?.(resolvedActiveSpaceId);
+        if (merged.activeSpaceId) workspaceRef.current?.setActiveSpace?.(merged.activeSpaceId);
       }
       // Perform initial tab tracking sync once local snapshot is processed
       syncTabsWithTracker();
@@ -246,6 +291,10 @@ export const App: React.FC = () => {
       if (res && res.success) {
         setHasRaindropAuth(Boolean(res.data?.isAuthenticated));
       }
+      setIsAuthStateLoaded(true);
+    }).catch((error) => {
+      console.warn('[Arcable Sidepanel] Failed to check Raindrop authentication:', error);
+      setIsAuthStateLoaded(true);
     });
 
     // Listen for storage changes (e.g. login/logout in options or background sync updates)
@@ -264,7 +313,21 @@ export const App: React.FC = () => {
               window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, newId);
             } catch {}
           }
-          workspaceRef.current?.setActiveSpace?.(newId);
+          try {
+            const raw = window.localStorage.getItem('arcable_workspace_data');
+            if (raw) {
+              const workspace = JSON.parse(raw);
+              const resolvedId = resolveSidepanelActiveSpaceId(workspace.spaces, newId, workspace.activeSpaceId);
+              if (resolvedId) {
+                setStoredLastSpaceId(resolvedId);
+                workspaceRef.current?.setActiveSpace?.(resolvedId);
+              }
+            }
+          } catch {}
+        }
+        if (changes.arcable_workspace_snapshot?.newValue && isLegacyDemoWorkspace(changes.arcable_workspace_snapshot.newValue)) {
+          void browser.storage.local.remove('arcable_workspace_snapshot');
+          return;
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           let snapshot = changes.arcable_workspace_snapshot.newValue;
@@ -272,18 +335,10 @@ export const App: React.FC = () => {
           if (remainingOps.length > 0) {
             snapshot = replayOperations(snapshot, remainingOps);
           }
-          const sorted = getSortedSpaces(snapshot.spaces || []);
-          const lastSelected = getStoredLastSpaceId();
-          const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
-          const resolvedActiveSpaceId = spaceStillExists
-            ? lastSelected
-            : (sorted[0]?.id || 'space_personal');
-
-          setStoredLastSpaceId(resolvedActiveSpaceId);
+          const resolvedSnapshot = applySidepanelActiveSpace(snapshot, getStoredLastSpaceId());
 
           const merged = {
-            ...snapshot,
-            activeSpaceId: resolvedActiveSpaceId,
+            ...resolvedSnapshot,
             folders: (snapshot.folders || []).map((f: any) => {
               const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
               setLocalFolderExpanded(f.id, isExp);
@@ -296,7 +351,7 @@ export const App: React.FC = () => {
           window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
           workspaceRef.current?.applySnapshot?.(merged);
-          workspaceRef.current?.setActiveSpace?.(resolvedActiveSpaceId);
+          if (merged.activeSpaceId) workspaceRef.current?.setActiveSpace?.(merged.activeSpaceId);
           syncTabsWithTracker();
         }
       }
@@ -411,63 +466,18 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleFetchDevices = async () => {
+  const handleSearchCollectionCovers = useCallback(async (query: string): Promise<string[]> => {
     const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_GET_DEVICES',
+      type: 'RAINDROP_SEARCH_COLLECTION_COVERS',
+      payload: { query },
     });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to fetch devices');
-    }
-    return res.data || [];
-  };
-
-  const handleRenameDevice = async (deviceId: string, newName: string) => {
-    setStoredDeviceName(newName);
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_RENAME_DEVICE',
-      payload: { deviceId, newName },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to rename device');
-    }
-    return res.data || [];
-  };
-
-  const handleDeleteDevice = async (deviceId: string) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_DELETE_DEVICE',
-      payload: { deviceId },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to delete device');
-    }
-    return res.data || [];
-  };
-
-  const handleDeleteOtherDevices = async (keepDeviceId: string) => {
-    const res: any = await browser.runtime.sendMessage({
-      type: 'RAINDROP_DELETE_OTHER_DEVICES',
-      payload: { keepDeviceId },
-    });
-    if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to delete other devices');
-    }
-    return res.data || [];
-  };
+    if (!res?.success) throw new Error(res?.error || 'Failed to search Raindrop collection covers');
+    return Array.isArray(res.data) ? res.data : [];
+  }, []);
 
   const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
-      const sorted = getSortedSpaces(restoredSnapshot.spaces || []);
-      const lastSelected = getStoredLastSpaceId();
-      const spaceStillExists = lastSelected && sorted.some((s: any) => s.id === lastSelected);
-      const resolvedActiveSpaceId = spaceStillExists
-        ? lastSelected
-        : (sorted[0]?.id || 'space_personal');
-      setStoredLastSpaceId(resolvedActiveSpaceId);
-      const toSave = {
-        ...restoredSnapshot,
-        activeSpaceId: resolvedActiveSpaceId,
-      };
+      const toSave = applySidepanelActiveSpace(restoredSnapshot, getStoredLastSpaceId());
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(toSave));
       void browser.storage.local.set({
         arcable_workspace_snapshot: toSave,
@@ -547,8 +557,7 @@ export const App: React.FC = () => {
           return;
         }
 
-        // Otherwise (remote tmp tab from another device, or not currently open locally, or inNewTab):
-        // Open a new tab in the local browser and take over in current device
+        // Otherwise it is not open locally (or the user requested a new tab).
         const newTab = await browser.tabs.create({ url, active: true });
         const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
         if (newTab && newTab.id !== undefined && customTitle) {
@@ -809,12 +818,6 @@ export const App: React.FC = () => {
       dividerAfter: true,
     },
     {
-      id: 'devices',
-      label: 'Manage Connected Devices',
-      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>📱</span>,
-      onClick: () => setIsDeviceModalOpen(true),
-    },
-    {
       id: 'backup-restore',
       label: 'Backup & Restore',
       icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>💾</span>,
@@ -876,7 +879,61 @@ export const App: React.FC = () => {
           overscrollBehavior: 'none',
         }}
       >
-        <WorkspaceManager
+        {!isAuthStateLoaded ? (
+          <div
+            role="status"
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: currentSpaceTheme.subtextColor,
+              fontSize: '14px',
+            }}
+          >
+            Checking Raindrop login…
+          </div>
+        ) : !hasRaindropAuth ? (
+          <section
+            aria-labelledby="raindrop-login-title"
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              padding: '24px',
+              borderRadius: '14px',
+              border: `1px solid ${currentSpaceTheme.borderColor}`,
+              background: currentSpaceTheme.shelfBg,
+            }}
+          >
+            <div aria-hidden="true" style={{ fontSize: '32px', marginBottom: '10px' }}>💧</div>
+            <h1 id="raindrop-login-title" style={{ margin: '0 0 8px', fontSize: '19px', color: currentSpaceTheme.textColor }}>
+              Log in to Raindrop.io
+            </h1>
+            <p style={{ margin: '0 0 18px', color: currentSpaceTheme.subtextColor, lineHeight: 1.45, fontSize: '14px' }}>
+              Connect your account in Extension Settings to open your Arcable workspace.
+            </p>
+            <button
+              type="button"
+              onClick={() => void browser.runtime.openOptionsPage()}
+              style={{
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                background: currentSpaceTheme.primaryColor,
+                color: '#ffffff',
+                fontWeight: 700,
+              }}
+            >
+              Open Extension Settings
+            </button>
+          </section>
+        ) : (
+          <WorkspaceManager
           ref={workspaceRef}
           compact={true}
           showWidgets={true}
@@ -907,21 +964,14 @@ export const App: React.FC = () => {
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
           hasRaindropAuth={hasRaindropAuth}
+          autoSync={!hasRaindropAuth || raindropHydrated}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
+          onSearchCollectionCovers={hasRaindropAuth ? handleSearchCollectionCovers : undefined}
           onSyncStateChange={setIsSyncing}
         />
+        )}
       </div>
-
-      <DeviceModal
-        isOpen={isDeviceModalOpen}
-        onClose={() => setIsDeviceModalOpen(false)}
-        currentDeviceId={currentDeviceId || undefined}
-        onFetchDevices={hasRaindropAuth ? handleFetchDevices : undefined}
-        onRenameDevice={hasRaindropAuth ? handleRenameDevice : undefined}
-        onDeleteDevice={hasRaindropAuth ? handleDeleteDevice : undefined}
-        onDeleteOtherDevices={hasRaindropAuth ? handleDeleteOtherDevices : undefined}
-      />
 
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
