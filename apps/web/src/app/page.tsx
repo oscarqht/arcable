@@ -14,6 +14,12 @@ import {
   LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
+import {
+  getOrCreateDeviceId,
+  getStoredDeviceName,
+  getStoredPendingOperations,
+  replayOperations,
+} from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
 
 export default function HomePage() {
@@ -122,7 +128,9 @@ export default function HomePage() {
     void handleFetchWorkspace()
       .then((res) => {
         if (res?.success && res.data && workspaceRef.current?.applySnapshot) {
-          workspaceRef.current.applySnapshot(res.data);
+          const pending = getStoredPendingOperations();
+          const hydrated = pending.length > 0 ? replayOperations(res.data, pending) : res.data;
+          workspaceRef.current.applySnapshot(hydrated);
         }
         setRaindropHydrated(true);
       })
@@ -133,6 +141,7 @@ export default function HomePage() {
 
   const handleSyncWorkspace = useCallback(async (syncParams?: {
     localState: any;
+    deviceId?: string;
     pendingOps?: any[];
     replaceBaseline?: boolean;
   }) => {
@@ -146,6 +155,8 @@ export default function HomePage() {
         body: JSON.stringify({
           token: authState.accessToken,
           localState: syncParams?.localState,
+          deviceId: syncParams?.deviceId,
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
           pendingOps: syncParams?.pendingOps,
           replaceBaseline: syncParams?.replaceBaseline,
         }),
@@ -191,6 +202,9 @@ export default function HomePage() {
         try {
           await handleSyncWorkspace({
             localState: restoredSnapshot,
+            deviceId: getOrCreateDeviceId(),
+            pendingOps: [],
+            replaceBaseline: true,
           });
         } catch (err) {
           console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);

@@ -1,9 +1,8 @@
-import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule, Environment } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 import { getDescendantFolderIds } from './treeUtils';
 import { sortCustomCodeRules, sortRunCodeRules } from './customCodeUtils';
-import { getDefaultEnvironment, isValidEnvironmentVariableName, normalizeEnvironments } from './environment';
 
 export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
 export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (device registry retention)
@@ -358,7 +357,6 @@ export function applyOperation(
     widgets: [...(state.widgets || [])],
     customCodeRules: [...(state.customCodeRules || [])],
     runCodeInPageRules: [...(state.runCodeInPageRules || [])],
-    ...normalizeEnvironments(state.environmentVariables, state.environments),
     activeSpaceId: state.activeSpaceId,
     version: (state.version || 1) + 1,
   };
@@ -747,66 +745,6 @@ export function applyOperation(
       break;
     }
 
-    // ================= Environment Operations =================
-    case 'ENVIRONMENT_CREATE': {
-      const existing = cloned.environments!.findIndex((environment) => environment.id === op.entityId);
-      const environment: Environment = {
-        id: op.entityId,
-        name: op.payload?.name || 'New Environment',
-        values: Object.fromEntries((cloned.environmentVariables || []).map((variable) => [variable, String(op.payload?.values?.[variable] ?? '')])),
-        createdAt: op.payload?.createdAt || op.timestamp,
-        updatedAt: op.timestamp,
-      };
-      if (existing >= 0) cloned.environments![existing] = { ...cloned.environments![existing], ...environment };
-      else cloned.environments!.push(environment);
-      break;
-    }
-    case 'ENVIRONMENT_UPDATE': {
-      const existing = cloned.environments!.findIndex((environment) => environment.id === op.entityId);
-      if (existing >= 0) {
-        const current = cloned.environments![existing];
-        cloned.environments![existing] = {
-          ...current,
-          ...op.payload,
-          values: { ...current.values, ...(op.payload?.values || {}) },
-          updatedAt: op.timestamp,
-        };
-      }
-      break;
-    }
-    case 'ENVIRONMENT_DELETE':
-      if (cloned.environments!.length > 1) cloned.environments = cloned.environments!.filter((environment) => environment.id !== op.entityId);
-      break;
-    case 'ENVIRONMENT_VARIABLE_CREATE': {
-      const variable = op.entityId;
-      if (isValidEnvironmentVariableName(variable) && !cloned.environmentVariables!.includes(variable)) {
-        cloned.environmentVariables!.push(variable);
-        cloned.environments = cloned.environments!.map((environment) => ({ ...environment, values: { ...environment.values, [variable]: '' }, updatedAt: op.timestamp }));
-      }
-      break;
-    }
-    case 'ENVIRONMENT_VARIABLE_RENAME': {
-      const next = op.payload?.name;
-      if (isValidEnvironmentVariableName(op.entityId) && isValidEnvironmentVariableName(next) && !cloned.environmentVariables!.includes(next)) {
-        cloned.environmentVariables = cloned.environmentVariables!.map((variable) => variable === op.entityId ? next : variable);
-        const pattern = new RegExp(`\\{\\{${op.entityId.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\}\\}`, 'g');
-        cloned.environments = cloned.environments!.map((environment) => {
-          const values: Record<string, string> = { ...environment.values, [next]: environment.values[op.entityId] ?? '' };
-          delete values[op.entityId];
-          return { ...environment, values, updatedAt: op.timestamp };
-        });
-        cloned.tabs = cloned.tabs.map((tab) => ({ ...tab, url: tab.url.replace(pattern, `{{${next}}}`), urlVariants: tab.urlVariants?.map((variant) => ({ ...variant, url: variant.url.replace(pattern, `{{${next}}}`) })) }));
-      }
-      break;
-    }
-    case 'ENVIRONMENT_VARIABLE_DELETE':
-      cloned.environmentVariables = cloned.environmentVariables!.filter((variable) => variable !== op.entityId);
-      cloned.environments = cloned.environments!.map((environment) => {
-        const values = { ...environment.values };
-        delete values[op.entityId];
-        return { ...environment, values, updatedAt: op.timestamp };
-      });
-      break;
   }
 
   return cloned;
@@ -848,7 +786,6 @@ export function replayOperations(
     widgets: [...(baseline.widgets || [])],
     customCodeRules: [...(baseline.customCodeRules || [])],
     runCodeInPageRules: [...(baseline.runCodeInPageRules || [])],
-    ...normalizeEnvironments(baseline.environmentVariables, baseline.environments),
     activeSpaceId: baseline.activeSpaceId,
     version: baseline.version || 1,
     devices: baseline.devices ? { ...baseline.devices } : undefined,
@@ -968,8 +905,6 @@ export function replayOperations(
   } else {
     state.runCodeInPageRules = [];
   }
-
-  Object.assign(state, normalizeEnvironments(state.environmentVariables, state.environments));
 
   return state;
 }

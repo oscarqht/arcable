@@ -1,159 +1,39 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
-// Finds a "/" that starts a run of word characters ending at `cursor`, treating it as a
-// variable-insertion trigger (e.g. typing "/api" after "/" suggests the "api" variable).
-// Returns null once the run is broken by a non-word character (so normal URL paths like
-// "/users/42" or "example.com" stop suggesting on their own).
-function findVariableTrigger(text: string, cursor: number): { start: number; query: string } | null {
-  let i = cursor - 1;
-  while (i >= 0 && /[A-Za-z0-9_]/.test(text[i])) i--;
-  if (i >= 0 && text[i] === '/') {
-    return { start: i, query: text.slice(i + 1, cursor) };
-  }
-  return null;
-}
-
-interface UrlVariableInputProps {
+interface UrlInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-  variables: string[];
-  isDark: boolean;
   inputStyle: React.CSSProperties;
   required?: boolean;
   autoFocus?: boolean;
 }
 
-const UrlVariableInput: React.FC<UrlVariableInputProps> = ({
+const UrlInput: React.FC<UrlInputProps> = ({
   value,
   onChange,
   placeholder,
-  variables,
-  isDark,
   inputStyle,
   required,
   autoFocus,
 }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [trigger, setTrigger] = useState<{ start: number; query: string } | null>(null);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-
-  const matches = useMemo(() => {
-    if (!trigger) return [];
-    const q = trigger.query.toLowerCase();
-    return variables.filter((v) => v.toLowerCase().includes(q));
-  }, [trigger, variables]);
-
-  const isDropdownOpen = trigger !== null && matches.length > 0;
-
-  const updateTrigger = (text: string, cursor: number | null) => {
-    if (cursor === null) {
-      setTrigger(null);
-      return;
-    }
-    setTrigger(findVariableTrigger(text, cursor));
-    setHighlightedIndex(0);
-  };
-
-  const insertVariable = (name: string) => {
-    if (!trigger || !inputRef.current) return;
-    const cursor = inputRef.current.selectionStart ?? value.length;
-    const insertion = `{{${name}}}`;
-    const next = value.slice(0, trigger.start) + insertion + value.slice(cursor);
-    onChange(next);
-    setTrigger(null);
-    const nextCursor = trigger.start + insertion.length;
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  };
-
   return (
-    <div style={{ position: 'relative' }}>
       <input
-        ref={inputRef}
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={(e) => {
-          const cursor = e.target.selectionStart;
-          onChange(e.target.value);
-          updateTrigger(e.target.value, cursor);
-        }}
-        onKeyDown={(e) => {
-          if (!isDropdownOpen) return;
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setHighlightedIndex((i) => (i + 1) % matches.length);
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setHighlightedIndex((i) => (i - 1 + matches.length) % matches.length);
-          } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            insertVariable(matches[highlightedIndex]);
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            setTrigger(null);
-          }
-        }}
-        onBlur={() => setTrigger(null)}
+        onChange={(e) => onChange(e.target.value)}
         style={inputStyle}
         required={required}
         autoFocus={autoFocus}
       />
-      {isDropdownOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: '4px',
-            backgroundColor: isDark ? '#1e293b' : '#ffffff',
-            border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-            borderRadius: '6px',
-            boxShadow: isDark
-              ? '0 4px 6px -1px rgba(0, 0, 0, 0.4)'
-              : '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-            maxHeight: '160px',
-            overflowY: 'auto',
-            zIndex: 10000,
-          }}
-        >
-          {matches.map((name, index) => (
-            <button
-              key={name}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertVariable(name)}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 10px',
-                border: 'none',
-                background: index === highlightedIndex ? (isDark ? '#334155' : '#f1f5f9') : 'transparent',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '13px',
-                fontFamily: 'monospace',
-                cursor: 'pointer',
-              }}
-            >
-              {`{{${name}}}`}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 };
 
@@ -163,7 +43,6 @@ interface TabModalProps {
   tab?: Tab | null; // null/undefined for create, Tab for edit
   allFolders: Folder[];
   allSpaces: Space[];
-  environmentVariables?: string[];
   defaultSpaceId?: string;
   defaultFolderId?: string;
   initialUrl?: string;
@@ -193,7 +72,6 @@ export const TabModal: React.FC<TabModalProps> = ({
   tab,
   allFolders,
   allSpaces,
-  environmentVariables,
   defaultSpaceId,
   defaultFolderId,
   initialUrl,
@@ -516,12 +394,10 @@ export const TabModal: React.FC<TabModalProps> = ({
                   <span>+</span> Add Variant
                 </button>
               </div>
-              <UrlVariableInput
+              <UrlInput
                 value={url}
                 onChange={setUrl}
                 placeholder="https://example.com"
-                variables={environmentVariables || []}
-                isDark={isDark}
                 inputStyle={{
                   width: '100%',
                   padding: '9px 12px',
@@ -678,14 +554,12 @@ export const TabModal: React.FC<TabModalProps> = ({
 
                       {/* URL input */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <UrlVariableInput
+                        <UrlInput
                           value={v.url}
                           onChange={(val) => {
                             setVariants((prev) => prev.map((item) => (item.id === v.id ? { ...item, url: val } : item)));
                           }}
                           placeholder="https://example.com"
-                          variables={environmentVariables || []}
-                          isDark={isDark}
                           inputStyle={{
                             width: '100%',
                             padding: '7px 8px',

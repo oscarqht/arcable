@@ -74,8 +74,6 @@ export function createWorkspaceBackupJson(
       widgets: Array.isArray(workspaceData.widgets) ? workspaceData.widgets : [],
       customCodeRules: Array.isArray(workspaceData.customCodeRules) ? workspaceData.customCodeRules : [],
       runCodeInPageRules: Array.isArray(workspaceData.runCodeInPageRules) ? workspaceData.runCodeInPageRules : [],
-      environmentVariables: Array.isArray(workspaceData.environmentVariables) ? workspaceData.environmentVariables : [],
-      environments: Array.isArray(workspaceData.environments) ? workspaceData.environments : [],
     },
   };
 
@@ -185,8 +183,6 @@ export function parseWorkspaceBackupJson(
     widgets: Array.isArray(wsData.widgets) ? wsData.widgets : [],
     customCodeRules: Array.isArray(wsData.customCodeRules) ? wsData.customCodeRules : [],
     runCodeInPageRules: Array.isArray(wsData.runCodeInPageRules) ? wsData.runCodeInPageRules : [],
-    environmentVariables: Array.isArray(wsData.environmentVariables) ? wsData.environmentVariables : [],
-    environments: Array.isArray(wsData.environments) ? wsData.environments : [],
   };
 
   const summary: WorkspaceBackupSummary = {

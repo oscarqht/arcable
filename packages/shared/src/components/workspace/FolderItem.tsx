@@ -11,8 +11,6 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { TabFavicon } from './TabFavicon';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
-import { EnvironmentUrlContext } from './EnvironmentUrlContext';
-import { resolveEnvironmentUrl } from '../../utils/environment';
 import {
   CopyIcon,
   CheckIcon,
@@ -100,7 +98,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
-  const environmentValues = useContext(EnvironmentUrlContext);
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
@@ -706,10 +703,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         : 'rgba(0, 0, 0, 0.08)'
                       : 'transparent';
                   }}
-                  title={tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                  title={tab.customTitle || tab.url}
                 >
                   <TabFavicon
-                    url={resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                    url={tab.url}
                     favIconUrl={tab.favIconUrl}
                     customEmojiIcon={tab.customEmojiIcon}
                     size={16}
@@ -727,7 +724,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       lineHeight: '16px',
                     }}
                   >
-                    {tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                    {tab.customTitle || tab.url}
                   </span>
                   {hasVariants && (
                     <div
@@ -746,13 +743,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       onClick={(e) => e.stopPropagation()}
                     >
                       {tab.urlVariants!.map((variant, index) => {
-                        const resolvedVariantUrl = resolveEnvironmentUrl(variant.url, environmentValues).url || variant.url;
-                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, resolvedVariantUrl));
+                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, variant.url));
                         return (
                           <button
                             key={variant.id || index}
                             type="button"
-                            title={`${variant.name}: ${resolvedVariantUrl}`}
+                            title={`${variant.name}: ${variant.url}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();

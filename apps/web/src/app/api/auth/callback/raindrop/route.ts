@@ -148,7 +148,11 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    const redirectResponse = NextResponse.redirect(new URL('/?auth=success', request.url));
+    // `request.url` can expose Next's network bind address (0.0.0.0), which
+    // is not a valid browser destination. Reuse the sanitized callback URL
+    // built from the forwarded/host headers instead.
+    baseUrl.searchParams.set('auth', 'success');
+    const redirectResponse = NextResponse.redirect(baseUrl);
 
     redirectResponse.cookies.set(
       ACCESS_TOKEN_COOKIE,

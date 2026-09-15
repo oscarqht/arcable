@@ -13,14 +13,6 @@ export interface TabUrlVariant {
   url: string;
 }
 
-export interface Environment {
-  id: string;
-  name: string;
-  values: Record<string, string>;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
 export interface Tab {
   id: string;
   /** Remote identity only; `id` stays stable for extension tab associations. */
@@ -142,8 +134,6 @@ export interface ArcableWorkspaceData {
   widgets?: WorkspaceWidget[];
   customCodeRules?: CustomCodeRule[];
   runCodeInPageRules?: RunCodeRule[];
-  environmentVariables?: string[];
-  environments?: Environment[];
   activeSpaceId: string;
   version?: number;
   devices?: Record<string, DeviceSyncRecord>;

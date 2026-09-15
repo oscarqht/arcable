@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, Environment } from '../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -16,7 +16,6 @@ import {
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
 import { getDescendantFolderIds } from '../utils/treeUtils';
-import { getDefaultEnvironment, isValidEnvironmentVariableName, normalizeEnvironments } from '../utils/environment';
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -161,8 +160,6 @@ export const DEFAULT_WORKSPACE: ArcableWorkspaceData = {
   widgets: [],
   customCodeRules: [],
   runCodeInPageRules: [],
-  environmentVariables: [],
-  environments: [getDefaultEnvironment()],
 };
 
 /** Identifies the discontinued built-in demo workspace so it is never rendered or persisted again. */
@@ -204,7 +201,6 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       ? parsed.activeSpaceId
       : (sorted[0]?.id || '');
 
-    const normalizedEnvironments = normalizeEnvironments(parsed.environmentVariables, parsed.environments);
     const initial: ArcableWorkspaceData = {
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
@@ -220,7 +216,6 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       widgets: parsed.widgets || [],
       customCodeRules: parsed.customCodeRules || [],
       runCodeInPageRules: parsed.runCodeInPageRules || [],
-      ...normalizedEnvironments,
       activeSpaceId: resolvedActiveSpaceId,
       version: parsed.version || 1,
     };
@@ -324,88 +319,6 @@ export function useWorkspace() {
     saveWorkspaceData((prev) => ({
       ...prev,
       activeSpaceId: spaceId,
-    }));
-  }, [saveWorkspaceData]);
-
-  // ================= Environments =================
-  const createEnvironment = useCallback((name: string) => {
-    const normalizedName = name.trim() || 'New Environment';
-    if ((data.environments || []).some((environment) => environment.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase())) return null;
-    const now = Date.now();
-    const environment: Environment = {
-      id: generateId('environment'),
-      name: normalizedName,
-      values: Object.fromEntries((data.environmentVariables || []).map((variable) => [variable, ''])),
-      createdAt: now,
-      updatedAt: now,
-    };
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_CREATE', environment.id, environment));
-    saveWorkspaceData((prev) => ({ ...prev, environments: [...(prev.environments || []), environment] }));
-    return environment;
-  }, [data.environmentVariables, saveWorkspaceData]);
-
-  const updateEnvironment = useCallback((id: string, updates: Partial<Pick<Environment, 'name' | 'values'>>) => {
-    const name = updates.name?.trim();
-    if (name && (data.environments || []).some((environment) => environment.id !== id && environment.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return false;
-    const normalizedUpdates = { ...updates, ...(name ? { name } : {}) };
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_UPDATE', id, normalizedUpdates));
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      environments: (prev.environments || []).map((environment) => environment.id === id
-          ? { ...environment, ...normalizedUpdates, values: { ...environment.values, ...(normalizedUpdates.values || {}) }, updatedAt: Date.now() }
-        : environment),
-    }));
-    return true;
-  }, [data.environments, saveWorkspaceData]);
-
-  const deleteEnvironment = useCallback((id: string) => {
-    if ((data.environments || []).length <= 1) return;
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_DELETE', id));
-    saveWorkspaceData((prev) => ({ ...prev, environments: (prev.environments || []).filter((environment) => environment.id !== id) }));
-  }, [data.environments, saveWorkspaceData]);
-
-  const createEnvironmentVariable = useCallback((name: string) => {
-    const variable = name.trim();
-    if (!isValidEnvironmentVariableName(variable) || (data.environmentVariables || []).includes(variable)) return false;
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_VARIABLE_CREATE', variable));
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      environmentVariables: [...(prev.environmentVariables || []), variable],
-      environments: (prev.environments || []).map((environment) => ({ ...environment, values: { ...environment.values, [variable]: '' }, updatedAt: Date.now() })),
-    }));
-    return true;
-  }, [data.environmentVariables, saveWorkspaceData]);
-
-  const renameEnvironmentVariable = useCallback((oldName: string, newName: string) => {
-    const variable = newName.trim();
-    if (!isValidEnvironmentVariableName(variable) || variable !== oldName && (data.environmentVariables || []).includes(variable)) return false;
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_VARIABLE_RENAME', oldName, { name: variable }));
-    const replacement = `{{${variable}}}`;
-    const pattern = new RegExp(`\\{\\{${oldName.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\}\\}`, 'g');
-    const rewrite = (url: string) => url.replace(pattern, replacement);
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      environmentVariables: (prev.environmentVariables || []).map((item) => item === oldName ? variable : item),
-      environments: (prev.environments || []).map((environment) => {
-        const values = { ...environment.values, [variable]: environment.values[oldName] ?? '' };
-        delete values[oldName];
-        return { ...environment, values, updatedAt: Date.now() };
-      }),
-      tabs: prev.tabs.map((tab) => ({ ...tab, url: rewrite(tab.url), urlVariants: tab.urlVariants?.map((variant) => ({ ...variant, url: rewrite(variant.url) })) })),
-    }));
-    return true;
-  }, [data.environmentVariables, saveWorkspaceData]);
-
-  const deleteEnvironmentVariable = useCallback((variable: string) => {
-    savePendingOperation(createWorkspaceOperation('ENVIRONMENT_VARIABLE_DELETE', variable));
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      environmentVariables: (prev.environmentVariables || []).filter((item) => item !== variable),
-      environments: (prev.environments || []).map((environment) => {
-        const values = { ...environment.values };
-        delete values[variable];
-        return { ...environment, values, updatedAt: Date.now() };
-      }),
     }));
   }, [saveWorkspaceData]);
 
@@ -2140,6 +2053,9 @@ export function useWorkspace() {
 
         return {
           raindropRootCollectionId: snapshot.raindropRootCollectionId ?? prev.raindropRootCollectionId,
+          raindropMetadataItemId: snapshot.raindropMetadataItemId !== undefined
+            ? snapshot.raindropMetadataItemId
+            : prev.raindropMetadataItemId,
           spaces: snapshot.spaces,
           folders: mergedFolders,
           tabs: snapshot.tabs || [],
@@ -2147,7 +2063,6 @@ export function useWorkspace() {
           widgets: snapshot.widgets || prev.widgets || [],
           customCodeRules: snapshot.customCodeRules || prev.customCodeRules || [],
           runCodeInPageRules: snapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
-          ...normalizeEnvironments(snapshot.environmentVariables, snapshot.environments),
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : (getSortedSpaces(snapshot.spaces)[0]?.id || 'space_personal'),
@@ -2204,7 +2119,6 @@ export function useWorkspace() {
           widgets: imported.widgets || prev.widgets || [],
           customCodeRules: imported.customCodeRules || prev.customCodeRules || [],
           runCodeInPageRules: imported.runCodeInPageRules || prev.runCodeInPageRules || [],
-          ...normalizeEnvironments(imported.environmentVariables, imported.environments),
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : imported.spaces[0].id,
@@ -2277,13 +2191,6 @@ export function useWorkspace() {
     activeSpace,
     sortedSpaces,
     setActiveSpace,
-    // Environment operations
-    createEnvironment,
-    updateEnvironment,
-    deleteEnvironment,
-    createEnvironmentVariable,
-    renameEnvironmentVariable,
-    deleteEnvironmentVariable,
     // Space operations
     createSpace,
     updateSpace,

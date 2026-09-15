@@ -606,8 +606,6 @@ export async function downloadAndParseWorkspaceData(
       widgets: snapshot.widgets || [],
       customCodeRules: snapshot.customCodeRules || [],
       runCodeInPageRules: snapshot.runCodeInPageRules || [],
-      environmentVariables: snapshot.environmentVariables || [],
-      environments: snapshot.environments,
     };
   }
 
@@ -623,8 +621,6 @@ export async function downloadAndParseWorkspaceData(
       widgets: parsed.widgets || [],
       customCodeRules: parsed.customCodeRules || [],
       runCodeInPageRules: parsed.runCodeInPageRules || [],
-      environmentVariables: parsed.environmentVariables || [],
-      environments: parsed.environments,
     };
   }
 
@@ -648,8 +644,6 @@ interface ArcableMetadata {
   widgets?: ArcableWorkspaceData['widgets'];
   customCodeRules?: ArcableWorkspaceData['customCodeRules'];
   runCodeInPageRules?: ArcableWorkspaceData['runCodeInPageRules'];
-  environmentVariables?: ArcableWorkspaceData['environmentVariables'];
-  environments?: ArcableWorkspaceData['environments'];
 }
 
 interface RemoteArcableTree {
@@ -729,8 +723,6 @@ function metadataFromWorkspace(workspace: ArcableWorkspaceData): ArcableMetadata
     widgets: workspace.widgets || [],
     customCodeRules: workspace.customCodeRules || [],
     runCodeInPageRules: workspace.runCodeInPageRules || [],
-    environmentVariables: workspace.environmentVariables || [],
-    environments: workspace.environments,
   };
 }
 
@@ -1146,8 +1138,6 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData | u
     widgets: tree.metadata.widgets || [],
     customCodeRules: tree.metadata.customCodeRules || [],
     runCodeInPageRules: tree.metadata.runCodeInPageRules || [],
-    environmentVariables: tree.metadata.environmentVariables || [],
-    environments: tree.metadata.environments,
   };
 }
 
