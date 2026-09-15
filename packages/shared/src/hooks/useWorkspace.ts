@@ -1209,25 +1209,46 @@ export function useWorkspace() {
   }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
 
   const duplicateTab = useCallback(
-    (tabId: string) => {
-      const sourceTab = data.tabs.find((t) => t.id === tabId);
+    (tabOrId: string | Tab) => {
+      const tabId = typeof tabOrId === 'string' ? tabOrId : tabOrId?.id;
+      // Always look up the canonical sourceTab from data.tabs by ID first.
+      // This guarantees that we duplicate the original raw URL containing template variables (e.g. {{env}})
+      // instead of any resolved URL that might have been present in a UI-level tab object or active browser tab.
+      const canonicalTab = data.tabs.find((t) => t.id === tabId);
+      const sourceTab = canonicalTab || (typeof tabOrId === 'object' && tabOrId !== null ? tabOrId : null);
       if (!sourceTab) return null;
 
       const newTabId = generateId('tab');
 
-      const clonedVariants = sourceTab.urlVariants
-        ? sourceTab.urlVariants.map((v) => ({ ...v, id: generateId('var') }))
-        : undefined;
+      // Include all variants of any tab being duplicated, preserving their variable template URLs
+      const clonedVariants =
+        sourceTab.urlVariants && sourceTab.urlVariants.length > 0
+          ? sourceTab.urlVariants.map((v) => ({
+              id: generateId('var'),
+              name: v.name,
+              url: v.url, // Original raw URL with template variables preserved
+            }))
+          : undefined;
+
       let clonedDefaultVariantId: string | undefined = undefined;
+      // Preserve the raw template URL with variables (never a resolved URL)
+      let targetUrl = sourceTab.url;
+
       if (clonedVariants && clonedVariants.length > 0) {
         if (sourceTab.defaultVariantId) {
           const origIdx = sourceTab.urlVariants?.findIndex((v) => v.id === sourceTab.defaultVariantId);
           if (origIdx !== undefined && origIdx >= 0 && clonedVariants[origIdx]) {
             clonedDefaultVariantId = clonedVariants[origIdx].id;
+            if (clonedVariants[origIdx].url) {
+              targetUrl = clonedVariants[origIdx].url;
+            }
           }
         }
         if (!clonedDefaultVariantId) {
           clonedDefaultVariantId = clonedVariants[0].id;
+          if (clonedVariants[0].url) {
+            targetUrl = clonedVariants[0].url;
+          }
         }
       }
 
@@ -1245,11 +1266,12 @@ export function useWorkspace() {
         const sourceIdx = favTabs.findIndex((t) => t.id === tabId);
         const newTab: Tab = {
           id: newTabId,
-          url: sourceTab.url,
+          url: targetUrl,
           urlVariants: clonedVariants,
           defaultVariantId: clonedDefaultVariantId,
           customTitle: sourceTab.customTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
+          favIconUrl: sourceTab.favIconUrl,
           pinned: false,
           favourite: true,
           order: 0,
@@ -1301,11 +1323,12 @@ export function useWorkspace() {
 
         const newTab: Tab = {
           id: newTabId,
-          url: sourceTab.url,
+          url: targetUrl,
           urlVariants: clonedVariants,
           defaultVariantId: clonedDefaultVariantId,
           customTitle: sourceTab.customTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
+          favIconUrl: sourceTab.favIconUrl,
           pinned: true,
           favourite: false,
           parentSpaceId,
@@ -1357,11 +1380,12 @@ export function useWorkspace() {
 
       const newTab: Tab = {
         id: newTabId,
-        url: sourceTab.url,
+        url: targetUrl,
         urlVariants: clonedVariants,
         defaultVariantId: clonedDefaultVariantId,
         customTitle: sourceTab.customTitle,
         customEmojiIcon: sourceTab.customEmojiIcon,
+        favIconUrl: sourceTab.favIconUrl,
         pinned: false,
         favourite: false,
         parentSpaceId,

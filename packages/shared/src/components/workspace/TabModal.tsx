@@ -354,14 +354,14 @@ export const TabModal: React.FC<TabModalProps> = ({
       onSave({
         url: finalDefaultUrl,
         urlVariants:
-          validVariants.length > 1
+          validVariants.length > 0
             ? validVariants.map((v) => ({
                 ...v,
                 name: v.name.trim() || 'Variant',
                 url: v.url.trim(),
               }))
             : undefined,
-        defaultVariantId: validVariants.length > 1 && defVariant ? defVariant.id : undefined,
+        defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,
