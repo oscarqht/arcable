@@ -283,33 +283,17 @@ export function createWorkspaceOperation(
 }
 
 /**
- * Loads pending un-synced operations from localStorage.
+ * Loads pending un-synced operations from localStorage (deprecated - full JSON only).
  */
 export function getStoredPendingOperations(): WorkspaceOperation[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(PENDING_OPS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 /**
- * Appends an operation to the local pending operations queue.
+ * Appends an operation to the local pending operations queue (deprecated - full JSON only).
  */
-export function savePendingOperation(op: WorkspaceOperation): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const existing = getStoredPendingOperations();
-    existing.push(op);
-    window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(existing));
-    window.dispatchEvent(new CustomEvent('arcable_pending_op_saved', { detail: op }));
-  } catch (err) {
-    console.error('Failed to save pending operation:', err);
-  }
+export function savePendingOperation(_op: WorkspaceOperation): void {
+  // No-op: full JSON snapshots only, operations log deprecated
 }
 
 /**
@@ -325,23 +309,10 @@ export function clearStoredPendingOperations(): void {
 }
 
 /**
- * Removes specific synced operations by their IDs from the local pending operations queue,
- * preserving any newly added operations that arrived while sync was in-flight.
+ * Removes specific synced operations (deprecated - full JSON only).
  */
-export function removeStoredPendingOperations(syncedOpIds: string[]): void {
-  if (typeof window === 'undefined' || !syncedOpIds || syncedOpIds.length === 0) return;
-  try {
-    const existing = getStoredPendingOperations();
-    const syncedSet = new Set(syncedOpIds);
-    const remaining = existing.filter((op) => !syncedSet.has(op.id));
-    if (remaining.length === 0) {
-      window.localStorage.removeItem(PENDING_OPS_STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(remaining));
-    }
-  } catch (err) {
-    console.error('Failed to remove synced pending operations:', err);
-  }
+export function removeStoredPendingOperations(_syncedOpIds: string[]): void {
+  clearStoredPendingOperations();
 }
 
 /**

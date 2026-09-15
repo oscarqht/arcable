@@ -7,25 +7,22 @@ import {
   WorkspaceManagerHandle,
   DropletIcon,
   PlusIcon,
-  DevicesIcon,
   SearchIcon,
   CloseIcon,
-  DeviceModal,
   BackupRestoreModal,
   LogInIcon,
   LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
-import { getStoredDeviceName, setStoredDeviceName, getOrCreateDeviceId } from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const hasAutoFetchedRef = useRef(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -93,23 +90,53 @@ export default function HomePage() {
     }
   };
 
-  const handleSyncWorkspace = async (syncParams?: {
+  const handleFetchWorkspace = useCallback(async () => {
+    try {
+      const res = await fetch('/api/raindrop/sync', {
+        headers: authState.accessToken
+          ? { Authorization: `Bearer ${authState.accessToken}` }
+          : undefined,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch workspace from Raindrop');
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Workspace fetch error:', err);
+      throw err;
+    }
+  }, [authState.accessToken]);
+
+  // Requirement 1: When page loads, auto fetch from Raindrop once to replace local data with remote one
+  useEffect(() => {
+    if (!authState.isAuthenticated || hasAutoFetchedRef.current) return;
+    hasAutoFetchedRef.current = true;
+
+    void handleFetchWorkspace()
+      .then((res) => {
+        if (res?.success && res.data && workspaceRef.current?.applySnapshot) {
+          workspaceRef.current.applySnapshot(res.data);
+        }
+      })
+      .catch((err) => {
+        console.warn('[Arcable] Auto-fetch on page load error:', err);
+      });
+  }, [authState.isAuthenticated, handleFetchWorkspace]);
+
+  const handleSyncWorkspace = useCallback(async (syncParams?: {
     localState: any;
-    deviceId: string;
-    pendingOps: any[];
-    replaceBaseline?: boolean;
   }) => {
     try {
       const res = await fetch('/api/raindrop/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : {}),
+        },
         body: JSON.stringify({
           token: authState.accessToken,
-          deviceName: getStoredDeviceName(undefined, 'Web App'),
           localState: syncParams?.localState,
-          deviceId: syncParams?.deviceId,
-          pendingOps: syncParams?.pendingOps,
-          replaceBaseline: syncParams?.replaceBaseline,
         }),
       });
 
@@ -122,7 +149,7 @@ export default function HomePage() {
       console.error('Workspace sync error:', err);
       throw err;
     }
-  };
+  }, [authState.accessToken]);
 
   const handleSearchRaindrop = async (query: string) => {
     try {
@@ -142,83 +169,6 @@ export default function HomePage() {
     }
   };
 
-  const handleFetchDevices = async () => {
-    try {
-      const res = await fetch('/api/raindrop/devices');
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to fetch devices');
-      }
-      return data.devices || [];
-    } catch (err: any) {
-      console.error('Fetch devices error:', err);
-      throw err;
-    }
-  };
-
-  const handleRenameDevice = async (deviceId: string, newName: string) => {
-    setStoredDeviceName(newName);
-    try {
-      const res = await fetch('/api/raindrop/devices', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId,
-          newName,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to rename device');
-      }
-      return data.devices || [];
-    } catch (err: any) {
-      console.error('Rename device error:', err);
-      throw err;
-    }
-  };
-
-  const handleDeleteDevice = async (deviceId: string) => {
-    try {
-      const res = await fetch('/api/raindrop/devices', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to delete device');
-      }
-      return data.devices || [];
-    } catch (err: any) {
-      console.error('Delete device error:', err);
-      throw err;
-    }
-  };
-
-  const handleDeleteOtherDevices = async (keepDeviceId: string) => {
-    try {
-      const res = await fetch('/api/raindrop/devices', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: keepDeviceId,
-          allOther: true,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to delete other devices');
-      }
-      return data.devices || [];
-    } catch (err: any) {
-      console.error('Delete other devices error:', err);
-      throw err;
-    }
-  };
-
   const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(restoredSnapshot));
@@ -226,17 +176,10 @@ export default function HomePage() {
         window.localStorage.removeItem('arcable_pending_ops');
       } catch {}
 
-      // A local restore has no corresponding operation-log entries, so a
-      // normal sync would merge remote history right over it and silently
-      // revert the restored data. Push the restored snapshot as a brand-new
-      // Raindrop baseline instead, so it becomes the authoritative state.
       if (authState.isAuthenticated) {
         try {
           await handleSyncWorkspace({
             localState: restoredSnapshot,
-            deviceId: getOrCreateDeviceId(),
-            pendingOps: [],
-            replaceBaseline: true,
           });
         } catch (err) {
           console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
@@ -342,33 +285,6 @@ export default function HomePage() {
               <span className="header-btn-text">Space</span>
             </button>
 
-            {/* Devices Management Button */}
-            <button
-              type="button"
-              className="header-action-btn"
-              onClick={() => setIsDeviceModalOpen(true)}
-              title="Manage connected sync devices"
-              aria-label="Manage connected sync devices"
-              style={{
-                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-                background: isDark ? '#151e2e' : '#ffffff',
-                color: isDark ? '#e2e8f0' : '#475569',
-                fontSize: '12px',
-                fontWeight: 600,
-                padding: '5px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease',
-                boxSizing: 'border-box',
-              }}
-            >
-              <DevicesIcon size={14} color={isDark ? '#94a3b8' : '#64748b'} />
-              <span className="header-btn-text">Devices</span>
-            </button>
 
             {/* Backup & Restore Button */}
             <button
@@ -472,7 +388,6 @@ export default function HomePage() {
           showWidgets={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
-          currentDeviceId={typeof window !== 'undefined' ? getOrCreateDeviceId() : undefined}
           onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
             if (typeof window !== 'undefined' && url) {
               if (options?.inNewTab) {
@@ -496,16 +411,6 @@ export default function HomePage() {
           onSyncStateChange={setIsSyncing}
         />
       </main>
-
-      <DeviceModal
-        isOpen={isDeviceModalOpen}
-        onClose={() => setIsDeviceModalOpen(false)}
-        raindropToken={authState.accessToken}
-        onFetchDevices={authState.isAuthenticated ? handleFetchDevices : undefined}
-        onRenameDevice={authState.isAuthenticated ? handleRenameDevice : undefined}
-        onDeleteDevice={authState.isAuthenticated ? handleDeleteDevice : undefined}
-        onDeleteOtherDevices={authState.isAuthenticated ? handleDeleteOtherDevices : undefined}
-      />
 
       <BackupRestoreModal
         isOpen={isBackupModalOpen}

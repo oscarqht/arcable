@@ -293,12 +293,6 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       parsed = { ...DEFAULT_WORKSPACE };
     }
 
-    // Replay any pending operations that may not have been compacted or saved yet
-    const pendingOps = getStoredPendingOperations();
-    if (pendingOps.length > 0) {
-      parsed = replayOperations(parsed, pendingOps);
-    }
-
     const sorted = getSortedSpaces(parsed.spaces || []);
     const activeSpaceExists = sorted.some((s) => s.id === parsed.activeSpaceId);
     const resolvedActiveSpaceId = activeSpaceExists
@@ -2180,17 +2174,9 @@ export function useWorkspace() {
 
   const applyLatestSnapshot = useCallback((snapshot: ArcableWorkspaceData) => {
     if (snapshot && Array.isArray(snapshot.spaces) && snapshot.spaces.length > 0) {
-      // Always replay any remaining local unsynced pending operations on top of the remote snapshot.
-      // This guarantees that any changes made locally while syncing was in flight (or offline)
-      // are never reverted or overridden when the remote snapshot arrives.
-      const pendingOps = getStoredPendingOperations();
-      const resolvedSnapshot = pendingOps.length > 0
-        ? replayOperations(snapshot, pendingOps)
-        : snapshot;
-
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
-        const activeSpaceStillExists = resolvedSnapshot.spaces.some((s) => s.id === currentActive);
+        const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();
@@ -2200,7 +2186,7 @@ export function useWorkspace() {
           }
         });
 
-        const mergedFolders = (resolvedSnapshot.folders || []).map((f) => {
+        const mergedFolders = (snapshot.folders || []).map((f) => {
           const explicitExpand = f.isExpanded !== undefined
             ? f.isExpanded
             : (prevExpandMap.has(f.id)
@@ -2213,57 +2199,19 @@ export function useWorkspace() {
           };
         });
 
-        // Guard against resurrection: if the incoming snapshot contains tmp tabs
-        // that were already locally deleted (not in prev.tmpTabs), suppress them.
-        // This handles device-ID-mismatch scenarios where the Raindrop baseline
-        // still holds the tab under a stale deviceId but the user deleted it locally.
-        //
-        // Rules:
-        //  - If the tab is already in prev.tmpTabs → keep it (unchanged).
-        //  - If the tab has a deviceId that differs from any known local ID → it's
-        //    a genuine remote tab from another device → keep it.
-        //  - Otherwise (same-device tab absent from prev) → it was deleted → suppress.
-        const prevTmpIds = new Set((prev.tmpTabs || []).map((t) => t.id));
-        // Also check pending delete ops for tabs whose op may not have been synced yet
-        const latestPendingOps = getStoredPendingOperations();
-        const pendingDeletedTmpIds = new Set<string>(
-          latestPendingOps
-            .filter((op) => op.type === 'TMP_TAB_DELETE')
-            .map((op) => op.entityId)
-        );
-
-        const localDevId = typeof window !== 'undefined' ? getOrCreateDeviceId() : '';
-        const isExt = detectDeviceType() === 'Ext';
-
-        const filteredTmpTabs = (resolvedSnapshot.tmpTabs || []).filter((t) => {
-          // Explicit pending delete → always suppress
-          if (pendingDeletedTmpIds.has(t.id)) return false;
-          // Already in local state → keep (no change)
-          if (prevTmpIds.has(t.id)) return true;
-          // If tab is from another device → genuine remote tab from another device → keep it!
-          if (t.deviceId && t.deviceId !== localDevId) return true;
-          // In web environment (no browser extension tabTracker), keep all incoming synced tmp tabs
-          if (!isExt) return true;
-          // For the local extension: if absent from prev and has browserTabId,
-          // it's a local browser tab tracked by tabTracker (suppress to avoid duplication/resurrection)
-          if (t.browserTabId !== undefined) return false;
-          // No browserTabId: genuine remote tab from another device — keep it.
-          return true;
-        });
-
         return {
-          spaces: resolvedSnapshot.spaces,
+          spaces: snapshot.spaces,
           folders: mergedFolders,
-          tabs: resolvedSnapshot.tabs || [],
-          tmpTabs: filteredTmpTabs,
-          widgets: resolvedSnapshot.widgets || prev.widgets || [],
-          customCodeRules: resolvedSnapshot.customCodeRules || prev.customCodeRules || [],
-          runCodeInPageRules: resolvedSnapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
-          ...normalizeEnvironments(resolvedSnapshot.environmentVariables, resolvedSnapshot.environments),
+          tabs: snapshot.tabs || [],
+          tmpTabs: prev.tmpTabs || [], // Tmp tabs are local only!
+          widgets: snapshot.widgets || prev.widgets || [],
+          customCodeRules: snapshot.customCodeRules || prev.customCodeRules || [],
+          runCodeInPageRules: snapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
+          ...normalizeEnvironments(snapshot.environmentVariables, snapshot.environments),
           activeSpaceId: activeSpaceStillExists
             ? currentActive
-            : (getSortedSpaces(resolvedSnapshot.spaces)[0]?.id || 'space_personal'),
-          version: resolvedSnapshot.version || 1,
+            : (getSortedSpaces(snapshot.spaces)[0]?.id || 'space_personal'),
+          version: snapshot.version || 1,
         };
       });
       return true;
@@ -2277,31 +2225,22 @@ export function useWorkspace() {
   const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
-      const deviceId = getOrCreateDeviceId();
-      const pendingOps = getStoredPendingOperations();
-      const syncedOpIds = pendingOps.map((op) => op.id);
-
       const result = await syncWorkspaceWithRaindrop(token, {
         localState: data,
-        deviceId,
         deviceName,
-        pendingOps,
       });
 
       setLastSyncResult(result);
 
       if (result.success) {
-        removeStoredPendingOperations(syncedOpIds);
-        if (result.latestSnapshot) {
-          applyLatestSnapshot(result.latestSnapshot);
-        }
+        clearStoredPendingOperations();
       }
 
       return result;
     } finally {
       setIsSyncing(false);
     }
-  }, [data, applyLatestSnapshot]);
+  }, [data]);
 
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
