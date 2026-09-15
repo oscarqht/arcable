@@ -655,19 +655,33 @@ export async function syncWorkspaceWithRaindrop(
         ? options.pendingOps
         : getStoredPendingOperations();
 
+      // If this device has no entry in the remote devices registry, it is either
+      // syncing for the very first time or was previously removed/reset on the
+      // Raindrop side. In that case its local state has no shared history with
+      // the remote data, so we discard local pending ops entirely and let the
+      // remote (Raindrop) data win completely rather than merging them in.
+      const isDeviceUnknownToRemote = !remoteSyncFile.devices?.[deviceId];
+      const opsToApply = isDeviceUnknownToRemote ? [] : pendingOps;
+
+      if (isDeviceUnknownToRemote && pendingOps.length > 0) {
+        console.log(
+          `[RaindropSync] Device ${deviceId} not found in remote devices registry; discarding ${pendingOps.length} local pending op(s) and adopting remote state as-is.`
+        );
+      }
+
       // 4. Compact sync file & compute latest snapshot
       const compacted = compactSyncFile(
         remoteSyncFile,
         deviceId,
-        pendingOps,
+        opsToApply,
         deviceName,
         Date.now(),
-        options?.localState?.tmpTabs
+        isDeviceUnknownToRemote ? undefined : options?.localState?.tmpTabs
       );
 
       outSyncFile = compacted.syncFile;
       outSnapshot = compacted.latestSnapshot;
-      opsAppliedCount = pendingOps.length;
+      opsAppliedCount = opsToApply.length;
     }
 
     // 5. Delete existing sync-v4 items if present
