@@ -211,6 +211,8 @@ export const TabModal: React.FC<TabModalProps> = ({
   // Variants state
   const [showVariants, setShowVariants] = useState(false);
   const [variants, setVariants] = useState<TabUrlVariant[]>([]);
+  const [draggedVariantId, setDraggedVariantId] = useState<string | null>(null);
+  const [variantDropIndicator, setVariantDropIndicator] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
   const [defaultVariantId, setDefaultVariantId] = useState<string>('');
 
   const prevIsOpenRef = React.useRef(false);
@@ -307,6 +309,21 @@ export const TabModal: React.FC<TabModalProps> = ({
       } else if (defaultVariantId === idToRemove) {
         setDefaultVariantId(next[0].id);
       }
+      return next;
+    });
+  };
+
+  const handleReorderVariant = (draggedId: string, targetId: string, position: 'before' | 'after') => {
+    if (draggedId === targetId) return;
+    setVariants((prev) => {
+      const draggedIndex = prev.findIndex((v) => v.id === draggedId);
+      if (draggedIndex === -1) return prev;
+      const next = [...prev];
+      const [dragged] = next.splice(draggedIndex, 1);
+      let targetIndex = next.findIndex((v) => v.id === targetId);
+      if (targetIndex === -1) return prev;
+      if (position === 'after') targetIndex += 1;
+      next.splice(targetIndex, 0, dragged);
       return next;
     });
   };
@@ -498,9 +515,43 @@ export const TabModal: React.FC<TabModalProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
                 {variants.map((v) => {
                   const isDefault = defaultVariantId === v.id;
+                  const isDragging = draggedVariantId === v.id;
+                  const showBefore = variantDropIndicator?.id === v.id && variantDropIndicator.position === 'before';
+                  const showAfter = variantDropIndicator?.id === v.id && variantDropIndicator.position === 'after';
                   return (
                     <div
                       key={v.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggedVariantId(v.id);
+                      }}
+                      onDragOver={(e) => {
+                        if (!draggedVariantId || draggedVariantId === v.id) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        const position = e.clientY < midY ? 'before' : 'after';
+                        setVariantDropIndicator({ id: v.id, position });
+                      }}
+                      onDragLeave={() => {
+                        setVariantDropIndicator((prev) => (prev?.id === v.id ? null : prev));
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (draggedVariantId && variantDropIndicator) {
+                          handleReorderVariant(draggedVariantId, variantDropIndicator.id, variantDropIndicator.position);
+                        }
+                        setDraggedVariantId(null);
+                        setVariantDropIndicator(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedVariantId(null);
+                        setVariantDropIndicator(null);
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -509,8 +560,26 @@ export const TabModal: React.FC<TabModalProps> = ({
                         padding: '8px',
                         borderRadius: '8px',
                         border: `1px solid ${isDefault ? (isDark ? '#0284c7' : '#38bdf8') : (isDark ? '#334155' : '#e2e8f0')}`,
+                        borderTop: showBefore ? '2px solid #0284c7' : undefined,
+                        borderBottom: showAfter ? '2px solid #0284c7' : undefined,
+                        opacity: isDragging ? 0.5 : 1,
                       }}
                     >
+                      {/* Drag handle */}
+                      <span
+                        style={{
+                          cursor: 'grab',
+                          color: isDark ? '#64748b' : '#94a3b8',
+                          fontSize: '14px',
+                          padding: '0 2px',
+                          flexShrink: 0,
+                          userSelect: 'none',
+                        }}
+                        title="Drag to reorder"
+                      >
+                        ⠿
+                      </span>
+
                       {/* Default selector radio */}
                       <label
                         style={{
@@ -534,7 +603,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                           onChange={() => setDefaultVariantId(v.id)}
                           style={{ cursor: 'pointer', margin: 0 }}
                         />
-                        {isDefault ? 'Default' : 'Set def'}
+                        {isDefault ? 'Default' : ' '}
                       </label>
 
                       {/* Name input */}
