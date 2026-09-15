@@ -512,13 +512,13 @@ export async function updateRaindropItem(
 }
 
 /**
- * Uploads a file (e.g. data-v3.json.txt) to a Raindrop collection using multipart/form-data.
+ * Uploads a file (e.g. sync-v4.json.txt) to a Raindrop collection using multipart/form-data.
  * Raindrop supports .txt, .md, .pdf document formats.
  */
 export async function uploadRaindropFile(
   token: string,
   collectionId: number,
-  fileName: string = 'data-v3.json.txt',
+  fileName: string = 'sync-v4.json.txt',
   content: string
 ): Promise<any> {
   const cleanToken = cleanRaindropToken(token);
