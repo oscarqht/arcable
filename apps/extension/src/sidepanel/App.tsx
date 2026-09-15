@@ -646,7 +646,8 @@ export const App: React.FC = () => {
         newTab.id,
         tmpTab.browserTabId,
         newTab.url,
-        tmpTab.windowId
+        tmpTab.windowId,
+        newTab.urlVariants
       );
     }
   };

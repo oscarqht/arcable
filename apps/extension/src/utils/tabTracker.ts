@@ -1,4 +1,4 @@
-import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord } from '@arcable/shared/types';
+import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant } from '@arcable/shared/types';
 import {
   areUrlsMatching,
   normalizeUrl,
@@ -439,15 +439,20 @@ class TabTracker {
   }
 
   /**
-   * Resolves the stored tab's URL template against the active environment's variable
-   * values, then compares it to the browser tab's live URL as full URLs (including the
-   * search/query string) — so a divergence is only flagged when they truly differ, not
-   * just because the stored URL still contains an unresolved `{{variable}}` placeholder.
+   * Resolves the stored tab's URL template (and any of its urlVariants) against the active
+   * environment's variable values, then compares each to the browser tab's live URL as full
+   * URLs (including the search/query string) — so a divergence is only flagged when the
+   * current URL matches none of them, not just because the primary stored URL still contains
+   * an unresolved `{{variable}}` placeholder or because the tab was opened via a variant.
    */
-  private urlsMatchForDivergence(currentUrl: string, storedUrl: string): boolean {
+  private urlsMatchForDivergence(currentUrl: string, storedUrl: string, urlVariants?: TabUrlVariant[]): boolean {
     if (!currentUrl || !storedUrl) return false;
-    const resolved = resolveEnvironmentUrl(storedUrl, this.currentEnvironmentValues).url || storedUrl;
-    return normalizeUrl(currentUrl) === normalizeUrl(resolved);
+    const candidateUrls = [storedUrl, ...(urlVariants || []).map((v) => v.url)];
+    return candidateUrls.some((candidate) => {
+      if (!candidate) return false;
+      const resolved = resolveEnvironmentUrl(candidate, this.currentEnvironmentValues).url || candidate;
+      return normalizeUrl(currentUrl) === normalizeUrl(resolved);
+    });
   }
 
   /**
@@ -505,7 +510,7 @@ class TabTracker {
           !assignedBrowserTabIds.has(matchingBrowserTab.id)
         ) {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-          if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url)) {
+          if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url, matchingWorkspaceItem.urlVariants)) {
             const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
             newAssociations[tabItemId] = {
               tabItemId,
@@ -892,7 +897,8 @@ class TabTracker {
     tabItemId: string,
     browserTabId: number,
     originalUrl: string,
-    windowId?: number
+    windowId?: number,
+    urlVariants?: TabUrlVariant[]
   ): Promise<void> {
     return this.runWithLock(async () => {
       try {
@@ -930,7 +936,9 @@ class TabTracker {
           }
         }
 
-        const isDiverted = Boolean(currentUrl && originalUrl && !this.urlsMatchForDivergence(currentUrl, originalUrl));
+        const isDiverted = Boolean(
+          currentUrl && originalUrl && !this.urlsMatchForDivergence(currentUrl, originalUrl, urlVariants)
+        );
 
         associations[tabItemId] = {
           tabItemId,
