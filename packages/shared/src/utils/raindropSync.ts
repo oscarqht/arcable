@@ -29,15 +29,32 @@ import {
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
-export const DATA_JSON_FILE_NAME = 'sync-v4.json.txt';
+export const DATA_JSON_FILE_NAME = 'sync-v5.json.txt';
+export const V4_DATA_JSON_FILE_NAME = 'sync-v4.json.txt';
 export const V3_DATA_JSON_FILE_NAME = 'data-v3.json.txt';
 export const V2_DATA_JSON_FILE_NAME = 'data-v2.json.txt';
 export const LEGACY_DATA_JSON_FILE_NAME = 'data.json.txt';
 
 /**
- * Checks if a Raindrop item corresponds to the current Arcable v4 sync file
+ * Checks if a Raindrop item corresponds to the current Arcable v5 sync file
  * (introduced alongside the workspace environments feature, which changed the sync data structure).
  */
+export function isSyncV5JsonItem(item: RaindropBookmarkItem): boolean {
+  const title = (item.title || '').trim().toLowerCase();
+  const fileName = (item.file?.name || '').trim().toLowerCase();
+  const link = (item.link || '').toLowerCase();
+
+  return (
+    title.includes('sync-v5.json') ||
+    title.includes('sync-v5.txt') ||
+    fileName.includes('sync-v5.json') ||
+    fileName.includes('sync-v5.txt') ||
+    link.includes('sync-v5.json') ||
+    link.includes('sync-v5.txt')
+  );
+}
+
+/** Checks if a Raindrop item is the previous v4 sync file. */
 export function isSyncV4JsonItem(item: RaindropBookmarkItem): boolean {
   const title = (item.title || '').trim().toLowerCase();
   const fileName = (item.file?.name || '').trim().toLowerCase();
@@ -57,7 +74,7 @@ export function isSyncV4JsonItem(item: RaindropBookmarkItem): boolean {
  * Checks if a Raindrop item corresponds to the previous Arcable v3 data json file.
  */
 export function isDataV3JsonItem(item: RaindropBookmarkItem): boolean {
-  if (isSyncV4JsonItem(item)) {
+  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item)) {
     return false;
   }
 
@@ -79,7 +96,7 @@ export function isDataV3JsonItem(item: RaindropBookmarkItem): boolean {
  * Checks if a Raindrop item corresponds to the previous Arcable v2 data json file.
  */
 export function isDataV2JsonItem(item: RaindropBookmarkItem): boolean {
-  if (isSyncV4JsonItem(item) || isDataV3JsonItem(item)) {
+  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item) || isDataV3JsonItem(item)) {
     return false;
   }
 
@@ -105,7 +122,7 @@ export function isLegacyDataJsonItem(item: RaindropBookmarkItem): boolean {
   const fileName = (item.file?.name || '').trim().toLowerCase();
   const link = (item.link || '').toLowerCase();
 
-  if (isSyncV4JsonItem(item) || isDataV3JsonItem(item) || isDataV2JsonItem(item)) {
+  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item) || isDataV3JsonItem(item) || isDataV2JsonItem(item)) {
     return false;
   }
 
@@ -120,10 +137,10 @@ export function isLegacyDataJsonItem(item: RaindropBookmarkItem): boolean {
 }
 
 /**
- * Checks if a Raindrop item corresponds to any Arcable data json file (v4, v3, v2 or legacy).
+ * Checks if a Raindrop item corresponds to any Arcable data json file.
  */
 export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
-  return isSyncV4JsonItem(item) || isDataV3JsonItem(item) || isDataV2JsonItem(item) || isLegacyDataJsonItem(item);
+  return isSyncV5JsonItem(item) || isSyncV4JsonItem(item) || isDataV3JsonItem(item) || isDataV2JsonItem(item) || isLegacyDataJsonItem(item);
 }
 
 /**
@@ -159,30 +176,30 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
 }
 
 /**
- * Finds all existing "sync-v4.json.txt" raindrop items under the specified collection,
+ * Finds all existing "sync-v5.json.txt" raindrop items under the specified collection,
  * sorted so that the most recently updated item is always first.
  * Never relies on cached IDs, always queries Raindrop live.
  */
-export async function findAllRaindropSyncV4JsonItems(
+export async function findAllRaindropSyncV5JsonItems(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem[]> {
   const items: RaindropBookmarkItem[] = [];
 
-  // 1. Search by term 'sync-v4' with newest first
+  // 1. Search by term 'sync-v5' with newest first
   try {
     const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'sync-v4',
+      search: 'sync-v5',
       perpage: 50,
       sort: '-lastUpdate',
     });
     for (const item of searchRes.items) {
-      if (isSyncV4JsonItem(item) && !items.some((x) => x._id === item._id)) {
+      if (isSyncV5JsonItem(item) && !items.some((x) => x._id === item._id)) {
         items.push(item);
       }
     }
   } catch (err) {
-    console.warn('[RaindropSync] Search for sync-v4 file failed, falling back to full list:', err);
+    console.warn('[RaindropSync] Search for sync-v5 file failed, falling back to full list:', err);
   }
 
   // 2. Fallback: list items in the collection with newest first
@@ -192,7 +209,7 @@ export async function findAllRaindropSyncV4JsonItems(
       sort: '-lastUpdate',
     });
     for (const item of listRes.items) {
-      if (isSyncV4JsonItem(item) && !items.some((x) => x._id === item._id)) {
+      if (isSyncV5JsonItem(item) && !items.some((x) => x._id === item._id)) {
         items.push(item);
       }
     }
@@ -210,9 +227,40 @@ export async function findAllRaindropSyncV4JsonItems(
   return items;
 }
 
+/** Finds the previous sync-v4 file for a one-way migration to sync-v5. */
+export async function findAllRaindropSyncV4JsonItems(
+  token: string,
+  collectionId: number
+): Promise<RaindropBookmarkItem[]> {
+  const items: RaindropBookmarkItem[] = [];
+
+  for (const options of [
+    { search: 'sync-v4', perpage: 50, sort: '-lastUpdate' },
+    { perpage: 50, sort: '-lastUpdate' },
+  ]) {
+    try {
+      const result = await fetchRaindropItems(token, collectionId, options);
+      for (const item of result.items) {
+        if (isSyncV4JsonItem(item) && !items.some((x) => x._id === item._id)) {
+          items.push(item);
+        }
+      }
+    } catch (err) {
+      console.warn('[RaindropSync] Failed to find sync-v4 migration file:', err);
+    }
+  }
+
+  items.sort((a, b) => {
+    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
+    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
+    return timeB - timeA;
+  });
+  return items;
+}
+
 /**
  * Finds all existing previous-generation "data-v3.json.txt" raindrop items under the
- * specified collection (used to migrate forward into sync-v4.json.txt).
+ * specified collection (used to migrate forward into the current sync file).
  */
 export async function findAllRaindropDataV3JsonItems(
   token: string,
@@ -362,23 +410,23 @@ export async function findAllRaindropLegacyDataJsonItems(
 }
 
 /**
- * Finds all existing data json items (defaults to sync-v4 items).
+ * Finds all existing data json items (defaults to sync-v5 items).
  */
 export async function findAllRaindropDataJsonItems(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem[]> {
-  return findAllRaindropSyncV4JsonItems(token, collectionId);
+  return findAllRaindropSyncV5JsonItems(token, collectionId);
 }
 
 /**
- * Searches for the latest "sync-v4.json.txt" raindrop item under the specified collection.
+ * Searches for the latest "sync-v5.json.txt" raindrop item under the specified collection.
  */
 export async function findRaindropDataJsonItem(
   token: string,
   collectionId: number
 ): Promise<RaindropBookmarkItem | null> {
-  const all = await findAllRaindropSyncV4JsonItems(token, collectionId);
+  const all = await findAllRaindropSyncV5JsonItems(token, collectionId);
   return all.length > 0 ? all[0] : null;
 }
 
@@ -470,7 +518,7 @@ export async function downloadAndParseSyncFile(
 }
 
 /**
- * Uploads the sync file to Raindrop and ensures its title is explicitly set to DATA_JSON_FILE_NAME ("sync-v4.json.txt").
+ * Uploads the sync file to Raindrop and ensures its title is explicitly set to DATA_JSON_FILE_NAME ("sync-v5.json.txt").
  */
 export async function uploadRaindropSyncFile(
   token: string,
@@ -491,11 +539,12 @@ export async function uploadRaindropSyncFile(
 
 /**
  * Fetches and parses the ArcableSyncFile from Raindrop file content.
- * 1. Checks for existing sync-v4.json.txt items.
- * 2. If missing, checks for previous data-v3.json.txt to migrate forward (without deleting it).
- * 3. If missing, checks for previous data-v2.json.txt to migrate forward (without deleting it).
- * 4. If missing, checks for legacy data.json.txt to migrate forward (without deleting it).
- * 5. If no remote data exists, bootstraps a valid ArcableSyncFile from local state.
+ * 1. Checks for existing sync-v5.json.txt items.
+ * 2. If missing, checks for sync-v4.json.txt to migrate forward (without deleting it).
+ * 3. If missing, checks for previous data-v3.json.txt to migrate forward (without deleting it).
+ * 4. If missing, checks for previous data-v2.json.txt to migrate forward (without deleting it).
+ * 5. If missing, checks for legacy data.json.txt to migrate forward (without deleting it).
+ * 6. If no remote data exists, bootstraps a valid ArcableSyncFile from local state.
  */
 export async function fetchRaindropSyncFile(
   token: string,
@@ -503,22 +552,30 @@ export async function fetchRaindropSyncFile(
   localFallback: ArcableWorkspaceData,
   deviceId: string
 ): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
-  // 1. Look for existing sync-v4 items first
-  const existingV4Items = await findAllRaindropSyncV4JsonItems(token, collectionId);
-  if (existingV4Items.length > 0) {
-    const syncFile = await downloadAndParseSyncFile(token, existingV4Items[0], deviceId);
+  // 1. Look for existing sync-v5 items first
+  const existingV5Items = await findAllRaindropSyncV5JsonItems(token, collectionId);
+  if (existingV5Items.length > 0) {
+    const syncFile = await downloadAndParseSyncFile(token, existingV5Items[0], deviceId);
     return {
       syncFile,
-      existingItems: existingV4Items,
+      existingItems: existingV5Items,
     };
   }
 
-  // 2. If no sync-v4 item exists, check for previous data-v3 items to migrate forward
+  // 2. If no sync-v5 item exists, migrate from sync-v4 without deleting it.
+  const existingV4Items = await findAllRaindropSyncV4JsonItems(token, collectionId);
+  if (existingV4Items.length > 0) {
+    const migratedSyncFile = await downloadAndParseSyncFile(token, existingV4Items[0], deviceId);
+    console.log('[RaindropSync] Migrated sync-v4.json.txt into sync-v5.json.txt initial state.');
+    return { syncFile: migratedSyncFile, existingItems: [] };
+  }
+
+  // 3. If no sync-v4 item exists, check for previous data-v3 items to migrate forward
   const existingV3Items = await findAllRaindropDataV3JsonItems(token, collectionId);
   if (existingV3Items.length > 0) {
     try {
       const migratedSyncFile = await downloadAndParseSyncFile(token, existingV3Items[0], deviceId);
-      console.log('[RaindropSync] Migrated data-v3.json.txt into sync-v4.json.txt initial state.');
+      console.log('[RaindropSync] Migrated data-v3.json.txt into sync-v5.json.txt initial state.');
       // Return existingItems as empty array so the old data-v3 file is NOT deleted!
       return {
         syncFile: migratedSyncFile,
@@ -529,12 +586,12 @@ export async function fetchRaindropSyncFile(
     }
   }
 
-  // 3. If no data-v3 item exists, check for previous data-v2 items to migrate forward
+  // 4. If no data-v3 item exists, check for previous data-v2 items to migrate forward
   const existingV2Items = await findAllRaindropDataV2JsonItems(token, collectionId);
   if (existingV2Items.length > 0) {
     try {
       const migratedSyncFile = await downloadAndParseSyncFile(token, existingV2Items[0], deviceId);
-      console.log('[RaindropSync] Migrated data-v2.json.txt into sync-v4.json.txt initial state.');
+      console.log('[RaindropSync] Migrated data-v2.json.txt into sync-v5.json.txt initial state.');
       // Return existingItems as empty array so the old data-v2 file is NOT deleted!
       return {
         syncFile: migratedSyncFile,
@@ -545,12 +602,12 @@ export async function fetchRaindropSyncFile(
     }
   }
 
-  // 4. If no data-v2 item exists, check for legacy data.json items to migrate forward
+  // 5. If no data-v2 item exists, check for legacy data.json items to migrate forward
   const existingLegacyItems = await findAllRaindropLegacyDataJsonItems(token, collectionId);
   if (existingLegacyItems.length > 0) {
     try {
       const migratedSyncFile = await downloadAndParseSyncFile(token, existingLegacyItems[0], deviceId);
-      console.log('[RaindropSync] Migrated legacy data.json into sync-v4.json.txt initial state.');
+      console.log('[RaindropSync] Migrated legacy data.json into sync-v5.json.txt initial state.');
       // Return existingItems as empty array so the old legacy file is NOT deleted!
       return {
         syncFile: migratedSyncFile,
@@ -561,7 +618,7 @@ export async function fetchRaindropSyncFile(
     }
   }
 
-  // 5. Bootstrap initial sync file from local state
+  // 6. Bootstrap initial sync file from local state
   return {
     syncFile: createInitialSyncFile(localFallback, deviceId),
     existingItems: [],
@@ -684,18 +741,18 @@ export async function syncWorkspaceWithRaindrop(
       opsAppliedCount = opsToApply.length;
     }
 
-    // 5. Delete existing sync-v4 items if present
+    // 5. Delete existing sync-v5 items if present
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning: Failed to delete previous sync-v4 item:', delErr);
+          console.warn('[RaindropSync] Warning: Failed to delete previous sync-v5 item:', delErr);
         }
       }
     }
 
-    // 6. Upload updated ArcableSyncFile as sync-v4.json.txt
+    // 6. Upload updated ArcableSyncFile as sync-v5.json.txt
     const fileContent = JSON.stringify(outSyncFile, null, 2);
     const uploadResult = await uploadRaindropSyncFile(
       clean,
@@ -827,18 +884,18 @@ export async function renameRaindropDevice(
       devices,
     };
 
-    // Delete existing sync-v4 bookmarks
+    // Delete existing sync-v5 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous sync-v4:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous sync-v5:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile as sync-v4.json.txt
+    // Upload updated syncFile as sync-v5.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
     await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
@@ -899,18 +956,18 @@ export async function deleteRaindropDevice(
       Date.now()
     );
 
-    // Delete existing sync-v4 bookmarks
+    // Delete existing sync-v5 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous sync-v4:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous sync-v5:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile as sync-v4.json.txt
+    // Upload updated syncFile as sync-v5.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
     await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
@@ -923,7 +980,7 @@ export async function deleteRaindropDevice(
 }
 
 /**
- * Deletes all registered devices from the Raindrop sync-v4.json.txt sync file except `keepDeviceId`,
+ * Deletes all registered devices from the Raindrop sync-v5.json.txt sync file except `keepDeviceId`,
  * and re-compacts baselineSnapshot + operations.
  */
 export async function deleteAllOtherRaindropDevices(
@@ -966,18 +1023,18 @@ export async function deleteAllOtherRaindropDevices(
       Date.now()
     );
 
-    // Delete existing sync-v4 bookmarks
+    // Delete existing sync-v5 bookmarks
     for (const item of existingItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous sync-v4:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous sync-v5:', delErr);
         }
       }
     }
 
-    // Upload updated syncFile as sync-v4.json.txt
+    // Upload updated syncFile as sync-v5.json.txt
     const fileContent = JSON.stringify(updatedSyncFile, null, 2);
     await uploadRaindropSyncFile(clean, collection._id, fileContent);
 
@@ -1334,15 +1391,15 @@ export async function restoreRaindropBackup(
       }
     }
 
-    // 4. Override remote sync-v4.json.txt in "Arcable" root collection
-    // Find and delete existing sync-v4 items (keeping older data-v3 / data-v2 / legacy data.json.txt untouched)
-    const existingDataItems = await findAllRaindropSyncV4JsonItems(clean, collection._id);
+    // 4. Override remote sync-v5.json.txt in "Arcable" root collection
+    // Find and delete existing sync-v5 items (keeping older sync-v4 / data-v3 / data-v2 / legacy data.json.txt untouched)
+    const existingDataItems = await findAllRaindropSyncV5JsonItems(clean, collection._id);
     for (const item of existingDataItems) {
       if (item._id) {
         try {
           await deleteRaindropBookmark(clean, item._id);
         } catch (delErr) {
-          console.warn('[RaindropSync] Warning deleting previous sync-v4 during restore:', delErr);
+          console.warn('[RaindropSync] Warning deleting previous sync-v5 during restore:', delErr);
         }
       }
     }
@@ -1367,4 +1424,3 @@ export async function restoreRaindropBackup(
     return { success: false, error: err?.message || 'Failed to restore backup from Raindrop.' };
   }
 }
-
