@@ -70,8 +70,11 @@ export function normalizeUrl(url?: string): string {
 }
 
 /**
- * Robust URL equality matcher that handles normalized URLs, Trello card/board slugs,
- * trailing slashes, www/non-www prefixes, query params, hashes, and protocol/host variations.
+ * Compares URLs used to associate browser tabs with saved workspace tabs.
+ *
+ * A fragment and a trailing slash do not identify a different page for this purpose, but
+ * protocol, host, port, pathname, and search query must all match. This prevents distinct
+ * local services on the same host from being associated with each other.
  */
 export function areUrlsMatching(urlA?: string, urlB?: string): boolean {
   if (!urlA || !urlB) return false;
@@ -83,41 +86,20 @@ export function areUrlsMatching(urlA?: string, urlB?: string): boolean {
     const parsedA = new URL(strA.startsWith('http') ? strA : `https://${strA}`);
     const parsedB = new URL(strB.startsWith('http') ? strB : `https://${strB}`);
 
-    const hostA = parsedA.hostname.toLowerCase().replace(/^www\./, '');
-    const hostB = parsedB.hostname.toLowerCase().replace(/^www\./, '');
-
-    if (hostA !== hostB) {
-      return false;
-    }
-
-    // Trello cards matching: /c/{shortId} or /c/{shortId}/{slug}
-    // Trello boards matching: /b/{shortId} or /b/{shortId}/{slug}
-    if (hostA.includes('trello.com')) {
-      const segsA = parsedA.pathname.split('/').filter(Boolean);
-      const segsB = parsedB.pathname.split('/').filter(Boolean);
-      if (segsA.length >= 2 && segsB.length >= 2) {
-        if ((segsA[0] === 'c' || segsA[0] === 'b') && segsA[0] === segsB[0]) {
-          if (segsA[1].toLowerCase() === segsB[1].toLowerCase()) {
-            return true;
-          }
-        }
-      }
-    }
-
-    // Path match without trailing slash
-    const pathA = parsedA.pathname.replace(/\/+$/, '').toLowerCase();
-    const pathB = parsedB.pathname.replace(/\/+$/, '').toLowerCase();
-    if (pathA === pathB) {
-      return true;
-    }
+    const pathA = parsedA.pathname.replace(/\/+$/, '');
+    const pathB = parsedB.pathname.replace(/\/+$/, '');
+    return (
+      parsedA.protocol === parsedB.protocol &&
+      parsedA.hostname === parsedB.hostname &&
+      parsedA.port === parsedB.port &&
+      pathA === pathB &&
+      parsedA.search === parsedB.search
+    );
   } catch {
-    const cleanA = strA.replace(/#.*$/, '').replace(/\?.*$/, '').replace(/\/+$/, '').toLowerCase();
-    const cleanB = strB.replace(/#.*$/, '').replace(/\?.*$/, '').replace(/\/+$/, '').toLowerCase();
+    const cleanA = strA.replace(/#.*$/, '').replace(/\/+$/, '');
+    const cleanB = strB.replace(/#.*$/, '').replace(/\/+$/, '');
     return cleanA === cleanB;
   }
-
-  return false;
 }
-
 
 
