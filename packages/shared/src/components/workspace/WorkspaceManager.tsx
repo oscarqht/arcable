@@ -45,6 +45,8 @@ import {
   DropletIcon,
   EditIcon,
   TrashIcon,
+  GlobeIcon,
+  CheckIcon,
 } from '../Icons';
 
 export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
@@ -92,6 +94,7 @@ export interface WorkspaceManagerProps {
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onTabsChange?: (tabs: Tab[]) => void;
+  onEnvironmentValuesChange?: (values: Record<string, string>) => void;
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   bottomBarMenuItems?: ActionDropdownItem[];
@@ -142,6 +145,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onCloseAssociatedTab,
       onResetDivertedUrl,
       onTabsChange,
+      onEnvironmentValuesChange,
       onSearchChange,
       onSyncStateChange,
       bottomBarMenuItems,
@@ -234,6 +238,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   useEffect(() => {
     if (selectedEnvironment && selectedEnvironment.id !== selectedEnvironmentId) setLocalSelectedEnvironment(selectedEnvironment.id);
   }, [selectedEnvironment, selectedEnvironmentId, setLocalSelectedEnvironment]);
+
+  // Notify the host app immediately when the active environment (or its variable
+  // values) changes, so URL-divergence checks that resolve `{{variable}}` placeholders
+  // don't keep using stale values until some unrelated tab/data change triggers a resync.
+  const environmentValues = selectedEnvironment?.values || {};
+  const environmentValuesKey = JSON.stringify(environmentValues);
+  const lastNotifiedEnvironmentValuesKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastNotifiedEnvironmentValuesKeyRef.current === environmentValuesKey) return;
+    lastNotifiedEnvironmentValuesKeyRef.current = environmentValuesKey;
+    onEnvironmentValuesChange?.(environmentValues);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [environmentValuesKey, onEnvironmentValuesChange]);
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -2542,6 +2559,39 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
+          {(data.environments || []).length >= 2 && (
+            <ActionDropdown
+              items={[
+                ...(data.environments || []).map((environment, index, arr) => ({
+                  id: environment.id,
+                  label: environment.name,
+                  icon: environment.id === selectedEnvironment?.id ? <CheckIcon size={16} /> : undefined,
+                  onClick: () => setLocalSelectedEnvironment(environment.id),
+                  dividerAfter: index === arr.length - 1,
+                })),
+                {
+                  id: 'manage-environments',
+                  label: 'Manage Environments…',
+                  onClick: () => setIsEnvironmentModalOpen(true),
+                },
+              ]}
+              isDarkTheme={isDark}
+              align="right"
+              buttonTitle={`Environment: ${selectedEnvironment?.name || ''} (click to switch)`}
+              triggerIcon={<GlobeIcon size={16} />}
+              buttonStyle={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '9999px',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isDark ? '#cbd5e1' : '#475569',
+              }}
+            />
+          )}
+
           {(bottomBarMenuItems?.length || true) && (
             <ActionDropdown
               items={[
@@ -2670,6 +2720,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tab={editingTab}
         allFolders={data.folders}
         allSpaces={data.spaces}
+        environmentVariables={data.environmentVariables}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultFolderId={defaultTabFolderId}
         initialUrl={initialTabUrl}

@@ -1,6 +1,8 @@
 import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord } from '@arcable/shared/types';
 import {
   areUrlsMatching,
+  normalizeUrl,
+  resolveEnvironmentUrl,
   extractTabNotificationBadge,
   getOrCreateDeviceId,
   getStoredDeviceName,
@@ -28,6 +30,7 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
+  private currentEnvironmentValues: Record<string, string> = {};
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
@@ -430,14 +433,35 @@ class TabTracker {
     }
     this.syncDebounceTimer = setTimeout(() => {
       this.syncDebounceTimer = null;
-      void this.syncWithWorkspace(this.currentWorkspaceTabs);
+      void this.syncWithWorkspace(this.currentWorkspaceTabs, this.currentEnvironmentValues);
     }, delayMs);
   }
 
+  /**
+   * Resolves the stored tab's URL template against the active environment's variable
+   * values, then compares it to the browser tab's live URL as full URLs (including the
+   * search/query string) — so a divergence is only flagged when they truly differ, not
+   * just because the stored URL still contains an unresolved `{{variable}}` placeholder.
+   */
+  private urlsMatchForDivergence(currentUrl: string, storedUrl: string): boolean {
+    if (!currentUrl || !storedUrl) return false;
+    const resolved = resolveEnvironmentUrl(storedUrl, this.currentEnvironmentValues).url || storedUrl;
+    return normalizeUrl(currentUrl) === normalizeUrl(resolved);
+  }
 
-  public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
+  /**
+   * Updates the active environment's variable values and immediately re-syncs so
+   * divergence flags are recomputed right away, instead of using stale values until
+   * some unrelated tab/data change happens to trigger the next syncWithWorkspace call.
+   */
+  public async setEnvironmentValues(environmentValues: Record<string, string>): Promise<TabAssociationMap> {
+    return this.syncWithWorkspace(this.currentWorkspaceTabs, environmentValues);
+  }
+
+  public async syncWithWorkspace(workspaceTabs: Tab[], environmentValues?: Record<string, string>): Promise<TabAssociationMap> {
     return this.runWithLock(async () => {
       this.currentWorkspaceTabs = workspaceTabs;
+      if (environmentValues !== undefined) this.currentEnvironmentValues = environmentValues;
       let allBrowserTabs: any[] = [];
       try {
         allBrowserTabs = await browser.tabs.query({});
@@ -468,7 +492,7 @@ class TabTracker {
           !assignedBrowserTabIds.has(matchingBrowserTab.id)
         ) {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
-          if (areUrlsMatching(currentUrl, matchingWorkspaceItem.url)) {
+          if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url)) {
             const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
             newAssociations[tabItemId] = {
               tabItemId,
@@ -887,7 +911,7 @@ class TabTracker {
           }
         }
 
-        const isDiverted = Boolean(currentUrl && originalUrl && !areUrlsMatching(currentUrl, originalUrl));
+        const isDiverted = Boolean(currentUrl && originalUrl && !this.urlsMatchForDivergence(currentUrl, originalUrl));
 
         associations[tabItemId] = {
           tabItemId,

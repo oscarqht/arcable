@@ -76,6 +76,14 @@ export async function fetchRaindropUser(token: string): Promise<RaindropUserProf
 
 /**
  * Fetches all user collections (both root and nested collections).
+ *
+ * The root collections request is treated as required: if it fails, this throws
+ * instead of silently returning an empty list. Callers (notably
+ * getOrCreateArcableCollection) rely on an empty result meaning "no such collection
+ * exists yet", so swallowing a transient network/API failure here would make them
+ * wrongly create a brand new duplicate "Arcable" collection instead of reusing the
+ * existing one. The nested-children request is best-effort since the "Arcable"
+ * collection is always a root collection.
  */
 export async function fetchRaindropCollections(token: string): Promise<RaindropCollectionItem[]> {
   const cleanToken = cleanRaindropToken(token);
@@ -88,21 +96,23 @@ export async function fetchRaindropCollections(token: string): Promise<RaindropC
 
   const results: RaindropCollectionItem[] = [];
 
+  // 1. Fetch root collections (required)
+  const rootRes = await fetch(`${RAINDROP_API_BASE}/collections`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!rootRes.ok) {
+    throw new Error(`Failed to fetch Raindrop root collections (status ${rootRes.status}).`);
+  }
+
+  const rootData = (await rootRes.json()) as { items?: RaindropCollectionItem[] };
+  if (rootData.items && Array.isArray(rootData.items)) {
+    results.push(...rootData.items);
+  }
+
+  // 2. Fetch nested child collections (best-effort)
   try {
-    // 1. Fetch root collections
-    const rootRes = await fetch(`${RAINDROP_API_BASE}/collections`, {
-      method: 'GET',
-      headers,
-    });
-
-    if (rootRes.ok) {
-      const rootData = (await rootRes.json()) as { items?: RaindropCollectionItem[] };
-      if (rootData.items && Array.isArray(rootData.items)) {
-        results.push(...rootData.items);
-      }
-    }
-
-    // 2. Fetch nested child collections
     const childRes = await fetch(`${RAINDROP_API_BASE}/collections/childrens`, {
       method: 'GET',
       headers,
@@ -115,7 +125,7 @@ export async function fetchRaindropCollections(token: string): Promise<RaindropC
       }
     }
   } catch (error) {
-    console.error('[RaindropClient] Error fetching collections:', error);
+    console.warn('[RaindropClient] Error fetching nested child collections:', error);
   }
 
   return results;

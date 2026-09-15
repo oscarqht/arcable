@@ -128,19 +128,29 @@ export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
 
 /**
  * Finds the root collection named "Arcable", or creates one if it does not exist.
+ *
+ * Note: fetchRaindropCollections throws rather than returning an empty list when the
+ * lookup itself fails, so this never falls through to createRaindropCollection just
+ * because of a transient fetch error — that used to silently spawn a duplicate
+ * "Arcable" collection (e.g. during a sync data version upgrade, when many devices
+ * reconnect at once and can hit rate limits).
  */
 export async function getOrCreateArcableCollection(token: string): Promise<RaindropCollectionItem> {
   const collections = await fetchRaindropCollections(token);
 
-  // Look for root collection named "Arcable"
-  const existing = collections.find(
+  // Look for root collection(s) named "Arcable"
+  const matches = collections.filter(
     (c) =>
       c.title.trim().toLowerCase() === ARCABLE_COLLECTION_NAME.toLowerCase() &&
       (!c.parent || !c.parent.$id)
   );
 
-  if (existing) {
-    return existing;
+  if (matches.length > 0) {
+    // If duplicates already exist (e.g. from before this safeguard existed), prefer
+    // the one actually holding data, tie-broken by the oldest (lowest _id) so we
+    // keep converging on the same collection instead of drifting between them.
+    matches.sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
+    return matches[0];
   }
 
   // Create new root collection
