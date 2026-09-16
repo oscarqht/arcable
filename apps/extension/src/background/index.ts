@@ -191,6 +191,7 @@ async function processOAuthTokens(tokens: {
   };
 
   await saveAuthState(authState);
+  void fetchAndCacheRaindropWorkspace();
   return authState;
 }
 
@@ -246,6 +247,7 @@ browser.runtime.onMessage.addListener(
         };
 
         await saveAuthState(authState);
+        void fetchAndCacheRaindropWorkspace();
         return { success: true, data: authState };
       }
 
@@ -530,7 +532,10 @@ browser.runtime.onMessage.addListener(
             if (result.latestSnapshot.runCodeInPageRules) {
               updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
             }
-            if (syncedOpIds.size > 0) {
+            const isInitialSync = !identitySnapshot?.raindropRootCollectionId;
+            if (isInitialSync) {
+              updates.arcable_pending_ops = [];
+            } else if (syncedOpIds.size > 0) {
               const curStored = await browser.storage.local.get('arcable_pending_ops');
               const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
               updates.arcable_pending_ops = curOps.filter((op) => !syncedOpIds.has(op.id));
@@ -892,8 +897,12 @@ browser.storage.onChanged.addListener((changes, area) => {
   if (area === 'local') {
     if (changes.arcable_raindrop_auth) {
       const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
+      const oldAuth = changes.arcable_raindrop_auth.oldValue as RaindropAuthState | undefined;
       cachedAuthState = newAuth && newAuth.isAuthenticated && newAuth.accessToken ? newAuth : { isAuthenticated: false };
       void syncSidePanelBehavior(Boolean(cachedAuthState.isAuthenticated && cachedAuthState.accessToken));
+      if (cachedAuthState.isAuthenticated && (!oldAuth || !oldAuth.isAuthenticated)) {
+        void fetchAndCacheRaindropWorkspace();
+      }
     } else if (changes.arcable_token || changes.arcable_config) {
       void getStoredAuthState(true).then((auth) => {
         void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));

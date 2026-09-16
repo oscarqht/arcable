@@ -1327,6 +1327,8 @@ export async function syncWorkspaceWithRaindrop(
     replaceBaseline?: boolean;
     /** Freshly hydrated state used only to recover Raindrop-issued IDs from a stale UI payload. */
     identitySnapshot?: ArcableWorkspaceData;
+    /** Explicitly marks initial device sync to enforce read-only hydration. */
+    isInitialSync?: boolean;
   }
 ): Promise<SyncResult> {
   const clean = cleanRaindropToken(token);
@@ -1343,17 +1345,34 @@ export async function syncWorkspaceWithRaindrop(
       : options?.localState;
     let authoritativeTree: RemoteArcableTree | undefined;
 
-    // An explicitly empty outbox means there is nothing local to write. Refresh
-    // from the Arcable subtree, but never delete/re-upload metadata merely to
-    // acknowledge an automatic or periodic sync tick.
-    if (Array.isArray(options?.pendingOps) && options.pendingOps.length === 0 && !options?.replaceBaseline) {
+    const hasPendingOps = Array.isArray(options?.pendingOps) && options.pendingOps.length > 0;
+    const isExplicitInitialSync = Boolean(options?.isInitialSync);
+    const lacksRootCollectionId = !syncLocalState?.raindropRootCollectionId;
+
+    // 1. If this is an initial sync or there are no pending operations to upload:
+    // When not replacing baseline (e.g. restore backup), check the remote tree first.
+    // If the Arcable collection already exists in Raindrop:
+    // - On a new device (initial sync), we MUST ONLY fetch the authoritative remote tree
+    //   and overwrite local cache, discarding any pre-sync local pending operations.
+    // - With an empty outbox, refresh from the Arcable subtree without writing.
+    if (!options?.replaceBaseline && (isExplicitInitialSync || lacksRootCollectionId || !hasPendingOps)) {
       const tree = await fetchRemoteArcableTree(clean);
-      return {
-        success: true,
-        collectionId: tree.root?._id,
-        latestSnapshot: reconstructWorkspace(tree),
-        syncedAt: Date.now(),
-      };
+      if (tree.root) {
+        const isDeviceInitialSync = isExplicitInitialSync || lacksRootCollectionId || syncLocalState?.raindropRootCollectionId !== tree.root._id;
+        if (isDeviceInitialSync || !hasPendingOps) {
+          if (isDeviceInitialSync) {
+            clearStoredPendingOperations();
+          }
+          return {
+            success: true,
+            collectionId: tree.root._id,
+            dataItemId: tree.metadataItemId,
+            latestSnapshot: reconstructWorkspace(tree),
+            syncedAt: Date.now(),
+          };
+        }
+      }
+      authoritativeTree = tree;
     }
 
     if (needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {

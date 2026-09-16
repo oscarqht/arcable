@@ -15,6 +15,7 @@ import {
   mergeCustomCodeRules,
   mergeRunCodeRules,
   createWorkspaceOperation,
+  clearStoredPendingOperations,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely } from '../utils/browser';
@@ -96,6 +97,11 @@ export const App: React.FC = () => {
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
+        if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
+          clearStoredPendingOperations();
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(changes.arcable_workspace_snapshot.newValue));
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: changes.arcable_workspace_snapshot.newValue }));
+        }
       }
     };
 
@@ -134,6 +140,13 @@ export const App: React.FC = () => {
       if (res && res.success && res.data) {
         setAuthState(res.data);
         showToast('Connected to Raindrop.io successfully!', 'success');
+        void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((fetchRes: any) => {
+          if (fetchRes?.success && fetchRes.data && typeof window !== 'undefined') {
+            clearStoredPendingOperations();
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(fetchRes.data));
+            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: fetchRes.data }));
+          }
+        });
       } else {
         throw new Error(res?.error || 'Failed to authenticate token with Raindrop.');
       }
@@ -197,7 +210,12 @@ export const App: React.FC = () => {
       })) as ExtensionResponse<SyncResult>;
 
       if (res && res.success) {
-        const now = Date.now();
+        if (res.data?.latestSnapshot && typeof window !== 'undefined') {
+          clearStoredPendingOperations();
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.data.latestSnapshot));
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.data.latestSnapshot }));
+        }
+        const now = res.data?.syncedAt || Date.now();
         setLastSyncAt(now);
         await browser.storage.local.set({ arcable_last_synced_at: now });
         showToast('Workspace synced with Raindrop.io cloud!', 'success');

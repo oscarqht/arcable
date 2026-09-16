@@ -499,7 +499,7 @@ export default function HomePage() {
           }}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
           onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
-          autoSync={!authState.isAuthenticated || raindropHydrated}
+          autoSync={Boolean(authState.isAuthenticated && raindropHydrated)}
           onSyncStateChange={setIsWorkspaceSyncing}
         />
         )}
