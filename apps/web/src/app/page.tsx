@@ -113,15 +113,21 @@ export default function HomePage() {
       }
       const rawToken = params.get('access_token') || hashParams.get('access_token') || params.get('token');
       if (rawToken) {
+        const expiresIn = params.get('expires_in') || hashParams.get('expires_in');
+        const expiresInMs =
+          expiresIn && !isNaN(Number(expiresIn))
+            ? Number(expiresIn) * 1000
+            : 14 * 24 * 3600 * 1000;
         const tokenObj = {
           provider: 'raindrop',
           accessToken: rawToken,
           refreshToken: params.get('refresh_token') || hashParams.get('refresh_token') || '',
-          expiresAt: Date.now() + 3600 * 1000,
+          expiresAt: Date.now() + expiresInMs,
         };
         localStorage.setItem(OH_AUTH_STORAGE_KEY, JSON.stringify(tokenObj));
         window.history.replaceState({}, '', window.location.pathname);
       }
+
     }
 
     void fetchAuthState();
