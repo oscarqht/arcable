@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const page = await readFile(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
-const route = await readFile(new URL('../src/app/api/raindrop/sync/route.ts', import.meta.url), 'utf8');
 const workspaceHook = await readFile(
   new URL('../../../packages/shared/src/hooks/useWorkspace.ts', import.meta.url),
   'utf8'
@@ -30,11 +29,6 @@ assert.match(page, /onSyncStateChange=\{setIsWorkspaceSyncing\}/,
   'manual and background workspace syncs must update the same header state');
 assert.match(page, /animation: isSyncing \? 'spin 1s linear infinite' : 'none'/,
   'the header Raindrop icon must rotate whenever either sync is active');
-
-assert.match(route, /deviceId:\s*body\?\.deviceId/,
-  'the route must forward the web device ID to the shared sync engine');
-assert.match(route, /deviceName:\s*body\?\.deviceName/,
-  'the route must forward the web device name to the shared sync engine');
 
 assert.match(workspaceHook, /raindropMetadataItemId:\s*snapshot\.raindropMetadataItemId/,
   'hydrated snapshots must retain the metadata item identity used by incremental sync');

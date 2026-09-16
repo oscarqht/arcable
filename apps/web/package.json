@@ -1,19 +1,19 @@
 {
   "name": "@arcable/web",
   "version": "0.78.0",
-  "description": "Arcable Next.js Web Application",
+  "description": "Arcable Vite Web Application",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000 -H 0.0.0.0",
-    "build": "NODE_ENV=production next build",
-    "start": "next start",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf .next out"
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@arcable/shared": "*",
-    "next": "^15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -21,6 +21,8 @@
     "@types/node": "^22.13.5",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "typescript": "^5.7.3"
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.1"
   }
 }

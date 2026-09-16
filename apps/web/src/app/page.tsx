@@ -1,5 +1,3 @@
-'use client';
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Header,
@@ -18,8 +16,15 @@ import {
   clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
+  fetchRaindropWorkspace,
+  syncWorkspaceWithRaindrop,
+  searchRaindrop,
+  fetchRaindropUser,
 } from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
+
+const OH_AUTH_STORAGE_KEY = 'oh-auth:provider-tokens:raindrop';
+const OH_AUTH_BASE_URL = 'https://oh-auth.vercel.app';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -39,81 +44,117 @@ export default function HomePage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Load auth status from API on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const err = params.get('error');
-      if (err) {
-        setAuthError(decodeURIComponent(err));
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-      const auth = params.get('auth');
-      if (auth === 'success') {
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    }
+  const getStoredToken = async (): Promise<string | null> => {
+    try {
+      const raw = localStorage.getItem(OH_AUTH_STORAGE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.accessToken) return null;
 
-    fetchAuthState();
-  }, []);
+      if (data.expiresAt && data.expiresAt <= Date.now() + 60000 && data.refreshToken) {
+        try {
+          const refreshRes = await fetch(`${OH_AUTH_BASE_URL}/auth/raindrop/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: data.refreshToken }),
+          });
+          if (refreshRes.ok) {
+            const refreshed = await refreshRes.json();
+            if (refreshed.access_token) {
+              data.accessToken = refreshed.access_token;
+              if (refreshed.refresh_token) data.refreshToken = refreshed.refresh_token;
+              if (refreshed.expires_in) data.expiresAt = Date.now() + (Number(refreshed.expires_in) * 1000);
+              localStorage.setItem(OH_AUTH_STORAGE_KEY, JSON.stringify(data));
+            }
+          }
+        } catch (e) {
+          console.warn('Token refresh failed:', e);
+        }
+      }
+      return data.accessToken;
+    } catch {
+      return null;
+    }
+  };
 
   const fetchAuthState = async () => {
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.isAuthenticated && data.user) {
+      const token = await getStoredToken();
+      if (token) {
+        const userRes = await fetchRaindropUser(token);
+        if (userRes) {
           setAuthState({
             isAuthenticated: true,
-            user: data.user,
-            accessToken: data.token,
+            user: userRes,
+            accessToken: token,
             authType: 'oauth',
           });
-        } else {
-          setAuthState({ isAuthenticated: false });
+          return;
         }
       }
+      setAuthState({ isAuthenticated: false });
     } catch (e) {
       console.error('Failed to fetch auth state:', e);
+      setAuthState({ isAuthenticated: false });
     } finally {
       setAuthLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const err = params.get('error') || hashParams.get('error');
+      if (err) {
+        setAuthError(decodeURIComponent(err));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      const rawToken = params.get('access_token') || hashParams.get('access_token') || params.get('token');
+      if (rawToken) {
+        const tokenObj = {
+          provider: 'raindrop',
+          accessToken: rawToken,
+          refreshToken: params.get('refresh_token') || hashParams.get('refresh_token') || '',
+          expiresAt: Date.now() + 3600 * 1000,
+        };
+        localStorage.setItem(OH_AUTH_STORAGE_KEY, JSON.stringify(tokenObj));
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    void fetchAuthState();
+  }, []);
+
   const handleLoginWithOAuth = () => {
     setAuthError(null);
-    window.location.href = '/api/auth/login';
+    const statePayload = {
+      webRedirectTo: window.location.origin + window.location.pathname,
+    };
+    const stateStr = encodeURIComponent(JSON.stringify(statePayload));
+    window.location.href = `${OH_AUTH_BASE_URL}/auth/raindrop?state=${stateStr}`;
   };
 
   const handleLogout = async () => {
     setAuthLoading(true);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      localStorage.removeItem(OH_AUTH_STORAGE_KEY);
       setAuthState({ isAuthenticated: false });
-    } catch (e) {
-      console.error('Logout error:', e);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleFetchWorkspace = useCallback(async () => {
-    try {
-      const res = await fetch('/api/raindrop/sync', {
-        headers: authState.accessToken
-          ? { Authorization: `Bearer ${authState.accessToken}` }
-          : undefined,
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to fetch workspace from Raindrop');
-      }
-      return data;
-    } catch (err: any) {
-      console.error('Workspace fetch error:', err);
-      throw err;
+    if (!authState.accessToken) {
+      throw new Error('Missing Raindrop access token.');
     }
+    const result = await fetchRaindropWorkspace(authState.accessToken);
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to fetch workspace from Raindrop');
+    }
+    return result;
   }, [authState.accessToken]);
 
   // On page load, show the cached workspace while the remote tree is fetched.
@@ -151,50 +192,25 @@ export default function HomePage() {
     pendingOps?: any[];
     replaceBaseline?: boolean;
   }) => {
-    try {
-      const res = await fetch('/api/raindrop/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : {}),
-        },
-        body: JSON.stringify({
-          token: authState.accessToken,
-          localState: syncParams?.localState,
-          deviceId: syncParams?.deviceId,
-          deviceName: getStoredDeviceName(undefined, 'Web App'),
-          pendingOps: syncParams?.pendingOps,
-          replaceBaseline: syncParams?.replaceBaseline,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to sync with Raindrop');
-      }
-      return data;
-    } catch (err: any) {
-      console.error('Workspace sync error:', err);
-      throw err;
+    if (!authState.accessToken) {
+      throw new Error('Missing Raindrop access token.');
     }
+    const result = await syncWorkspaceWithRaindrop(authState.accessToken, {
+      localState: syncParams?.localState,
+      deviceId: syncParams?.deviceId,
+      deviceName: getStoredDeviceName(undefined, 'Web App'),
+      pendingOps: syncParams?.pendingOps,
+      replaceBaseline: syncParams?.replaceBaseline,
+    });
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to sync with Raindrop');
+    }
+    return result;
   }, [authState.accessToken]);
 
   const handleSearchRaindrop = async (query: string) => {
-    try {
-      const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(query)}`, {
-        headers: authState.accessToken
-          ? { Authorization: `Bearer ${authState.accessToken}` }
-          : undefined,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to search Raindrop bookmarks');
-      }
-      return data;
-    } catch (err: any) {
-      console.error('Raindrop search error:', err);
-      throw err;
-    }
+    if (!authState.accessToken) return { items: [], collections: [] };
+    return searchRaindrop(authState.accessToken, query);
   };
 
   const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
@@ -227,9 +243,9 @@ export default function HomePage() {
         minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: isDark ? '#0b101b' : '#f8fafc',
+        backgroundColor: isDark ? '#0b0f19' : '#f8fafc',
         color: isDark ? '#f8fafc' : '#0f172a',
-        transition: 'background-color 0.2s ease, color 0.2s ease',
+        fontFamily: 'var(--font-family)',
       }}
     >
       <Header
@@ -246,6 +262,48 @@ export default function HomePage() {
         }
         actions={
           <div className="header-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', flexShrink: 0 }}>
+            {/* Search Input in Header if authenticated */}
+            {authState.isAuthenticated && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: isDark ? '#151e2e' : '#ffffff',
+                  border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                  borderRadius: '8px',
+                  padding: '4px 8px',
+                  width: '180px',
+                }}
+              >
+                <SearchIcon size={14} color={isDark ? '#94a3b8' : '#64748b'} />
+                <input
+                  type="text"
+                  placeholder="Filter..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    outline: 'none',
+                    marginLeft: '6px',
+                    fontSize: '12px',
+                    width: '100%',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex' }}
+                  >
+                    <CloseIcon size={12} color={isDark ? '#94a3b8' : '#64748b'} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Sync button */}
             <button
               type="button"
               className="header-action-btn"
@@ -289,6 +347,7 @@ export default function HomePage() {
               <span className="header-btn-text">{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
             </button>
 
+            {/* Add Space Button */}
             <button
               type="button"
               className="header-action-btn"
@@ -315,7 +374,6 @@ export default function HomePage() {
               <PlusIcon size={14} />
               <span className="header-btn-text">Space</span>
             </button>
-
 
             {/* Backup & Restore Button */}
             <button
@@ -470,38 +528,38 @@ export default function HomePage() {
           </section>
         ) : (
           <WorkspaceManager
-          ref={workspaceRef}
-          hideControlBar={true}
-          showOpenTabsVirtualSpace={false}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          showJsonInspector={true}
-          showWidgets={true}
-          defaultViewMode="grid"
-          raindropToken={authState.accessToken}
-          onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
-            if (typeof window !== 'undefined' && url) {
-              if (options?.inNewTab) {
-                window.open(url, '_blank', 'noopener,noreferrer');
-              } else {
-                window.location.href = url;
+            ref={workspaceRef}
+            hideControlBar={true}
+            showOpenTabsVirtualSpace={false}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            showJsonInspector={true}
+            showWidgets={true}
+            defaultViewMode="grid"
+            raindropToken={authState.accessToken}
+            onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
+              if (typeof window !== 'undefined' && url) {
+                if (options?.inNewTab) {
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                } else {
+                  window.location.href = url;
+                }
               }
-            }
-          }}
-          onOpenVariant={(url: string, _tab?: any, _variant?: any, options?: TabOpenOptions) => {
-            if (typeof window !== 'undefined' && url) {
-              if (options?.inNewTab) {
-                window.open(url, '_blank', 'noopener,noreferrer');
-              } else {
-                window.location.href = url;
+            }}
+            onOpenVariant={(url: string, _tab?: any, _variant?: any, options?: TabOpenOptions) => {
+              if (typeof window !== 'undefined' && url) {
+                if (options?.inNewTab) {
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                } else {
+                  window.location.href = url;
+                }
               }
-            }
-          }}
-          onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
-          onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
-          autoSync={!authState.isAuthenticated || raindropHydrated}
-          onSyncStateChange={setIsWorkspaceSyncing}
-        />
+            }}
+            onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
+            onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
+            autoSync={!authState.isAuthenticated || raindropHydrated}
+            onSyncStateChange={setIsWorkspaceSyncing}
+          />
         )}
       </main>
 
