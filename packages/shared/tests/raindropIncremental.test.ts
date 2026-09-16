@@ -288,7 +288,7 @@ calls.length = 0;
 await fetchAllRaindropItems('token', 1, { nested: true, cacheBust: 'reload-1' });
 assert(calls[0].url.includes('cacheBust=reload-1'), 'reload fetch should use a unique server cache key');
 assert(calls[0].cache === 'no-store', 'reload fetch should bypass the browser HTTP cache');
-
+assert(calls[0].headers?.get('Cache-Control') === 'no-cache', 'reload fetch should explicitly request revalidation');
 
 calls.length = 0;
 const noChangeSync = await syncWorkspaceWithRaindrop('token', {
