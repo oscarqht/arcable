@@ -470,6 +470,7 @@ export default function HomePage() {
           <WorkspaceManager
           ref={workspaceRef}
           hideControlBar={true}
+          showOpenTabsVirtualSpace={false}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           showJsonInspector={true}

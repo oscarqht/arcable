@@ -185,6 +185,19 @@ async function configureManualUserScriptWorld(userScripts: any): Promise<boolean
   }
 }
 
+async function ensureManualUserScriptPermission(): Promise<void> {
+  if (!isFirefox()) return;
+
+  const permission = { permissions: ['userScripts'] } as any;
+  const alreadyGranted = await browser.permissions.contains(permission);
+  if (alreadyGranted) return;
+
+  const granted = await browser.permissions.request(permission);
+  if (!granted) {
+    throw new Error('Arcable Run Code requires the "Run user scripts" permission. Please grant it to run this snippet.');
+  }
+}
+
 /**
  * Execute manual code in CSP-exempt user script world.
  */
@@ -194,10 +207,13 @@ export async function executeManualUserCode(
   consoleLabel = '[Arcable RunCode] Execution error:',
   sourceName = 'arcable-user-code.js'
 ): Promise<void> {
-  const userScripts = (chrome as any).userScripts;
   const setupMessage = isFirefox()
     ? 'Arcable Run Code requires the "Run user scripts" permission. Please enable it in about:addons.'
     : 'Arcable Run Code requires Chrome user scripts. Enable "Allow User Scripts" on Chrome 138+ or enable Developer Mode.';
+
+  await ensureManualUserScriptPermission();
+
+  const userScripts = (chrome as any).userScripts;
 
   if (!userScripts || typeof userScripts.execute !== 'function') {
     throw new Error(setupMessage);
@@ -234,6 +250,10 @@ export async function executeAutomaticCustomCode(
   code: string,
   consoleLabel = '[Arcable CustomCode] Execution error:'
 ): Promise<void> {
+  if (!code || !code.trim()) {
+    throw new Error('Custom code contains no JavaScript.');
+  }
+
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',

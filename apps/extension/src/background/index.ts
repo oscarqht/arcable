@@ -35,7 +35,6 @@ import {
 
 import {
   initRunCodeBackgroundListeners,
-  executeAutomaticCustomCode,
   runCodeInPageRule,
   CUSTOM_CODE_STORAGE_KEY,
   RUN_CODE_IN_PAGE_STORAGE_KEY,
@@ -50,13 +49,6 @@ console.log('[Arcable Extension] Background service worker / script initialized.
 // Initialize user scripts and context menu listeners
 initRunCodeBackgroundListeners();
 initContextMenuListeners();
-
-// Automatic tab listener for Custom Code Rules (CSS & JS)
-browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('about:')) {
-    void executeAutomaticCustomCode(tabId, tab.url);
-  }
-});
 
 // Storage keys
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
@@ -187,6 +179,16 @@ browser.runtime.onMessage.addListener(
     }
 
     switch (message.type) {
+      case 'RUN_CODE_IN_PAGE_EXECUTE': {
+        const payload = message.payload as { ruleId?: string; tabId?: number } | undefined;
+        try {
+          const result = await runCodeInPageRule(String(payload?.ruleId || ''), Number(payload?.tabId));
+          return { success: true, data: result };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to run code in page.' };
+        }
+      }
+
       // Raindrop: Get current authentication state
       case 'RAINDROP_GET_AUTH_STATE': {
         const auth = await getStoredAuthState();

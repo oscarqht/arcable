@@ -80,6 +80,8 @@ export interface WorkspaceManagerProps {
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
+  /** Shows the local browser-tab virtual space. This is only meaningful for the extension side panel. */
+  showOpenTabsVirtualSpace?: boolean;
   /** Renders the pinned date & time widgets section at the top (sidepanel). */
   showWidgets?: boolean;
   alwaysShowActions?: boolean;
@@ -132,6 +134,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onOpenVariant,
       onCaptureCurrentTab,
       compact = false,
+      showOpenTabsVirtualSpace = true,
       showWidgets = false,
       alwaysShowActions = false,
       headerTitle = 'Arcable Workspace',
@@ -239,25 +242,39 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   );
 
   const sortedSpacesWithVirtual = useMemo(() => {
-    return [...sortedSpaces, virtualSyncedSpace];
-  }, [sortedSpaces, virtualSyncedSpace]);
+    return showOpenTabsVirtualSpace
+      ? [...sortedSpaces, virtualSyncedSpace]
+      : sortedSpaces;
+  }, [showOpenTabsVirtualSpace, sortedSpaces, virtualSyncedSpace]);
 
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
-    if (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+    if (showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
       return getSpaceThemeStyles(undefined, isDark);
     }
     return getSpaceThemeStyles(activeSpace?.colors, isDark);
-  }, [data.activeSpaceId, activeSpace?.colors, isDark]);
+  }, [showOpenTabsVirtualSpace, data.activeSpaceId, activeSpace?.colors, isDark]);
 
   useEffect(() => {
-    if (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+    if (showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
       onActiveSpaceChange?.(virtualSyncedSpace);
     } else {
       onActiveSpaceChange?.(activeSpace || null);
     }
     onThemeChange?.(activeSpaceTheme);
-  }, [data.activeSpaceId, activeSpace, virtualSyncedSpace, activeSpaceTheme, onActiveSpaceChange, onThemeChange]);
+  }, [showOpenTabsVirtualSpace, data.activeSpaceId, activeSpace, virtualSyncedSpace, activeSpaceTheme, onActiveSpaceChange, onThemeChange]);
+
+  // The web app no longer presents the extension-only Open Tabs space. Move a
+  // previously selected virtual space back to a real workspace space so the
+  // focused view cannot land on an invisible card.
+  useEffect(() => {
+    if (!showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
+      const fallbackSpaceId = sortedSpaces[0]?.id;
+      if (fallbackSpaceId) {
+        setActiveSpace(fallbackSpaceId);
+      }
+    }
+  }, [showOpenTabsVirtualSpace, data.activeSpaceId, sortedSpaces, setActiveSpace]);
 
   // Notify parent of tab changes (e.g. to associate newly created items with open browser tabs)
   useEffect(() => {
@@ -548,7 +565,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }
   }, [activeSpace?.id]);
 
-  const isVirtualSpaceCollapsed = spacesMounted
+  const isVirtualSpaceCollapsed = showOpenTabsVirtualSpace && spacesMounted
     ? (spaceCollapseMap[VIRTUAL_SYNCED_TABS_SPACE_ID] ?? false)
     : false;
 
@@ -568,7 +585,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const [displayIndex, setDisplayIndex] = useState<number>(() => {
     if (sortedSpacesWithVirtual.length <= 1) return 0;
-    const currentActiveId = data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID ? VIRTUAL_SYNCED_TABS_SPACE_ID : activeSpace?.id;
+    const currentActiveId = showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID
+      ? VIRTUAL_SYNCED_TABS_SPACE_ID
+      : activeSpace?.id;
     const idx = sortedSpacesWithVirtual.findIndex((s) => s.id === currentActiveId);
     return idx === -1 ? 1 : idx + 1;
   });
@@ -576,7 +595,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Sync displayIndex when activeSpace changes from external interactions (like pill clicks)
   useEffect(() => {
-    const currentActiveId = data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID ? VIRTUAL_SYNCED_TABS_SPACE_ID : activeSpace?.id;
+    const currentActiveId = showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID
+      ? VIRTUAL_SYNCED_TABS_SPACE_ID
+      : activeSpace?.id;
     const activeIdx = sortedSpacesWithVirtual.findIndex((s) => s.id === currentActiveId);
     if (activeIdx === -1) return;
     if (sortedSpacesWithVirtual.length <= 1) {
@@ -594,7 +615,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       setDisplayIndex(activeIdx + 1);
       setIsTransitioning(true);
     }
-  }, [data.activeSpaceId, activeSpace?.id, sortedSpacesWithVirtual, displayIndex]);
+  }, [showOpenTabsVirtualSpace, data.activeSpaceId, activeSpace?.id, sortedSpacesWithVirtual, displayIndex]);
 
   // Re-enable transition after silent snap
   useEffect(() => {
@@ -1893,7 +1914,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               );
             })}
             {/* Local Open Tabs virtual-space pill (always at the end). */}
-            {(() => {
+            {showOpenTabsVirtualSpace && (() => {
               const isActive = (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) || (activeSpace?.id === VIRTUAL_SYNCED_TABS_SPACE_ID);
               const isDragTarget = dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID;
               const neutralTheme = getSpaceThemeStyles(undefined, isDark);
@@ -2055,7 +2076,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             ))}
 
             {/* Virtual Synced Tabs Space Card (Always at the end, not draggable, cannot be dragged behind) */}
-            {!isVirtualSpaceCollapsed && (
+            {showOpenTabsVirtualSpace && !isVirtualSpaceCollapsed && (
               <div
                 key={VIRTUAL_SYNCED_TABS_SPACE_ID}
                 draggable={false}
