@@ -976,10 +976,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const isIncrementalCrud = pendingOps.length > 0 &&
           pendingOps.every((operation) => INCREMENTAL_SYNC_OPERATION_TYPES.has(operation.type));
 
+        const isInitialSync = !latestWorkspaceDataRef.current?.raindropRootCollectionId;
+
         const applySuccessfulSnapshot = (snapshot: ArcableWorkspaceData) => {
           removeStoredPendingOperations(syncedOpIds);
-          const remainingOps = getStoredPendingOperations();
-          let nextSnapshot = isIncrementalCrud
+          if (isInitialSync) {
+            clearStoredPendingOperations();
+          }
+          const remainingOps = isInitialSync ? [] : getStoredPendingOperations();
+          let nextSnapshot = !isInitialSync && isIncrementalCrud
             ? mergeIncrementalSyncSnapshot(latestWorkspaceDataRef.current, snapshot)
             : snapshot;
           if (remainingOps.length > 0) {

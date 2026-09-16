@@ -2104,22 +2104,27 @@ export function useWorkspace() {
   const syncWithRaindropToken = useCallback(async (token: string, deviceName?: string): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
+      const pendingOps = getStoredPendingOperations();
       const result = await syncWorkspaceWithRaindrop(token, {
         localState: data,
         deviceName,
+        pendingOps,
       });
 
       setLastSyncResult(result);
 
       if (result.success) {
         clearStoredPendingOperations();
+        if (result.latestSnapshot) {
+          applyLatestSnapshot(result.latestSnapshot);
+        }
       }
 
       return result;
     } finally {
       setIsSyncing(false);
     }
-  }, [data]);
+  }, [data, applyLatestSnapshot]);
 
 
   const importWorkspaceData = useCallback((imported: ArcableWorkspaceData) => {
