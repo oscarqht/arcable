@@ -203,7 +203,6 @@ export async function fetchRaindropCollections(
     Authorization: `Bearer ${cleanToken}`,
     Accept: 'application/json',
   };
-  if (options?.cacheBust) headers['Cache-Control'] = 'no-cache';
   const query = options?.cacheBust ? `?cacheBust=${encodeURIComponent(options.cacheBust)}` : '';
   const requestInit: RequestInit = {
     method: 'GET',
@@ -535,7 +534,6 @@ export async function fetchRaindropItems(
     Authorization: `Bearer ${cleanToken}`,
     Accept: 'application/json',
   };
-  if (options?.cacheBust) headers['Cache-Control'] = 'no-cache';
 
   const res = await fetchRaindropApi(url, {
     method: 'GET',

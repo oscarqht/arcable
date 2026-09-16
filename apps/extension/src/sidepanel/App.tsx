@@ -959,7 +959,7 @@ export const App: React.FC = () => {
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
           hasRaindropAuth={hasRaindropAuth}
-          autoSync={!hasRaindropAuth || raindropHydrated}
+          autoSync={Boolean(hasRaindropAuth && raindropHydrated)}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSearchCollectionCovers={hasRaindropAuth ? handleSearchCollectionCovers : undefined}
