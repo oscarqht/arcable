@@ -191,7 +191,23 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       }
     }
 
-    if (!parsed || isLegacyDemoWorkspace(parsed) || !Array.isArray(parsed.spaces) || parsed.spaces.length === 0) {
+    // Spaces are optional for a workspace that only uses global favourites.
+    // In particular, widgets, Custom JS/CSS, and Run Code do not belong to a
+    // space, so resetting every zero-space snapshot hides them from the web
+    // favourite shelf before it has a chance to render.
+    const hasGlobalWorkspaceData = Boolean(
+      parsed?.widgets?.length ||
+      parsed?.tabs?.some((tab) => tab.favourite) ||
+      parsed?.customCodeRules?.length ||
+      parsed?.runCodeInPageRules?.length
+    );
+
+    if (
+      !parsed ||
+      isLegacyDemoWorkspace(parsed) ||
+      !Array.isArray(parsed.spaces) ||
+      (parsed.spaces.length === 0 && !hasGlobalWorkspaceData)
+    ) {
       parsed = { ...DEFAULT_WORKSPACE };
     }
 
@@ -2031,6 +2047,12 @@ export function useWorkspace() {
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
         const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
+        // A null ID is a confirmed absence of the canonical Raindrop metadata
+        // file, not an intentional empty metadata payload. Do not erase data
+        // which this client can create on its next metadata sync. A present
+        // metadata file (including one containing empty arrays) remains
+        // authoritative.
+        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null;
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();
@@ -2062,9 +2084,9 @@ export function useWorkspace() {
           folders: mergedFolders,
           tabs: snapshot.tabs || [],
           tmpTabs: prev.tmpTabs || [], // Tmp tabs are local only!
-          widgets: snapshot.widgets || prev.widgets || [],
-          customCodeRules: snapshot.customCodeRules || prev.customCodeRules || [],
-          runCodeInPageRules: snapshot.runCodeInPageRules || prev.runCodeInPageRules || [],
+          widgets: remoteMetadataMissing ? (prev.widgets || []) : (snapshot.widgets || []),
+          customCodeRules: remoteMetadataMissing ? (prev.customCodeRules || []) : (snapshot.customCodeRules || []),
+          runCodeInPageRules: remoteMetadataMissing ? (prev.runCodeInPageRules || []) : (snapshot.runCodeInPageRules || []),
           activeSpaceId: activeSpaceStillExists
             ? currentActive
             : (getSortedSpaces(snapshot.spaces)[0]?.id || 'space_personal'),

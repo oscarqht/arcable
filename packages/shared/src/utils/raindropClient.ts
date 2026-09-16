@@ -7,6 +7,7 @@ import {
   RaindropTokenResponse,
   RaindropSearchItem,
   RaindropSearchResult,
+  RaindropRequestFailureDetails,
 } from '../types/raindrop';
 
 export const RAINDROP_API_BASE = 'https://api.raindrop.io/rest/v1';
@@ -18,10 +19,34 @@ export const RAINDROP_OAUTH_TOKEN_URL = 'https://raindrop.io/oauth/access_token'
 const RAINDROP_API_ORIGIN = 'https://api.raindrop.io';
 const MIN_REQUEST_INTERVAL_MS = 600;
 const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_TRANSPORT_RETRIES = 2;
+const TRANSPORT_RETRY_BASE_MS = 250;
 let requestQueue: Promise<void> = Promise.resolve();
 let nextRequestAt = 0;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export class RaindropTransportError extends Error {
+  readonly details: RaindropRequestFailureDetails;
+
+  constructor(operation: string, endpoint: string, retryCount: number, cause: unknown) {
+    const errorName = cause instanceof Error ? cause.name : 'UnknownError';
+    const errorMessage = cause instanceof Error ? cause.message : String(cause);
+    super(`Raindrop ${operation} request failed after ${retryCount} retries: ${errorMessage}`);
+    this.name = 'RaindropTransportError';
+    this.details = { operation, endpoint, retryCount, errorName, errorMessage };
+  }
+}
+
+export function getRaindropRequestFailureDetails(error: unknown): RaindropRequestFailureDetails | undefined {
+  return error instanceof RaindropTransportError ? error.details : undefined;
+}
+
+function getTransportRetryDelay(retryCount: number): number {
+  const exponentialDelay = TRANSPORT_RETRY_BASE_MS * 2 ** (retryCount - 1);
+  const jitter = Math.floor(Math.random() * TRANSPORT_RETRY_BASE_MS);
+  return exponentialDelay + jitter;
+}
 
 function getRetryDelay(response: Response): number {
   const retryAfter = response.headers.get('retry-after');
@@ -54,6 +79,9 @@ function paceFromRateLimitHeaders(response: Response): void {
 async function fetchRaindropApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   if (!url.startsWith(RAINDROP_API_ORIGIN)) return fetch(input, init);
+  const operation = (init?.method || 'GET').toUpperCase();
+  const endpoint = new URL(url).pathname;
+  const canRetryTransportFailure = operation === 'GET';
 
   const request = async (): Promise<Response> => {
     for (let attempt = 0; ; attempt += 1) {
@@ -61,7 +89,22 @@ async function fetchRaindropApi(input: RequestInfo | URL, init?: RequestInit): P
       nextRequestAt = Math.max(nextRequestAt, Date.now()) + MIN_REQUEST_INTERVAL_MS;
       if (waitMs > 0) await sleep(waitMs);
 
-      const response = await fetch(input, init);
+      let response: Response;
+      try {
+        response = await fetch(input, init);
+      } catch (error) {
+        if (!canRetryTransportFailure || attempt === MAX_TRANSPORT_RETRIES) {
+          throw new RaindropTransportError(operation, endpoint, attempt, error);
+        }
+        const retryDelay = getTransportRetryDelay(attempt + 1);
+        console.warn(`[RaindropClient] ${operation} ${endpoint} failed before a response; retrying in ${retryDelay}ms.`, {
+          retryCount: attempt + 1,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        await sleep(retryDelay);
+        continue;
+      }
       paceFromRateLimitHeaders(response);
       if (response.status !== 429 || attempt === MAX_RATE_LIMIT_RETRIES) return response;
 
@@ -177,7 +220,7 @@ export async function fetchRaindropCollections(
   ]);
 
   if (rootRes.status === 'rejected') {
-    throw new Error(`Failed to fetch Raindrop root collections: ${rootRes.reason instanceof Error ? rootRes.reason.message : String(rootRes.reason)}`);
+    throw rootRes.reason;
   }
 
   const rootResponse = rootRes.value;
@@ -192,7 +235,7 @@ export async function fetchRaindropCollections(
   }
 
   if (childResult.status === 'rejected') {
-    throw new Error(`Failed to fetch Raindrop child collections: ${childResult.reason instanceof Error ? childResult.reason.message : String(childResult.reason)}`);
+    throw childResult.reason;
   }
   if (!childResult.value.ok) {
     throw new Error(`Failed to fetch Raindrop child collections (status ${childResult.value.status}).`);

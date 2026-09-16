@@ -31,6 +31,7 @@ import {
   getDefaultDeviceName,
   searchRaindrop,
   searchRaindropCollectionCovers,
+  getRaindropRequestFailureDetails,
 } from '@arcable/shared/utils';
 
 import {
@@ -59,7 +60,6 @@ const STORAGE_KEY_DEVICE_NAME = 'arcable_device_name';
 
 // In-memory cached auth state
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
-
 /**
  * Ensures browser action opens the sidepanel directly when authenticated,
  * or opens the settings/options page when unauthenticated.
@@ -137,6 +137,37 @@ async function clearAuthState(): Promise<void> {
   cachedAuthState = { isAuthenticated: false };
   await browser.storage.local.remove([STORAGE_KEY_AUTH, STORAGE_KEY_TOKEN]);
   void syncSidePanelBehavior(false);
+}
+
+/** Fetches Raindrop's tree and atomically replaces the extension cache and outbox. */
+async function fetchAndCacheRaindropWorkspace(): Promise<ExtensionResponse<ArcableWorkspaceData>> {
+  const auth = await getStoredAuthState();
+  if (!auth.isAuthenticated || !auth.accessToken) {
+    return { success: false, error: 'Not authenticated with Raindrop' };
+  }
+
+  try {
+    const result = await fetchRaindropWorkspace(auth.accessToken);
+    if (!result.success || !result.data) {
+      if (result.errorDetails) {
+        console.warn('[Arcable Background] Raindrop workspace fetch exhausted transport retries.', result.errorDetails);
+      }
+      return { success: false, error: result.error || 'Failed to fetch workspace', errorDetails: result.errorDetails };
+    }
+
+    await browser.storage.local.set({
+      arcable_workspace_snapshot: result.data,
+      [CUSTOM_CODE_STORAGE_KEY]: result.data.customCodeRules || [],
+      [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.data.runCodeInPageRules || [],
+      // A successful startup fetch adopts Raindrop as the source of truth.
+      // Keeping an old outbox would replay stale creates on the next sync.
+      arcable_pending_ops: [],
+      arcable_last_synced_at: Date.now(),
+    });
+    return { success: true, data: result.data };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to fetch workspace' };
+  }
 }
 
 // Process OAuth tokens received via bridge or launchWebAuthFlow
@@ -345,31 +376,18 @@ browser.runtime.onMessage.addListener(
           const collections = await fetchRaindropCollections(auth.accessToken);
           return { success: true, data: collections };
         } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to fetch collections' };
+          const errorDetails = getRaindropRequestFailureDetails(err);
+          if (errorDetails) {
+            console.warn('[Arcable Background] Raindrop collection fetch exhausted transport retries.', errorDetails);
+          }
+          return { success: false, error: err?.message || 'Failed to fetch collections', errorDetails };
         }
       }
 
       // Raindrop: Always hydrate the local cache from the Arcable tree before
       // automatic writes are allowed in a newly opened extension surface.
       case 'RAINDROP_FETCH_WORKSPACE': {
-        const auth = await getStoredAuthState();
-        if (!auth.isAuthenticated || !auth.accessToken) {
-          return { success: false, error: 'Not authenticated with Raindrop' };
-        }
-        try {
-          const result = await fetchRaindropWorkspace(auth.accessToken);
-          if (result.success && result.data) {
-            await browser.storage.local.set({
-              arcable_workspace_snapshot: result.data,
-              [CUSTOM_CODE_STORAGE_KEY]: result.data.customCodeRules || [],
-              [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.data.runCodeInPageRules || [],
-              arcable_last_synced_at: Date.now(),
-            });
-          }
-          return { success: result.success, data: result.data, error: result.error };
-        } catch (err: any) {
-          return { success: false, error: err?.message || 'Failed to fetch workspace' };
-        }
+        return fetchAndCacheRaindropWorkspace();
       }
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
@@ -521,7 +539,10 @@ browser.runtime.onMessage.addListener(
             await browser.storage.local.set(updates);
           }
 
-          return { success: result.success, data: result, error: result.error };
+          if (!result.success && result.errorDetails) {
+            console.warn('[Arcable Background] Raindrop sync exhausted transport retries.', result.errorDetails);
+          }
+          return { success: result.success, data: result, error: result.error, errorDetails: result.errorDetails };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to sync workspace' };
         }
@@ -937,13 +958,14 @@ browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
   void initPlatformBehavior();
   void syncSidePanelBehavior();
-  void triggerBackgroundSync();
+  void fetchAndCacheRaindropWorkspace();
 });
 
 if (browser.runtime?.onStartup) {
   browser.runtime.onStartup.addListener(() => {
     void initPlatformBehavior();
     void syncSidePanelBehavior();
+    void fetchAndCacheRaindropWorkspace();
   });
 }
 

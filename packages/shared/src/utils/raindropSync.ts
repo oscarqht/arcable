@@ -1,6 +1,6 @@
 import { ArcableWorkspaceData, Folder, Space, Tab } from '../types/workspace';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
-import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord } from '../types/raindrop';
+import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
 import {
   fetchRaindropCollections,
   createRaindropCollection,
@@ -17,6 +17,7 @@ import {
   fetchAllRaindropItems,
   searchRaindropCollectionCover,
   cleanRaindropToken,
+  getRaindropRequestFailureDetails,
   RAINDROP_API_BASE,
 } from './raindropClient';
 import { ARCABLE_VERSION } from '../version';
@@ -37,8 +38,8 @@ import {
 } from './syncEngine';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable';
-/** Versioned non-tree workspace metadata stored directly under the Arcable root. */
-export const ARCABLE_DATA_FILE_NAME = `data-${ARCABLE_VERSION}.json.txt`;
+/** Canonical non-tree workspace metadata stored directly under the Arcable root. */
+export const ARCABLE_DATA_FILE_NAME = 'data.json.txt';
 
 /**
  * Checks if a Raindrop item corresponds to the current Arcable sync file (sync.json.txt).
@@ -1032,7 +1033,19 @@ function isArcableInternalItem(item: RaindropBookmarkItem): boolean {
 
 /** Snapshot files belonged to the retired operation-log sync format. */
 function isLegacySnapshotItem(item: RaindropBookmarkItem): boolean {
-  const legacyName = /(?:sync(?:-v[45])?|data-v[23]|data)\.json(?:\.txt)?/i;
+  const fileName = (item.file?.name || '').trim().toLowerCase();
+  const title = (item.title || '').trim().toLowerCase();
+  const link = (item.link || '').toLowerCase();
+  // The stable data.json.txt metadata file is current, not a retired snapshot.
+  // Versioned data files are retired on the next explicit write.
+  if (
+    fileName === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
+    title === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
+    /(?:^|\/)data\.json\.txt(?:$|[?#])/.test(link)
+  ) {
+    return false;
+  }
+  const legacyName = /(?:sync(?:-v[45])?|data-(?:v)?\d[\w.-]*|data)\.json(?:\.txt)?/i;
   return [item.title, item.file?.name, item.link].some((value) => legacyName.test(value || ''));
 }
 
@@ -1067,13 +1080,26 @@ async function removeLegacySnapshots(
   return refreshed;
 }
 
-async function readMetadata(token: string, rootId: number, rootItems: RaindropBookmarkItem[]): Promise<ArcableMetadata> {
-  const item = rootItems.find((candidate) =>
-    (candidate.file?.name || candidate.title || '').trim().toLowerCase() === ARCABLE_DATA_FILE_NAME.toLowerCase()
-  );
+async function readMetadata(token: string, rootId: number, item: RaindropBookmarkItem | undefined): Promise<ArcableMetadata> {
   if (!item) return { version: ARCABLE_VERSION };
   const full = await fetchRaindropItem(token, item._id).catch(() => null);
-  const content = await fetchRaindropFileContent(token, full?.file?.path || item.file?.path || item.link).catch(() => '');
+  // Collection listings can omit a file URL even when the metadata item exists.
+  // The API item/file endpoint remains available in that case, particularly for
+  // server-side web hydration where there is no browser-cached file URL.
+  const contentCandidates = [
+    full?.file?.path,
+    item.file?.path,
+    item.link,
+    `${RAINDROP_API_BASE}/raindrop/${item._id}/file`,
+    `${RAINDROP_API_BASE}/file/${item._id}`,
+  ].filter((value, index, values): value is string =>
+    Boolean(value && value.trim()) && values.indexOf(value) === index
+  );
+  let content = '';
+  for (const url of contentCandidates) {
+    content = await fetchRaindropFileContent(token, url).catch(() => '');
+    if (content.trim()) break;
+  }
   try {
     const parsed = JSON.parse(content);
     return parsed && typeof parsed === 'object' ? { version: ARCABLE_VERSION, ...parsed } : { version: ARCABLE_VERSION };
@@ -1119,12 +1145,27 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
   const metadataItem = rootItems.find((candidate) =>
     (candidate.file?.name || candidate.title || '').trim().toLowerCase() === ARCABLE_DATA_FILE_NAME.toLowerCase()
   );
-  const metadata = await readMetadata(token, root._id, rootItems);
+  const metadata = await readMetadata(token, root._id, metadataItem);
   return { root, collections, items, metadata, metadataItemId: metadataItem?._id };
 }
 
-function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData | undefined {
-  if (!tree.root) return undefined;
+function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
+  return {
+    raindropMetadataItemId: null,
+    activeSpaceId: '',
+    version: 1,
+    spaces: [],
+    folders: [],
+    tabs: [],
+    tmpTabs: [],
+    widgets: [],
+    customCodeRules: [],
+    runCodeInPageRules: [],
+  };
+}
+
+function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
+  if (!tree.root) return createEmptyRemoteWorkspace();
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
   const arcableCollectionId = (collectionId: number) => String(collectionId);
   const spaceIds = new Set(
@@ -1213,17 +1254,20 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData | u
   };
 }
 
-/** Always rebuilds Arcable's locally cached tree from live Raindrop collections and items. */
-export async function fetchRaindropWorkspace(token: string): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string }> {
+/** Always rebuilds Arcable's local cache from the live Raindrop tree without mutating Raindrop. */
+export async function fetchRaindropWorkspace(token: string): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string; errorDetails?: RaindropRequestFailureDetails }> {
   const clean = cleanRaindropToken(token);
   if (!clean) return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
   try {
-    let tree = await fetchRemoteArcableTree(clean);
-    tree = await removeLegacySnapshots(clean, tree);
+    const tree = await fetchRemoteArcableTree(clean);
     return { success: true, data: reconstructWorkspace(tree) };
   } catch (err: any) {
     console.error('[RaindropSync] Failed to fetch Arcable tree:', err);
-    return { success: false, error: err?.message || 'Failed to fetch remote workspace.' };
+    return {
+      success: false,
+      error: err?.message || 'Failed to fetch remote workspace.',
+      errorDetails: getRaindropRequestFailureDetails(err),
+    };
   }
 }
 
@@ -1307,7 +1351,7 @@ export async function syncWorkspaceWithRaindrop(
       return {
         success: true,
         collectionId: tree.root?._id,
-        latestSnapshot: reconstructWorkspace(tree) || syncLocalState,
+        latestSnapshot: reconstructWorkspace(tree),
         syncedAt: Date.now(),
       };
     }
@@ -1517,6 +1561,7 @@ export async function syncWorkspaceWithRaindrop(
     return {
       success: false,
       error: err?.message || 'Failed to sync workspace with Raindrop.',
+      errorDetails: getRaindropRequestFailureDetails(err),
     };
   }
 }

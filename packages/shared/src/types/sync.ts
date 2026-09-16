@@ -1,4 +1,5 @@
 import { ArcableWorkspaceData } from './workspace';
+import { RaindropRequestFailureDetails } from './raindrop';
 
 export type OperationType =
   | 'SPACE_CREATE'
@@ -55,5 +56,6 @@ export interface SyncResult {
   syncFile?: ArcableSyncFile;
   opsAppliedCount?: number;
   error?: string;
+  errorDetails?: RaindropRequestFailureDetails;
   syncedAt?: number;
 }

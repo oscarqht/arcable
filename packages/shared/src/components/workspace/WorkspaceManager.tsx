@@ -1264,7 +1264,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
       applySnapshot: (snapshot: ArcableWorkspaceData) => {
-        applyLatestSnapshot(snapshot);
+        const hydratedSnapshot = snapshot.raindropMetadataItemId === null
+          ? {
+              ...snapshot,
+              widgets: latestWorkspaceDataRef.current.widgets || [],
+              customCodeRules: latestWorkspaceDataRef.current.customCodeRules || [],
+              runCodeInPageRules: latestWorkspaceDataRef.current.runCodeInPageRules || [],
+            }
+          : snapshot;
+        // React state updates are asynchronous. Keep the imperative sync source
+        // in lockstep with a Raindrop hydration so a subsequent sync cannot
+        // start from stale data or discard metadata the remote does not have.
+        latestWorkspaceDataRef.current = hydratedSnapshot;
+        applyLatestSnapshot(hydratedSnapshot);
       },
       setActiveSpace: (spaceId: string) => {
         setActiveSpace(spaceId);

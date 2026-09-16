@@ -5,10 +5,10 @@ import {
   formatDate,
   generateId,
   cleanUrl,
+  clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
   getStoredPendingOperations,
-  clearStoredPendingOperations,
   removeStoredPendingOperations,
   replayOperations,
 } from '@arcable/shared/utils';
@@ -56,11 +56,7 @@ export const App: React.FC = () => {
       if (res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         const local = window.localStorage.getItem('arcable_workspace_data');
         if (!local) {
-          let snapshot = res.arcable_workspace_snapshot;
-          const remainingOps = getStoredPendingOperations();
-          if (remainingOps.length > 0) {
-            snapshot = replayOperations(snapshot, remainingOps);
-          }
+          const snapshot = res.arcable_workspace_snapshot;
           const merged = {
             ...snapshot,
             folders: (snapshot.folders || []).map((f: any) => {
@@ -82,13 +78,38 @@ export const App: React.FC = () => {
       const res = rawRes as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
-        // If authenticated, perform initial background sync to pull latest changes from other devices
+        // Startup must fetch Raindrop's authoritative tree. A normal sync here
+        // would upload this popup's stale cache before it has been replaced.
         if (res.data.isAuthenticated) {
-          void handleSyncWorkspaceSilent();
+          void hydrateWorkspaceFromRaindrop();
         }
       }
     });
   }, []);
+
+  const hydrateWorkspaceFromRaindrop = async () => {
+    try {
+      const rawRes = await browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' });
+      const response = rawRes as ExtensionResponse<any>;
+      if (!response?.success || !response.data || typeof window === 'undefined') return;
+
+      clearStoredPendingOperations();
+      const snapshot = response.data;
+      const hydrated = {
+        ...snapshot,
+        folders: (snapshot.folders || []).map((folder: any) => {
+          const isExpanded = folder.isExpanded !== undefined
+            ? folder.isExpanded
+            : getLocalFolderExpanded(folder.id, true);
+          setLocalFolderExpanded(folder.id, isExpanded);
+          return { ...folder, isExpanded };
+        }),
+      };
+      window.localStorage.setItem('arcable_workspace_data', JSON.stringify(hydrated));
+    } catch (error) {
+      console.warn('[Arcable Popup] Initial Raindrop tree fetch failed:', error);
+    }
+  };
 
   const handleSaveCurrentTab = async () => {
     if (!currentTab.url) return;

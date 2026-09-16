@@ -38,6 +38,15 @@ export interface RaindropTokenResponse {
   errorMessage?: string;
 }
 
+/** Safe diagnostic context for a Raindrop request that never received an HTTP response. */
+export interface RaindropRequestFailureDetails {
+  operation: string;
+  endpoint: string;
+  retryCount: number;
+  errorName: string;
+  errorMessage: string;
+}
+
 export interface RaindropCollectionItem {
   _id: number;
   title: string;

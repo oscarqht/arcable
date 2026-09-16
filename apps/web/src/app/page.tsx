@@ -15,17 +15,18 @@ import {
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
+  clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
-  getStoredPendingOperations,
-  replayOperations,
 } from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isInitialSyncing, setIsInitialSyncing] = useState(false);
+  const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
+  const isSyncing = isInitialSyncing || isWorkspaceSyncing;
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
@@ -115,7 +116,9 @@ export default function HomePage() {
     }
   }, [authState.accessToken]);
 
-  // Requirement 1: When page loads, auto fetch from Raindrop once to replace local data with remote one
+  // On page load, show the cached workspace while the remote tree is fetched.
+  // A successful fetch is authoritative: do not replay the stale local outbox
+  // over it, or a previous local create can be written back as a duplicate.
   useEffect(() => {
     if (!authState.isAuthenticated) {
       hasAutoFetchedRef.current = false;
@@ -125,21 +128,20 @@ export default function HomePage() {
     if (hasAutoFetchedRef.current) return;
     hasAutoFetchedRef.current = true;
 
-    setIsSyncing(true);
+    setIsInitialSyncing(true);
     void handleFetchWorkspace()
       .then((res) => {
-        if (res?.success && res.data && workspaceRef.current?.applySnapshot) {
-          const pending = getStoredPendingOperations();
-          const hydrated = pending.length > 0 ? replayOperations(res.data, pending) : res.data;
-          workspaceRef.current.applySnapshot(hydrated);
+        if (res?.success && res.data) {
+          clearStoredPendingOperations();
+          workspaceRef.current?.applySnapshot?.(res.data);
+          setRaindropHydrated(true);
         }
-        setRaindropHydrated(true);
       })
       .catch((err) => {
         console.warn('[Arcable] Auto-fetch on page load error:', err);
       })
       .finally(() => {
-        setIsSyncing(false);
+        setIsInitialSyncing(false);
       });
   }, [authState.isAuthenticated, handleFetchWorkspace]);
 
@@ -498,7 +500,7 @@ export default function HomePage() {
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
           onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
           autoSync={!authState.isAuthenticated || raindropHydrated}
-          onSyncStateChange={setIsSyncing}
+          onSyncStateChange={setIsWorkspaceSyncing}
         />
         )}
       </main>

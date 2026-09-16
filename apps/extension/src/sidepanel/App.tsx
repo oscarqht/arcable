@@ -8,6 +8,7 @@ import {
 import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile, isLegacyDemoWorkspace } from '@arcable/shared/hooks';
 import {
+  clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
   getStoredPendingOperations,
@@ -139,28 +140,37 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const initialRaindropHydrationRef = useRef(false);
+  const hasAppliedAuthoritativeSnapshotRef = useRef(false);
 
-  // A newly opened side panel must pull the complete Arcable collection tree
-  // before its optimistic local cache is allowed to issue automatic writes.
+  // A newly opened side panel shows its cache while fetching the complete
+  // Arcable tree. The successful Raindrop response replaces that cache before
+  // automatic writes are allowed; replaying the local outbox here can recreate
+  // stale spaces and favourites as duplicates.
   useEffect(() => {
     if (!hasRaindropAuth) {
+      initialRaindropHydrationRef.current = false;
+      hasAppliedAuthoritativeSnapshotRef.current = false;
       setRaindropHydrated(false);
       return;
     }
     let cancelled = false;
+    initialRaindropHydrationRef.current = true;
     void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((res: any) => {
       if (cancelled) return;
       if (res?.success && res.data && typeof window !== 'undefined') {
-        const pending = getStoredPendingOperations();
-        const hydrated = pending.length > 0 ? replayOperations(res.data, pending) : res.data;
-        const resolved = applySidepanelActiveSpace(hydrated, getStoredLastSpaceId());
+        hasAppliedAuthoritativeSnapshotRef.current = true;
+        clearStoredPendingOperations();
+        const resolved = applySidepanelActiveSpace(res.data, getStoredLastSpaceId());
         window.localStorage.setItem('arcable_workspace_data', JSON.stringify(resolved));
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: resolved }));
         workspaceRef.current?.applySnapshot?.(resolved);
+        setRaindropHydrated(true);
       }
-      setRaindropHydrated(true);
     }).catch((error) => {
       console.warn('[Arcable Sidepanel] Initial Raindrop tree fetch failed:', error);
+    }).finally(() => {
+      initialRaindropHydrationRef.current = false;
     });
     return () => { cancelled = true; };
   }, [hasRaindropAuth]);
@@ -234,15 +244,13 @@ export const App: React.FC = () => {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
       }
 
-      if (isRaindropAuth && isLegacyDemoWorkspace(res.arcable_workspace_snapshot)) {
+      if (hasAppliedAuthoritativeSnapshotRef.current) {
+        // The asynchronous cache read began before the authoritative fetch.
+        // Never let its stale result overwrite the fetched snapshot.
+      } else if (isRaindropAuth && isLegacyDemoWorkspace(res.arcable_workspace_snapshot)) {
         void browser.storage.local.remove('arcable_workspace_snapshot');
       } else if (isRaindropAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
-        let snapshot = res.arcable_workspace_snapshot;
-        const remainingOps = getStoredPendingOperations();
-        if (remainingOps.length > 0) {
-          snapshot = replayOperations(snapshot, remainingOps);
-        }
-
+        const snapshot = res.arcable_workspace_snapshot;
         const resolvedSnapshot = applySidepanelActiveSpace(
           snapshot,
           getStoredLastSpaceId() || res[SIDEPANEL_LAST_SPACE_KEY]
@@ -250,7 +258,7 @@ export const App: React.FC = () => {
 
         const merged = {
           ...resolvedSnapshot,
-          folders: (snapshot.folders || []).map((f: any) => {
+          folders: (resolvedSnapshot.folders || []).map((f: any) => {
             const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
             setLocalFolderExpanded(f.id, isExp);
             return {
@@ -311,7 +319,15 @@ export const App: React.FC = () => {
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           let snapshot = changes.arcable_workspace_snapshot.newValue;
-          const remainingOps = getStoredPendingOperations();
+          // The fetch response is authoritative. Avoid briefly replaying the
+          // old outbox through the storage listener before its direct handler
+          // applies the same snapshot.
+          const remainingOps = initialRaindropHydrationRef.current
+            ? []
+            : getStoredPendingOperations();
+          if (initialRaindropHydrationRef.current) {
+            clearStoredPendingOperations();
+          }
           if (remainingOps.length > 0) {
             snapshot = replayOperations(snapshot, remainingOps);
           }

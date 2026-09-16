@@ -1,3 +1,5 @@
+import type { RaindropRequestFailureDetails } from './raindrop';
+
 export type PlatformType = 'web' | 'chrome-extension' | 'firefox-extension';
 
 export interface ArcableItem {
@@ -56,6 +58,7 @@ export interface ExtensionResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  errorDetails?: RaindropRequestFailureDetails;
   pending?: boolean;
   message?: string;
 }
@@ -65,4 +68,3 @@ export * from './workspace';
 export * from './sync';
 export * from './tabTracker';
 export * from './customCode';
-
