@@ -22,6 +22,7 @@ import {
   fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
+  fetchRaindropWorkspace,
   syncWorkspaceWithRaindrop,
   fetchRaindropDevices,
   renameRaindropDevice,
@@ -29,6 +30,7 @@ import {
   deleteAllOtherRaindropDevices,
   getDefaultDeviceName,
   searchRaindrop,
+  searchRaindropCollectionCovers,
 } from '@arcable/shared/utils';
 
 import {
@@ -345,6 +347,29 @@ browser.runtime.onMessage.addListener(
         }
       }
 
+      // Raindrop: Always hydrate the local cache from the Arcable tree before
+      // automatic writes are allowed in a newly opened extension surface.
+      case 'RAINDROP_FETCH_WORKSPACE': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+        try {
+          const result = await fetchRaindropWorkspace(auth.accessToken);
+          if (result.success && result.data) {
+            await browser.storage.local.set({
+              arcable_workspace_snapshot: result.data,
+              [CUSTOM_CODE_STORAGE_KEY]: result.data.customCodeRules || [],
+              [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.data.runCodeInPageRules || [],
+              arcable_last_synced_at: Date.now(),
+            });
+          }
+          return { success: result.success, data: result.data, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to fetch workspace' };
+        }
+      }
+
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
       case 'RAINDROP_SYNC_WORKSPACE': {
         const auth = await getStoredAuthState();
@@ -364,14 +389,16 @@ browser.runtime.onMessage.addListener(
           });
 
           const stored = await browser.storage.local.get([
+            'arcable_workspace_snapshot',
             'arcable_tmp_tabs',
             CUSTOM_CODE_STORAGE_KEY,
             RUN_CODE_IN_PAGE_STORAGE_KEY,
             'arcable_pending_ops',
           ]);
           const localTmp = (stored.arcable_tmp_tabs as TmpTab[]) || [];
-          const localCustomRules = (stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
-          const localRunRules = (stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+          const identitySnapshot = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+          const localCustomRules = stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[] | undefined;
+          const localRunRules = stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[] | undefined;
           const storedPendingOps = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
 
           // Merge payload pending ops with stored pending ops first, so we
@@ -414,8 +441,12 @@ browser.runtime.onMessage.addListener(
             stateToSync = {
               ...stateToSync,
               tmpTabs: taggedTmp.length > 0 ? taggedTmp : filteredStateTmpTabs,
-              customCodeRules: stateToSync.customCodeRules || localCustomRules,
-              runCodeInPageRules: stateToSync.runCodeInPageRules || localRunRules,
+              // Rules are edited in dedicated extension storage. A present empty
+              // array is meaningful (it represents deletion), so use nullish
+              // fallback rather than truthiness and never let a stale snapshot
+              // hide current rule content.
+              customCodeRules: localCustomRules ?? stateToSync.customCodeRules ?? [],
+              runCodeInPageRules: localRunRules ?? stateToSync.runCodeInPageRules ?? [],
             };
           } else {
             stateToSync = {
@@ -425,17 +456,18 @@ browser.runtime.onMessage.addListener(
               folders: [],
               tabs: [],
               tmpTabs: taggedTmp,
-              customCodeRules: localCustomRules,
-              runCodeInPageRules: localRunRules,
+              customCodeRules: localCustomRules || [],
+              runCodeInPageRules: localRunRules || [],
             };
           }
 
-          const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
+          const result = await syncWorkspaceWithRaindropQueued(auth.accessToken, {
             localState: stateToSync,
             deviceId: effectiveDeviceId,
             deviceName: effectiveDeviceName,
             pendingOps: combinedPendingOps,
             replaceBaseline: payload?.replaceBaseline,
+            identitySnapshot,
           });
 
           if (result.success && result.latestSnapshot) {
@@ -588,6 +620,22 @@ browser.runtime.onMessage.addListener(
         }
       }
 
+      // Raindrop: Search collection covers without exposing the OAuth token to UI pages.
+      case 'RAINDROP_SEARCH_COLLECTION_COVERS': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        const payload = message.payload as { query?: string } | undefined;
+        try {
+          const covers = await searchRaindropCollectionCovers(auth.accessToken, payload?.query || '');
+          return { success: true, data: covers };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to search Raindrop collection covers' };
+        }
+      }
+
       default:
         return { success: false, error: `Unknown message type: ${message.type}` };
     }
@@ -609,22 +657,63 @@ async function getExtensionDeviceName(): Promise<string> {
   return (typeof stored[STORAGE_KEY_DEVICE_NAME] === 'string' && stored[STORAGE_KEY_DEVICE_NAME]) || getDefaultDeviceName('Ext');
 }
 
+const BACKGROUND_SYNC_DEBOUNCE_MS = 2_000;
+// Every extension surface shares this worker. Serialize the actual Raindrop
+// request so a popup, side panel, option page, or alarm cannot write the same
+// workspace concurrently.
+let raindropWorkspaceSyncTail: Promise<void> = Promise.resolve();
+let queuedWorkspaceSyncCount = 0;
+
+async function syncWorkspaceWithRaindropQueued(
+  ...args: Parameters<typeof syncWorkspaceWithRaindrop>
+): ReturnType<typeof syncWorkspaceWithRaindrop> {
+  queuedWorkspaceSyncCount += 1;
+  const previousSync = raindropWorkspaceSyncTail;
+  let releaseQueue!: () => void;
+  raindropWorkspaceSyncTail = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+
+  await previousSync;
+  try {
+    return await syncWorkspaceWithRaindrop(...args);
+  } finally {
+    queuedWorkspaceSyncCount -= 1;
+    releaseQueue();
+  }
+}
+
 let isBackgroundSyncInFlight = false;
+let isBackgroundSyncQueued = false;
+let queuedBackgroundSyncIsPendingOnly = true;
 let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
-function triggerDebouncedBackgroundSync(delayMs: number = 20000): void {
+function triggerDebouncedBackgroundSync(
+  delayMs: number = BACKGROUND_SYNC_DEBOUNCE_MS,
+  pendingOpsRequired: boolean = false
+): void {
   if (debouncedSyncTimer) {
     clearTimeout(debouncedSyncTimer);
   }
   debouncedSyncTimer = setTimeout(() => {
     debouncedSyncTimer = null;
-    void triggerBackgroundSync();
+    void triggerBackgroundSync(pendingOpsRequired);
   }, delayMs);
 }
 
 // Helper for periodic background sync
-async function triggerBackgroundSync(): Promise<void> {
-  if (isBackgroundSyncInFlight) return;
+async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promise<void> {
+  if (pendingOpsRequired && queuedWorkspaceSyncCount > 0) {
+    triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, true);
+    return;
+  }
+  if (isBackgroundSyncInFlight) {
+    // Do not lose changes made while a Raindrop request is in flight. One
+    // trailing pass is sufficient because it re-reads the persisted outbox.
+    isBackgroundSyncQueued = true;
+    if (!pendingOpsRequired) queuedBackgroundSyncIsPendingOnly = false;
+    return;
+  }
 
   // Chrome/Firefox alarms still fire while the device is offline or waking.
   // Avoid starting a fetch that cannot reach Raindrop; the next alarm (or a
@@ -646,9 +735,10 @@ async function triggerBackgroundSync(): Promise<void> {
     ]);
     let localState = storedData.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
     const localTmpTabs = (storedData.arcable_tmp_tabs as TmpTab[]) || [];
-    const localCustomRules = (storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
-    const localRunRules = (storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+    const localCustomRules = storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[] | undefined;
+    const localRunRules = storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[] | undefined;
     const pendingOps = (storedData.arcable_pending_ops as WorkspaceOperation[]) || [];
+    if (pendingOpsRequired && pendingOps.length === 0) return;
     const syncedOpIds = new Set(pendingOps.map((op) => op.id));
 
     const deviceId = await getOrCreateExtensionDeviceId();
@@ -665,8 +755,8 @@ async function triggerBackgroundSync(): Promise<void> {
       localState = {
         ...localState,
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localState.customCodeRules || localCustomRules,
-        runCodeInPageRules: localState.runCodeInPageRules || localRunRules,
+        customCodeRules: localCustomRules ?? localState.customCodeRules ?? [],
+        runCodeInPageRules: localRunRules ?? localState.runCodeInPageRules ?? [],
       };
     } else {
       localState = {
@@ -676,12 +766,12 @@ async function triggerBackgroundSync(): Promise<void> {
         folders: [],
         tabs: [],
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localCustomRules,
-        runCodeInPageRules: localRunRules,
+        customCodeRules: localCustomRules || [],
+        runCodeInPageRules: localRunRules || [],
       };
     }
 
-    const result = await syncWorkspaceWithRaindrop(auth.accessToken, {
+    const result = await syncWorkspaceWithRaindropQueued(auth.accessToken, {
       localState,
       deviceId,
       deviceName,
@@ -739,6 +829,12 @@ async function triggerBackgroundSync(): Promise<void> {
     console.warn('[Arcable Background] Periodic sync error:', err);
   } finally {
     isBackgroundSyncInFlight = false;
+    if (isBackgroundSyncQueued) {
+      isBackgroundSyncQueued = false;
+      const pendingOnly = queuedBackgroundSyncIsPendingOnly;
+      queuedBackgroundSyncIsPendingOnly = true;
+      triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, pendingOnly);
+    }
   }
 }
 
@@ -781,8 +877,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     }
 
-    if (changes.arcable_tmp_tabs || changes.arcable_pending_ops) {
-      triggerDebouncedBackgroundSync(20000);
+    const pendingOpsAfterChange = changes.arcable_pending_ops?.newValue;
+    const hasPendingOps = Array.isArray(pendingOpsAfterChange) && pendingOpsAfterChange.length > 0;
+    // Temporary tabs are intentionally local-only. Persisting their browser
+    // state must never turn into a Raindrop workspace write.
+    if (hasPendingOps) {
+      triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, true);
     }
   }
 });

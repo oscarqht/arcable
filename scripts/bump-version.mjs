@@ -14,6 +14,7 @@ const FILES_TO_UPDATE = [
   'apps/extension/manifest.chrome.json',
   'apps/extension/manifest.firefox.json',
 ];
+const SHARED_VERSION_SOURCE = 'packages/shared/src/version.ts';
 
 function bumpMinor(version) {
   const parts = version.split('.');
@@ -50,6 +51,14 @@ function main() {
     fs.writeFileSync(fullPath, JSON.stringify(json, null, 2) + '\n', 'utf8');
     console.log(`Updated ${relPath} to version ${newVersion}`);
   }
+
+  const sharedVersionPath = path.join(rootDir, SHARED_VERSION_SOURCE);
+  const versionSource = fs.readFileSync(sharedVersionPath, 'utf8');
+  fs.writeFileSync(
+    sharedVersionPath,
+    versionSource.replace(/ARCABLE_VERSION = '[^']+'/g, `ARCABLE_VERSION = '${newVersion}'`),
+    'utf8'
+  );
 
   // Export outputs for GitHub Actions if available
   if (process.env.GITHUB_OUTPUT) {

@@ -12,13 +12,16 @@ import {
   getStoredDeviceName,
   getStoredPendingOperations,
   clearStoredPendingOperations,
+  mergeIncrementalSyncSnapshot,
   removeStoredPendingOperations,
+  replayOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
 import { SpaceCard } from './SpaceCard';
+import { SpaceIcon } from './SpaceIcon';
 import { VirtualSyncedSpaceCard } from './VirtualSyncedSpaceCard';
 import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { RaindropSearchInput } from './RaindropSearchInput';
@@ -30,11 +33,8 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
-import { EnvironmentModal } from './EnvironmentModal';
-import { EnvironmentUrlContext } from './EnvironmentUrlContext';
 import { cleanUrl } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
-import { resolveEnvironmentUrl } from '../../utils/environment';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -45,8 +45,6 @@ import {
   DropletIcon,
   EditIcon,
   TrashIcon,
-  GlobeIcon,
-  CheckIcon,
 } from '../Icons';
 
 export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
@@ -54,6 +52,14 @@ export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
 // Minimum time between automatic (silent) sync attempts, e.g. from side panel
 // reload and window focus. Manual, user-triggered syncs are not throttled.
 const MIN_AUTO_SYNC_INTERVAL_MS = 30_000;
+// Coalesce a burst of local changes before writing the workspace to Raindrop.
+const SYNC_DEBOUNCE_MS = 2_000;
+const INCREMENTAL_SYNC_DEBOUNCE_MS = 150;
+const INCREMENTAL_SYNC_OPERATION_TYPES = new Set([
+  'FOLDER_CREATE', 'FOLDER_UPDATE', 'FOLDER_DELETE',
+  'TAB_CREATE', 'TAB_UPDATE', 'TAB_DELETE',
+  'WIDGET_CREATE', 'WIDGET_UPDATE', 'WIDGET_DELETE',
+]);
 
 export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
@@ -94,7 +100,6 @@ export interface WorkspaceManagerProps {
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onTabsChange?: (tabs: Tab[]) => void;
-  onEnvironmentValuesChange?: (values: Record<string, string>) => void;
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
   bottomBarMenuItems?: ActionDropdownItem[];
@@ -104,6 +109,7 @@ export interface WorkspaceManagerProps {
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   raindropToken?: string;
   hasRaindropAuth?: boolean;
+  onSearchCollectionCovers?: (query: string) => Promise<string[]>;
   searchPlaceholder?: string;
   onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
@@ -145,7 +151,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onCloseAssociatedTab,
       onResetDivertedUrl,
       onTabsChange,
-      onEnvironmentValuesChange,
       onSearchChange,
       onSyncStateChange,
       bottomBarMenuItems,
@@ -155,6 +160,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onMediaControl,
       raindropToken,
       hasRaindropAuth,
+      onSearchCollectionCovers,
       searchPlaceholder,
       onSearchRaindrop,
       onSaveToRaindrop,
@@ -209,53 +215,20 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     removeWidget,
     reorderWidget,
     isSyncing: hookIsSyncing,
-    createEnvironment,
-    updateEnvironment,
-    deleteEnvironment,
-    createEnvironmentVariable,
-    renameEnvironmentVariable,
-    deleteEnvironmentVariable,
   } = useWorkspace();
+
+  // Network responses may complete after newer optimistic edits have rendered.
+  // Always read and update the latest workspace instead of a render-time closure.
+  const latestWorkspaceDataRef = useRef(data);
+  latestWorkspaceDataRef.current = data;
 
   const isMobile = useIsMobile();
   const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
 
-  const [isEnvironmentModalOpen, setIsEnvironmentModalOpen] = useState(false);
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('arcable_selected_environment_id') || '';
-  });
-  const selectedEnvironment = useMemo(() => {
-    const environments = data.environments || [];
-    return environments.find((environment) => environment.id === selectedEnvironmentId)
-      || environments.find((environment) => environment.name === 'Default')
-      || environments[0];
-  }, [data.environments, selectedEnvironmentId]);
-  const setLocalSelectedEnvironment = useCallback((id: string) => {
-    setSelectedEnvironmentId(id);
-    try { window.localStorage.setItem('arcable_selected_environment_id', id); } catch {}
-  }, []);
-  useEffect(() => {
-    if (selectedEnvironment && selectedEnvironment.id !== selectedEnvironmentId) setLocalSelectedEnvironment(selectedEnvironment.id);
-  }, [selectedEnvironment, selectedEnvironmentId, setLocalSelectedEnvironment]);
-
-  // Notify the host app immediately when the active environment (or its variable
-  // values) changes, so URL-divergence checks that resolve `{{variable}}` placeholders
-  // don't keep using stale values until some unrelated tab/data change triggers a resync.
-  const environmentValues = selectedEnvironment?.values || {};
-  const environmentValuesKey = JSON.stringify(environmentValues);
-  const lastNotifiedEnvironmentValuesKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (lastNotifiedEnvironmentValuesKeyRef.current === environmentValuesKey) return;
-    lastNotifiedEnvironmentValuesKeyRef.current = environmentValuesKey;
-    onEnvironmentValuesChange?.(environmentValues);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [environmentValuesKey, onEnvironmentValuesChange]);
-
   const virtualSyncedSpace: Space = useMemo(
     () => ({
       id: VIRTUAL_SYNCED_TABS_SPACE_ID,
-      name: 'Synced Open Tabs',
+      name: 'Open Tabs',
       emojiIcon: '📑',
       colors: undefined,
       order: Number.MAX_SAFE_INTEGER,
@@ -317,23 +290,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
-      const isSavedTab = Boolean(tabId && data.tabs.some((tab) => tab.id === tabId));
-      const resolution = isSavedTab ? resolveEnvironmentUrl(url, selectedEnvironment?.values || {}) : { url };
-      if (!resolution.url) {
-        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
-        return;
-      }
       if (onOpenTab) {
-        onOpenTab(resolution.url, tabId, undefined, options);
-      } else if (typeof window !== 'undefined' && resolution.url) {
+        onOpenTab(url, tabId, undefined, options);
+      } else if (typeof window !== 'undefined' && url) {
         if (options?.inNewTab) {
-          window.open(resolution.url, '_blank', 'noopener,noreferrer');
+          window.open(url, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = resolution.url;
+          window.location.href = url;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenTab, data.tabs, selectedEnvironment]
+    [activeSearchQuery, handleUpdateSearch, onOpenTab]
   );
 
   const handleOpenVariant = useCallback(
@@ -341,24 +308,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
-      const resolution = resolveEnvironmentUrl(variantUrl, selectedEnvironment?.values || {});
-      if (!resolution.url) {
-        window.alert(resolution.error || 'This URL is invalid for the selected environment.');
-        return;
-      }
       if (onOpenVariant) {
-        onOpenVariant(resolution.url, tab, variant, options);
+        onOpenVariant(variantUrl, tab, variant, options);
       } else if (onOpenTab) {
-        onOpenTab(resolution.url, tab.id, undefined, options);
-      } else if (typeof window !== 'undefined' && resolution.url) {
+        onOpenTab(variantUrl, tab.id, undefined, options);
+      } else if (typeof window !== 'undefined' && variantUrl) {
         if (options?.inNewTab) {
-          window.open(resolution.url, '_blank', 'noopener,noreferrer');
+          window.open(variantUrl, '_blank', 'noopener,noreferrer');
         } else {
-          window.location.href = resolution.url;
+          window.location.href = variantUrl;
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab, selectedEnvironment]
+    [activeSearchQuery, handleUpdateSearch, onOpenVariant, onOpenTab]
   );
 
   const performSyncRef = useRef<((silent?: boolean) => Promise<SyncResult | void>) | null>(null);
@@ -368,26 +330,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
-      }
-
-      const hasLocalTabTracker = tmpTabs !== undefined;
-      // It's remote if the client tracks local browser tabs, and the clicked tab is:
-      // - explicitly from another device, OR
-      // - not currently open in this browser (browserTabId === undefined)
-      const isRemote = Boolean(
-        hasLocalTabTracker &&
-        tab &&
-        (
-          (effectiveCurrentDeviceId && tab.deviceId && tab.deviceId !== effectiveCurrentDeviceId) ||
-          tab.browserTabId === undefined
-        )
-      );
-
-      if (isRemote && tab) {
-        // Takeover remote tmp tab: delete remote tab item so originating device closes it
-        deleteTmpTab(tab.id);
-        // Immediately sync to propagate the deletion operation to Raindrop & other devices
-        void performSyncRef.current?.(true);
       }
 
       if (onOpenTab) {
@@ -400,36 +342,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }
       }
     },
-    [activeSearchQuery, handleUpdateSearch, tmpTabs, effectiveCurrentDeviceId, deleteTmpTab, onOpenTab]
+    [activeSearchQuery, handleUpdateSearch, onOpenTab]
   );
 
-  // Combine local tmpTabs (passed via prop) and remote tmpTabs (from synced workspace data.tmpTabs)
+  // Temporary tabs are local-only. Extension callers supply their tracker list;
+  // other callers use the locally persisted workspace list.
   const effectiveTmpTabs = useMemo(() => {
-    const hasLocalTabTracker = tmpTabs !== undefined;
-    const localList = tmpTabs || [];
-    const localTabIds = new Set(localList.map((t) => t.id));
-
-    const remoteList = (data.tmpTabs || [])
-      .filter((remote) => {
-        // Don't duplicate if already present in local list
-        if (localTabIds.has(remote.id)) return false;
-        // If belongs to this device but not in localList, it was closed locally (only if host runs a local tab tracker)
-        if (hasLocalTabTracker && effectiveCurrentDeviceId && remote.deviceId === effectiveCurrentDeviceId) return false;
-        return true;
-      })
-      .map((remote) => {
-        // If tab is from another device, strip browserTabId so local UI/browser never treats it as a local browser tab
-        if (effectiveCurrentDeviceId && remote.deviceId && remote.deviceId !== effectiveCurrentDeviceId) {
-          return {
-            ...remote,
-            browserTabId: undefined,
-          };
-        }
-        return remote;
-      });
-
-    return [...localList, ...remoteList];
-  }, [tmpTabs, data.tmpTabs, effectiveCurrentDeviceId]);
+    return tmpTabs !== undefined ? tmpTabs : (data.tmpTabs || []);
+  }, [tmpTabs, data.tmpTabs]);
 
   // Filter tmp tabs when search query is active and sort chronologically
   const filteredTmpTabs = useMemo(() => {
@@ -526,6 +446,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   };
 
   const isCurrentlySyncing = syncLoading || hookIsSyncing;
+  const bottomBarSyncItem = bottomBarMenuItems?.find((item) => item.id === 'sync-raindrop');
+  const bottomBarMoreItems = (bottomBarMenuItems || []).filter((item) => item.id !== 'sync-raindrop');
 
   // Load persistent space collapse state
   useEffect(() => {
@@ -1030,10 +952,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const deviceId = getOrCreateDeviceId();
         const pendingOps = getStoredPendingOperations();
         const syncedOpIds = pendingOps.map((op) => op.id);
+        const isIncrementalCrud = pendingOps.length > 0 &&
+          pendingOps.every((operation) => INCREMENTAL_SYNC_OPERATION_TYPES.has(operation.type));
+
+        const applySuccessfulSnapshot = (snapshot: ArcableWorkspaceData) => {
+          removeStoredPendingOperations(syncedOpIds);
+          const remainingOps = getStoredPendingOperations();
+          let nextSnapshot = isIncrementalCrud
+            ? mergeIncrementalSyncSnapshot(latestWorkspaceDataRef.current, snapshot)
+            : snapshot;
+          if (remainingOps.length > 0) {
+            nextSnapshot = replayOperations(nextSnapshot, remainingOps);
+          }
+          latestWorkspaceDataRef.current = nextSnapshot;
+          applyLatestSnapshot(nextSnapshot);
+        };
 
         if (onSyncRaindrop) {
           const res = await onSyncRaindrop({
-            localState: data,
+            localState: latestWorkspaceDataRef.current,
             deviceId,
             pendingOps,
           });
@@ -1042,16 +979,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             if (res && typeof res === 'object' && 'success' in res) {
               result = res as SyncResult;
               if (result.success) {
-                removeStoredPendingOperations(syncedOpIds);
                 if (result.latestSnapshot) {
-                  applyLatestSnapshot(result.latestSnapshot);
+                  applySuccessfulSnapshot(result.latestSnapshot);
+                } else {
+                  removeStoredPendingOperations(syncedOpIds);
                 }
               }
             }
           }
         } else if (raindropToken) {
           const res = await syncWorkspaceWithRaindrop(raindropToken, {
-            localState: data,
+            localState: latestWorkspaceDataRef.current,
             deviceId,
             deviceName: getStoredDeviceName(),
             pendingOps,
@@ -1060,9 +998,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (currentSeq === syncSeqRef.current) {
             result = res;
             if (result.success) {
-              removeStoredPendingOperations(syncedOpIds);
               if (result.latestSnapshot) {
-                applyLatestSnapshot(result.latestSnapshot);
+                applySuccessfulSnapshot(result.latestSnapshot);
+              } else {
+                removeStoredPendingOperations(syncedOpIds);
               }
             }
           }
@@ -1192,7 +1131,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       void performSyncRef.current?.(silent);
     };
 
-    checkAndSync(true);
+    // The parent surface has already completed its authoritative Raindrop
+    // hydration before enabling autoSync. Only resume a persisted outbox here;
+    // do not immediately perform a duplicate empty sync after that hydration.
+    if (getStoredPendingOperations().length > 0) {
+      checkAndSync(true);
+    }
 
     const handleSessionChange = () => {
       if (activeSyncPromiseRef.current) {
@@ -1205,13 +1149,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     let pendingOperationTimer: ReturnType<typeof setTimeout> | null = null;
     const handlePendingOperation = () => {
       if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
+      const pendingOperations = getStoredPendingOperations();
+      const isIncrementalCrud = pendingOperations.length > 0 &&
+        pendingOperations.every((operation) => INCREMENTAL_SYNC_OPERATION_TYPES.has(operation.type));
       pendingOperationTimer = setTimeout(() => {
         if (activeSyncPromiseRef.current) {
           queuedAutomaticSyncRef.current = true;
           return;
         }
-        checkAndSync(true);
-      }, 5000);
+        // A workspace mutation is already durable in the local cache and
+        // pending-op outbox. Send it straight to Raindrop (with a short debounce
+        // for multi-field edits) instead of waiting for the focus cooldown.
+        void performSyncRef.current?.(true);
+      }, isIncrementalCrud ? INCREMENTAL_SYNC_DEBOUNCE_MS : SYNC_DEBOUNCE_MS);
     };
 
     const handleFocusOrOnline = () => {
@@ -1455,11 +1405,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleCloseTmpTab = useCallback((tab: TmpTab) => {
     deleteTmpTab(tab.id);
     onCloseTmpTab?.(tab);
-    // Note: do NOT call performSync() here directly.
-    // deleteTmpTab() already records a TMP_TAB_DELETE pending operation,
-    // which the debounced auto-sync effect (5 s) will pick up automatically.
-    // Calling performSync(true) immediately races with tabTracker's async
-    // closeTmpTab write, causing the deleted tab to be re-uploaded.
+    // Temporary-tab changes are local-only and never start a Raindrop sync.
   }, [deleteTmpTab, onCloseTmpTab]);
 
   const handleRenameTmpTab = useCallback((tab: TmpTab, newTitle: string) => {
@@ -1592,7 +1538,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
   return (
-    <EnvironmentUrlContext.Provider value={selectedEnvironment?.values || {}}>
     <div
       style={{
         display: 'flex',
@@ -1605,14 +1550,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         boxSizing: 'border-box',
       }}
     >
-
-      {!compact && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={() => setIsEnvironmentModalOpen(true)}>
-            Environments{selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}
-          </Button>
-        </div>
-      )}
 
       {/* Global Favourite Tabs Shelf (Unified with Draggable Widgets) */}
       <FavouriteTabsShelf
@@ -1640,6 +1577,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
+        raindropRootCollectionId={data.raindropRootCollectionId}
       />
 
       {/* Raindrop Search Input & Filter with Inline Results */}
@@ -1922,7 +1860,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   }}
                   title={`${space.name} (Click to select, drag to reorder)`}
                 >
-                  <span>{space.emojiIcon || '📁'}</span>
+                  <SpaceIcon space={space} size={16} />
                   <span>{space.name}</span>
 
                   {isActive && (
@@ -1954,7 +1892,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 </div>
               );
             })}
-            {/* Synced Open Tabs Virtual Space Pill (Always at the end, not draggable, cannot be dragged behind) */}
+            {/* Local Open Tabs virtual-space pill (always at the end). */}
             {(() => {
               const isActive = (data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) || (activeSpace?.id === VIRTUAL_SYNCED_TABS_SPACE_ID);
               const isDragTarget = dragOverSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID;
@@ -1993,10 +1931,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     boxShadow: isActive ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
                     userSelect: 'none',
                   }}
-                  title="Synced Open Tabs (Virtual Space - always sorted to end)"
+                  title="Open Tabs (local browser tabs)"
                 >
                   <span>📑</span>
-                  <span>Synced Open Tabs</span>
+                  <span>Open Tabs</span>
                   <span
                     style={{
                       fontSize: '11px',
@@ -2252,7 +2190,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   </div>
                 ))}
 
-                {/* Virtual Synced Tabs Space Card (Collapsed, always at the end of collapsed column) */}
+                {/* Local Open Tabs card (collapsed, always at the end). */}
                 {isVirtualSpaceCollapsed && (
                   <div
                     key={VIRTUAL_SYNCED_TABS_SPACE_ID}
@@ -2458,7 +2396,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
       {/* Fixed Bottom Spaces Selector (Sidepanel / Compact mode: semi-transparent, 100% rounded corner, margins) */}
 
-      {compact && sortedSpaces.length > 0 && (
+      {compact && (
         <div
           style={{
             position: 'fixed',
@@ -2545,7 +2483,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 }}
               >
                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1 }}>
-                  {space.emojiIcon || '📁'}
+                  <SpaceIcon space={space} size={16} />
                 </span>
                 {isActive && (
                   <span
@@ -2564,74 +2502,61 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             );
           })}
 
-          {(data.environments || []).length >= 2 && (
-            <ActionDropdown
-              items={[
-                ...(data.environments || []).map((environment, index, arr) => ({
-                  id: environment.id,
-                  label: environment.name,
-                  icon: environment.id === selectedEnvironment?.id ? <CheckIcon size={16} /> : undefined,
-                  onClick: () => setLocalSelectedEnvironment(environment.id),
-                  dividerAfter: index === arr.length - 1,
-                })),
-                {
-                  id: 'manage-environments',
-                  label: 'Manage Environments…',
-                  onClick: () => setIsEnvironmentModalOpen(true),
-                },
-              ]}
-              isDarkTheme={isDark}
-              align="right"
-              buttonTitle={`Environment: ${selectedEnvironment?.name || ''} (click to switch)`}
-              triggerIcon={<GlobeIcon size={16} />}
-              buttonStyle={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '9999px',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: isDark ? '#cbd5e1' : '#475569',
-              }}
-            />
-          )}
-
           {(bottomBarMenuItems?.length || true) && (
-            <ActionDropdown
-              items={[
-                {
-                  id: 'environments',
-                  label: `Environments${selectedEnvironment ? `: ${selectedEnvironment.name}` : ''}`,
-                  onClick: () => setIsEnvironmentModalOpen(true),
-                  dividerAfter: Boolean(bottomBarMenuItems?.length),
-                },
-                ...(bottomBarMenuItems || []),
-              ]}
-              isDarkTheme={isDark}
-              align="right"
-              buttonTitle={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'More options'}
-              triggerIcon={
-                isCurrentlySyncing ? (
+            <div
+              role={bottomBarSyncItem ? 'group' : undefined}
+              aria-label={bottomBarSyncItem ? 'Raindrop sync and more options' : undefined}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                border: bottomBarSyncItem ? (isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)') : 'none',
+                borderRadius: '9999px',
+                overflow: 'hidden',
+              }}
+            >
+              {bottomBarSyncItem && (
+                <button
+                  type="button"
+                  onClick={(event) => { void bottomBarSyncItem.onClick(event); }}
+                  disabled={Boolean(bottomBarSyncItem.disabled) || isCurrentlySyncing}
+                  title={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}
+                  aria-label={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    border: 'none',
+                    borderRight: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)',
+                    padding: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    color: isDark ? '#38bdf8' : '#0284c7',
+                    cursor: isCurrentlySyncing || bottomBarSyncItem.disabled ? 'not-allowed' : 'pointer',
+                    opacity: isCurrentlySyncing || bottomBarSyncItem.disabled ? 0.65 : 1,
+                  }}
+                >
                   <span
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '15px',
-                      lineHeight: 1,
-                      animation: 'arcable-spin 1s linear infinite',
+                      animation: isCurrentlySyncing ? 'arcable-spin 1s linear infinite' : 'none',
                     }}
                   >
-                    💧
+                    <DropletIcon size={15} color={isDark ? '#38bdf8' : '#0284c7'} />
                   </span>
-                ) : undefined
-              }
-
+                </button>
+              )}
+              <ActionDropdown
+                items={bottomBarMoreItems}
+                isDarkTheme={isDark}
+                align="right"
+                buttonTitle="More options"
                 buttonStyle={{
                   width: '32px',
                   height: '32px',
-                  borderRadius: '9999px',
+                  borderRadius: bottomBarSyncItem ? 0 : '9999px',
                   padding: 0,
                   display: 'flex',
                   alignItems: 'center',
@@ -2639,7 +2564,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   color: isDark ? '#cbd5e1' : '#475569',
                 }}
               />
-            )}
+            </div>
+          )}
 
 
         </div>
@@ -2653,6 +2579,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setEditingSpace(null);
         }}
         space={editingSpace}
+        raindropToken={raindropToken}
+        onSearchCovers={onSearchCollectionCovers}
         onSave={(spaceData) => {
           if (editingSpace) {
             updateSpace(editingSpace.id, spaceData);
@@ -2660,24 +2588,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             createSpace(spaceData);
           }
         }}
-      />
-
-      <EnvironmentModal
-        isOpen={isEnvironmentModalOpen}
-        onClose={() => setIsEnvironmentModalOpen(false)}
-        environments={data.environments || []}
-        variables={data.environmentVariables || []}
-        selectedEnvironmentId={selectedEnvironment?.id || ''}
-        onSelect={setLocalSelectedEnvironment}
-        onCreateEnvironment={(name) => {
-          const environment = createEnvironment(name);
-          if (environment) setLocalSelectedEnvironment(environment.id);
-        }}
-        onUpdateEnvironment={updateEnvironment}
-        onDeleteEnvironment={deleteEnvironment}
-        onCreateVariable={createEnvironmentVariable}
-        onRenameVariable={renameEnvironmentVariable}
-        onDeleteVariable={deleteEnvironmentVariable}
       />
 
       <ConvertSpaceModal
@@ -2705,6 +2615,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         allSpaces={data.spaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultParentFolderId={defaultFolderParentId}
+        raindropToken={raindropToken}
+        onSearchCovers={onSearchCollectionCovers}
         onDelete={handleRequestDeleteFolder}
         onSave={(folderData) => {
           if (editingFolder) {
@@ -2725,13 +2637,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         tab={editingTab}
         allFolders={data.folders}
         allSpaces={data.spaces}
-        environmentVariables={data.environmentVariables}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultFolderId={defaultTabFolderId}
         initialUrl={initialTabUrl}
         initialTitle={initialTabTitle}
         initialPinned={defaultTabPinned}
         initialFavourite={defaultTabFavourite}
+        raindropToken={raindropToken}
+        onSearchCovers={onSearchCollectionCovers}
         onDelete={handleRequestDeleteTab}
         onSave={(tabData) => {
           if (editingTab) {
@@ -2739,7 +2652,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           } else {
             const newTab = createTab({
               ...tabData,
-              favIconUrl: promotingTmpTab?.favIconUrl,
+              favIconUrl: tabData.favIconUrl || promotingTmpTab?.favIconUrl,
             });
             if (promotingTmpTab) {
               deleteTmpTab(promotingTmpTab.id);
@@ -2922,7 +2835,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               }}
             >
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                Open &amp; Sync Tab
+                Open Tab
               </h3>
               <button
                 type="button"
@@ -2939,7 +2852,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               </button>
             </div>
             <p style={{ margin: '0 0 16px', fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.4 }}>
-              Add a URL to open it immediately and sync it across all your connected devices.
+              Add a URL to open it immediately in this browser. It stays local until you save it to your workspace.
             </p>
             <form onSubmit={handleCreateTmpTabSubmit}>
               <div style={{ marginBottom: '14px' }}>
@@ -3153,6 +3066,5 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         </div>
       )}
     </div>
-    </EnvironmentUrlContext.Provider>
   );
 });

@@ -14,6 +14,12 @@ import {
   LogOutIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
+import {
+  getOrCreateDeviceId,
+  getStoredDeviceName,
+  getStoredPendingOperations,
+  replayOperations,
+} from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
 
 export default function HomePage() {
@@ -23,6 +29,7 @@ export default function HomePage() {
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
+  const [raindropHydrated, setRaindropHydrated] = useState(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
@@ -110,22 +117,37 @@ export default function HomePage() {
 
   // Requirement 1: When page loads, auto fetch from Raindrop once to replace local data with remote one
   useEffect(() => {
-    if (!authState.isAuthenticated || hasAutoFetchedRef.current) return;
+    if (!authState.isAuthenticated) {
+      hasAutoFetchedRef.current = false;
+      setRaindropHydrated(false);
+      return;
+    }
+    if (hasAutoFetchedRef.current) return;
     hasAutoFetchedRef.current = true;
 
+    setIsSyncing(true);
     void handleFetchWorkspace()
       .then((res) => {
         if (res?.success && res.data && workspaceRef.current?.applySnapshot) {
-          workspaceRef.current.applySnapshot(res.data);
+          const pending = getStoredPendingOperations();
+          const hydrated = pending.length > 0 ? replayOperations(res.data, pending) : res.data;
+          workspaceRef.current.applySnapshot(hydrated);
         }
+        setRaindropHydrated(true);
       })
       .catch((err) => {
         console.warn('[Arcable] Auto-fetch on page load error:', err);
+      })
+      .finally(() => {
+        setIsSyncing(false);
       });
   }, [authState.isAuthenticated, handleFetchWorkspace]);
 
   const handleSyncWorkspace = useCallback(async (syncParams?: {
     localState: any;
+    deviceId?: string;
+    pendingOps?: any[];
+    replaceBaseline?: boolean;
   }) => {
     try {
       const res = await fetch('/api/raindrop/sync', {
@@ -137,6 +159,10 @@ export default function HomePage() {
         body: JSON.stringify({
           token: authState.accessToken,
           localState: syncParams?.localState,
+          deviceId: syncParams?.deviceId,
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
+          pendingOps: syncParams?.pendingOps,
+          replaceBaseline: syncParams?.replaceBaseline,
         }),
       });
 
@@ -180,6 +206,9 @@ export default function HomePage() {
         try {
           await handleSyncWorkspace({
             localState: restoredSnapshot,
+            deviceId: getOrCreateDeviceId(),
+            pendingOps: [],
+            replaceBaseline: true,
           });
         } catch (err) {
           console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
@@ -377,9 +406,68 @@ export default function HomePage() {
 
       <main
         className="main-content"
-        style={{ maxWidth: '1440px', width: '100%', margin: '20px auto', padding: '0 20px', boxSizing: 'border-box' }}
+        style={{
+          maxWidth: '1440px',
+          width: '100%',
+          margin: '20px auto',
+          padding: '0 20px',
+          boxSizing: 'border-box',
+          flex: authLoading || !authState.isAuthenticated ? 1 : undefined,
+          display: authLoading || !authState.isAuthenticated ? 'flex' : undefined,
+        }}
       >
-        <WorkspaceManager
+        {authLoading ? (
+          <div
+            role="status"
+            style={{ margin: 'auto', color: isDark ? '#94a3b8' : '#64748b', fontSize: '14px' }}
+          >
+            Checking Raindrop login…
+          </div>
+        ) : !authState.isAuthenticated ? (
+          <section
+            aria-labelledby="raindrop-login-title"
+            style={{
+              margin: 'auto',
+              maxWidth: '420px',
+              width: '100%',
+              padding: '32px',
+              borderRadius: '16px',
+              textAlign: 'center',
+              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+              background: isDark ? '#151e2e' : '#ffffff',
+              boxShadow: isDark ? '0 16px 40px rgba(0, 0, 0, 0.2)' : '0 16px 40px rgba(15, 23, 42, 0.08)',
+            }}
+          >
+            <div aria-hidden="true" style={{ fontSize: '34px', marginBottom: '12px' }}>💧</div>
+            <h1 id="raindrop-login-title" style={{ margin: '0 0 8px', fontSize: '20px' }}>
+              Log in to Raindrop.io
+            </h1>
+            <p style={{ margin: '0 0 20px', color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.5 }}>
+              Connect your Raindrop account to view and sync your Arcable workspace.
+            </p>
+            <button
+              type="button"
+              onClick={handleLoginWithOAuth}
+              style={{
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                cursor: 'pointer',
+                background: isDark ? '#38bdf8' : '#0284c7',
+                color: isDark ? '#0b101b' : '#ffffff',
+                fontWeight: 700,
+              }}
+            >
+              Log in with Raindrop.io
+            </button>
+            {authError && (
+              <p role="alert" style={{ margin: '16px 0 0', color: isDark ? '#fca5a5' : '#dc2626', fontSize: '13px' }}>
+                {authError}
+              </p>
+            )}
+          </section>
+        ) : (
+          <WorkspaceManager
           ref={workspaceRef}
           hideControlBar={true}
           searchQuery={searchQuery}
@@ -408,8 +496,10 @@ export default function HomePage() {
           }}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
           onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
+          autoSync={!authState.isAuthenticated || raindropHydrated}
           onSyncStateChange={setIsSyncing}
         />
+        )}
       </main>
 
       <BackupRestoreModal

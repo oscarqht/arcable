@@ -11,8 +11,6 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
 import { TabFavicon } from './TabFavicon';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
-import { EnvironmentUrlContext } from './EnvironmentUrlContext';
-import { resolveEnvironmentUrl } from '../../utils/environment';
 import {
   CopyIcon,
   CheckIcon,
@@ -32,6 +30,8 @@ export interface FolderItemProps {
   depth?: number;
   isDarkTheme?: boolean;
   compact?: boolean;
+  /** Use single-letter variant labels when the containing space is narrow. */
+  compactVariantLabels?: boolean;
   alwaysShowActions?: boolean;
   tabAssociations?: TabAssociationMap;
   audibleTabs?: AudibleTab[];
@@ -71,6 +71,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   depth = 0,
   isDarkTheme,
   compact = false,
+  compactVariantLabels = false,
   alwaysShowActions = false,
   tabAssociations,
   audibleTabs,
@@ -100,7 +101,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
-  const environmentValues = useContext(EnvironmentUrlContext);
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
@@ -353,6 +353,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
   };
 
+  const handleEditInRaindrop = () => {
+    if (Number.isSafeInteger(folder.raindropId) && (folder.raindropId ?? 0) > 0) {
+      window.open(`https://app.raindrop.io/my/${folder.raindropId}`, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const folderMenuItems: ActionDropdownItem[] = useMemo(() => {
     const items: ActionDropdownItem[] = [
       {
@@ -389,6 +395,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       },
     ];
 
+    if (Number.isSafeInteger(folder.raindropId) && (folder.raindropId ?? 0) > 0) {
+      items.push({
+        id: 'edit-in-raindrop',
+        label: 'Edit in Raindrop',
+        icon: <ExternalLinkIcon size={14} />,
+        onClick: handleEditInRaindrop,
+        dividerAfter: Boolean(onDeleteFolder),
+      });
+    }
+
     if (onDeleteFolder) {
       items.push({
         id: 'delete-folder',
@@ -407,6 +423,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     handleOpenFolder,
     onAddTabInFolder,
     folder,
+    folder.raindropId,
+    handleEditInRaindrop,
     onAddSubFolder,
     onEditFolder,
     onDeleteFolder,
@@ -616,7 +634,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         flexShrink: 0,
                       }}
                     >
-                      {subfolder.customEmojiIcon ? (
+                      {subfolder.coverUrl ? (
+                        <img src={subfolder.coverUrl} alt="" width="16" height="16" referrerPolicy="no-referrer" style={{ width: '16px', height: '16px', objectFit: 'contain' }} />
+                      ) : subfolder.customEmojiIcon ? (
                         <span style={{ fontSize: '15px', lineHeight: 1 }}>{subfolder.customEmojiIcon}</span>
                       ) : (
                         <FolderIcon size={16} color={effectiveDark ? '#a5c4b5' : '#4b7593'} />
@@ -704,10 +724,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         : 'rgba(0, 0, 0, 0.08)'
                       : 'transparent';
                   }}
-                  title={tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                  title={tab.customTitle || tab.url}
                 >
                   <TabFavicon
-                    url={resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                    url={tab.url}
                     favIconUrl={tab.favIconUrl}
                     customEmojiIcon={tab.customEmojiIcon}
                     size={16}
@@ -725,7 +745,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       lineHeight: '16px',
                     }}
                   >
-                    {tab.customTitle || resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url}
+                    {tab.customTitle || tab.url}
                   </span>
                   {hasVariants && (
                     <div
@@ -744,13 +764,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       onClick={(e) => e.stopPropagation()}
                     >
                       {tab.urlVariants!.map((variant, index) => {
-                        const resolvedVariantUrl = resolveEnvironmentUrl(variant.url, environmentValues).url || variant.url;
-                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, resolvedVariantUrl));
+                        const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, variant.url));
                         return (
                           <button
                             key={variant.id || index}
                             type="button"
-                            title={`${variant.name}: ${resolvedVariantUrl}`}
+                            title={`${variant.name}: ${variant.url}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();
@@ -802,7 +821,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                               if (!isMatch) e.currentTarget.style.backgroundColor = 'transparent';
                             }}
                           >
-                            {variant.name || 'Variant'}
+                            {compactVariantLabels
+                              ? (variant.name || 'Variant').trim().charAt(0).toLocaleUpperCase()
+                              : variant.name || 'Variant'}
                           </button>
                         );
                       })}
@@ -890,14 +911,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               position: 'relative',
             }}
           >
-            {folder.customEmojiIcon ? (
+            {folder.coverUrl ? (
+              <img src={folder.coverUrl} alt="" width="18" height="18" referrerPolicy="no-referrer" style={{ width: '18px', height: '18px', objectFit: 'contain' }} />
+            ) : folder.customEmojiIcon ? (
               <span style={{ fontSize: '18px', lineHeight: 1 }}>{folder.customEmojiIcon}</span>
             ) : isExpanded || isSemiExpanded ? (
               <FolderOpenIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             ) : (
               <FolderIcon size={18} color={isDarkTheme ? '#a5c4b5' : '#4b7593'} />
             )}
-            {folder.customEmojiIcon && (
+            {!folder.coverUrl && folder.customEmojiIcon && (
               <span
                 style={{
                   position: 'absolute',
@@ -1034,6 +1057,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   depth={depth + 1}
                   isDarkTheme={effectiveDark}
                   compact={compact}
+                  compactVariantLabels={compactVariantLabels}
                   alwaysShowActions={alwaysShowActions}
                   tabAssociations={tabAssociations}
                   audibleTabs={audibleTabs}
@@ -1078,8 +1102,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <TabRow
                 key={item.id}
                 tab={item.data}
+                raindropCollectionId={folder.raindropId}
                 isDarkTheme={effectiveDark}
                 compact={compact}
+                compactVariantLabels={compactVariantLabels}
                 alwaysShowActions={alwaysShowActions}
                 isAssociated={Boolean(assoc)}
                 isDiverted={Boolean(assoc?.isDiverted)}

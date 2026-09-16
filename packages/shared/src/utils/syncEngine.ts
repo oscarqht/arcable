@@ -1,9 +1,8 @@
-import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule, Environment } from '../types/workspace';
+import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
 import { getDescendantFolderIds } from './treeUtils';
 import { sortCustomCodeRules, sortRunCodeRules } from './customCodeUtils';
-import { getDefaultEnvironment, isValidEnvironmentVariableName, normalizeEnvironments } from './environment';
 
 export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
 export const DEVICE_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (device registry retention)
@@ -283,17 +282,33 @@ export function createWorkspaceOperation(
 }
 
 /**
- * Loads pending un-synced operations from localStorage (deprecated - full JSON only).
+ * Loads pending un-synced operations from localStorage.
  */
 export function getStoredPendingOperations(): WorkspaceOperation[] {
-  return [];
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(PENDING_OPS_STORAGE_KEY);
+    const operations = raw ? JSON.parse(raw) : [];
+    return Array.isArray(operations) ? operations : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Appends an operation to the local pending operations queue (deprecated - full JSON only).
+ * Appends an operation to the local pending operations queue and notifies the
+ * workspace auto-sync listener.
  */
-export function savePendingOperation(_op: WorkspaceOperation): void {
-  // No-op: full JSON snapshots only, operations log deprecated
+export function savePendingOperation(op: WorkspaceOperation): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const pending = getStoredPendingOperations().filter((item) => item.id !== op.id);
+    pending.push(op);
+    window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(pending));
+    window.dispatchEvent(new CustomEvent('arcable_pending_op_saved'));
+  } catch (error) {
+    console.warn('Failed to save pending workspace operation:', error);
+  }
 }
 
 /**
@@ -309,10 +324,22 @@ export function clearStoredPendingOperations(): void {
 }
 
 /**
- * Removes specific synced operations (deprecated - full JSON only).
+ * Removes only the operations included in a completed sync. Operations made
+ * while that sync was in-flight must remain queued for the next cycle.
  */
-export function removeStoredPendingOperations(_syncedOpIds: string[]): void {
-  clearStoredPendingOperations();
+export function removeStoredPendingOperations(syncedOpIds: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const synced = new Set(syncedOpIds);
+    const remaining = getStoredPendingOperations().filter((operation) => !synced.has(operation.id));
+    if (remaining.length) {
+      window.localStorage.setItem(PENDING_OPS_STORAGE_KEY, JSON.stringify(remaining));
+    } else {
+      window.localStorage.removeItem(PENDING_OPS_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('Failed to remove synced workspace operations:', error);
+  }
 }
 
 /**
@@ -323,6 +350,8 @@ export function applyOperation(
   op: WorkspaceOperation
 ): ArcableWorkspaceData {
   const cloned: ArcableWorkspaceData = {
+    raindropRootCollectionId: state.raindropRootCollectionId,
+    raindropMetadataItemId: state.raindropMetadataItemId,
     spaces: [...state.spaces],
     folders: [...state.folders],
     tabs: [...state.tabs],
@@ -330,9 +359,9 @@ export function applyOperation(
     widgets: [...(state.widgets || [])],
     customCodeRules: [...(state.customCodeRules || [])],
     runCodeInPageRules: [...(state.runCodeInPageRules || [])],
-    ...normalizeEnvironments(state.environmentVariables, state.environments),
     activeSpaceId: state.activeSpaceId,
     version: (state.version || 1) + 1,
+    devices: state.devices ? { ...state.devices } : undefined,
   };
 
   switch (op.type) {
@@ -719,66 +748,6 @@ export function applyOperation(
       break;
     }
 
-    // ================= Environment Operations =================
-    case 'ENVIRONMENT_CREATE': {
-      const existing = cloned.environments!.findIndex((environment) => environment.id === op.entityId);
-      const environment: Environment = {
-        id: op.entityId,
-        name: op.payload?.name || 'New Environment',
-        values: Object.fromEntries((cloned.environmentVariables || []).map((variable) => [variable, String(op.payload?.values?.[variable] ?? '')])),
-        createdAt: op.payload?.createdAt || op.timestamp,
-        updatedAt: op.timestamp,
-      };
-      if (existing >= 0) cloned.environments![existing] = { ...cloned.environments![existing], ...environment };
-      else cloned.environments!.push(environment);
-      break;
-    }
-    case 'ENVIRONMENT_UPDATE': {
-      const existing = cloned.environments!.findIndex((environment) => environment.id === op.entityId);
-      if (existing >= 0) {
-        const current = cloned.environments![existing];
-        cloned.environments![existing] = {
-          ...current,
-          ...op.payload,
-          values: { ...current.values, ...(op.payload?.values || {}) },
-          updatedAt: op.timestamp,
-        };
-      }
-      break;
-    }
-    case 'ENVIRONMENT_DELETE':
-      if (cloned.environments!.length > 1) cloned.environments = cloned.environments!.filter((environment) => environment.id !== op.entityId);
-      break;
-    case 'ENVIRONMENT_VARIABLE_CREATE': {
-      const variable = op.entityId;
-      if (isValidEnvironmentVariableName(variable) && !cloned.environmentVariables!.includes(variable)) {
-        cloned.environmentVariables!.push(variable);
-        cloned.environments = cloned.environments!.map((environment) => ({ ...environment, values: { ...environment.values, [variable]: '' }, updatedAt: op.timestamp }));
-      }
-      break;
-    }
-    case 'ENVIRONMENT_VARIABLE_RENAME': {
-      const next = op.payload?.name;
-      if (isValidEnvironmentVariableName(op.entityId) && isValidEnvironmentVariableName(next) && !cloned.environmentVariables!.includes(next)) {
-        cloned.environmentVariables = cloned.environmentVariables!.map((variable) => variable === op.entityId ? next : variable);
-        const pattern = new RegExp(`\\{\\{${op.entityId.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\}\\}`, 'g');
-        cloned.environments = cloned.environments!.map((environment) => {
-          const values: Record<string, string> = { ...environment.values, [next]: environment.values[op.entityId] ?? '' };
-          delete values[op.entityId];
-          return { ...environment, values, updatedAt: op.timestamp };
-        });
-        cloned.tabs = cloned.tabs.map((tab) => ({ ...tab, url: tab.url.replace(pattern, `{{${next}}}`), urlVariants: tab.urlVariants?.map((variant) => ({ ...variant, url: variant.url.replace(pattern, `{{${next}}}`) })) }));
-      }
-      break;
-    }
-    case 'ENVIRONMENT_VARIABLE_DELETE':
-      cloned.environmentVariables = cloned.environmentVariables!.filter((variable) => variable !== op.entityId);
-      cloned.environments = cloned.environments!.map((environment) => {
-        const values = { ...environment.values };
-        delete values[op.entityId];
-        return { ...environment, values, updatedAt: op.timestamp };
-      });
-      break;
   }
 
   return cloned;
@@ -813,6 +782,8 @@ export function replayOperations(
 ): ArcableWorkspaceData {
   const sorted = sortOperations(ops);
   let state: ArcableWorkspaceData = {
+    raindropRootCollectionId: baseline.raindropRootCollectionId,
+    raindropMetadataItemId: baseline.raindropMetadataItemId,
     spaces: [...baseline.spaces],
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],
@@ -820,7 +791,6 @@ export function replayOperations(
     widgets: [...(baseline.widgets || [])],
     customCodeRules: [...(baseline.customCodeRules || [])],
     runCodeInPageRules: [...(baseline.runCodeInPageRules || [])],
-    ...normalizeEnvironments(baseline.environmentVariables, baseline.environments),
     activeSpaceId: baseline.activeSpaceId,
     version: baseline.version || 1,
     devices: baseline.devices ? { ...baseline.devices } : undefined,
@@ -941,9 +911,42 @@ export function replayOperations(
     state.runCodeInPageRules = [];
   }
 
-  Object.assign(state, normalizeEnvironments(state.environmentVariables, state.environments));
-
   return state;
+}
+
+/**
+ * Applies the IDs acknowledged by an incremental Raindrop response without
+ * replacing the current optimistic workspace. The current state may contain
+ * edits created while the network request was in flight, so only server-issued
+ * entity IDs are copied from the older response snapshot.
+ */
+export function mergeIncrementalSyncSnapshot(
+  current: ArcableWorkspaceData,
+  synced: ArcableWorkspaceData
+): ArcableWorkspaceData {
+  const syncedSpaces = new Map(synced.spaces.map((space) => [space.id, space]));
+  const syncedFolders = new Map(synced.folders.map((folder) => [folder.id, folder]));
+  const syncedTabs = new Map(synced.tabs.map((tab) => [tab.id, tab]));
+
+  return {
+    ...current,
+    raindropRootCollectionId: synced.raindropRootCollectionId ?? current.raindropRootCollectionId,
+    raindropMetadataItemId: synced.raindropMetadataItemId !== undefined
+      ? synced.raindropMetadataItemId
+      : current.raindropMetadataItemId,
+    spaces: current.spaces.map((space) => {
+      const remoteId = syncedSpaces.get(space.id)?.raindropId;
+      return remoteId ? { ...space, raindropId: remoteId } : space;
+    }),
+    folders: current.folders.map((folder) => {
+      const remoteId = syncedFolders.get(folder.id)?.raindropId;
+      return remoteId ? { ...folder, raindropId: remoteId } : folder;
+    }),
+    tabs: current.tabs.map((tab) => {
+      const remoteId = syncedTabs.get(tab.id)?.raindropId;
+      return remoteId ? { ...tab, raindropId: remoteId } : tab;
+    }),
+  };
 }
 
 /**

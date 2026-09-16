@@ -11,8 +11,6 @@ import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
-import { EnvironmentUrlContext } from './EnvironmentUrlContext';
-import { resolveEnvironmentUrl } from '../../utils/environment';
 import {
   CopyIcon,
   CheckIcon,
@@ -41,6 +39,10 @@ export interface TabRowProps {
   isMuted?: boolean;
   badge?: string | number | null;
   currentUrl?: string;
+  /** Use single-letter variant labels when the containing space is narrow. */
+  compactVariantLabels?: boolean;
+  /** Raindrop collection containing this tab, when the tab is synced. */
+  raindropCollectionId?: number;
   onOpen?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: () => void;
@@ -72,6 +74,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   isMuted = false,
   badge,
   currentUrl,
+  compactVariantLabels = false,
+  raindropCollectionId,
   onOpen,
   onOpenVariant,
   onCloseAssociatedTab,
@@ -94,8 +98,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   const { isDark: isSystemDark } = useSystemTheme();
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
-  const environmentValues = useContext(EnvironmentUrlContext);
-  const resolvedUrl = resolveEnvironmentUrl(tab.url, environmentValues).url || tab.url;
+  const resolvedUrl = tab.url;
   const [isLocallyPaused, setIsLocallyPaused] = useState(false);
 
   useEffect(() => {
@@ -149,6 +152,21 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
   };
 
+  const handleEditInRaindrop = () => {
+    if (
+      Number.isSafeInteger(raindropCollectionId) &&
+      (raindropCollectionId ?? 0) > 0 &&
+      Number.isSafeInteger(tab.raindropId) &&
+      (tab.raindropId ?? 0) > 0
+    ) {
+      window.open(
+        `https://app.raindrop.io/my/${raindropCollectionId}/item/${tab.raindropId}/edit`,
+        '_blank',
+        'noopener,noreferrer'
+      );
+    }
+  };
+
   const tabMenuItems: ActionDropdownItem[] = useMemo(() => {
     const items: ActionDropdownItem[] = [
       {
@@ -172,6 +190,21 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: tab.favourite ? 'Remove favourite' : 'Add to favourites',
         icon: <StarIcon size={14} filled={Boolean(tab.favourite)} color={tab.favourite ? '#eab308' : 'currentColor'} />,
         onClick: () => onToggleFavourite(tab.id),
+        dividerAfter: Boolean(onEdit || onDuplicate || onDelete),
+      });
+    }
+
+    if (
+      Number.isSafeInteger(raindropCollectionId) &&
+      (raindropCollectionId ?? 0) > 0 &&
+      Number.isSafeInteger(tab.raindropId) &&
+      (tab.raindropId ?? 0) > 0
+    ) {
+      items.push({
+        id: 'edit-in-raindrop',
+        label: 'Edit in Raindrop',
+        icon: <ExternalLinkIcon size={14} />,
+        onClick: handleEditInRaindrop,
         dividerAfter: Boolean(onEdit || onDuplicate || onDelete),
       });
     }
@@ -205,7 +238,18 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
 
     return items;
-  }, [copied, handleCopyUrl, handleOpenLink, tab, onToggleFavourite, onEdit, onDuplicate, onDelete]);
+  }, [
+    copied,
+    handleCopyUrl,
+    handleOpenLink,
+    handleEditInRaindrop,
+    raindropCollectionId,
+    tab,
+    onToggleFavourite,
+    onEdit,
+    onDuplicate,
+    onDelete,
+  ]);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.stopPropagation();
@@ -408,8 +452,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {tab.urlVariants!.map((v, idx) => {
-              const resolvedVariantUrl = resolveEnvironmentUrl(v.url, environmentValues).url || v.url;
-              const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, resolvedVariantUrl));
+              const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, v.url));
               return (
                 <button
                   key={v.id || idx}
@@ -430,7 +473,7 @@ export const TabRow: React.FC<TabRowProps> = ({
                       }
                     }
                   }}
-                  title={`${v.name}: ${resolvedVariantUrl}`}
+                  title={`${v.name}: ${v.url}`}
                   style={{
                     border: 'none',
                     borderRight:
@@ -469,7 +512,9 @@ export const TabRow: React.FC<TabRowProps> = ({
                     }
                   }}
                 >
-                  {v.name || 'Variant'}
+                  {compactVariantLabels
+                    ? (v.name || 'Variant').trim().charAt(0).toLocaleUpperCase()
+                    : v.name || 'Variant'}
                 </button>
               );
             })}

@@ -13,16 +13,10 @@ export interface TabUrlVariant {
   url: string;
 }
 
-export interface Environment {
-  id: string;
-  name: string;
-  values: Record<string, string>;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
 export interface Tab {
   id: string;
+  /** Remote identity only; `id` stays stable for extension tab associations. */
+  raindropId?: number;
   url: string;
   urlVariants?: TabUrlVariant[];
   defaultVariantId?: string;
@@ -40,8 +34,12 @@ export interface Tab {
 
 export interface Folder {
   id: string;
+  /** Remote identity only; `id` stays stable for local UI state. */
+  raindropId?: number;
   name: string;
   customEmojiIcon?: string;
+  /** The cover selected for the matching Raindrop collection. */
+  coverUrl?: string;
   colors?: string;         // Optional color hex or theme name
   parentFolderId?: string; // Optional: nested folder support (null/undefined if root in space)
   parentSpaceId: string;   // Required: parent space id
@@ -53,8 +51,12 @@ export interface Folder {
 
 export interface Space {
   id: string;
+  /** Remote identity only; `id` stays stable for local UI state. */
+  raindropId?: number;
   name: string;
   emojiIcon?: string;
+  /** The cover selected for the matching Raindrop collection. */
+  coverUrl?: string;
   colors?: string;         // Optional theme color or gradient
   order?: number;          // Optional: custom sorting order
   createdAt?: number;
@@ -121,6 +123,10 @@ export interface WorkspaceWidget {
 }
 
 export interface ArcableWorkspaceData {
+  /** Raindrop collection ID for the Arcable root; enables direct favourite mutations. */
+  raindropRootCollectionId?: number;
+  /** Current non-tree metadata file. Null means a fresh remote read confirmed it does not exist. */
+  raindropMetadataItemId?: number | null;
   spaces: Space[];
   folders: Folder[];
   tabs: Tab[];
@@ -128,8 +134,6 @@ export interface ArcableWorkspaceData {
   widgets?: WorkspaceWidget[];
   customCodeRules?: CustomCodeRule[];
   runCodeInPageRules?: RunCodeRule[];
-  environmentVariables?: string[];
-  environments?: Environment[];
   activeSpaceId: string;
   version?: number;
   devices?: Record<string, DeviceSyncRecord>;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Space, Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import {
@@ -16,6 +16,7 @@ import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
+import { SpaceIcon } from './SpaceIcon';
 import { FolderItem } from './FolderItem';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
@@ -118,6 +119,26 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
+  const [compactVariantLabels, setCompactVariantLabels] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    const updateCompactVariantLabels = (width: number) => {
+      setCompactVariantLabels(width < 300);
+    };
+
+    updateCompactVariantLabels(card.getBoundingClientRect().width);
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateCompactVariantLabels(entry.contentRect.width);
+    });
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
 
   const isControlled = controlledIsCollapsed !== undefined;
   const isCollapsed = isControlled ? controlledIsCollapsed : internalCollapsed;
@@ -173,6 +194,12 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     }
   };
 
+  const handleEditInRaindrop = () => {
+    if (Number.isSafeInteger(space.raindropId) && (space.raindropId ?? 0) > 0) {
+      window.open(`https://app.raindrop.io/my/${space.raindropId}`, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   // Filter items matching active search
   const filteredTabs = useMemo(() => {
     if (!activeSearch) return null;
@@ -221,6 +248,16 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       });
     }
 
+    if (Number.isSafeInteger(space.raindropId) && (space.raindropId ?? 0) > 0) {
+      items.push({
+        id: 'edit-in-raindrop',
+        label: 'Edit in Raindrop',
+        icon: <ExternalLinkIcon size={16} />,
+        onClick: handleEditInRaindrop,
+        dividerAfter: Boolean(onConvertSpace || onEditSpace || onDeleteSpace),
+      });
+    }
+
     if (onConvertSpace && allSpaces.length > 1) {
       items.push({
         id: 'convert-space',
@@ -256,6 +293,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     handleOpenAllTabs,
     onAddTab,
     onAddFolder,
+    space.raindropId,
+    handleEditInRaindrop,
     onConvertSpace,
     allSpaces.length,
     space,
@@ -266,6 +305,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   return (
     <div
       className="space-card"
+      ref={cardRef}
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}
       style={{
@@ -311,7 +351,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
               boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
             }}
           >
-            {space.emojiIcon || '📁'}
+            <SpaceIcon space={space} size={24} />
           </div>
 
           {/* Space Title */}
@@ -369,8 +409,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     <TabRow
                       key={t.id}
                       tab={t}
+                      raindropCollectionId={space.raindropId}
                       isDarkTheme={themeStyles.isDark}
                       compact={isSingleColumn}
+                      compactVariantLabels={compactVariantLabels}
                       alwaysShowActions={alwaysShowActions}
                       isAssociated={Boolean(assoc)}
                       isDiverted={Boolean(assoc?.isDiverted)}
@@ -415,6 +457,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         allTabs={allTabs}
                         isDarkTheme={themeStyles.isDark}
                         compact={isSingleColumn}
+                        compactVariantLabels={compactVariantLabels}
                         alwaysShowActions={alwaysShowActions}
                         tabAssociations={tabAssociations}
                         audibleTabs={audibleTabs}
@@ -459,8 +502,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     <TabRow
                       key={item.id}
                       tab={item.data}
+                      raindropCollectionId={space.raindropId}
                       isDarkTheme={themeStyles.isDark}
                       compact={isSingleColumn}
+                      compactVariantLabels={compactVariantLabels}
                       alwaysShowActions={alwaysShowActions}
                       isAssociated={Boolean(assoc)}
                       isDiverted={Boolean(assoc?.isDiverted)}

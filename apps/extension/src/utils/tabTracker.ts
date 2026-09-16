@@ -2,14 +2,12 @@ import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRec
 import {
   areUrlsMatching,
   normalizeUrl,
-  resolveEnvironmentUrl,
   extractTabNotificationBadge,
   getOrCreateDeviceId,
   getStoredDeviceName,
-  savePendingOperation,
-  createWorkspaceOperation,
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
+import { reconcileTmpTabs } from './tmpTabDiff';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
@@ -30,7 +28,6 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
-  private currentEnvironmentValues: Record<string, string> = {};
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
@@ -278,7 +275,10 @@ class TabTracker {
 
   // Save tmp tabs strictly to local storage
   private async saveTmpTabs(tmpTabs: TmpTab[]): Promise<void> {
-    memoryTmpTabs = [...tmpTabs];
+    const reconciled = reconcileTmpTabs(memoryTmpTabs, tmpTabs);
+    if (!reconciled.changed) return;
+
+    memoryTmpTabs = reconciled.tabs;
     this.notifyTmpTabs(memoryTmpTabs);
 
     try {
@@ -434,40 +434,22 @@ class TabTracker {
     }
     this.syncDebounceTimer = setTimeout(() => {
       this.syncDebounceTimer = null;
-      void this.syncWithWorkspace(this.currentWorkspaceTabs, this.currentEnvironmentValues);
+      void this.syncWithWorkspace(this.currentWorkspaceTabs);
     }, delayMs);
   }
 
-  /**
-   * Resolves the stored tab's URL template (and any of its urlVariants) against the active
-   * environment's variable values, then compares each to the browser tab's live URL as full
-   * URLs (including the search/query string) — so a divergence is only flagged when the
-   * current URL matches none of them, not just because the primary stored URL still contains
-   * an unresolved `{{variable}}` placeholder or because the tab was opened via a variant.
-   */
   private urlsMatchForDivergence(currentUrl: string, storedUrl: string, urlVariants?: TabUrlVariant[]): boolean {
     if (!currentUrl || !storedUrl) return false;
     const candidateUrls = [storedUrl, ...(urlVariants || []).map((v) => v.url)];
     return candidateUrls.some((candidate) => {
       if (!candidate) return false;
-      const resolved = resolveEnvironmentUrl(candidate, this.currentEnvironmentValues).url || candidate;
-      return normalizeUrl(currentUrl) === normalizeUrl(resolved);
+      return normalizeUrl(currentUrl) === normalizeUrl(candidate);
     });
   }
 
-  /**
-   * Updates the active environment's variable values and immediately re-syncs so
-   * divergence flags are recomputed right away, instead of using stale values until
-   * some unrelated tab/data change happens to trigger the next syncWithWorkspace call.
-   */
-  public async setEnvironmentValues(environmentValues: Record<string, string>): Promise<TabAssociationMap> {
-    return this.syncWithWorkspace(this.currentWorkspaceTabs, environmentValues);
-  }
-
-  public async syncWithWorkspace(workspaceTabs: Tab[], environmentValues?: Record<string, string>): Promise<TabAssociationMap> {
+  public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
     return this.runWithLock(async () => {
       this.currentWorkspaceTabs = workspaceTabs;
-      if (environmentValues !== undefined) this.currentEnvironmentValues = environmentValues;
       let allBrowserTabs: any[] = [];
       try {
         allBrowserTabs = await browser.tabs.query({});
@@ -782,13 +764,8 @@ class TabTracker {
         await browser.tabs.remove(browserTabId).catch(() => {});
         await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
-        const closedTab = currentTmpTabs.find((t) => t.browserTabId === browserTabId);
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
         await this.saveTmpTabs(updated);
-        if (closedTab) {
-          const devId = this.cachedDeviceId || getOrCreateDeviceId();
-          savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
-        }
       } catch (err) {
         console.warn('[TabTracker] Error closing tmp tab:', err);
       } finally {
@@ -1034,14 +1011,9 @@ class TabTracker {
           await this.removeTmpTabCustomTitle(tabId);
 
           const tmpTabs = await this.getTmpTabs();
-          const closedTab = tmpTabs.find((t) => t.browserTabId === tabId);
           const updatedTmp = tmpTabs.filter((t) => t.browserTabId !== tabId);
           if (updatedTmp.length !== tmpTabs.length) {
             await this.saveTmpTabs(updatedTmp);
-            if (closedTab) {
-              const devId = this.cachedDeviceId || getOrCreateDeviceId();
-              savePendingOperation(createWorkspaceOperation('TMP_TAB_DELETE', closedTab.id, undefined, devId));
-            }
           }
         });
       });

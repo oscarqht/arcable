@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
   getRaindropTokenFromEnv,
+  getDefaultDeviceName,
   syncWorkspaceWithRaindrop,
   fetchRaindropWorkspace,
 } from '@/lib/raindrop';
@@ -59,6 +60,10 @@ export async function POST(request: NextRequest) {
   try {
     const result = await syncWorkspaceWithRaindrop(token, {
       localState: body?.localState,
+      deviceId: body?.deviceId,
+      deviceName: body?.deviceName || getDefaultDeviceName('Web App'),
+      pendingOps: body?.pendingOps,
+      replaceBaseline: body?.replaceBaseline,
     });
 
     if (!result.success) {

@@ -180,7 +180,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
                   letterSpacing: '-0.01em',
                 }}
               >
-                Synced Open Tabs
+                Open Tabs
               </span>
               <span
                 style={{
@@ -202,7 +202,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
                 marginLeft: '24px',
               }}
             >
-              Open tabs synced across your connected devices. Click to open or save to workspace.
+              Tabs currently open in this browser. Click to open or save one to your workspace.
             </span>
           </div>
 
@@ -290,10 +290,10 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
           }}
         >
           <span style={{ fontSize: '13px', fontWeight: 600, color: effectiveDark ? '#cbd5e1' : '#334155' }}>
-            No active synced tabs from connected devices
+            No open tabs to show
           </span>
           <span style={{ fontSize: '12px', color: effectiveDark ? '#94a3b8' : '#64748b', maxWidth: '440px', lineHeight: 1.5 }}>
-            Tabs you open in the Arcable browser extension sync live across all your devices via Raindrop.
+            Open browser tabs stay on this device until you save them to your workspace.
           </span>
         </div>
       )}

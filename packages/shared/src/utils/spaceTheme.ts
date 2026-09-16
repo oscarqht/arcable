@@ -197,17 +197,6 @@ export const PRESET_GRADIENTS: PresetThemeItem[] = [
   },
 ];
 
-export const PRESET_SOLID_COLORS = [
-  '#f29bbb', // Blossom Pink
-  '#a6729e', // Purple Mauve
-  '#f25e6c', // Coral Red
-  '#ff8657', // Warm Orange
-  '#f8d558', // Sunny Yellow
-  '#33e895', // Mint Green
-  '#6dbad9', // Sky Blue
-  '#666789', // Slate Indigo
-];
-
 // Mapping of known solid presets to refined theme tokens
 const SOLID_PALETTE_MAP: Record<string, { primary: string; isDark: boolean; tokens: Omit<SpaceThemeTokens, 'containerBg' | 'primaryColor'> }> = {
   '#f29bbb': {

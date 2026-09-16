@@ -21,13 +21,7 @@ export type OperationType =
   | 'CUSTOM_CODE_DELETE'
   | 'RUN_CODE_CREATE'
   | 'RUN_CODE_UPDATE'
-  | 'RUN_CODE_DELETE'
-  | 'ENVIRONMENT_CREATE'
-  | 'ENVIRONMENT_UPDATE'
-  | 'ENVIRONMENT_DELETE'
-  | 'ENVIRONMENT_VARIABLE_CREATE'
-  | 'ENVIRONMENT_VARIABLE_RENAME'
-  | 'ENVIRONMENT_VARIABLE_DELETE';
+  | 'RUN_CODE_DELETE';
 
 export interface WorkspaceOperation {
   id: string;              // Unique operation ID (e.g. op_1700000000_abc)

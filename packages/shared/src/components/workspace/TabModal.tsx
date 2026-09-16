@@ -1,159 +1,39 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
-import { EmojiPicker } from '../EmojiPicker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
+import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
-// Finds a "/" that starts a run of word characters ending at `cursor`, treating it as a
-// variable-insertion trigger (e.g. typing "/api" after "/" suggests the "api" variable).
-// Returns null once the run is broken by a non-word character (so normal URL paths like
-// "/users/42" or "example.com" stop suggesting on their own).
-function findVariableTrigger(text: string, cursor: number): { start: number; query: string } | null {
-  let i = cursor - 1;
-  while (i >= 0 && /[A-Za-z0-9_]/.test(text[i])) i--;
-  if (i >= 0 && text[i] === '/') {
-    return { start: i, query: text.slice(i + 1, cursor) };
-  }
-  return null;
-}
-
-interface UrlVariableInputProps {
+interface UrlInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
-  variables: string[];
-  isDark: boolean;
   inputStyle: React.CSSProperties;
   required?: boolean;
   autoFocus?: boolean;
 }
 
-const UrlVariableInput: React.FC<UrlVariableInputProps> = ({
+const UrlInput: React.FC<UrlInputProps> = ({
   value,
   onChange,
   placeholder,
-  variables,
-  isDark,
   inputStyle,
   required,
   autoFocus,
 }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [trigger, setTrigger] = useState<{ start: number; query: string } | null>(null);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-
-  const matches = useMemo(() => {
-    if (!trigger) return [];
-    const q = trigger.query.toLowerCase();
-    return variables.filter((v) => v.toLowerCase().includes(q));
-  }, [trigger, variables]);
-
-  const isDropdownOpen = trigger !== null && matches.length > 0;
-
-  const updateTrigger = (text: string, cursor: number | null) => {
-    if (cursor === null) {
-      setTrigger(null);
-      return;
-    }
-    setTrigger(findVariableTrigger(text, cursor));
-    setHighlightedIndex(0);
-  };
-
-  const insertVariable = (name: string) => {
-    if (!trigger || !inputRef.current) return;
-    const cursor = inputRef.current.selectionStart ?? value.length;
-    const insertion = `{{${name}}}`;
-    const next = value.slice(0, trigger.start) + insertion + value.slice(cursor);
-    onChange(next);
-    setTrigger(null);
-    const nextCursor = trigger.start + insertion.length;
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  };
-
   return (
-    <div style={{ position: 'relative' }}>
       <input
-        ref={inputRef}
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={(e) => {
-          const cursor = e.target.selectionStart;
-          onChange(e.target.value);
-          updateTrigger(e.target.value, cursor);
-        }}
-        onKeyDown={(e) => {
-          if (!isDropdownOpen) return;
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setHighlightedIndex((i) => (i + 1) % matches.length);
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setHighlightedIndex((i) => (i - 1 + matches.length) % matches.length);
-          } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            insertVariable(matches[highlightedIndex]);
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            setTrigger(null);
-          }
-        }}
-        onBlur={() => setTrigger(null)}
+        onChange={(e) => onChange(e.target.value)}
         style={inputStyle}
         required={required}
         autoFocus={autoFocus}
       />
-      {isDropdownOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            marginTop: '4px',
-            backgroundColor: isDark ? '#1e293b' : '#ffffff',
-            border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
-            borderRadius: '6px',
-            boxShadow: isDark
-              ? '0 4px 6px -1px rgba(0, 0, 0, 0.4)'
-              : '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-            maxHeight: '160px',
-            overflowY: 'auto',
-            zIndex: 10000,
-          }}
-        >
-          {matches.map((name, index) => (
-            <button
-              key={name}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertVariable(name)}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 10px',
-                border: 'none',
-                background: index === highlightedIndex ? (isDark ? '#334155' : '#f1f5f9') : 'transparent',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '13px',
-                fontFamily: 'monospace',
-                cursor: 'pointer',
-              }}
-            >
-              {`{{${name}}}`}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 };
 
@@ -163,13 +43,14 @@ interface TabModalProps {
   tab?: Tab | null; // null/undefined for create, Tab for edit
   allFolders: Folder[];
   allSpaces: Space[];
-  environmentVariables?: string[];
   defaultSpaceId?: string;
   defaultFolderId?: string;
   initialUrl?: string;
   initialTitle?: string;
   initialPinned?: boolean;
   initialFavourite?: boolean;
+  raindropToken?: string;
+  onSearchCovers?: (query: string) => Promise<string[]>;
   onDelete?: (tabId: string) => void;
   onSave: (tabData: {
     url: string;
@@ -179,6 +60,7 @@ interface TabModalProps {
     parentFolderId?: string;
     customTitle?: string;
     customEmojiIcon?: string;
+    favIconUrl?: string;
     pinned?: boolean;
     favourite?: boolean;
   }) => void;
@@ -190,20 +72,25 @@ export const TabModal: React.FC<TabModalProps> = ({
   tab,
   allFolders,
   allSpaces,
-  environmentVariables,
   defaultSpaceId,
   defaultFolderId,
   initialUrl,
   initialTitle,
   initialPinned,
   initialFavourite,
+  raindropToken,
+  onSearchCovers,
   onDelete,
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
   const [url, setUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
-  const [customEmojiIcon, setCustomEmojiIcon] = useState('');
+  const [coverQuery, setCoverQuery] = useState('');
+  const [coverUrl, setCoverUrl] = useState<string | undefined>();
+  const [coverResults, setCoverResults] = useState<string[]>([]);
+  const [isSearchingCovers, setIsSearchingCovers] = useState(false);
+  const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
   const [favourite, setFavourite] = useState(false);
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
@@ -226,7 +113,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (tab) {
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
-        setCustomEmojiIcon(tab.customEmojiIcon || '');
+        setCoverQuery('');
+        setCoverUrl(tab.favIconUrl);
         setFavourite(Boolean(tab.favourite));
         setParentSpaceId(tab.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
@@ -243,7 +131,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       } else {
         setUrl(initialUrl || '');
         setCustomTitle(initialTitle || '');
-        setCustomEmojiIcon('');
+        setCoverQuery('');
+        setCoverUrl(undefined);
         setFavourite(Boolean(initialFavourite));
         setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
@@ -256,6 +145,40 @@ export const TabModal: React.FC<TabModalProps> = ({
     prevIsOpenRef.current = isOpen;
     prevTabIdRef.current = tab?.id;
   }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, allSpaces]);
+
+  useEffect(() => {
+    if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
+      setCoverResults([]);
+      setIsSearchingCovers(false);
+      setCoverSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearchingCovers(true);
+      try {
+        const results = onSearchCovers
+          ? await onSearchCovers(coverQuery)
+          : await searchRaindropCollectionCovers(raindropToken!, coverQuery);
+        if (!cancelled) {
+          setCoverResults(results.slice(0, 60));
+          setCoverSearchError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCoverResults([]);
+          setCoverSearchError('Could not search Raindrop covers. Try again shortly.');
+        }
+      } finally {
+        if (!cancelled) setIsSearchingCovers(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, raindropToken, onSearchCovers, coverQuery]);
 
   // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
   useEffect(() => {
@@ -365,7 +288,8 @@ export const TabModal: React.FC<TabModalProps> = ({
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,
-        customEmojiIcon: customEmojiIcon.trim() || undefined,
+        customEmojiIcon: undefined,
+        favIconUrl: coverUrl,
         pinned: false,
         favourite,
       });
@@ -383,7 +307,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       parentSpaceId: favourite ? undefined : parentSpaceId,
       parentFolderId: favourite ? undefined : parentFolderId || undefined,
       customTitle: customTitle.trim() || undefined,
-      customEmojiIcon: customEmojiIcon.trim() || undefined,
+      customEmojiIcon: undefined,
+      favIconUrl: coverUrl,
       pinned: false,
       favourite,
     });
@@ -469,12 +394,10 @@ export const TabModal: React.FC<TabModalProps> = ({
                   <span>+</span> Add Variant
                 </button>
               </div>
-              <UrlVariableInput
+              <UrlInput
                 value={url}
                 onChange={setUrl}
                 placeholder="https://example.com"
-                variables={environmentVariables || []}
-                isDark={isDark}
                 inputStyle={{
                   width: '100%',
                   padding: '9px 12px',
@@ -631,14 +554,12 @@ export const TabModal: React.FC<TabModalProps> = ({
 
                       {/* URL input */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <UrlVariableInput
+                        <UrlInput
                           value={v.url}
                           onChange={(val) => {
                             setVariants((prev) => prev.map((item) => (item.id === v.id ? { ...item, url: val } : item)));
                           }}
                           placeholder="https://example.com"
-                          variables={environmentVariables || []}
-                          isDark={isDark}
                           inputStyle={{
                             width: '100%',
                             padding: '7px 8px',
@@ -820,13 +741,32 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
           </div>
 
-          <EmojiPicker
-
-            value={customEmojiIcon}
-            onChange={setCustomEmojiIcon}
-            label="Custom Emoji Icon"
-            allowClear
-          />
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
+              Tab Cover
+            </label>
+            <input
+              type="search"
+              value={coverQuery}
+              onChange={(e) => setCoverQuery(e.target.value)}
+              placeholder="Search Raindrop covers"
+              disabled={!raindropToken && !onSearchCovers}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
+            />
+            {!raindropToken && !onSearchCovers ? (
+              <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search tab covers.</p>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop tab cover search results">
+                {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
+                {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
+                {!isSearchingCovers && coverResults.map((cover) => (
+                  <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this tab cover" aria-label="Use this tab cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
+                    <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
 
           <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
