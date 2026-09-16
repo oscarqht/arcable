@@ -119,7 +119,7 @@ function buildRunCodeHelperPrelude(backgroundFetchAvailable: boolean): string {
     '  const headers = new Headers(payload?.headers && typeof payload.headers === "object" ? payload.headers : {});',
     '  return {',
     '    ok: Boolean(payload?.ok),',
-    '    status: Number.isFinite(payload?.status) ? payload.status : 0;',
+    '    status: Number.isFinite(payload?.status) ? payload.status : 0,',
     '    statusText: typeof payload?.statusText === "string" ? payload.statusText : "",',
     '    url: typeof payload?.url === "string" ? payload.url : "",',
     '    redirected: Boolean(payload?.redirected),',
@@ -198,6 +198,24 @@ async function ensureManualUserScriptPermission(): Promise<void> {
   }
 }
 
+function getUserScriptExecutionError(results: unknown): string | undefined {
+  if (!Array.isArray(results)) return undefined;
+
+  for (const result of results) {
+    if (!result || typeof result !== 'object' || !('error' in result)) continue;
+
+    const error = (result as { error?: unknown }).error;
+    if (typeof error === 'string' && error) return error;
+    if (error && typeof error === 'object' && 'message' in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === 'string' && message) return message;
+    }
+    return String(error || 'The browser rejected the user script injection.');
+  }
+
+  return undefined;
+}
+
 /**
  * Execute manual code in CSP-exempt user script world.
  */
@@ -221,7 +239,7 @@ export async function executeManualUserCode(
 
   try {
     const backgroundFetchAvailable = await configureManualUserScriptWorld(userScripts);
-    await userScripts.execute({
+    const results = await userScripts.execute({
       target: { tabId },
       world: 'USER_SCRIPT',
       injectImmediately: true,
@@ -236,9 +254,13 @@ export async function executeManualUserCode(
         },
       ],
     });
+    const executionError = getUserScriptExecutionError(results);
+    if (executionError) {
+      throw new Error(executionError);
+    }
   } catch (err: any) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`${setupMessage} (Detail: ${detail})`);
+    throw new Error(`Arcable Run Code failed: ${detail}`);
   }
 }
 
