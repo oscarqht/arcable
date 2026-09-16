@@ -350,6 +350,8 @@ export function applyOperation(
   op: WorkspaceOperation
 ): ArcableWorkspaceData {
   const cloned: ArcableWorkspaceData = {
+    raindropRootCollectionId: state.raindropRootCollectionId,
+    raindropMetadataItemId: state.raindropMetadataItemId,
     spaces: [...state.spaces],
     folders: [...state.folders],
     tabs: [...state.tabs],
@@ -359,6 +361,7 @@ export function applyOperation(
     runCodeInPageRules: [...(state.runCodeInPageRules || [])],
     activeSpaceId: state.activeSpaceId,
     version: (state.version || 1) + 1,
+    devices: state.devices ? { ...state.devices } : undefined,
   };
 
   switch (op.type) {
@@ -779,6 +782,8 @@ export function replayOperations(
 ): ArcableWorkspaceData {
   const sorted = sortOperations(ops);
   let state: ArcableWorkspaceData = {
+    raindropRootCollectionId: baseline.raindropRootCollectionId,
+    raindropMetadataItemId: baseline.raindropMetadataItemId,
     spaces: [...baseline.spaces],
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],

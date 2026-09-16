@@ -67,6 +67,8 @@ export interface FavouriteTabsShelfProps {
   onRemoveWidget?: (id: string) => void;
   onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
+  /** Raindrop collection that contains global favourites. */
+  raindropRootCollectionId?: number;
   themeStyles?: SpaceThemeTokens;
 }
 
@@ -127,6 +129,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onRemoveWidget,
   onReorderFavouriteItem,
   onReorderFavouriteTabs,
+  raindropRootCollectionId,
   themeStyles,
 }) => {
   const { isDark } = useSystemTheme();
@@ -408,6 +411,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isHighlighted = highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
+            const canEditInRaindrop =
+              Number.isSafeInteger(raindropRootCollectionId) &&
+              (raindropRootCollectionId ?? 0) > 0 &&
+              Number.isSafeInteger(tab.raindropId) &&
+              (tab.raindropId ?? 0) > 0;
 
             const statusSuffix = isAssociated
               ? isHighlighted
@@ -477,8 +485,25 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 label: 'Remove from favourites',
                 icon: <StarIcon size={14} filled={true} color="#eab308" />,
                 onClick: () => onToggleFavouriteTab(tab.id),
-                dividerAfter: Boolean(onEditTab || onDuplicateTab || onDeleteTab),
+                dividerAfter: !canEditInRaindrop && Boolean(onEditTab || onDuplicateTab || onDeleteTab),
               },
+              ...(canEditInRaindrop
+                ? [
+                    {
+                      id: 'edit-in-raindrop',
+                      label: 'Edit in Raindrop',
+                      icon: <ExternalLinkIcon size={14} />,
+                      onClick: () => {
+                        window.open(
+                          `https://app.raindrop.io/my/${raindropRootCollectionId}/item/${tab.raindropId}/edit`,
+                          '_blank',
+                          'noopener,noreferrer'
+                        );
+                      },
+                      dividerAfter: Boolean(onEditTab || onDuplicateTab || onDeleteTab),
+                    },
+                  ]
+                : []),
               {
                 id: 'edit-tab',
                 label: 'Edit tab',

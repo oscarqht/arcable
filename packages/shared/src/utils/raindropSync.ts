@@ -715,6 +715,12 @@ const INCREMENTAL_OPERATION_TYPES = new Set([
   'WIDGET_CREATE',
   'WIDGET_UPDATE',
   'WIDGET_DELETE',
+  'CUSTOM_CODE_CREATE',
+  'CUSTOM_CODE_UPDATE',
+  'CUSTOM_CODE_DELETE',
+  'RUN_CODE_CREATE',
+  'RUN_CODE_UPDATE',
+  'RUN_CODE_DELETE',
 ]);
 
 function metadataFromWorkspace(workspace: ArcableWorkspaceData): ArcableMetadata {
@@ -724,6 +730,66 @@ function metadataFromWorkspace(workspace: ArcableWorkspaceData): ArcableMetadata
     customCodeRules: workspace.customCodeRules || [],
     runCodeInPageRules: workspace.runCodeInPageRules || [],
   };
+}
+
+/**
+ * Incremental writes require every affected parent to already have a Raindrop
+ * identity, or to be created earlier in this same operation batch. Check that
+ * invariant before issuing any request so recovery cannot leave partial writes.
+ */
+function needsIncrementalIdentityRebase(
+  localState: ArcableWorkspaceData | undefined,
+  pendingOps: WorkspaceOperation[] | undefined,
+  replaceBaseline: boolean | undefined
+): boolean {
+  if (
+    !localState ||
+    !pendingOps?.length ||
+    replaceBaseline ||
+    pendingOps.some((operation) => !INCREMENTAL_OPERATION_TYPES.has(operation.type))
+  ) return false;
+
+  const collectionIds = new Set<string>();
+  for (const collection of [...localState.spaces, ...localState.folders]) {
+    if (remoteEntityId(collection)) collectionIds.add(collection.id);
+  }
+
+  const folderGroups = new Map<string, WorkspaceOperation[]>();
+  for (const operation of pendingOps) {
+    if (!operation.type.startsWith('FOLDER_') || operation.type === 'FOLDER_DELETE') continue;
+    const operations = folderGroups.get(operation.entityId) || [];
+    operations.push(operation);
+    folderGroups.set(operation.entityId, operations);
+  }
+
+  const unresolvedFolders = new Map(folderGroups);
+  while (unresolvedFolders.size > 0) {
+    let progressed = false;
+    for (const [folderId, operations] of unresolvedFolders) {
+      const folder = localState.folders.find((candidate) => candidate.id === folderId);
+      if (!folder || !collectionIds.has(folder.parentFolderId || folder.parentSpaceId)) continue;
+      if (!operations.some((operation) => operation.type === 'FOLDER_CREATE') && !remoteEntityId(folder)) {
+        return true;
+      }
+      collectionIds.add(folderId);
+      unresolvedFolders.delete(folderId);
+      progressed = true;
+    }
+    if (!progressed) return true;
+  }
+
+  for (const operation of pendingOps) {
+    if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE') continue;
+    const tab = localState.tabs.find((candidate) => candidate.id === operation.entityId);
+    if (!tab) return true;
+    if (tab.favourite) {
+      if (!localState.raindropRootCollectionId) return true;
+    } else if (!collectionIds.has(tab.parentFolderId || tab.parentSpaceId || '')) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Applies folder/bookmark CRUD directly without reading or rebuilding the remote tree. */
@@ -740,9 +806,13 @@ export async function syncIncrementalOperations(
     pendingOps.some((operation) => !INCREMENTAL_OPERATION_TYPES.has(operation.type))
   ) return null;
 
-  const hasWidgetChanges = pendingOps.some((operation) => operation.type.startsWith('WIDGET_'));
+  const hasMetadataChanges = pendingOps.some((operation) =>
+    operation.type.startsWith('WIDGET_') ||
+    operation.type.startsWith('CUSTOM_CODE_') ||
+    operation.type.startsWith('RUN_CODE_')
+  );
   if (
-    hasWidgetChanges &&
+    hasMetadataChanges &&
     (!localState.raindropRootCollectionId || localState.raindropMetadataItemId === undefined)
   ) return null;
 
@@ -752,6 +822,8 @@ export async function syncIncrementalOperations(
       ? 'folder'
       : operation.type.startsWith('WIDGET_')
         ? 'widget'
+        : operation.type.startsWith('CUSTOM_CODE_') || operation.type.startsWith('RUN_CODE_')
+          ? 'metadata'
         : 'tab';
     const key = `${kind}:${operation.entityId}`;
     const entityOps = groups.get(key) || [];
@@ -913,7 +985,7 @@ export async function syncIncrementalOperations(
     if (!deleted) throw new Error(`Failed to delete Raindrop folder ${remoteId}.`);
   }
 
-  if (hasWidgetChanges) {
+  if (hasMetadataChanges) {
     const rootId = latestSnapshot.raindropRootCollectionId!;
     const previousMetadataItemId = latestSnapshot.raindropMetadataItemId;
     if (previousMetadataItemId) {
@@ -1222,9 +1294,10 @@ export async function syncWorkspaceWithRaindrop(
   }
 
   try {
-    const syncLocalState = options?.localState && options.identitySnapshot
+    let syncLocalState = options?.localState && options.identitySnapshot
       ? mergeIncrementalSyncSnapshot(options.localState, options.identitySnapshot)
       : options?.localState;
+    let authoritativeTree: RemoteArcableTree | undefined;
 
     // An explicitly empty outbox means there is nothing local to write. Refresh
     // from the Arcable subtree, but never delete/re-upload metadata merely to
@@ -1239,15 +1312,25 @@ export async function syncWorkspaceWithRaindrop(
       };
     }
 
-    const incrementalResult = await syncIncrementalOperations(
-      clean,
-      syncLocalState,
-      options?.pendingOps,
-      options?.replaceBaseline
-    );
-    if (incrementalResult) return incrementalResult;
+    if (needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {
+      authoritativeTree = await fetchRemoteArcableTree(clean);
+      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree);
+      if (authoritativeSnapshot && options?.pendingOps) {
+        syncLocalState = replayOperations(authoritativeSnapshot, options.pendingOps);
+      }
+    }
 
-    let tree = await fetchRemoteArcableTree(clean);
+    if (!needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {
+      const incrementalResult = await syncIncrementalOperations(
+        clean,
+        syncLocalState,
+        options?.pendingOps,
+        options?.replaceBaseline
+      );
+      if (incrementalResult) return incrementalResult;
+    }
+
+    let tree = authoritativeTree || await fetchRemoteArcableTree(clean);
     let root = tree.root;
     if (!root) root = await createRaindropCollection(clean, ARCABLE_COLLECTION_NAME);
     if (!root?._id) throw new Error('Failed to create root "Arcable" collection in Raindrop.');

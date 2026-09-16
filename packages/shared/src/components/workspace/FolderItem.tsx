@@ -30,6 +30,8 @@ export interface FolderItemProps {
   depth?: number;
   isDarkTheme?: boolean;
   compact?: boolean;
+  /** Use single-letter variant labels when the containing space is narrow. */
+  compactVariantLabels?: boolean;
   alwaysShowActions?: boolean;
   tabAssociations?: TabAssociationMap;
   audibleTabs?: AudibleTab[];
@@ -69,6 +71,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   depth = 0,
   isDarkTheme,
   compact = false,
+  compactVariantLabels = false,
   alwaysShowActions = false,
   tabAssociations,
   audibleTabs,
@@ -350,6 +353,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
   };
 
+  const handleEditInRaindrop = () => {
+    if (Number.isSafeInteger(folder.raindropId) && (folder.raindropId ?? 0) > 0) {
+      window.open(`https://app.raindrop.io/my/${folder.raindropId}`, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const folderMenuItems: ActionDropdownItem[] = useMemo(() => {
     const items: ActionDropdownItem[] = [
       {
@@ -386,6 +395,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       },
     ];
 
+    if (Number.isSafeInteger(folder.raindropId) && (folder.raindropId ?? 0) > 0) {
+      items.push({
+        id: 'edit-in-raindrop',
+        label: 'Edit in Raindrop',
+        icon: <ExternalLinkIcon size={14} />,
+        onClick: handleEditInRaindrop,
+        dividerAfter: Boolean(onDeleteFolder),
+      });
+    }
+
     if (onDeleteFolder) {
       items.push({
         id: 'delete-folder',
@@ -404,6 +423,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     handleOpenFolder,
     onAddTabInFolder,
     folder,
+    folder.raindropId,
+    handleEditInRaindrop,
     onAddSubFolder,
     onEditFolder,
     onDeleteFolder,
@@ -800,7 +821,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                               if (!isMatch) e.currentTarget.style.backgroundColor = 'transparent';
                             }}
                           >
-                            {variant.name || 'Variant'}
+                            {compactVariantLabels
+                              ? (variant.name || 'Variant').trim().charAt(0).toLocaleUpperCase()
+                              : variant.name || 'Variant'}
                           </button>
                         );
                       })}
@@ -1034,6 +1057,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   depth={depth + 1}
                   isDarkTheme={effectiveDark}
                   compact={compact}
+                  compactVariantLabels={compactVariantLabels}
                   alwaysShowActions={alwaysShowActions}
                   tabAssociations={tabAssociations}
                   audibleTabs={audibleTabs}
@@ -1078,8 +1102,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <TabRow
                 key={item.id}
                 tab={item.data}
+                raindropCollectionId={folder.raindropId}
                 isDarkTheme={effectiveDark}
                 compact={compact}
+                compactVariantLabels={compactVariantLabels}
                 alwaysShowActions={alwaysShowActions}
                 isAssociated={Boolean(assoc)}
                 isDiverted={Boolean(assoc?.isDiverted)}

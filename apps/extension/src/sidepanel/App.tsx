@@ -19,6 +19,7 @@ import {
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
+import { shouldPersistSidepanelSpaceId } from './spaceSelection';
 
 export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
 
@@ -32,11 +33,16 @@ export function getStoredLastSpaceId(): string | null {
 }
 
 export function setStoredLastSpaceId(spaceId: string): void {
+  let shouldPersist = true;
   if (typeof window !== 'undefined') {
     try {
+      const previousSpaceId = window.localStorage.getItem(SIDEPANEL_LAST_SPACE_KEY);
+      shouldPersist = shouldPersistSidepanelSpaceId(previousSpaceId, spaceId);
+      if (!shouldPersist) return;
       window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, spaceId);
     } catch {}
   }
+  if (!shouldPersist) return;
   try {
     void browser.storage.local.set({ [SIDEPANEL_LAST_SPACE_KEY]: spaceId });
   } catch {}
@@ -294,7 +300,6 @@ export const App: React.FC = () => {
               const workspace = JSON.parse(raw);
               const resolvedId = resolveSidepanelActiveSpaceId(workspace.spaces, newId, workspace.activeSpaceId);
               if (resolvedId) {
-                setStoredLastSpaceId(resolvedId);
                 workspaceRef.current?.setActiveSpace?.(resolvedId);
               }
             }

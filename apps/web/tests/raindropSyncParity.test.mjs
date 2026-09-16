@@ -16,6 +16,8 @@ assert.match(page, /deviceName:\s*getStoredDeviceName\([^)]*['"]Web App['"]/,
   'web sync requests must identify the web device');
 assert.match(page, /pendingOps:\s*\[\][\s\S]*replaceBaseline:\s*true/,
   'web restores must replace the Raindrop baseline instead of merging stale history');
+assert.match(page, /setIsSyncing\(true\)[\s\S]*handleFetchWorkspace\(\)[\s\S]*\.finally\(\(\)\s*=>\s*\{\s*setIsSyncing\(false\)/,
+  'page-load Raindrop hydration must expose its in-progress state to the header');
 
 assert.match(route, /deviceId:\s*body\?\.deviceId/,
   'the route must forward the web device ID to the shared sync engine');

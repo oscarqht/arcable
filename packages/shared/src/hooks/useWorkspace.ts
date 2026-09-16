@@ -202,6 +202,8 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       : (sorted[0]?.id || '');
 
     const initial: ArcableWorkspaceData = {
+      raindropRootCollectionId: parsed.raindropRootCollectionId,
+      raindropMetadataItemId: parsed.raindropMetadataItemId,
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
         const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);

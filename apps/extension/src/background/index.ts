@@ -359,6 +359,8 @@ browser.runtime.onMessage.addListener(
           if (result.success && result.data) {
             await browser.storage.local.set({
               arcable_workspace_snapshot: result.data,
+              [CUSTOM_CODE_STORAGE_KEY]: result.data.customCodeRules || [],
+              [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.data.runCodeInPageRules || [],
               arcable_last_synced_at: Date.now(),
             });
           }
@@ -395,8 +397,8 @@ browser.runtime.onMessage.addListener(
           ]);
           const localTmp = (stored.arcable_tmp_tabs as TmpTab[]) || [];
           const identitySnapshot = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
-          const localCustomRules = (stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
-          const localRunRules = (stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+          const localCustomRules = stored[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[] | undefined;
+          const localRunRules = stored[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[] | undefined;
           const storedPendingOps = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
 
           // Merge payload pending ops with stored pending ops first, so we
@@ -439,8 +441,12 @@ browser.runtime.onMessage.addListener(
             stateToSync = {
               ...stateToSync,
               tmpTabs: taggedTmp.length > 0 ? taggedTmp : filteredStateTmpTabs,
-              customCodeRules: stateToSync.customCodeRules || localCustomRules,
-              runCodeInPageRules: stateToSync.runCodeInPageRules || localRunRules,
+              // Rules are edited in dedicated extension storage. A present empty
+              // array is meaningful (it represents deletion), so use nullish
+              // fallback rather than truthiness and never let a stale snapshot
+              // hide current rule content.
+              customCodeRules: localCustomRules ?? stateToSync.customCodeRules ?? [],
+              runCodeInPageRules: localRunRules ?? stateToSync.runCodeInPageRules ?? [],
             };
           } else {
             stateToSync = {
@@ -450,8 +456,8 @@ browser.runtime.onMessage.addListener(
               folders: [],
               tabs: [],
               tmpTabs: taggedTmp,
-              customCodeRules: localCustomRules,
-              runCodeInPageRules: localRunRules,
+              customCodeRules: localCustomRules || [],
+              runCodeInPageRules: localRunRules || [],
             };
           }
 
@@ -729,8 +735,8 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
     ]);
     let localState = storedData.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
     const localTmpTabs = (storedData.arcable_tmp_tabs as TmpTab[]) || [];
-    const localCustomRules = (storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[]) || [];
-    const localRunRules = (storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[]) || [];
+    const localCustomRules = storedData[CUSTOM_CODE_STORAGE_KEY] as CustomCodeRule[] | undefined;
+    const localRunRules = storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[] | undefined;
     const pendingOps = (storedData.arcable_pending_ops as WorkspaceOperation[]) || [];
     if (pendingOpsRequired && pendingOps.length === 0) return;
     const syncedOpIds = new Set(pendingOps.map((op) => op.id));
@@ -749,8 +755,8 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
       localState = {
         ...localState,
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localState.customCodeRules || localCustomRules,
-        runCodeInPageRules: localState.runCodeInPageRules || localRunRules,
+        customCodeRules: localCustomRules ?? localState.customCodeRules ?? [],
+        runCodeInPageRules: localRunRules ?? localState.runCodeInPageRules ?? [],
       };
     } else {
       localState = {
@@ -760,8 +766,8 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
         folders: [],
         tabs: [],
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localCustomRules,
-        runCodeInPageRules: localRunRules,
+        customCodeRules: localCustomRules || [],
+        runCodeInPageRules: localRunRules || [],
       };
     }
 

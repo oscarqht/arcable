@@ -125,6 +125,7 @@ export default function HomePage() {
     if (hasAutoFetchedRef.current) return;
     hasAutoFetchedRef.current = true;
 
+    setIsSyncing(true);
     void handleFetchWorkspace()
       .then((res) => {
         if (res?.success && res.data && workspaceRef.current?.applySnapshot) {
@@ -136,6 +137,9 @@ export default function HomePage() {
       })
       .catch((err) => {
         console.warn('[Arcable] Auto-fetch on page load error:', err);
+      })
+      .finally(() => {
+        setIsSyncing(false);
       });
   }, [authState.isAuthenticated, handleFetchWorkspace]);
 

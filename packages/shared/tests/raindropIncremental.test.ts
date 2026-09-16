@@ -1,6 +1,6 @@
 import { syncIncrementalOperations, syncWorkspaceWithRaindrop } from '../src/utils/raindropSync';
 import { fetchAllRaindropItems } from '../src/utils/raindropClient';
-import { mergeIncrementalSyncSnapshot } from '../src/utils/syncEngine';
+import { mergeIncrementalSyncSnapshot, replayOperations } from '../src/utils/syncEngine';
 import type { ArcableWorkspaceData } from '../src/types/workspace';
 import type { WorkspaceOperation } from '../src/types/sync';
 
@@ -10,10 +10,15 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const calls: Array<{ url: string; method: string; body?: any; cache?: RequestCache; headers?: Headers }> = [];
 let nextId = 100;
+let remoteChildren: any[] = [];
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const method = init?.method || 'GET';
-  const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+  const body = typeof init?.body === 'string'
+    ? JSON.parse(init.body)
+    : init?.body instanceof FormData
+      ? { file: await (init.body.get('file') as Blob).text() }
+      : undefined;
   calls.push({
     url,
     method,
@@ -30,7 +35,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (pathname.endsWith('/collections/childrens')) {
-      return new Response(JSON.stringify({ items: [] }), {
+      return new Response(JSON.stringify({ items: remoteChildren }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -197,6 +202,42 @@ assert(calls.every((call) => call.method !== 'GET'), 'favourite widget changes s
 assert(widgetUpdate.latestSnapshot?.raindropMetadataItemId === 105, 'widget sync should retain the replacement metadata item ID');
 
 calls.length = 0;
+const codeRulesState: ArcableWorkspaceData = {
+  ...base,
+  raindropMetadataItemId: 105,
+  customCodeRules: [{
+    id: 'custom-rule',
+    pattern: '*://example.com/*',
+    css: 'body { color: red; }',
+    js: 'window.customRuleRan = true;',
+  }],
+  runCodeInPageRules: [{
+    id: 'run-rule',
+    title: 'Run example code',
+    patterns: ['*://example.com/*'],
+    code: 'window.runRuleRan = true;',
+  }],
+};
+const codeRulesUpdate = await syncIncrementalOperations(
+  'token',
+  codeRulesState,
+  [
+    operation('CUSTOM_CODE_CREATE', 'custom-rule', codeRulesState.customCodeRules[0]),
+    operation('RUN_CODE_CREATE', 'run-rule', codeRulesState.runCodeInPageRules[0]),
+  ],
+  false
+);
+assert(codeRulesUpdate?.success, 'custom JS/CSS and Run Code edits should use incremental metadata sync');
+assert(calls.length === 2, 'code rule edits should replace only the metadata item without a full-tree fetch');
+assert(calls[0].method === 'DELETE' && calls[0].url.endsWith('/raindrops/1'), 'code rule sync should remove the previous metadata item');
+assert(calls[1].method === 'PUT' && calls[1].url.endsWith('/raindrop/file'), 'code rule sync should upload metadata');
+const uploadedCodeMetadata = JSON.parse(calls[1].body.file as string);
+assert(uploadedCodeMetadata.customCodeRules[0].js === 'window.customRuleRan = true;', 'custom JavaScript content should be uploaded');
+assert(uploadedCodeMetadata.customCodeRules[0].css === 'body { color: red; }', 'custom CSS content should be uploaded');
+assert(uploadedCodeMetadata.runCodeInPageRules[0].code === 'window.runRuleRan = true;', 'Run Code content should be uploaded');
+assert(calls.every((call) => call.method !== 'GET'), 'code rule changes should not fetch the full workspace');
+
+calls.length = 0;
 const mixedFavouriteState: ArcableWorkspaceData = {
   ...widgetState,
   raindropMetadataItemId: 105,
@@ -262,6 +303,23 @@ assert(reloadCacheKeys.every(Boolean), 'every authoritative reload request shoul
 assert(new Set(reloadCacheKeys).size === 1, 'one reload should use a consistent cache key for its complete tree snapshot');
 assert(calls.every((call) => call.cache === 'no-store'), 'authoritative reload requests should bypass browser cache');
 
+calls.length = 0;
+remoteChildren = [{ _id: 10, title: 'Remote space', parent: { $id: 1 }, sort: 0 }];
+const staleParentSync = await syncWorkspaceWithRaindrop('token', {
+  localState: {
+    ...base,
+    spaces: [{ id: 'space_personal', name: 'Stale local space' }],
+    tabs: [{ id: 'tab-stale-parent', url: 'https://stale-parent.example.com', pinned: false, parentSpaceId: 'space_personal' }],
+  },
+  identitySnapshot: base,
+  pendingOps: [operation('TAB_CREATE', 'tab-stale-parent', { parentSpaceId: 'space_personal' })],
+});
+assert(staleParentSync.success, 'a stale local parent should rebase onto the authoritative Raindrop tree');
+const staleParentCreate = calls.find((call) => call.method === 'POST' && call.url.endsWith('/raindrops'));
+assert(staleParentCreate?.body.items[0].collection.$id === 10, 'the rebased bookmark should use the existing remote space rather than creating a duplicate');
+assert(staleParentSync.latestSnapshot?.tabs[0].parentSpaceId === '10', 'the result should retain the authoritative parent identity');
+remoteChildren = [];
+
 const firstCreatedTab = { ...bookmarkState.tabs[0], raindropId: 501 };
 const laterCreatedTab = {
   id: 'tab-created-while-syncing',
@@ -281,6 +339,8 @@ const reconciledAfterSync = mergeIncrementalSyncSnapshot(currentOptimisticState,
 assert(reconciledAfterSync.tabs.length === 2, 'incremental sync completion must not remove bookmarks created while the request was in flight');
 assert(reconciledAfterSync.tabs[0].raindropId === 501, 'incremental sync completion should retain the returned Raindrop ID');
 assert(reconciledAfterSync.tabs.some((tab) => tab.id === laterCreatedTab.id), 'newer optimistic bookmarks should remain visible locally');
+const replayedWithIdentity = replayOperations(base, [operation('TAB_CREATE', 'tab-replayed', { parentSpaceId: 'space-local' })]);
+assert(replayedWithIdentity.raindropRootCollectionId === 1, 'replaying pending operations must preserve the Raindrop root identity');
 
 console.log('Raindrop incremental sync tests passed.');
 }

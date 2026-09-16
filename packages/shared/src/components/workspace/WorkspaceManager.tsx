@@ -1577,6 +1577,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
+        raindropRootCollectionId={data.raindropRootCollectionId}
       />
 
       {/* Raindrop Search Input & Filter with Inline Results */}
