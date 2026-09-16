@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
@@ -91,8 +92,9 @@ export const TabModal: React.FC<TabModalProps> = ({
   const [coverResults, setCoverResults] = useState<string[]>([]);
   const [isSearchingCovers, setIsSearchingCovers] = useState(false);
   const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
+  const orderedSpaces = useMemo(() => getSortedSpaces(allSpaces), [allSpaces]);
   const [favourite, setFavourite] = useState(false);
-  const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
+  const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || orderedSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultFolderId || '');
 
   // Variants state
@@ -116,7 +118,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         setCoverQuery('');
         setCoverUrl(tab.favIconUrl);
         setFavourite(Boolean(tab.favourite));
-        setParentSpaceId(tab.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(tab.parentSpaceId || defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
 
         if (tab.urlVariants && tab.urlVariants.length > 0) {
@@ -134,7 +136,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         setCoverQuery('');
         setCoverUrl(undefined);
         setFavourite(Boolean(initialFavourite));
-        setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
         setShowVariants(false);
         setVariants([]);
@@ -144,7 +146,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
     prevIsOpenRef.current = isOpen;
     prevTabIdRef.current = tab?.id;
-  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, allSpaces]);
+  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, orderedSpaces]);
 
   useEffect(() => {
     if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
@@ -183,11 +185,11 @@ export const TabModal: React.FC<TabModalProps> = ({
   // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
   useEffect(() => {
     if (!isOpen) return;
-    if (!favourite && parentSpaceId && allSpaces.length > 0 && !allSpaces.some((s) => s.id === parentSpaceId)) {
-      setParentSpaceId(allSpaces[0].id);
+    if (!favourite && parentSpaceId && orderedSpaces.length > 0 && !orderedSpaces.some((s) => s.id === parentSpaceId)) {
+      setParentSpaceId(orderedSpaces[0].id);
       setParentFolderId('');
     }
-  }, [isOpen, favourite, parentSpaceId, allSpaces]);
+  }, [isOpen, favourite, parentSpaceId, orderedSpaces]);
 
   // Available folders in selected space
   const spaceFolders = useMemo(() => {
@@ -703,7 +705,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                {allSpaces.map((s) => (
+                {orderedSpaces.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.emojiIcon ? `${s.emojiIcon} ` : ''}{s.name}
                   </option>

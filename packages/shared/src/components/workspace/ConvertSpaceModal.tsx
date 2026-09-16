@@ -5,6 +5,7 @@ import { Space, Folder } from '../../types/workspace';
 import { Button } from '../Button';
 import { FolderInputIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 
 export interface ConvertSpaceModalProps {
@@ -26,10 +27,10 @@ export const ConvertSpaceModal: React.FC<ConvertSpaceModalProps> = ({
 }) => {
   const { isDark } = useSystemTheme();
 
-  // Available destination spaces (all except the space being converted)
+  // Available destination spaces (all except the space being converted, sorted by user arrange order)
   const destinationSpaces = useMemo(() => {
     if (!space) return [];
-    return allSpaces.filter((s) => s.id !== space.id);
+    return getSortedSpaces(allSpaces).filter((s) => s.id !== space.id);
   }, [allSpaces, space]);
 
   const [targetSpaceId, setTargetSpaceId] = useState('');

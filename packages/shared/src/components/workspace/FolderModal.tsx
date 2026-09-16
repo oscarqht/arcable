@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Folder, Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 
@@ -41,8 +42,9 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
+  const orderedSpaces = useMemo(() => getSortedSpaces(allSpaces), [allSpaces]);
   const [name, setName] = useState('');
-  const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || allSpaces[0]?.id || '');
+  const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || orderedSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
   const [coverQuery, setCoverQuery] = useState('');
   const [coverUrl, setCoverUrl] = useState<string | undefined>();
@@ -60,13 +62,13 @@ export const FolderModal: React.FC<FolderModalProps> = ({
     if (isNewlyOpened || folderChanged) {
       if (folder) {
         setName(folder.name || '');
-        setParentSpaceId(folder.parentSpaceId || defaultSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(folder.parentSpaceId || defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(folder.parentFolderId || '');
         setCoverQuery('');
         setCoverUrl(folder.coverUrl);
       } else {
         setName('');
-        setParentSpaceId(defaultSpaceId || allSpaces[0]?.id || '');
+        setParentSpaceId(defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(defaultParentFolderId || '');
         setCoverQuery('');
         setCoverUrl(undefined);
@@ -75,7 +77,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
     prevIsOpenRef.current = isOpen;
     prevFolderIdRef.current = folder?.id;
-  }, [isOpen, folder, defaultSpaceId, defaultParentFolderId, allSpaces]);
+  }, [isOpen, folder, defaultSpaceId, defaultParentFolderId, orderedSpaces]);
 
   useEffect(() => {
     if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
@@ -113,11 +115,11 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   // If the selected space was deleted remotely while modal is open, fallback parentSpaceId gracefully without resetting other fields
   useEffect(() => {
     if (!isOpen) return;
-    if (parentSpaceId && allSpaces.length > 0 && !allSpaces.some((s) => s.id === parentSpaceId)) {
-      setParentSpaceId(allSpaces[0].id);
+    if (parentSpaceId && orderedSpaces.length > 0 && !orderedSpaces.some((s) => s.id === parentSpaceId)) {
+      setParentSpaceId(orderedSpaces[0].id);
       setParentFolderId('');
     }
-  }, [isOpen, parentSpaceId, allSpaces]);
+  }, [isOpen, parentSpaceId, orderedSpaces]);
 
   // Compute invalid parent folder IDs (self and all descendants to prevent cycles)
   const invalidParentFolderIds = useMemo(() => {
@@ -257,7 +259,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   boxSizing: 'border-box',
                 }}
               >
-                {allSpaces.map((s) => (
+                {orderedSpaces.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.emojiIcon ? `${s.emojiIcon} ` : ''}{s.name}
                   </option>

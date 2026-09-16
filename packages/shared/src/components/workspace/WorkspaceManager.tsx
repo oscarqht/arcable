@@ -2630,7 +2630,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setConvertingSpace(null);
         }}
         space={convertingSpace}
-        allSpaces={data.spaces}
+        allSpaces={sortedSpaces}
         allFolders={data.folders}
         onConvert={(sourceSpaceId, targetSpaceId, targetParentFolderId) => {
           convertSpaceToFolder(sourceSpaceId, targetSpaceId, targetParentFolderId);
@@ -2645,7 +2645,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }}
         folder={editingFolder}
         allFolders={data.folders}
-        allSpaces={data.spaces}
+        allSpaces={sortedSpaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultParentFolderId={defaultFolderParentId}
         raindropToken={raindropToken}
@@ -2669,7 +2669,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         }}
         tab={editingTab}
         allFolders={data.folders}
-        allSpaces={data.spaces}
+        allSpaces={sortedSpaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}
         defaultFolderId={defaultTabFolderId}
         initialUrl={initialTabUrl}
