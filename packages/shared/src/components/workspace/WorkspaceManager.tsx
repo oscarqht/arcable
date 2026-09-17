@@ -34,7 +34,7 @@ import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
 import { cleanUrl } from '../../utils/format';
-import { getDomain } from '../../utils/treeUtils';
+import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -262,6 +262,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       ? [...sortedSpaces, virtualSyncedSpace]
       : sortedSpaces;
   }, [showOpenTabsVirtualSpace, sortedSpaces, virtualSyncedSpace]);
+
+  // Counts of currently opened tabs per space (excluding favourites and tmp tabs)
+  const spaceOpenTabCounts = useMemo(() => {
+    return getSpaceOpenTabCounts(
+      sortedSpaces,
+      data.folders,
+      data.tabs,
+      tabAssociations,
+      highlightedTabId
+    );
+  }, [sortedSpaces, data.folders, data.tabs, tabAssociations, highlightedTabId]);
 
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
@@ -1982,6 +1993,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               const spaceTheme = getSpaceThemeStyles(space.colors, isDark);
               const primaryColor = spaceTheme.primaryColor;
               const isDragTarget = dragOverSpaceId === space.id;
+              const openedCount = spaceOpenTabCounts[space.id] || 0;
 
               return (
                 <div
@@ -2020,10 +2032,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     boxShadow: isActive ? (spaceTheme.containerBg.includes('gradient') ? '0 2px 8px rgba(0,0,0,0.15)' : `0 2px 8px ${primaryColor}40`) : 'none',
                     userSelect: 'none',
                   }}
-                  title={`${space.name} (Click to select, drag to reorder)`}
+                  title={`${space.name}${openedCount > 0 ? ` (${openedCount} open)` : ''} (Click to select, drag to reorder)`}
                 >
                   <SpaceIcon space={space} size={16} />
                   <span>{space.name}</span>
+
+                  {openedCount > 0 && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: isActive ? spaceTheme.badgeBg : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                        color: isActive ? spaceTheme.badgeText : (isDark ? '#94a3b8' : '#64748b'),
+                        fontWeight: 600,
+                      }}
+                    >
+                      {openedCount > 99 ? '99+' : openedCount}
+                    </span>
+                  )}
 
                   {isActive && (
                     <div
@@ -2599,6 +2626,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             const isActive = space.id === activeSpace?.id;
             const primaryColor = getSpacePrimaryColor(space.colors);
             const isDragTarget = dragOverSpaceId === space.id;
+            const openedCount = spaceOpenTabCounts[space.id] || 0;
 
             let boxShadow = 'none';
             if (isDragTarget) {
@@ -2628,8 +2656,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 onDrop={(e) => handleSpaceDrop(e, space.id)}
                 onDragEnd={handleSpaceDragEnd}
                 onClick={() => setActiveSpace(space.id)}
-                title={`${space.name} (Click to select, drag to reorder)`}
-                aria-label={space.name}
+                title={`${space.name}${openedCount > 0 ? ` (${openedCount} open)` : ''} (Click to select, drag to reorder)`}
+                aria-label={`${space.name}${openedCount > 0 ? `, ${openedCount} open tabs` : ''}`}
                 style={{
                   WebkitAppearance: 'none',
                   appearance: 'none',
@@ -2659,6 +2687,38 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1 }}>
                   <SpaceIcon space={space} size={16} />
                 </span>
+
+                {openedCount > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-3px',
+                      right: '-3px',
+                      backgroundColor: primaryColor || (isDark ? '#38bdf8' : '#0284c7'),
+                      color: '#ffffff',
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      minWidth: '15px',
+                      height: '15px',
+                      borderRadius: '9999px',
+                      padding: '0 3px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+                      border: `1.5px solid ${isDark ? '#151e2e' : '#ffffff'}`,
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                      boxSizing: 'border-box',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {openedCount > 99 ? '99+' : openedCount}
+                  </span>
+                )}
+
                 {isActive && (
                   <span
                     style={{
