@@ -347,6 +347,55 @@ assert(reconciledAfterSync.tabs.some((tab) => tab.id === laterCreatedTab.id), 'n
 const replayedWithIdentity = replayOperations(base, [operation('TAB_CREATE', 'tab-replayed', { parentSpaceId: 'space-local' })]);
 assert(replayedWithIdentity.raindropRootCollectionId === 1, 'replaying pending operations must preserve the Raindrop root identity');
 
+// --- Tab Reordering Sync Verification ---
+calls.length = 0;
+const reorderTabsState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [
+    { id: 'tab-3', raindropId: 303, url: 'https://three.com', parentSpaceId: 'space-local', order: 1000 },
+    { id: 'tab-1', raindropId: 301, url: 'https://one.com', parentSpaceId: 'space-local', order: 2000 },
+    { id: 'tab-2', raindropId: 302, url: 'https://two.com', parentSpaceId: 'space-local', order: 3000 },
+  ],
+};
+const tabReorderOps = [
+  operation('TAB_UPDATE', 'tab-1', { order: 2000 }),
+  operation('TAB_UPDATE', 'tab-2', { order: 3000 }),
+  operation('TAB_UPDATE', 'tab-3', { order: 1000 }),
+];
+const tabReorderSync = await syncIncrementalOperations('token', reorderTabsState, tabReorderOps, false);
+assert(tabReorderSync?.success, 'tab reorder incremental sync should succeed');
+const tabPutCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/raindrop/'));
+assert(tabPutCalls.length === 3, 'should make 3 PUT calls for 3 reordered tabs');
+// Verify calls were executed in ascending targetOrder (0, 1, 2)
+assert(tabPutCalls[0].url.endsWith('/303'), 'first update call should be for tab-3 (index 0)');
+assert(tabPutCalls[0].body.order === 0 && tabPutCalls[0].body.sort === 0, 'tab-3 should receive 0-based index 0 for order and sort');
+assert(tabPutCalls[1].url.endsWith('/301'), 'second update call should be for tab-1 (index 1)');
+assert(tabPutCalls[1].body.order === 1 && tabPutCalls[1].body.sort === 1, 'tab-1 should receive 0-based index 1 for order and sort');
+assert(tabPutCalls[2].url.endsWith('/302'), 'third update call should be for tab-2 (index 2)');
+assert(tabPutCalls[2].body.order === 2 && tabPutCalls[2].body.sort === 2, 'tab-2 should receive 0-based index 2 for order and sort');
+
+// --- Folder Reordering Sync Verification ---
+calls.length = 0;
+const reorderFoldersState: ArcableWorkspaceData = {
+  ...base,
+  folders: [
+    { id: 'folder-b', raindropId: 202, name: 'Folder B', parentSpaceId: 'space-local', order: 1000 },
+    { id: 'folder-a', raindropId: 201, name: 'Folder A', parentSpaceId: 'space-local', order: 2000 },
+  ],
+};
+const folderReorderOps = [
+  operation('FOLDER_UPDATE', 'folder-a', { order: 2000 }),
+  operation('FOLDER_UPDATE', 'folder-b', { order: 1000 }),
+];
+const folderReorderSync = await syncIncrementalOperations('token', reorderFoldersState, folderReorderOps, false);
+assert(folderReorderSync?.success, 'folder reorder incremental sync should succeed');
+const folderPutCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/collection/'));
+assert(folderPutCalls.length === 2, 'should make 2 PUT calls for 2 reordered folders');
+const callFolderB = folderPutCalls.find((c) => c.url.endsWith('/202'));
+const callFolderA = folderPutCalls.find((c) => c.url.endsWith('/201'));
+assert(callFolderB && callFolderB.body.order === 0 && callFolderB.body.sort === 0, 'folder-b should receive 0-based index 0 for order and sort');
+assert(callFolderA && callFolderA.body.order === 1 && callFolderA.body.sort === 1, 'folder-a should receive 0-based index 1 for order and sort');
+
 console.log('Raindrop incremental sync tests passed.');
 }
 

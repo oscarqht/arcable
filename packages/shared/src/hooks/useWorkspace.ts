@@ -1464,11 +1464,14 @@ export function useWorkspace() {
       sorted.push(moved);
     }
 
-    const reindexed = sorted.map((w, idx) => ({
-      ...w,
-      order: (idx + 1) * 1000,
-      updatedAt: w.id === sourceId ? Date.now() : w.updatedAt,
-    }));
+    const reindexed = sorted.map((w, idx) => {
+      const newOrder = (idx + 1) * 1000;
+      return {
+        ...w,
+        order: newOrder,
+        updatedAt: w.id === sourceId || w.order !== newOrder ? Date.now() : w.updatedAt,
+      };
+    });
 
     reindexed.forEach((w) => {
       const oldWidget = (data.widgets || []).find((orig) => orig.id === w.id);
@@ -1500,11 +1503,14 @@ export function useWorkspace() {
       const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
       sorted.splice(insertIdx, 0, moved);
 
-      const reindexed = sorted.map((s, idx) => ({
-        ...s,
-        order: (idx + 1) * 1000,
-        updatedAt: s.id === sourceSpaceId ? Date.now() : s.updatedAt,
-      }));
+      const reindexed = sorted.map((s, idx) => {
+        const newOrder = (idx + 1) * 1000;
+        return {
+          ...s,
+          order: newOrder,
+          updatedAt: s.id === sourceSpaceId || s.order !== newOrder ? Date.now() : s.updatedAt,
+        };
+      });
 
       reindexed.forEach((s) => {
         const oldSpace = data.spaces.find((orig) => orig.id === s.id);
@@ -1534,11 +1540,14 @@ export function useWorkspace() {
       const [moved] = sorted.splice(idx, 1);
       sorted.splice(targetIdx, 0, moved);
 
-      const reindexed = sorted.map((s, i) => ({
-        ...s,
-        order: (i + 1) * 1000,
-        updatedAt: s.id === spaceId ? Date.now() : s.updatedAt,
-      }));
+      const reindexed = sorted.map((s, i) => {
+        const newOrder = (i + 1) * 1000;
+        return {
+          ...s,
+          order: newOrder,
+          updatedAt: s.id === spaceId || s.order !== newOrder ? Date.now() : s.updatedAt,
+        };
+      });
 
       reindexed.forEach((s) => {
         const oldSpace = data.spaces.find((orig) => orig.id === s.id);
@@ -1709,21 +1718,33 @@ export function useWorkspace() {
         (s) => s.id !== sourceId
       );
 
-      const targetIdx = siblings.findIndex((s) => s.id === targetId);
-      if (targetIdx < 0) return;
-
-      const sourceItem: WorkspaceSiblingItem =
-        sourceType === 'folder'
-          ? { type: 'folder', data: sourceFolder!, id: sourceId, order: 0 }
-          : { type: 'tab', data: sourceTab!, id: sourceId, order: 0 };
-
-      const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
-      siblings.splice(insertIdx, 0, sourceItem);
-
       const updatedOrderMap = new Map<string, number>();
-      siblings.forEach((s, idx) => {
-        updatedOrderMap.set(s.id, (idx + 1) * 1000);
-      });
+
+      if (sourceType === 'folder') {
+        const sourceItem = { type: 'folder' as const, data: sourceFolder!, id: sourceId, order: 0 };
+        const folderSiblings = siblings.filter((s): s is WorkspaceSiblingItem & { type: 'folder' } => s.type === 'folder');
+        let targetIdx = folderSiblings.findIndex((s) => s.id === targetId);
+        if (targetIdx < 0) {
+          targetIdx = position === 'before' ? 0 : folderSiblings.length;
+        }
+        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+        folderSiblings.splice(Math.max(0, Math.min(insertIdx, folderSiblings.length)), 0, sourceItem);
+        folderSiblings.forEach((s, idx) => {
+          updatedOrderMap.set(s.id, (idx + 1) * 1000);
+        });
+      } else {
+        const sourceItem = { type: 'tab' as const, data: sourceTab!, id: sourceId, order: 0 };
+        const tabSiblings = siblings.filter((s): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+        let targetIdx = tabSiblings.findIndex((s) => s.id === targetId);
+        if (targetIdx < 0) {
+          targetIdx = position === 'before' ? 0 : tabSiblings.length;
+        }
+        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+        tabSiblings.splice(Math.max(0, Math.min(insertIdx, tabSiblings.length)), 0, sourceItem);
+        tabSiblings.forEach((s, idx) => {
+          updatedOrderMap.set(s.id, (idx + 1) * 1000);
+        });
+      }
 
       const descendantFolderIds =
         sourceType === 'folder'
@@ -1731,12 +1752,14 @@ export function useWorkspace() {
           : new Set<string>();
 
       const updatedFolders = data.folders.map((f) => {
+        const newOrder = updatedOrderMap.get(f.id);
+        const orderChanged = newOrder !== undefined && newOrder !== f.order;
         if (f.id === sourceId) {
           return {
             ...f,
             parentSpaceId,
             parentFolderId: parentFolderId || undefined,
-            order: updatedOrderMap.get(f.id) ?? f.order ?? 1000,
+            order: newOrder ?? f.order ?? 1000,
             updatedAt: Date.now(),
           };
         }
@@ -1747,13 +1770,19 @@ export function useWorkspace() {
             updatedAt: Date.now(),
           };
         }
-        if (updatedOrderMap.has(f.id)) {
-          return { ...f, order: updatedOrderMap.get(f.id)! };
+        if (newOrder !== undefined) {
+          return {
+            ...f,
+            order: newOrder,
+            updatedAt: orderChanged ? Date.now() : f.updatedAt,
+          };
         }
         return f;
       });
 
       const updatedTabs = data.tabs.map((t) => {
+        const newOrder = updatedOrderMap.get(t.id);
+        const orderChanged = newOrder !== undefined && newOrder !== t.order;
         if (t.id === sourceId) {
           return {
             ...t,
@@ -1761,7 +1790,7 @@ export function useWorkspace() {
             parentFolderId: parentFolderId || undefined,
             pinned: false,
             favourite: false,
-            order: updatedOrderMap.get(t.id) ?? t.order ?? 1000,
+            order: newOrder ?? t.order ?? 1000,
             updatedAt: Date.now(),
           };
         }
@@ -1777,8 +1806,12 @@ export function useWorkspace() {
             updatedAt: Date.now(),
           };
         }
-        if (updatedOrderMap.has(t.id)) {
-          return { ...t, order: updatedOrderMap.get(t.id)! };
+        if (newOrder !== undefined) {
+          return {
+            ...t,
+            order: newOrder,
+            updatedAt: orderChanged ? Date.now() : t.updatedAt,
+          };
         }
         return t;
       });
@@ -1842,30 +1875,60 @@ export function useWorkspace() {
       const parentFolderId = folder ? folder.parentFolderId : tab?.parentFolderId;
 
       const siblings = getSortedSiblings(data.folders, data.tabs, parentSpaceId, parentFolderId);
-      const idx = siblings.findIndex((s) => s.id === itemId);
-      if (idx < 0) return;
-
-      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-      if (targetIdx < 0 || targetIdx >= siblings.length) return;
-
-      const [moved] = siblings.splice(idx, 1);
-      siblings.splice(targetIdx, 0, moved);
-
       const updatedOrderMap = new Map<string, number>();
-      siblings.forEach((s, i) => {
-        updatedOrderMap.set(s.id, (i + 1) * 1000);
-      });
 
-      const updatedFolders = data.folders.map((f) =>
-        updatedOrderMap.has(f.id)
-          ? { ...f, order: updatedOrderMap.get(f.id)!, updatedAt: f.id === itemId ? Date.now() : f.updatedAt }
-          : f
-      );
-      const updatedTabs = data.tabs.map((t) =>
-        updatedOrderMap.has(t.id)
-          ? { ...t, order: updatedOrderMap.get(t.id)!, updatedAt: t.id === itemId ? Date.now() : t.updatedAt }
-          : t
-      );
+      if (itemType === 'folder') {
+        const folderSiblings = siblings.filter((s) => s.type === 'folder');
+        const idx = folderSiblings.findIndex((s) => s.id === itemId);
+        if (idx < 0) return;
+
+        const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= folderSiblings.length) return;
+
+        const [moved] = folderSiblings.splice(idx, 1);
+        folderSiblings.splice(targetIdx, 0, moved);
+
+        folderSiblings.forEach((s, i) => {
+          updatedOrderMap.set(s.id, (i + 1) * 1000);
+        });
+      } else {
+        const tabSiblings = siblings.filter((s) => s.type === 'tab');
+        const idx = tabSiblings.findIndex((s) => s.id === itemId);
+        if (idx < 0) return;
+
+        const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= tabSiblings.length) return;
+
+        const [moved] = tabSiblings.splice(idx, 1);
+        tabSiblings.splice(targetIdx, 0, moved);
+
+        tabSiblings.forEach((s, i) => {
+          updatedOrderMap.set(s.id, (i + 1) * 1000);
+        });
+      }
+
+      const updatedFolders = data.folders.map((f) => {
+        const newOrder = updatedOrderMap.get(f.id);
+        if (newOrder !== undefined) {
+          return {
+            ...f,
+            order: newOrder,
+            updatedAt: f.id === itemId || f.order !== newOrder ? Date.now() : f.updatedAt,
+          };
+        }
+        return f;
+      });
+      const updatedTabs = data.tabs.map((t) => {
+        const newOrder = updatedOrderMap.get(t.id);
+        if (newOrder !== undefined) {
+          return {
+            ...t,
+            order: newOrder,
+            updatedAt: t.id === itemId || t.order !== newOrder ? Date.now() : t.updatedAt,
+          };
+        }
+        return t;
+      });
 
       updatedFolders.forEach((f) => {
         const oldFolder = data.folders.find((orig) => orig.id === f.id);
@@ -1913,11 +1976,17 @@ export function useWorkspace() {
       const orderMap = new Map<string, number>();
       pinned.forEach((t, i) => orderMap.set(t.id, (i + 1) * 1000));
 
-      const updatedTabs = data.tabs.map((t) =>
-        orderMap.has(t.id)
-          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceTabId ? Date.now() : t.updatedAt }
-          : t
-      );
+      const updatedTabs = data.tabs.map((t) => {
+        const newOrder = orderMap.get(t.id);
+        if (newOrder !== undefined) {
+          return {
+            ...t,
+            order: newOrder,
+            updatedAt: t.id === sourceTabId || t.order !== newOrder ? Date.now() : t.updatedAt,
+          };
+        }
+        return t;
+      });
 
       updatedTabs.forEach((t) => {
         const oldTab = data.tabs.find((orig) => orig.id === t.id);
@@ -1986,11 +2055,17 @@ export function useWorkspace() {
       }
 
       // Update tabs
-      const updatedTabs = data.tabs.map((t) =>
-        orderMap.has(t.id)
-          ? { ...t, order: orderMap.get(t.id)!, updatedAt: t.id === sourceId ? Date.now() : t.updatedAt }
-          : t
-      );
+      const updatedTabs = data.tabs.map((t) => {
+        const newOrder = orderMap.get(t.id);
+        if (newOrder !== undefined) {
+          return {
+            ...t,
+            order: newOrder,
+            updatedAt: t.id === sourceId || t.order !== newOrder ? Date.now() : t.updatedAt,
+          };
+        }
+        return t;
+      });
 
       updatedTabs.forEach((t) => {
         const oldTab = data.tabs.find((orig) => orig.id === t.id);
@@ -2002,11 +2077,17 @@ export function useWorkspace() {
       });
 
       // Update widgets
-      const updatedWidgets = (data.widgets || []).map((w) =>
-        orderMap.has(w.id)
-          ? { ...w, order: orderMap.get(w.id)!, updatedAt: w.id === sourceId ? Date.now() : w.updatedAt }
-          : w
-      );
+      const updatedWidgets = (data.widgets || []).map((w) => {
+        const newOrder = orderMap.get(w.id);
+        if (newOrder !== undefined) {
+          return {
+            ...w,
+            order: newOrder,
+            updatedAt: w.id === sourceId || w.order !== newOrder ? Date.now() : w.updatedAt,
+          };
+        }
+        return w;
+      });
 
       updatedWidgets.forEach((w) => {
         const oldWidget = (data.widgets || []).find((orig) => orig.id === w.id);

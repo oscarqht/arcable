@@ -506,6 +506,32 @@ async function runTests(): Promise<void> {
   assert.equal((familySiblings[3].data as any).customTitle, 'Swimming Complex');
   assert.equal((familySiblings[4].data as any).customTitle, 'English Listening & Speaking');
   console.log('✓ Tab items sorting order strictly matches Raindrop top-to-bottom order');
+
+  // 6. Verify reordering tabs and folders preserves 0-based order/sort indices through full sync
+  calls.length = 0;
+  const reorderedData: ArcableWorkspaceData = {
+    ...familyWorkspace.data!,
+    tabs: familyWorkspace.data!.tabs.map((t) => {
+      // Move English Listening & Speaking (505) to first (order: 1000)
+      if (t.id === '505') return { ...t, order: 1000, updatedAt: Date.now() };
+      if (t.id === '501') return { ...t, order: 2000, updatedAt: Date.now() };
+      if (t.id === '502') return { ...t, order: 3000, updatedAt: Date.now() };
+      if (t.id === '503') return { ...t, order: 4000, updatedAt: Date.now() };
+      if (t.id === '504') return { ...t, order: 5000, updatedAt: Date.now() };
+      return t;
+    }),
+  };
+  const reorderSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: reorderedData,
+    replaceBaseline: true,
+  });
+  assert.equal(reorderSyncResult.success, true);
+  const putCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/raindrop/'));
+  const englishCall = putCalls.find((c) => c.url.endsWith('/505'));
+  assert(englishCall, 'Should update 505');
+  assert.equal(englishCall.body.order, 0);
+  assert.equal(englishCall.body.sort, 0);
+  console.log('✓ Reordered tabs sync with 0-based order/sort indices');
 }
 
 runTests().catch((err) => {

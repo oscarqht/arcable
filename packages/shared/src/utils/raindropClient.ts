@@ -471,7 +471,11 @@ export async function createRaindropBookmarks(
     if (input.collectionId !== undefined) item.collection = { $id: input.collectionId };
     if (input.cover && !input.cover.startsWith('data:')) item.cover = input.cover;
     if (input.note !== undefined) item.note = input.note;
-    if (input.order !== undefined) item.order = input.order;
+    const itemOrder = input.order !== undefined ? input.order : input.sort;
+    if (itemOrder !== undefined) {
+      item.order = itemOrder;
+      item.sort = itemOrder;
+    }
     return item;
   });
 
@@ -642,7 +646,7 @@ export async function createRaindropCollection(
   token: string,
   title: string,
   parentId?: number,
-  options?: { color?: string; cover?: string[]; sort?: number }
+  options?: { color?: string; cover?: string[]; sort?: number; order?: number }
 ): Promise<RaindropCollectionItem> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) {
@@ -660,7 +664,11 @@ export async function createRaindropCollection(
 
   if (options?.color) payload.color = options.color;
   if (options?.cover?.length) payload.cover = options.cover;
-  if (options?.sort !== undefined) payload.sort = options.sort;
+  const sortVal = options?.order !== undefined ? options.order : options?.sort;
+  if (sortVal !== undefined) {
+    payload.sort = sortVal;
+    payload.order = sortVal;
+  }
 
   const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection`, {
     method: 'POST',
@@ -685,7 +693,7 @@ export async function createRaindropCollection(
 export async function updateRaindropCollection(
   token: string,
   collectionId: number,
-  updates: { title?: string; parentId?: number | null; color?: string | null; cover?: string[]; sort?: number }
+  updates: { title?: string; parentId?: number | null; color?: string | null; cover?: string[]; sort?: number; order?: number }
 ): Promise<RaindropCollectionItem | null> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken || !collectionId) return null;
@@ -695,7 +703,11 @@ export async function updateRaindropCollection(
   if (updates.parentId !== undefined) payload.parent = updates.parentId === null ? {} : { $id: updates.parentId };
   if (updates.color !== undefined) payload.color = updates.color;
   if (updates.cover !== undefined) payload.cover = updates.cover;
-  if (updates.sort !== undefined) payload.sort = updates.sort;
+  const sortVal = updates.order !== undefined ? updates.order : updates.sort;
+  if (sortVal !== undefined) {
+    payload.sort = sortVal;
+    payload.order = sortVal;
+  }
 
   try {
     const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}`, {

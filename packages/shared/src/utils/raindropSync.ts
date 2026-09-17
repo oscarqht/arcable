@@ -739,10 +739,62 @@ function bookmarkNote(_tab: Tab): string {
   return '';
 }
 
+export function calculateSpaceTargetOrder(space: Space, allSpaces: Space[]): number {
+  const sorted = [...allSpaces].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id));
+  const idx = sorted.findIndex((s) => s.id === space.id);
+  return idx >= 0 ? idx : 0;
+}
+
+export function calculateFolderTargetOrder(folder: Folder, allFolders: Folder[]): number {
+  const parentKey = folder.parentFolderId || folder.parentSpaceId;
+  const siblings = allFolders
+    .filter((f) => (f.parentFolderId || f.parentSpaceId) === parentKey)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
+  const idx = siblings.findIndex((f) => f.id === folder.id);
+  return idx >= 0 ? idx : 0;
+}
+
+export function calculateTabTargetOrder(tab: Tab, allTabs: Tab[], allWidgets?: WorkspaceWidget[]): number {
+  if (tab.favourite) {
+    const favTabs = allTabs.filter((t) => Boolean(t.favourite));
+    const widgets = allWidgets || [];
+    type RootItem = { id: string; order?: number; createdAt?: number };
+    const rootItems: RootItem[] = [
+      ...favTabs.map((t) => ({ id: t.id, order: t.order, createdAt: t.createdAt })),
+      ...widgets.map((w) => ({ id: w.id, order: w.order, createdAt: w.createdAt })),
+    ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
+    const idx = rootItems.findIndex((item) => item.id === tab.id);
+    return idx >= 0 ? idx : 0;
+  }
+  const parentKey = tab.parentFolderId || tab.parentSpaceId;
+  const siblings = allTabs
+    .filter((t) => !t.favourite && !t.pinned && (t.parentFolderId || t.parentSpaceId) === parentKey)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
+  const idx = siblings.findIndex((t) => t.id === tab.id);
+  return idx >= 0 ? idx : 0;
+}
+
+export function calculateWidgetTargetOrder(
+  widget: WorkspaceWidget,
+  allTabs: Tab[],
+  allWidgets: WorkspaceWidget[]
+): number {
+  const favTabs = allTabs.filter((t) => Boolean(t.favourite));
+  type RootItem = { id: string; order?: number; createdAt?: number };
+  const rootItems: RootItem[] = [
+    ...favTabs.map((t) => ({ id: t.id, order: t.order, createdAt: t.createdAt })),
+    ...allWidgets.map((w) => ({ id: w.id, order: w.order, createdAt: w.createdAt })),
+  ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
+  const idx = rootItems.findIndex((item) => item.id === widget.id);
+  return idx >= 0 ? idx : 0;
+}
+
 function widgetToRaindropItemInput(
   widget: WorkspaceWidget,
-  rootId: number
+  rootId: number,
+  targetOrder?: number
 ): Parameters<typeof createRaindropBookmarks>[1][number] {
+  const order = targetOrder !== undefined ? targetOrder : widget.order;
   return {
     title: `[Widget] ${widget.style}`,
     link: `${ARCABLE_WIDGET_LINK_PREFIX}${widget.id}`,
@@ -753,7 +805,8 @@ function widgetToRaindropItemInput(
       size: widget.size,
       config: widget.config,
     }),
-    order: widget.order,
+    order,
+    sort: order,
     collectionId: rootId,
     pleaseParse: { disabled: true },
   };
@@ -954,11 +1007,13 @@ export async function syncIncrementalOperations(
       if (!parentId) continue;
 
       const isCreate = operations.some((operation) => operation.type === 'FOLDER_CREATE');
+      const targetOrder = calculateFolderTargetOrder(folder, latestSnapshot.folders);
       if (isCreate) {
         const created = await createRaindropCollection(token, folder.name, parentId, {
           color: folder.colors,
           cover: folder.coverUrl ? [folder.coverUrl] : undefined,
-          sort: folder.order,
+          sort: targetOrder,
+          order: targetOrder,
         });
         collectionIds.set(entityId, created._id);
         latestSnapshot = {
@@ -975,7 +1030,8 @@ export async function syncIncrementalOperations(
           parentId,
           color: folder.colors ?? null,
           cover: folder.coverUrl ? [folder.coverUrl] : [],
-          sort: folder.order,
+          sort: targetOrder,
+          order: targetOrder,
         });
         if (!updated) throw new Error(`Failed to update Raindrop folder ${remoteId}.`);
       }
@@ -992,6 +1048,13 @@ export async function syncIncrementalOperations(
     entityId: string;
     input: Parameters<typeof createRaindropBookmarks>[1][number];
   }> = [];
+  const tabUpdates: Array<{
+    entityId: string;
+    remoteId: number;
+    payload: Record<string, unknown>;
+    targetOrder: number;
+  }> = [];
+
   for (const [key, operations] of groups) {
     if (!key.startsWith('tab:') || operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
     const entityId = operations[0].entityId;
@@ -1003,13 +1066,15 @@ export async function syncIncrementalOperations(
     if (!parentId) throw new Error(`Bookmark ${entityId} has no synced Raindrop parent.`);
 
     const isCreate = operations.some((operation) => operation.type === 'TAB_CREATE');
+    const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
     const payload = {
       title: tab.customTitle || tab.url,
       link: tab.url,
       cover: tab.favIconUrl,
       note: '',
       collection: { $id: parentId },
-      order: tab.order,
+      order: targetOrder,
+      sort: targetOrder,
     };
     if (isCreate) {
       tabCreates.push({ entityId, input: {
@@ -1018,7 +1083,8 @@ export async function syncIncrementalOperations(
         cover: payload.cover,
         note: '',
         collectionId: parentId,
-        order: payload.order,
+        order: targetOrder,
+        sort: targetOrder,
         pleaseParse: { disabled: true },
       } });
       // Extra URL variants
@@ -1033,7 +1099,8 @@ export async function syncIncrementalOperations(
               cover: payload.cover,
               note: '',
               collectionId: parentId,
-              order: payload.order,
+              order: targetOrder,
+              sort: targetOrder,
               pleaseParse: { disabled: true },
             },
           });
@@ -1042,9 +1109,15 @@ export async function syncIncrementalOperations(
     } else {
       const remoteId = remoteEntityId(tab);
       if (!remoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
-      const updated = await updateRaindropItem(token, remoteId, payload);
-      if (!updated) throw new Error(`Failed to update Raindrop bookmark ${remoteId}.`);
+      tabUpdates.push({ entityId, remoteId, payload, targetOrder });
     }
+  }
+
+  // Sort tab updates in ascending targetOrder so moving bookmarks executes sequentially
+  tabUpdates.sort((a, b) => a.targetOrder - b.targetOrder);
+  for (const { remoteId, payload } of tabUpdates) {
+    const updated = await updateRaindropItem(token, remoteId, payload);
+    if (!updated) throw new Error(`Failed to update Raindrop bookmark ${remoteId}.`);
   }
   for (let start = 0; start < tabCreates.length; start += 100) {
     const batch = tabCreates.slice(start, start + 100);
@@ -1109,7 +1182,8 @@ export async function syncIncrementalOperations(
     const widget = latestSnapshot.widgets?.find((w) => w.id === entityId);
     if (!widget) continue;
     const isCreate = operations.some((operation) => operation.type === 'WIDGET_CREATE');
-    const input = widgetToRaindropItemInput(widget, rootId);
+    const targetOrder = calculateWidgetTargetOrder(widget, latestSnapshot.tabs, latestSnapshot.widgets || []);
+    const input = widgetToRaindropItemInput(widget, rootId, targetOrder);
     if (isCreate) {
       widgetCreates.push({ entityId, input });
     } else {
@@ -1118,7 +1192,8 @@ export async function syncIncrementalOperations(
         const updated = await updateRaindropItem(token, remoteId, {
           title: input.title,
           excerpt: input.excerpt,
-          order: input.order,
+          order: targetOrder,
+          sort: targetOrder,
         });
         if (!updated) throw new Error(`Failed to update Raindrop widget ${remoteId}.`);
       }
@@ -1503,19 +1578,19 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
 
   const spaces: Space[] = tree.collections
     .filter((collection) => spaceIds.has(collection._id))
-    .map((collection) => ({
+    .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+    .map((collection, index) => ({
       id: arcableCollectionId(collection._id),
       raindropId: collection._id,
       name: collection.title,
       emojiIcon: emojiFromCover(collection.cover),
       coverUrl: collection.cover?.[0],
-      order: collection.sort ?? 0,
+      order: (index + 1) * 1000,
       createdAt: timestamp(collection.created),
       updatedAt: timestamp(collection.lastUpdate),
-    }))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }));
 
-  const folders: Folder[] = tree.collections
+  const rawFolders: Folder[] = tree.collections
     .filter((collection) => !spaceIds.has(collection._id) && !isSystemCollection(collection))
     .map((collection) => {
       let cursor: RaindropCollectionItem | undefined = collection;
@@ -1535,13 +1610,26 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
         updatedAt: timestamp(collection.lastUpdate),
       };
     })
-    .filter((folder) => Boolean(folder.parentSpaceId))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    .filter((folder) => Boolean(folder.parentSpaceId));
+
+  const foldersByParent = new Map<string, Folder[]>();
+  for (const f of rawFolders) {
+    const parentKey = f.parentFolderId || f.parentSpaceId;
+    const group = foldersByParent.get(parentKey) || [];
+    group.push(f);
+    foldersByParent.set(parentKey, group);
+  }
+  const folders: Folder[] = [];
+  for (const [, group] of foldersByParent) {
+    group.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    group.forEach((f, idx) => {
+      folders.push({ ...f, order: (idx + 1) * 1000 });
+    });
+  }
 
   // In Raindrop, manual order is retrieved via sort=-sort which returns items
   // top-to-bottom in array order. Establish a reliable ascending order per collection
-  // (or preserve explicit item.order if already set) so Arcable's ascending sort (a.order - b.order)
-  // precisely mirrors Raindrop's visual display order.
+  // so Arcable's ascending sort (a.order - b.order) precisely mirrors Raindrop's visual display order.
   const itemOrderMap = new Map<number, number>();
   const collectionCounters = new Map<number, number>();
 
@@ -1549,7 +1637,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
     const collId = item.collectionId ?? 0;
     const nextOrder = (collectionCounters.get(collId) ?? 0) + 1000;
     collectionCounters.set(collId, nextOrder);
-    itemOrderMap.set(item._id, typeof item.order === 'number' ? item.order : nextOrder);
+    itemOrderMap.set(item._id, nextOrder);
   }
 
   // Reconstruct widgets from Arcable root collection
@@ -1990,7 +2078,11 @@ export async function syncWorkspaceWithRaindrop(
           progressed = true;
           continue;
         }
-        const shouldUpdate = Boolean(existing) && (changedIds.has(id) || (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate));
+        const targetOrder = entry.kind === 'space'
+          ? calculateSpaceTargetOrder(entry.entity as Space, localState.spaces || [])
+          : calculateFolderTargetOrder(entry.entity as Folder, localState.folders || []);
+        const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
+        const shouldUpdate = Boolean(existing) && (changedIds.has(id) || orderChanged || (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate));
         // Space and folder covers come from Raindrop's own icon catalogue. Only
         // search when creating or modifying the corresponding collection.
         const cover = !existing || shouldUpdate
@@ -2003,7 +2095,8 @@ export async function syncWorkspaceWithRaindrop(
           const created = await createRaindropCollection(clean, entry.entity.name, parentRemoteId, {
             ...(entry.kind === 'folder' ? { color } : {}),
             cover: cover ? [cover] : undefined,
-            sort: entry.entity.order,
+            sort: targetOrder,
+            order: targetOrder,
           });
           localCollectionToRemote.set(id, created._id);
           remoteCollections.set(created._id, created);
@@ -2015,7 +2108,8 @@ export async function syncWorkspaceWithRaindrop(
               parentId: parentRemoteId,
               ...(entry.kind === 'folder' ? { color } : {}),
               cover: cover ? [cover] : undefined,
-              sort: entry.entity.order,
+              sort: targetOrder,
+              order: targetOrder,
             });
           }
         }
@@ -2066,6 +2160,11 @@ export async function syncWorkspaceWithRaindrop(
     }
 
     const bookmarksToCreate = [] as Parameters<typeof createRaindropBookmarks>[1];
+    const tabUpdatesToPerform: Array<{
+      remoteId: number;
+      payload: Record<string, unknown>;
+      targetOrder: number;
+    }> = [];
 
     // Sync tabs
     for (const tab of localState.tabs || []) {
@@ -2075,15 +2174,18 @@ export async function syncWorkspaceWithRaindrop(
       if (remoteId && !existing && !changedIds.has(tab.id)) continue;
       const parentId = tab.favourite ? root._id : localCollectionToRemote.get(tab.parentFolderId || tab.parentSpaceId || '');
       if (!parentId) continue;
+      const targetOrder = calculateTabTargetOrder(tab, localState.tabs || [], localState.widgets || []);
       const payload = {
         title: tab.customTitle || tab.url,
         link: tab.url,
         cover: tab.favIconUrl,
         note: '',
         collection: { $id: parentId },
-        order: tab.order,
+        order: targetOrder,
+        sort: targetOrder,
       };
-      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+      const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
+      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
       if (!existing) {
         bookmarksToCreate.push({
           title: payload.title,
@@ -2091,7 +2193,8 @@ export async function syncWorkspaceWithRaindrop(
           cover: payload.cover,
           note: '',
           collectionId: parentId,
-          order: tab.order,
+          order: targetOrder,
+          sort: targetOrder,
           pleaseParse: { disabled: true },
         });
         // Extra URL variants
@@ -2104,14 +2207,20 @@ export async function syncWorkspaceWithRaindrop(
               cover: payload.cover,
               note: '',
               collectionId: parentId,
-              order: tab.order,
+              order: targetOrder,
+              sort: targetOrder,
               pleaseParse: { disabled: true },
             });
           }
         }
       } else if (shouldUpdate) {
-        await updateRaindropItem(clean, existing._id, payload);
+        tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
       }
+    }
+
+    tabUpdatesToPerform.sort((a, b) => a.targetOrder - b.targetOrder);
+    for (const { remoteId, payload } of tabUpdatesToPerform) {
+      await updateRaindropItem(clean, remoteId, payload);
     }
 
     // Sync Widgets directly to Arcable root collection
@@ -2119,15 +2228,21 @@ export async function syncWorkspaceWithRaindrop(
       if (deletedIds.has(widget.id)) continue;
       const remoteId = widget.raindropId || numericRaindropId(widget.id);
       const existing = remoteId ? remoteItems.get(remoteId) : undefined;
-      const input = widgetToRaindropItemInput(widget, root._id);
+      const targetOrder = calculateWidgetTargetOrder(widget, localState.tabs || [], localState.widgets || []);
+      const input = widgetToRaindropItemInput(widget, root._id, targetOrder);
       if (!existing) {
         bookmarksToCreate.push(input);
       } else {
-        await updateRaindropItem(clean, existing._id, {
-          title: input.title,
-          excerpt: input.excerpt,
-          order: input.order,
-        });
+        const orderChanged = existing.sort !== targetOrder && existing.order !== targetOrder;
+        const shouldUpdate = changedIds.has(widget.id) || orderChanged || (widget.updatedAt || 0) > timestamp(existing.lastUpdate);
+        if (shouldUpdate) {
+          await updateRaindropItem(clean, existing._id, {
+            title: input.title,
+            excerpt: input.excerpt,
+            order: targetOrder,
+            sort: targetOrder,
+          });
+        }
       }
     }
 
