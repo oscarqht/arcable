@@ -689,6 +689,20 @@ export const App: React.FC = () => {
   };
 
   const handleTabPromoted = async (newTab: Tab, tmpTab: TmpTab) => {
+    try {
+      const stored = await browser.storage.local.get('arcable_tmp_tabs');
+      const currentTmpTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+      const updated = currentTmpTabs.filter((t) => t.id !== tmpTab.id);
+      if (updated.length !== currentTmpTabs.length) {
+        await browser.storage.local.set({ arcable_tmp_tabs: updated });
+      }
+    } catch (err) {
+      console.warn('[Sidepanel] Could not clean up arcable_tmp_tabs on promote:', err);
+    }
+
+    setHighlightedTabId(newTab.id);
+    workspaceRef.current?.revealAndHighlightTab?.(newTab.id);
+
     if (tmpTab.browserTabId !== undefined) {
       await tabTracker.associateExistingBrowserTab(
         newTab.id,

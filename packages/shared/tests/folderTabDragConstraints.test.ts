@@ -156,4 +156,80 @@ const resFolderInsideTab = simulateReorder(
 );
 assert(resFolderInsideTab.rejected === true, 'Dropping folder inside tab must be rejected');
 
+// 5. Verify tmpTab drag acceptance
+startDrag(mockDragEvent, {
+  id: 'tmp_1',
+  type: 'tmpTab',
+  url: 'https://example.com/tmp',
+  title: 'Temporary Tab',
+});
+const folderAcceptsTmpTab = isDragAcceptable(mockDragEvent, ['folder', 'tab', 'tmpTab']);
+assert(folderAcceptsTmpTab === true, 'FolderItem must accept tmpTab drag items');
+
+const tabRowAcceptsTmpTab = isDragAcceptable(mockDragEvent, ['tab', 'tmpTab']);
+assert(tabRowAcceptsTmpTab === true, 'TabRow must accept tmpTab drag items');
+endDrag();
+console.log('✓ FolderItem and TabRow accept tmpTab drag items');
+
+// 6. Test promoting dragged tmpTab into folder
+interface SimulateDropTmpTabParams {
+  tmpTab: { id: string; url: string; title?: string; customTitle?: string; favIconUrl?: string };
+  folderId: string;
+  folders: Folder[];
+  tabs: Tab[];
+  tmpTabs: { id: string; url: string }[];
+}
+
+function simulateDropTmpTabIntoFolder(params: SimulateDropTmpTabParams) {
+  const { tmpTab, folderId, folders, tabs, tmpTabs } = params;
+  const targetFolder = folders.find((f) => f.id === folderId);
+  if (!targetFolder) throw new Error('Folder not found');
+
+  const newTab: Tab = {
+    id: `tab_${Date.now()}`,
+    url: tmpTab.url,
+    customTitle: tmpTab.customTitle || tmpTab.title || '',
+    favIconUrl: tmpTab.favIconUrl,
+    parentFolderId: targetFolder.id,
+    parentSpaceId: targetFolder.parentSpaceId,
+    pinned: false,
+    favourite: false,
+    order: 1000,
+  };
+
+  const updatedTabs = [...tabs, newTab];
+  const updatedTmpTabs = tmpTabs.filter((t) => t.id !== tmpTab.id);
+  const updatedFolders = folders.map((f) =>
+    f.id === targetFolder.id && f.isExpanded === false ? { ...f, isExpanded: true } : f
+  );
+
+  return {
+    newTab,
+    tabs: updatedTabs,
+    tmpTabs: updatedTmpTabs,
+    folders: updatedFolders,
+  };
+}
+
+const initialTmpTabs = [{ id: 'tmp_1', url: 'https://example.com/tmp' }];
+const collapsedFolders: Folder[] = [
+  { id: 'f1', name: 'Folder 1', parentSpaceId: 'space-1', order: 1000, isExpanded: false },
+];
+
+const dropResult = simulateDropTmpTabIntoFolder({
+  tmpTab: { id: 'tmp_1', url: 'https://example.com/tmp', title: 'Example Tmp' },
+  folderId: 'f1',
+  folders: collapsedFolders,
+  tabs: testTabs,
+  tmpTabs: initialTmpTabs,
+});
+
+assert(dropResult.newTab.parentFolderId === 'f1', 'New tab must be created under folder f1');
+assert(dropResult.newTab.parentSpaceId === 'space-1', 'New tab must belong to folder parent space');
+assert(dropResult.newTab.url === 'https://example.com/tmp', 'New tab must retain tmp tab url');
+assert(dropResult.tmpTabs.length === 0, 'Tmp tab must be removed after promotion');
+assert(dropResult.folders.find((f) => f.id === 'f1')?.isExpanded === true, 'Folder must be expanded after dropping tab into it');
+console.log('✓ Dragging tmpTab into folder creates new tab item and expands folder');
+
 console.log('✓ All drag constraint checks passed successfully!');
+

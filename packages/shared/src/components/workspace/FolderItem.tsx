@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
+import { Folder, Tab, TmpTab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
@@ -62,6 +62,12 @@ export interface FolderItemProps {
     targetType: 'folder' | 'tab';
     position: 'before' | 'after' | 'inside';
   }) => void;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    folderId: string,
+    position?: 'before' | 'after' | 'inside',
+    targetTabId?: string
+  ) => void;
 }
 
 
@@ -97,6 +103,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onMoveDown,
   onMoveSiblingItem,
   onReorderSiblingItem,
+  onDropTmpTab,
 }) => {
 
 
@@ -446,8 +453,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    // Only accept folder or tab items! Spaces or shelf tabs MUST NOT light up folders
-    if (!isDragAcceptable(e, ['folder', 'tab'])) {
+    // Only accept folder, tab, or tmpTab items! Spaces or shelf tabs MUST NOT light up folders
+    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab'])) {
       return;
     }
     const activeDrag = getActiveDrag();
@@ -458,11 +465,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     e.stopPropagation();
 
     // Folders are always sorted on top of tabs in the same level.
-    // When dragging a tab item over a folder, only allow dropping inside the folder.
+    // When dragging a tab or tmpTab item over a folder, only allow dropping inside the folder.
     // Dragging tabs to above or below a folder as a sibling is prohibited.
     const isTabDrag =
       activeDrag?.type === 'tab' ||
-      (isDragAcceptable(e, ['tab']) && !isDragAcceptable(e, ['folder']));
+      activeDrag?.type === 'tmpTab' ||
+      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab'])) && !isDragAcceptable(e, ['folder']));
 
     if (isTabDrag) {
       setDropIndicator('inside');
@@ -487,7 +495,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!isDragAcceptable(e, ['folder', 'tab'])) {
+    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab'])) {
       setDropIndicator(null);
       endDrag();
       return;
@@ -497,14 +505,21 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     const activeDrag = getActiveDrag();
     const isTabDrag =
       activeDrag?.type === 'tab' ||
-      (isDragAcceptable(e, ['tab']) && !isDragAcceptable(e, ['folder']));
+      activeDrag?.type === 'tmpTab' ||
+      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab'])) && !isDragAcceptable(e, ['folder']));
     const currentIndicator = isTabDrag ? 'inside' : (dropIndicator || 'inside');
     setDropIndicator(null);
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' }) : null);
+      const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
       if (!parsed || !parsed.id || parsed.id === folder.id) return;
+
+      if (parsed.type === 'tmpTab') {
+        const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+        onDropTmpTab?.(tmpTab, folder.id);
+        return;
+      }
 
       const effectivePosition = parsed.type === 'tab' ? 'inside' : currentIndicator;
 
@@ -1109,6 +1124,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   }
                   onMoveSiblingItem={onMoveSiblingItem}
                   onReorderSiblingItem={onReorderSiblingItem}
+                  onDropTmpTab={onDropTmpTab}
                   onDuplicateTab={onDuplicateTab}
                   onOpenVariant={onOpenVariant}
                 />
@@ -1164,18 +1180,25 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 onDropItem={(e, targetTab) => {
                   try {
                     const raw = e.dataTransfer.getData('application/json');
-                    if (!raw) return;
-                    const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+                    const activeDrag = getActiveDrag();
+                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
                     if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
                     // Folders must never be dropped onto or below tab items
                     if (parsed.type === 'folder') return;
+
                     const rect = e.currentTarget.getBoundingClientRect();
                     const midY = rect.top + rect.height / 2;
                     const pos = e.clientY < midY ? 'before' : 'after';
 
+                    if (parsed.type === 'tmpTab') {
+                      const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+                      onDropTmpTab?.(tmpTab, folder.id, pos, targetTab.id);
+                      return;
+                    }
+
                     onReorderSiblingItem?.({
                       sourceId: parsed.id,
-                      sourceType: parsed.type,
+                      sourceType: 'tab',
                       targetId: targetTab.id,
                       targetType: 'tab',
                       position: pos,
@@ -1189,6 +1212,42 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           {/* Empty Folder State */}
           {isExpanded && totalItemCount === 0 && (
             <div
+              onDragOver={(e) => {
+                if (isDragAcceptable(e, ['tab', 'tmpTab'])) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDropIndicator('inside');
+                }
+              }}
+              onDragLeave={() => {
+                setDropIndicator(null);
+              }}
+              onDrop={(e) => {
+                if (!isDragAcceptable(e, ['tab', 'tmpTab'])) return;
+                e.preventDefault();
+                e.stopPropagation();
+                setDropIndicator(null);
+                try {
+                  const raw = e.dataTransfer.getData('application/json');
+                  const activeDrag = getActiveDrag();
+                  const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+                  if (!parsed || !parsed.id) return;
+                  if (parsed.type === 'tmpTab') {
+                    const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+                    onDropTmpTab?.(tmpTab, folder.id);
+                  } else if (parsed.type === 'tab') {
+                    onReorderSiblingItem?.({
+                      sourceId: parsed.id,
+                      sourceType: 'tab',
+                      targetId: folder.id,
+                      targetType: 'folder',
+                      position: 'inside',
+                    });
+                  }
+                } catch {} finally {
+                  endDrag();
+                }
+              }}
               style={{
                 fontSize: '12.5px',
                 color: subtextColor,
@@ -1196,6 +1255,9 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
+                borderRadius: '8px',
+                backgroundColor: dropIndicator === 'inside' ? (effectiveDark ? 'rgba(255, 255, 255, 0.15)' : '#e0f2fe') : 'transparent',
+                transition: 'background-color 0.12s ease',
               }}
             >
               <span style={{ fontStyle: 'italic', opacity: 0.8 }}>Empty folder</span>

@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions, WorkspaceSiblingItem } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
-import { useWorkspace } from '../../hooks/useWorkspace';
+import { useWorkspace, getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import {
@@ -34,7 +34,7 @@ import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
 import { cleanUrl } from '../../utils/format';
-import { getDomain } from '../../utils/treeUtils';
+import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
   GridViewIcon,
@@ -101,6 +101,13 @@ export interface WorkspaceManagerProps {
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
   onTabPromoted?: (newTab: Tab, tmpTab: TmpTab) => void;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    folderId: string | undefined,
+    position?: 'before' | 'after' | 'inside',
+    targetTabId?: string,
+    spaceId?: string
+  ) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -154,6 +161,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onPromoteTmpTab,
       onRenameTmpTab,
       onTabPromoted,
+      onDropTmpTab: onDropTmpTabProp,
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
@@ -255,6 +263,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       ? [...sortedSpaces, virtualSyncedSpace]
       : sortedSpaces;
   }, [showOpenTabsVirtualSpace, sortedSpaces, virtualSyncedSpace]);
+
+  // Counts of currently opened tabs per space (excluding favourites and tmp tabs)
+  const spaceOpenTabCounts = useMemo(() => {
+    return getSpaceOpenTabCounts(
+      sortedSpaces,
+      data.folders,
+      data.tabs,
+      tabAssociations,
+      highlightedTabId
+    );
+  }, [sortedSpaces, data.folders, data.tabs, tabAssociations, highlightedTabId]);
 
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
@@ -1490,6 +1509,84 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     onRenameTmpTab?.(tab, newTitle);
   }, [updateTmpTab, onRenameTmpTab]);
 
+  const handleDropTmpTabIntoFolder = useCallback(
+    (
+      tmpTab: TmpTab,
+      folderId: string | undefined,
+      position?: 'before' | 'after' | 'inside',
+      targetTabId?: string,
+      spaceId?: string
+    ) => {
+      if (onDropTmpTabProp) {
+        onDropTmpTabProp(tmpTab, folderId, position, targetTabId, spaceId);
+        return;
+      }
+
+      const targetFolder = folderId ? data.folders.find((f) => f.id === folderId) : undefined;
+      if (folderId && !targetFolder) return;
+
+      const targetSpaceId = targetFolder?.parentSpaceId || spaceId || activeSpace?.id || 'space_personal';
+
+      const resolvedTmpTab =
+        tmpTab && tmpTab.url
+          ? tmpTab
+          : filteredTmpTabs.find((t) => t.id === tmpTab?.id) ||
+            (data.tmpTabs || []).find((t) => t.id === tmpTab?.id) ||
+            tmpTab;
+
+      let targetOrder: number | undefined = undefined;
+      if (targetTabId && position && (position === 'before' || position === 'after')) {
+        const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolder?.id);
+        const tabSiblings = siblings.filter((s: WorkspaceSiblingItem): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+        const targetIdx = tabSiblings.findIndex((s: WorkspaceSiblingItem) => s.id === targetTabId);
+        if (targetIdx >= 0) {
+          if (position === 'before') {
+            const prevOrder = targetIdx > 0 ? tabSiblings[targetIdx - 1].order : 0;
+            const nextOrder = tabSiblings[targetIdx].order;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          } else {
+            const prevOrder = tabSiblings[targetIdx].order;
+            const nextOrder =
+              targetIdx < tabSiblings.length - 1
+                ? tabSiblings[targetIdx + 1].order
+                : prevOrder + 2000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          }
+        }
+      }
+
+      const newTab = createTab({
+        url: resolvedTmpTab.url,
+        customTitle: resolvedTmpTab.customTitle || resolvedTmpTab.title || '',
+        favIconUrl: resolvedTmpTab.favIconUrl,
+        parentFolderId: targetFolder?.id,
+        parentSpaceId: targetSpaceId,
+        pinned: false,
+        favourite: false,
+        order: targetOrder,
+      });
+
+      deleteTmpTab(resolvedTmpTab.id);
+      onTabPromoted?.(newTab, resolvedTmpTab);
+
+      if (targetFolder && targetFolder.isExpanded === false) {
+        toggleFolderExpand(targetFolder.id);
+      }
+    },
+    [
+      onDropTmpTabProp,
+      data.folders,
+      data.tabs,
+      data.tmpTabs,
+      filteredTmpTabs,
+      activeSpace,
+      createTab,
+      deleteTmpTab,
+      onTabPromoted,
+      toggleFolderExpand,
+    ]
+  );
+
   const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
 
     setEditingFolder(null);
@@ -1898,6 +1995,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               const spaceTheme = getSpaceThemeStyles(space.colors, isDark);
               const primaryColor = spaceTheme.primaryColor;
               const isDragTarget = dragOverSpaceId === space.id;
+              const openedCount = spaceOpenTabCounts[space.id] || 0;
 
               return (
                 <div
@@ -1936,10 +2034,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     boxShadow: isActive ? (spaceTheme.containerBg.includes('gradient') ? '0 2px 8px rgba(0,0,0,0.15)' : `0 2px 8px ${primaryColor}40`) : 'none',
                     userSelect: 'none',
                   }}
-                  title={`${space.name} (Click to select, drag to reorder)`}
+                  title={`${space.name}${openedCount > 0 ? ` (${openedCount} open)` : ''} (Click to select, drag to reorder)`}
                 >
                   <SpaceIcon space={space} size={16} />
                   <span>{space.name}</span>
+
+                  {openedCount > 0 && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: isActive ? spaceTheme.badgeBg : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                        color: isActive ? spaceTheme.badgeText : (isDark ? '#94a3b8' : '#64748b'),
+                        fontWeight: 600,
+                      }}
+                    >
+                      {openedCount > 99 ? '99+' : openedCount}
+                    </span>
+                  )}
 
                   {isActive && (
                     <div
@@ -2129,6 +2242,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onToggleFavouriteTab={toggleFavouriteTab}
                   onMoveSiblingItem={moveSiblingItem}
                   onReorderSiblingItem={reorderSiblingItem}
+                  onDropTmpTab={handleDropTmpTabIntoFolder}
                   onReorderPinnedTabs={reorderPinnedTabs}
                   onMoveSpace={moveSpace}
                 />
@@ -2268,6 +2382,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onToggleFavouriteTab={toggleFavouriteTab}
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
+                      onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                     />
@@ -2438,6 +2553,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onToggleFavouriteTab={toggleFavouriteTab}
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
+                      onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                     />
@@ -2512,6 +2628,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             const isActive = space.id === activeSpace?.id;
             const primaryColor = getSpacePrimaryColor(space.colors);
             const isDragTarget = dragOverSpaceId === space.id;
+            const openedCount = spaceOpenTabCounts[space.id] || 0;
 
             let boxShadow = 'none';
             if (isDragTarget) {
@@ -2541,8 +2658,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 onDrop={(e) => handleSpaceDrop(e, space.id)}
                 onDragEnd={handleSpaceDragEnd}
                 onClick={() => setActiveSpace(space.id)}
-                title={`${space.name} (Click to select, drag to reorder)`}
-                aria-label={space.name}
+                title={`${space.name}${openedCount > 0 ? ` (${openedCount} open)` : ''} (Click to select, drag to reorder)`}
+                aria-label={`${space.name}${openedCount > 0 ? `, ${openedCount} open tabs` : ''}`}
                 style={{
                   WebkitAppearance: 'none',
                   appearance: 'none',
@@ -2572,6 +2689,38 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', lineHeight: 1 }}>
                   <SpaceIcon space={space} size={16} />
                 </span>
+
+                {openedCount > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-3px',
+                      right: '-3px',
+                      backgroundColor: primaryColor || (isDark ? '#38bdf8' : '#0284c7'),
+                      color: '#ffffff',
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      minWidth: '15px',
+                      height: '15px',
+                      borderRadius: '9999px',
+                      padding: '0 3px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.35)',
+                      border: `1.5px solid ${isDark ? '#151e2e' : '#ffffff'}`,
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                      boxSizing: 'border-box',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {openedCount > 99 ? '99+' : openedCount}
+                  </span>
+                )}
+
                 {isActive && (
                   <span
                     style={{

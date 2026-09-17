@@ -5,6 +5,7 @@ import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
+import { startDrag, endDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -74,6 +75,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
 
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [editTitle, setEditTitle] = useState(tab.customTitle || tab.title || '');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +125,30 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     setEditTitle(tab.customTitle || tab.title || '');
   };
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (isEditing) {
+      e.preventDefault();
+      return;
+    }
+    e.stopPropagation();
+    setIsDragging(true);
+    startDrag(e, {
+      ...tab,
+      id: tab.id,
+      type: 'tmpTab',
+      tmpTab: tab,
+      url: tab.url,
+      customTitle: tab.customTitle,
+      title: tab.title,
+      favIconUrl: tab.favIconUrl,
+    });
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    endDrag();
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     if (isEditing) return;
     e.preventDefault();
@@ -148,6 +174,9 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
 
   return (
     <div
+      draggable={!isEditing}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
@@ -164,9 +193,10 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         outlineOffset: (isHighlighted || isEditing) ? '-2px' : undefined,
         boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.35)' : 'none',
         color: textColor,
-        cursor: isEditing ? 'default' : 'pointer',
+        cursor: isEditing ? 'default' : isDragging ? 'grabbing' : 'pointer',
+        opacity: isDragging ? 0.45 : 1,
         gap: '6px',
-        transition: 'background-color 0.12s ease, outline 0.2s ease, box-shadow 0.2s ease',
+        transition: 'background-color 0.12s ease, outline 0.2s ease, box-shadow 0.2s ease, opacity 0.12s ease',
         userSelect: 'none',
         boxSizing: 'border-box',
         width: '100%',

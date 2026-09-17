@@ -1,4 +1,5 @@
 import { Folder, Tab, Space } from '../types/workspace';
+import { TabAssociationMap } from '../types/tabTracker';
 
 /**
  * Checks whether a URL starts with http:// or https:// (case-insensitive)
@@ -451,5 +452,57 @@ export function getDescendantFolderIds(
     }
   }
   return descendants;
+}
+
+/**
+ * Calculates the number of currently opened tabs for each space.
+ * Excludes global favourites and temporary tabs (tmp tabs).
+ */
+export function getSpaceOpenTabCounts(
+  spaces: Space[],
+  folders: Folder[],
+  tabs: Tab[],
+  tabAssociations?: TabAssociationMap,
+  highlightedTabId?: string | null
+): Record<string, number> {
+  if (!tabAssociations) return {};
+
+  const openTabIds = new Set<string>();
+  for (const id of Object.keys(tabAssociations)) {
+    if (tabAssociations[id]) {
+      openTabIds.add(id);
+    }
+  }
+  if (highlightedTabId) {
+    openTabIds.add(highlightedTabId);
+  }
+
+  const counts: Record<string, number> = {};
+  const defaultSpaceId = spaces[0]?.id;
+
+  for (const space of spaces) {
+    const spaceFolderIds = getAllSpaceFolderIds(space.id, folders);
+    let count = 0;
+
+    for (const tab of tabs) {
+      // Don't count favorite items
+      if (tab.favourite) continue;
+      // Tab must be opened
+      if (!openTabIds.has(tab.id)) continue;
+
+      const belongsToSpace =
+        tab.parentSpaceId === space.id ||
+        (Boolean(tab.parentFolderId) && spaceFolderIds.has(tab.parentFolderId!)) ||
+        (!tab.parentSpaceId && !tab.parentFolderId && defaultSpaceId === space.id);
+
+      if (belongsToSpace) {
+        count++;
+      }
+    }
+
+    counts[space.id] = count;
+  }
+
+  return counts;
 }
 
