@@ -673,7 +673,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               const tab = item.data;
               const assoc = tabAssociations?.[tab.id];
               const isHighlighted = highlightedTabId === tab.id;
-              const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
+              const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
+              const hasVariants = secondaryVariants.length > 0;
 
               return (
                 <div
@@ -763,7 +764,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {tab.urlVariants!.map((variant, index) => {
+                      {secondaryVariants.map((variant, index) => {
                         const isMatch = Boolean(assoc?.currentUrl && areUrlsMatching(assoc.currentUrl, variant.url));
                         return (
                           <button
@@ -789,7 +790,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                             }}
                             style={{
                               border: 'none',
-                              borderRight: index < tab.urlVariants!.length - 1
+                              borderRight: index < secondaryVariants.length - 1
                                 ? `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'}`
                                 : 'none',
                               background: isMatch ? (effectiveDark ? '#0284c7' : '#0ea5e9') : 'transparent',
