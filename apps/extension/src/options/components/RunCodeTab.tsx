@@ -244,7 +244,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       const remaining = rules.filter((r) => r.id !== rule.id);
       if (editingRuleId === rule.id) resetForm();
       await saveRulesToStorage(remaining);
-      await queueOperations(createWorkspaceOperation('RUN_CODE_DELETE', rule.id));
+      await queueOperations(createWorkspaceOperation('RUN_CODE_DELETE', rule.id, { raindropId: rule.raindropId }));
       void syncToRaindropImmediately();
       showToast('Snippet deleted', 'info');
     }

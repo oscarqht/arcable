@@ -1503,12 +1503,17 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const removeWidget = useCallback((id: string) => {
-    savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', id));
+    saveWorkspaceData((prev) => {
+      const deletedWidget = (prev.widgets || []).find((w) => w.id === id);
+      savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', id, {
+        raindropId: deletedWidget?.raindropId,
+      }));
 
-    saveWorkspaceData((prev) => ({
-      ...prev,
-      widgets: (prev.widgets || []).filter((w) => w.id !== id),
-    }));
+      return {
+        ...prev,
+        widgets: (prev.widgets || []).filter((w) => w.id !== id),
+      };
+    });
   }, [saveWorkspaceData]);
 
   // Reorders a widget before the target widget; when targetId is omitted, moves it to the end.

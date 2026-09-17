@@ -1768,7 +1768,19 @@ function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
   };
 }
 
-function reconstructWorkspace(tree: RemoteArcableTree, targetActiveSpaceId?: string): ArcableWorkspaceData {
+function reconstructWorkspace(
+  tree: RemoteArcableTree,
+  targetActiveSpaceId?: string,
+  options?: { allowLegacyMetadataFallback?: boolean }
+): ArcableWorkspaceData {
+  // The tree.metadata.widgets/customCodeRules/runCodeInPageRules fallback below exists
+  // only to hydrate a device that has never synced this workspace before (pre-migration
+  // installs that still keep everything inside the legacy data.json.txt blob). Once a
+  // device has already established a root collection for this workspace, an empty list
+  // of live items is a legitimate deletion, not evidence of un-migrated data — the legacy
+  // blob can otherwise resurrect items that were deleted after it was last written (its
+  // deletion on push is best-effort and can silently fail, leaving stale data behind).
+  const allowLegacyMetadataFallback = options?.allowLegacyMetadataFallback ?? true;
   if (!tree.root) return createEmptyRemoteWorkspace();
   const root = tree.root;
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
@@ -1877,7 +1889,7 @@ function reconstructWorkspace(tree: RemoteArcableTree, targetActiveSpaceId?: str
     };
   }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  if (widgets.length === 0 && tree.metadata.widgets?.length) {
+  if (allowLegacyMetadataFallback && widgets.length === 0 && tree.metadata.widgets?.length) {
     widgets = tree.metadata.widgets;
   }
 
@@ -1934,7 +1946,7 @@ function reconstructWorkspace(tree: RemoteArcableTree, targetActiveSpaceId?: str
     };
   });
 
-  if (customCodeRules.length === 0 && tree.metadata.customCodeRules?.length) {
+  if (allowLegacyMetadataFallback && customCodeRules.length === 0 && tree.metadata.customCodeRules?.length) {
     customCodeRules = tree.metadata.customCodeRules;
   }
   customCodeRules = sortCustomCodeRules(customCodeRules);
@@ -1979,7 +1991,7 @@ function reconstructWorkspace(tree: RemoteArcableTree, targetActiveSpaceId?: str
     };
   });
 
-  if (runCodeInPageRules.length === 0 && tree.metadata.runCodeInPageRules?.length) {
+  if (allowLegacyMetadataFallback && runCodeInPageRules.length === 0 && tree.metadata.runCodeInPageRules?.length) {
     runCodeInPageRules = tree.metadata.runCodeInPageRules;
   }
   runCodeInPageRules = sortRunCodeRules(runCodeInPageRules);
@@ -2249,7 +2261,9 @@ export async function syncWorkspaceWithRaindrop(
             success: true,
             collectionId: tree.root._id,
             dataItemId: tree.metadataItemId,
-            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId),
+            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId, {
+              allowLegacyMetadataFallback: !syncLocalState?.raindropRootCollectionId,
+            }),
             syncedAt: Date.now(),
           };
         }
@@ -2259,7 +2273,9 @@ export async function syncWorkspaceWithRaindrop(
 
     if (needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {
       authoritativeTree = await fetchRemoteArcableTree(clean);
-      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree, syncLocalState?.activeSpaceId);
+      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree, syncLocalState?.activeSpaceId, {
+        allowLegacyMetadataFallback: !syncLocalState?.raindropRootCollectionId,
+      });
       if (authoritativeSnapshot && options?.pendingOps) {
         syncLocalState = replayOperations(authoritativeSnapshot, options.pendingOps);
       }
@@ -2409,6 +2425,19 @@ export async function syncWorkspaceWithRaindrop(
     for (const id of deletedIds) {
       const remoteId = numericRaindropId(id) || remoteCollectionByArcableId.get(id);
       if (remoteId && remoteCollections.has(remoteId)) await deleteRaindropCollection(clean, remoteId);
+    }
+
+    // Widgets, custom code rules, and run code rules live outside the space/folder
+    // collection tree and their bookmark items don't carry an arcableId in `note`
+    // (they encode their local id in `excerpt`/`link` instead), so they can't be
+    // resolved via remoteItemByArcableId like tabs above. Their WIDGET_DELETE /
+    // CUSTOM_CODE_DELETE / RUN_CODE_DELETE operations carry the raindropId
+    // directly in the payload - use that to delete them explicitly, otherwise
+    // they're silently skipped and resurrect on the next sync.
+    for (const op of pendingOps) {
+      if (op.type !== 'WIDGET_DELETE' && op.type !== 'CUSTOM_CODE_DELETE' && op.type !== 'RUN_CODE_DELETE') continue;
+      const remoteId = Number(op.payload?.raindropId) || numericRaindropId(op.entityId);
+      if (remoteId && remoteItems.has(remoteId)) await deleteRaindropBookmark(clean, remoteId);
     }
 
     // Find or create special collections for Custom CSS and Run Code

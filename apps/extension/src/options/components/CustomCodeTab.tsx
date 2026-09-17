@@ -264,7 +264,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       if (editingRuleId === rule.id) resetForm();
       if (selectedRule?.id === rule.id) setSelectedRule(null);
       await saveRulesToStorage(remaining);
-      await queueOperations(createWorkspaceOperation('CUSTOM_CODE_DELETE', rule.id));
+      await queueOperations(createWorkspaceOperation('CUSTOM_CODE_DELETE', rule.id, { raindropId: rule.raindropId }));
       void syncToRaindropImmediately();
       showToast('Rule deleted', 'info');
     }
