@@ -77,6 +77,8 @@ export interface RaindropBookmarkItem {
   tags?: string[];
   collectionId?: number;
   file?: RaindropFileItem;
+  sort?: number;
+  order?: number;
   created?: string;
   lastUpdate?: string;
 }

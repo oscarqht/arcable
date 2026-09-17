@@ -124,10 +124,9 @@ export function getSortedSiblings(
     }));
 
   return [...matchingFolders, ...matchingTabs].sort((a, b) => {
-    // Bookmarks are rendered before folders at every level of the workspace tree.
-    // Keep each item's persisted order within its own group so manual ordering is
-    // still respected without allowing folders to appear between bookmarks.
-    if (a.type !== b.type) return a.type === 'tab' ? -1 : 1;
+    // Folders are rendered before bookmarks at every level of the workspace tree,
+    // mirroring Raindrop's native model.
+    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
     if (a.order !== b.order) return a.order - b.order;
     return a.id.localeCompare(b.id);
   });

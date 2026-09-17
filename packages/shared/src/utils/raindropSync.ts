@@ -1,4 +1,5 @@
-import { ArcableWorkspaceData, Folder, Space, Tab } from '../types/workspace';
+import { ArcableWorkspaceData, Folder, Space, Tab, TabUrlVariant, WorkspaceWidget } from '../types/workspace';
+import { CustomCodeRule, RunCodeRule } from '../types/customCode';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
 import {
@@ -10,6 +11,7 @@ import {
   deleteRaindropBookmark,
   deleteRaindropBookmarks,
   deleteRaindropCollection,
+  moveRaindropBookmarks,
   uploadRaindropFile,
   fetchRaindropFileContent,
   updateRaindropItem,
@@ -37,9 +39,47 @@ import {
   mergeIncrementalSyncSnapshot,
 } from './syncEngine';
 
-export const ARCABLE_COLLECTION_NAME = 'Arcable';
-/** Canonical non-tree workspace metadata stored directly under the Arcable root. */
+export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
+export const LEGACY_ROOT_COLLECTION_NAMES = ['Arcable'];
+export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
+export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
+export const ARCABLE_WIDGET_TAG = 'arcable-widget';
+export const ARCABLE_WIDGET_LINK_PREFIX = 'https://arcable.app/widget/';
+export const ARCABLE_CUSTOM_CSS_LINK_PREFIX = 'https://arcable.app/custom-css/';
+export const ARCABLE_RUN_CODE_LINK_PREFIX = 'https://arcable.app/run-code/';
+export const ARCABLE_VARIANT_DELIMITER = ' ||| ';
+/** Legacy canonical non-tree workspace metadata stored directly under the Arcable root. */
 export const ARCABLE_DATA_FILE_NAME = 'data.json.txt';
+
+export function isSystemCollection(collection: RaindropCollectionItem): boolean {
+  const title = (collection.title || '').trim().toLowerCase();
+  return (
+    title === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase() ||
+    title === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase() ||
+    title.startsWith('_')
+  );
+}
+
+export function isWidgetItem(item: RaindropBookmarkItem): boolean {
+  const link = (item.link || '').toLowerCase();
+  return link.startsWith(ARCABLE_WIDGET_LINK_PREFIX.toLowerCase()) || Boolean(item.tags?.includes(ARCABLE_WIDGET_TAG));
+}
+
+export function isCustomCssItem(item: RaindropBookmarkItem, customCssCollectionId?: number): boolean {
+  const link = (item.link || '').toLowerCase();
+  return (
+    (customCssCollectionId !== undefined && item.collectionId === customCssCollectionId) ||
+    link.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX.toLowerCase())
+  );
+}
+
+export function isRunCodeItem(item: RaindropBookmarkItem, runCodeCollectionId?: number): boolean {
+  const link = (item.link || '').toLowerCase();
+  return (
+    (runCodeCollectionId !== undefined && item.collectionId === runCodeCollectionId) ||
+    link.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX.toLowerCase())
+  );
+}
 
 /**
  * Checks if a Raindrop item corresponds to the current Arcable sync file (sync.json.txt).
@@ -224,18 +264,13 @@ export async function findAllRaindropSyncJsonItems(
 }
 
 /**
- * Finds the root collection named "Arcable", or creates one if it does not exist.
- *
- * Note: fetchRaindropCollections throws rather than returning an empty list when the
- * lookup itself fails, so this never falls through to createRaindropCollection just
- * because of a transient fetch error — that used to silently spawn a duplicate
- * "Arcable" collection (e.g. during a sync data version upgrade, when many devices
- * reconnect at once and can hit rate limits).
+ * Finds the root collection named ARCABLE_COLLECTION_NAME ("Arcable v2"), or creates one if it does not exist.
+ * If a legacy root collection (e.g. "Arcable") is found, triggers migration so the new root is initialized.
  */
 export async function getOrCreateArcableCollection(token: string): Promise<RaindropCollectionItem> {
   const collections = await fetchRaindropCollections(token);
 
-  // Look for root collection(s) named "Arcable"
+  // Look for root collection(s) named ARCABLE_COLLECTION_NAME ("Arcable v2")
   const matches = collections.filter(
     (c) =>
       c.title.trim().toLowerCase() === ARCABLE_COLLECTION_NAME.toLowerCase() &&
@@ -243,11 +278,20 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
   );
 
   if (matches.length > 0) {
-    // If duplicates already exist (e.g. from before this safeguard existed), prefer
-    // the one actually holding data, tie-broken by the oldest (lowest _id) so we
-    // keep converging on the same collection instead of drifting between them.
     matches.sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
     return matches[0];
+  }
+
+  // Check if legacy root collection exists to migrate
+  const legacyMatches = collections.filter(
+    (c) =>
+      (!c.parent || !c.parent.$id) &&
+      LEGACY_ROOT_COLLECTION_NAMES.some((name) => c.title.trim().toLowerCase() === name.toLowerCase())
+  );
+
+  if (legacyMatches.length > 0) {
+    const tree = await fetchRemoteArcableTree(token);
+    if (tree.root) return tree.root;
   }
 
   // Create new root collection
@@ -690,20 +734,67 @@ function parseBookmarkNote(note?: string): Record<string, any> {
   }
 }
 
-function bookmarkNote(tab: Tab): string {
-  return JSON.stringify({
-    schema: ARCABLE_NOTE_MARKER,
-    arcableId: tab.id,
-    urlVariants: tab.urlVariants,
-    defaultVariantId: tab.defaultVariantId,
-    pinned: Boolean(tab.pinned),
-    favourite: Boolean(tab.favourite),
-    customTitle: tab.customTitle,
-    customEmojiIcon: tab.customEmojiIcon,
-    order: tab.order,
-    createdAt: tab.createdAt,
-    updatedAt: tab.updatedAt,
-  });
+function bookmarkNote(_tab: Tab): string {
+  // Arcable bookmark items no longer store metadata in note.
+  return '';
+}
+
+function widgetToRaindropItemInput(
+  widget: WorkspaceWidget,
+  rootId: number
+): Parameters<typeof createRaindropBookmarks>[1][number] {
+  return {
+    title: `[Widget] ${widget.style}`,
+    link: `${ARCABLE_WIDGET_LINK_PREFIX}${widget.id}`,
+    tags: [ARCABLE_WIDGET_TAG],
+    excerpt: JSON.stringify({
+      id: widget.id,
+      style: widget.style,
+      size: widget.size,
+      config: widget.config,
+    }),
+    order: widget.order,
+    collectionId: rootId,
+    pleaseParse: { disabled: true },
+  };
+}
+
+function customCodeToRaindropItemInput(
+  rule: CustomCodeRule,
+  collectionId: number
+): Parameters<typeof createRaindropBookmarks>[1][number] {
+  return {
+    title: rule.pattern || 'Custom CSS',
+    link: `${ARCABLE_CUSTOM_CSS_LINK_PREFIX}${rule.id}`,
+    excerpt: JSON.stringify({
+      id: rule.id,
+      pattern: rule.pattern,
+      css: rule.css,
+      js: rule.js,
+      disabled: rule.disabled,
+    }),
+    collectionId,
+    pleaseParse: { disabled: true },
+  };
+}
+
+function runCodeToRaindropItemInput(
+  rule: RunCodeRule,
+  collectionId: number
+): Parameters<typeof createRaindropBookmarks>[1][number] {
+  return {
+    title: rule.title || 'Run Code',
+    link: `${ARCABLE_RUN_CODE_LINK_PREFIX}${rule.id}`,
+    excerpt: JSON.stringify({
+      id: rule.id,
+      title: rule.title,
+      patterns: rule.patterns,
+      code: rule.code,
+      disabled: rule.disabled,
+    }),
+    collectionId,
+    pleaseParse: { disabled: true },
+  };
 }
 
 const INCREMENTAL_OPERATION_TYPES = new Set([
@@ -814,7 +905,7 @@ export async function syncIncrementalOperations(
   );
   if (
     hasMetadataChanges &&
-    (!localState.raindropRootCollectionId || localState.raindropMetadataItemId === undefined)
+    !localState.raindropRootCollectionId
   ) return null;
 
   const groups = new Map<string, WorkspaceOperation[]>();
@@ -823,9 +914,11 @@ export async function syncIncrementalOperations(
       ? 'folder'
       : operation.type.startsWith('WIDGET_')
         ? 'widget'
-        : operation.type.startsWith('CUSTOM_CODE_') || operation.type.startsWith('RUN_CODE_')
-          ? 'metadata'
-        : 'tab';
+        : operation.type.startsWith('CUSTOM_CODE_')
+          ? 'custom_code'
+          : operation.type.startsWith('RUN_CODE_')
+            ? 'run_code'
+            : 'tab';
     const key = `${kind}:${operation.entityId}`;
     const entityOps = groups.get(key) || [];
     entityOps.push(operation);
@@ -836,6 +929,9 @@ export async function syncIncrementalOperations(
     ...localState,
     folders: [...localState.folders],
     tabs: [...localState.tabs],
+    widgets: [...(localState.widgets || [])],
+    customCodeRules: [...(localState.customCodeRules || [])],
+    runCodeInPageRules: [...(localState.runCodeInPageRules || [])],
   };
   const collectionIds = new Map<string, number>();
   for (const collection of [...localState.spaces, ...localState.folders]) {
@@ -911,7 +1007,7 @@ export async function syncIncrementalOperations(
       title: tab.customTitle || tab.url,
       link: tab.url,
       cover: tab.favIconUrl,
-      note: bookmarkNote(tab),
+      note: '',
       collection: { $id: parentId },
       order: tab.order,
     };
@@ -920,11 +1016,29 @@ export async function syncIncrementalOperations(
         title: payload.title,
         link: payload.link,
         cover: payload.cover,
-        note: payload.note,
+        note: '',
         collectionId: parentId,
         order: payload.order,
         pleaseParse: { disabled: true },
       } });
+      // Extra URL variants
+      if (tab.urlVariants && tab.urlVariants.length > 0) {
+        for (const variant of tab.urlVariants) {
+          if (variant.url === tab.url || variant.id === tab.defaultVariantId) continue;
+          tabCreates.push({
+            entityId: `${entityId}:::variant:::${variant.id}`,
+            input: {
+              title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+              link: variant.url,
+              cover: payload.cover,
+              note: '',
+              collectionId: parentId,
+              order: payload.order,
+              pleaseParse: { disabled: true },
+            },
+          });
+        }
+      }
     } else {
       const remoteId = remoteEntityId(tab);
       if (!remoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
@@ -986,25 +1100,165 @@ export async function syncIncrementalOperations(
     if (!deleted) throw new Error(`Failed to delete Raindrop folder ${remoteId}.`);
   }
 
-  if (hasMetadataChanges) {
-    const rootId = latestSnapshot.raindropRootCollectionId!;
-    const previousMetadataItemId = latestSnapshot.raindropMetadataItemId;
-    if (previousMetadataItemId) {
-      const deleted = await deleteRaindropBookmarks(token, rootId, [previousMetadataItemId]);
-      if (!deleted) throw new Error('Failed to remove the previous Arcable metadata item.');
+  // Process Widget operations
+  const rootId = latestSnapshot.raindropRootCollectionId!;
+  const widgetCreates: Array<{ entityId: string; input: Parameters<typeof createRaindropBookmarks>[1][number] }> = [];
+  for (const [key, operations] of groups) {
+    if (!key.startsWith('widget:') || operations.some((operation) => operation.type === 'WIDGET_DELETE')) continue;
+    const entityId = operations[0].entityId;
+    const widget = latestSnapshot.widgets?.find((w) => w.id === entityId);
+    if (!widget) continue;
+    const isCreate = operations.some((operation) => operation.type === 'WIDGET_CREATE');
+    const input = widgetToRaindropItemInput(widget, rootId);
+    if (isCreate) {
+      widgetCreates.push({ entityId, input });
+    } else {
+      const remoteId = widget.raindropId || numericRaindropId(widget.id);
+      if (remoteId) {
+        const updated = await updateRaindropItem(token, remoteId, {
+          title: input.title,
+          excerpt: input.excerpt,
+          order: input.order,
+        });
+        if (!updated) throw new Error(`Failed to update Raindrop widget ${remoteId}.`);
+      }
     }
+  }
+  for (let start = 0; start < widgetCreates.length; start += 100) {
+    const batch = widgetCreates.slice(start, start + 100);
+    const createdItems = await createRaindropBookmarks(token, batch.map(({ input }) => input));
+    if (createdItems.length !== batch.length) {
+      throw new Error(`Raindrop created ${createdItems.length} of ${batch.length} requested widgets.`);
+    }
+    const createdIds = new Map(batch.map((entry, index) => [entry.entityId, createdItems[index]._id]));
+    latestSnapshot = {
+      ...latestSnapshot,
+      widgets: (latestSnapshot.widgets || []).map((w) => {
+        const createdId = createdIds.get(w.id);
+        return createdId ? { ...w, raindropId: createdId } : w;
+      }),
+    };
+  }
+  for (const [key, operations] of groups) {
+    if (!key.startsWith('widget:') || !operations.some((op) => op.type === 'WIDGET_DELETE')) continue;
+    if (operations.some((op) => op.type === 'WIDGET_CREATE')) continue;
+    const deleteOp = [...operations].reverse().find((op) => op.type === 'WIDGET_DELETE')!;
+    const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
+    if (remoteId) await deleteRaindropBookmark(token, remoteId);
+  }
 
-    const uploaded = await uploadRaindropFile(
-      token,
-      rootId,
-      ARCABLE_DATA_FILE_NAME,
-      JSON.stringify(metadataFromWorkspace(latestSnapshot), null, 2)
+  // Process Custom Code operations
+  const hasCustomCodeOps = [...groups.keys()].some((k) => k.startsWith('custom_code:'));
+  if (hasCustomCodeOps) {
+    const allCollections = await fetchRaindropCollections(token);
+    let customCssColl = allCollections.find(
+      (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase()
     );
-    const metadataItemId = Number(uploaded?.item?._id);
-    if (!Number.isSafeInteger(metadataItemId) || metadataItemId <= 0) {
-      throw new Error('Raindrop did not return an ID for the updated Arcable metadata item.');
+    if (!customCssColl) {
+      customCssColl = await createRaindropCollection(token, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, rootId);
     }
-    latestSnapshot = { ...latestSnapshot, raindropMetadataItemId: metadataItemId };
+    const customCssCollId = customCssColl._id;
+
+    const customCodeCreates: Array<{ entityId: string; input: Parameters<typeof createRaindropBookmarks>[1][number] }> = [];
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('custom_code:') || operations.some((op) => op.type === 'CUSTOM_CODE_DELETE')) continue;
+      const entityId = operations[0].entityId;
+      const rule = latestSnapshot.customCodeRules?.find((r) => r.id === entityId);
+      if (!rule) continue;
+      const isCreate = operations.some((op) => op.type === 'CUSTOM_CODE_CREATE');
+      const input = customCodeToRaindropItemInput(rule, customCssCollId);
+      if (isCreate) {
+        customCodeCreates.push({ entityId, input });
+      } else {
+        const remoteId = rule.raindropId || numericRaindropId(rule.id);
+        if (remoteId) {
+          const updated = await updateRaindropItem(token, remoteId, {
+            title: input.title,
+            excerpt: input.excerpt,
+          });
+          if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${remoteId}.`);
+        }
+      }
+    }
+    for (let start = 0; start < customCodeCreates.length; start += 100) {
+      const batch = customCodeCreates.slice(start, start + 100);
+      const createdItems = await createRaindropBookmarks(token, batch.map(({ input }) => input));
+      const createdIds = new Map(batch.map((entry, index) => [entry.entityId, createdItems[index]._id]));
+      latestSnapshot = {
+        ...latestSnapshot,
+        customCodeRules: (latestSnapshot.customCodeRules || []).map((r) => {
+          const createdId = createdIds.get(r.id);
+          return createdId ? { ...r, raindropId: createdId } : r;
+        }),
+      };
+    }
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('custom_code:') || !operations.some((op) => op.type === 'CUSTOM_CODE_DELETE')) continue;
+      if (operations.some((op) => op.type === 'CUSTOM_CODE_CREATE')) continue;
+      const deleteOp = [...operations].reverse().find((op) => op.type === 'CUSTOM_CODE_DELETE')!;
+      const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
+      if (remoteId) await deleteRaindropBookmark(token, remoteId);
+    }
+  }
+
+  // Process Run Code operations
+  const hasRunCodeOps = [...groups.keys()].some((k) => k.startsWith('run_code:'));
+  if (hasRunCodeOps) {
+    const allCollections = await fetchRaindropCollections(token);
+    let runCodeColl = allCollections.find(
+      (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase()
+    );
+    if (!runCodeColl) {
+      runCodeColl = await createRaindropCollection(token, ARCABLE_RUN_CODE_COLLECTION_NAME, rootId);
+    }
+    const runCodeCollId = runCodeColl._id;
+
+    const runCodeCreates: Array<{ entityId: string; input: Parameters<typeof createRaindropBookmarks>[1][number] }> = [];
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('run_code:') || operations.some((op) => op.type === 'RUN_CODE_DELETE')) continue;
+      const entityId = operations[0].entityId;
+      const rule = latestSnapshot.runCodeInPageRules?.find((r) => r.id === entityId);
+      if (!rule) continue;
+      const isCreate = operations.some((op) => op.type === 'RUN_CODE_CREATE');
+      const input = runCodeToRaindropItemInput(rule, runCodeCollId);
+      if (isCreate) {
+        runCodeCreates.push({ entityId, input });
+      } else {
+        const remoteId = rule.raindropId || numericRaindropId(rule.id);
+        if (remoteId) {
+          const updated = await updateRaindropItem(token, remoteId, {
+            title: input.title,
+            excerpt: input.excerpt,
+          });
+          if (!updated) throw new Error(`Failed to update Raindrop run code rule ${remoteId}.`);
+        }
+      }
+    }
+    for (let start = 0; start < runCodeCreates.length; start += 100) {
+      const batch = runCodeCreates.slice(start, start + 100);
+      const createdItems = await createRaindropBookmarks(token, batch.map(({ input }) => input));
+      const createdIds = new Map(batch.map((entry, index) => [entry.entityId, createdItems[index]._id]));
+      latestSnapshot = {
+        ...latestSnapshot,
+        runCodeInPageRules: (latestSnapshot.runCodeInPageRules || []).map((r) => {
+          const createdId = createdIds.get(r.id);
+          return createdId ? { ...r, raindropId: createdId } : r;
+        }),
+      };
+    }
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('run_code:') || !operations.some((op) => op.type === 'RUN_CODE_DELETE')) continue;
+      if (operations.some((op) => op.type === 'RUN_CODE_CREATE')) continue;
+      const deleteOp = [...operations].reverse().find((op) => op.type === 'RUN_CODE_DELETE')!;
+      const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
+      if (remoteId) await deleteRaindropBookmark(token, remoteId);
+    }
+  }
+
+  // Remove previous legacy data.json.txt if it was tracked
+  if (latestSnapshot.raindropMetadataItemId) {
+    await deleteRaindropBookmarks(token, rootId, [latestSnapshot.raindropMetadataItemId]).catch(() => null);
+    latestSnapshot = { ...latestSnapshot, raindropMetadataItemId: null };
   }
 
   return {
@@ -1043,7 +1297,7 @@ function isLegacySnapshotItem(item: RaindropBookmarkItem): boolean {
     title === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
     /(?:^|\/)data\.json\.txt(?:$|[?#])/.test(link)
   ) {
-    return false;
+    return true;
   }
   const legacyName = /(?:sync(?:-v[45])?|data-(?:v)?\d[\w.-]*|data)\.json(?:\.txt)?/i;
   return [item.title, item.file?.name, item.link].some((value) => legacyName.test(value || ''));
@@ -1109,6 +1363,51 @@ async function readMetadata(token: string, rootId: number, item: RaindropBookmar
   }
 }
 
+/**
+ * Migrates child collections and bookmark items from a legacy root collection
+ * (e.g. "Arcable") to the new root collection ("Arcable v2"), then deletes the legacy root.
+ */
+async function migrateLegacyRootCollection(
+  token: string,
+  legacyRoot: RaindropCollectionItem,
+  targetRoot: RaindropCollectionItem,
+  allCollections: RaindropCollectionItem[]
+): Promise<void> {
+  console.log(
+    `[RaindropSync] Migrating legacy root collection "${legacyRoot.title}" (${legacyRoot._id}) to "${targetRoot.title}" (${targetRoot._id})...`
+  );
+
+  // 1. Move all immediate child collections to targetRoot
+  const childCollections = allCollections.filter((c) => c.parent?.$id === legacyRoot._id);
+  for (const child of childCollections) {
+    try {
+      await updateRaindropCollection(token, child._id, { parentId: targetRoot._id });
+      child.parent = { $id: targetRoot._id };
+    } catch (err) {
+      console.warn(`[RaindropSync] Failed to reparent child collection ${child.title} (${child._id}):`, err);
+    }
+  }
+
+  // 2. Move all bookmark items directly under legacyRoot to targetRoot
+  try {
+    const legacyItems = await fetchAllRaindropItems(token, legacyRoot._id);
+    if (legacyItems.length > 0) {
+      const itemIds = legacyItems.map((item) => item._id);
+      await moveRaindropBookmarks(token, legacyRoot._id, targetRoot._id, itemIds);
+    }
+  } catch (err) {
+    console.warn(`[RaindropSync] Failed to move items from legacy root ${legacyRoot._id}:`, err);
+  }
+
+  // 3. Delete the legacy root collection to prevent confusion and conflicts with older clients
+  try {
+    await deleteRaindropCollection(token, legacyRoot._id);
+    console.log(`[RaindropSync] Deleted legacy root collection "${legacyRoot.title}" (${legacyRoot._id}).`);
+  } catch (err) {
+    console.warn(`[RaindropSync] Failed to delete legacy root collection ${legacyRoot._id}:`, err);
+  }
+}
+
 /** Fetches the complete Arcable subtree and only the items below its root. */
 async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree> {
   // Raindrop caches identical list URLs. A reload immediately after a batch
@@ -1116,12 +1415,31 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
   // Reuse one unique key across every page so the read remains a coherent
   // snapshot while still bypassing both Raindrop's and the browser's caches.
   const cacheBust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const allCollections = await fetchRaindropCollections(token, { cacheBust });
+  let allCollections = await fetchRaindropCollections(token, { cacheBust });
   const roots = allCollections.filter((collection) => !collection.parent?.$id);
   const matchingRoots = roots
     .filter((collection) => collection.title.trim().toLowerCase() === ARCABLE_COLLECTION_NAME.toLowerCase())
     .sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
-  const root = matchingRoots[0];
+  let root = matchingRoots[0];
+
+  // Check if any legacy root collections exist (e.g. "Arcable")
+  const legacyRoots = roots.filter(
+    (collection) =>
+      collection._id !== root?._id &&
+      LEGACY_ROOT_COLLECTION_NAMES.some((name) => collection.title.trim().toLowerCase() === name.toLowerCase())
+  );
+
+  if (legacyRoots.length > 0) {
+    if (!root) {
+      root = await createRaindropCollection(token, ARCABLE_COLLECTION_NAME);
+      allCollections.push(root);
+    }
+    for (const legacyRoot of legacyRoots) {
+      await migrateLegacyRootCollection(token, legacyRoot, root, allCollections);
+      allCollections = allCollections.filter((c) => c._id !== legacyRoot._id);
+    }
+  }
+
   if (!root) return { collections: [], items: [], metadata: { version: ARCABLE_VERSION } };
 
   const byId = new Map(allCollections.map((collection) => [collection._id, collection]));
@@ -1166,11 +1484,23 @@ function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
 
 function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
   if (!tree.root) return createEmptyRemoteWorkspace();
+  const root = tree.root;
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
   const arcableCollectionId = (collectionId: number) => String(collectionId);
-  const spaceIds = new Set(
-    tree.collections.filter((collection) => collection.parent?.$id === tree.root!._id).map((collection) => collection._id)
+
+  const customCssCollection = tree.collections.find(
+    (c) => c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase() && c.parent?.$id === root._id
   );
+  const runCodeCollection = tree.collections.find(
+    (c) => c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase() && c.parent?.$id === root._id
+  );
+
+  const spaceIds = new Set(
+    tree.collections
+      .filter((collection) => collection.parent?.$id === root._id && !isSystemCollection(collection))
+      .map((collection) => collection._id)
+  );
+
   const spaces: Space[] = tree.collections
     .filter((collection) => spaceIds.has(collection._id))
     .map((collection) => ({
@@ -1179,12 +1509,14 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       name: collection.title,
       emojiIcon: emojiFromCover(collection.cover),
       coverUrl: collection.cover?.[0],
-      order: collection.sort,
+      order: collection.sort ?? 0,
       createdAt: timestamp(collection.created),
       updatedAt: timestamp(collection.lastUpdate),
-    }));
+    }))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   const folders: Folder[] = tree.collections
-    .filter((collection) => !spaceIds.has(collection._id))
+    .filter((collection) => !spaceIds.has(collection._id) && !isSystemCollection(collection))
     .map((collection) => {
       let cursor: RaindropCollectionItem | undefined = collection;
       while (cursor?.parent?.$id && !spaceIds.has(cursor.parent.$id)) cursor = collectionById.get(cursor.parent.$id);
@@ -1198,49 +1530,247 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
         colors: collection.color,
         parentFolderId: collection.parent?.$id && spaceIds.has(collection.parent.$id) ? undefined : arcableCollectionId(collection.parent?.$id || 0),
         parentSpaceId: spaceId ? arcableCollectionId(spaceId) : '',
-        order: collection.sort,
+        order: collection.sort ?? 0,
         createdAt: timestamp(collection.created),
         updatedAt: timestamp(collection.lastUpdate),
       };
     })
-    .filter((folder) => Boolean(folder.parentSpaceId));
-  const tabs: Tab[] = tree.items
-    .filter((item) => !isArcableInternalItem(item))
-    .map((item) => {
-      const extra = parseBookmarkNote(item.note);
-      const collectionId = item.collectionId;
-      const favourite = collectionId === tree.root!._id || Boolean(extra.favourite);
-      let parentSpaceId: string | undefined;
-      let parentFolderId: string | undefined;
-      if (!favourite && collectionId) {
-        if (spaceIds.has(collectionId)) parentSpaceId = arcableCollectionId(collectionId);
-        else {
-          parentFolderId = arcableCollectionId(collectionId);
-          let cursor = collectionById.get(collectionId);
-          while (cursor?.parent?.$id && !spaceIds.has(cursor.parent.$id)) cursor = collectionById.get(cursor.parent.$id);
-          parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
-        }
+    .filter((folder) => Boolean(folder.parentSpaceId))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  // In Raindrop, manual order is retrieved via sort=-sort which returns items
+  // top-to-bottom in array order. Establish a reliable ascending order per collection
+  // (or preserve explicit item.order if already set) so Arcable's ascending sort (a.order - b.order)
+  // precisely mirrors Raindrop's visual display order.
+  const itemOrderMap = new Map<number, number>();
+  const collectionCounters = new Map<number, number>();
+
+  for (const item of tree.items) {
+    const collId = item.collectionId ?? 0;
+    const nextOrder = (collectionCounters.get(collId) ?? 0) + 1000;
+    collectionCounters.set(collId, nextOrder);
+    itemOrderMap.set(item._id, typeof item.order === 'number' ? item.order : nextOrder);
+  }
+
+  // Reconstruct widgets from Arcable root collection
+  const widgetItems = tree.items.filter(
+    (item) => item.collectionId === root._id && isWidgetItem(item)
+  );
+  let widgets: WorkspaceWidget[] = widgetItems.map((item) => {
+    let parsedExcerpt: any = {};
+    try {
+      if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
+    } catch {}
+    const widgetId =
+      parsedExcerpt.id ||
+      (item.link?.startsWith(ARCABLE_WIDGET_LINK_PREFIX)
+        ? item.link.slice(ARCABLE_WIDGET_LINK_PREFIX.length)
+        : String(item._id));
+    return {
+      id: widgetId,
+      raindropId: item._id,
+      style: parsedExcerpt.style || 'combo',
+      size: parsedExcerpt.size || 'small',
+      config: parsedExcerpt.config || {},
+      order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
+      createdAt: timestamp(item.created),
+      updatedAt: timestamp(item.lastUpdate),
+    };
+  }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  if (widgets.length === 0 && tree.metadata.widgets?.length) {
+    widgets = tree.metadata.widgets;
+  }
+
+  // Reconstruct custom code rules from _custom_css
+  const customCssItems = customCssCollection
+    ? tree.items.filter((item) => item.collectionId === customCssCollection._id || isCustomCssItem(item, customCssCollection._id))
+    : tree.items.filter((item) => isCustomCssItem(item));
+  let customCodeRules: CustomCodeRule[] = customCssItems.map((item) => {
+    let parsedExcerpt: any = {};
+    try {
+      if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
+    } catch {}
+    const ruleId =
+      parsedExcerpt.id ||
+      (item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX)
+        ? item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length)
+        : String(item._id));
+    return {
+      id: ruleId,
+      raindropId: item._id,
+      pattern: parsedExcerpt.pattern || item.title || '',
+      css: parsedExcerpt.css || '',
+      js: parsedExcerpt.js || '',
+      disabled: Boolean(parsedExcerpt.disabled),
+      createdAt: parsedExcerpt.createdAt || item.created,
+      updatedAt: parsedExcerpt.updatedAt || item.lastUpdate,
+    };
+  });
+
+  if (customCodeRules.length === 0 && tree.metadata.customCodeRules?.length) {
+    customCodeRules = tree.metadata.customCodeRules;
+  }
+
+  // Reconstruct run code rules from _run_code
+  const runCodeItems = runCodeCollection
+    ? tree.items.filter((item) => item.collectionId === runCodeCollection._id || isRunCodeItem(item, runCodeCollection._id))
+    : tree.items.filter((item) => isRunCodeItem(item));
+  let runCodeInPageRules: RunCodeRule[] = runCodeItems.map((item) => {
+    let parsedExcerpt: any = {};
+    try {
+      if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
+    } catch {}
+    const ruleId =
+      parsedExcerpt.id ||
+      (item.link?.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX)
+        ? item.link.slice(ARCABLE_RUN_CODE_LINK_PREFIX.length)
+        : String(item._id));
+    return {
+      id: ruleId,
+      raindropId: item._id,
+      title: parsedExcerpt.title || item.title || '',
+      patterns: parsedExcerpt.patterns || [],
+      code: parsedExcerpt.code || '',
+      disabled: Boolean(parsedExcerpt.disabled),
+      createdAt: parsedExcerpt.createdAt || item.created,
+      updatedAt: parsedExcerpt.updatedAt || item.lastUpdate,
+    };
+  });
+
+  if (runCodeInPageRules.length === 0 && tree.metadata.runCodeInPageRules?.length) {
+    runCodeInPageRules = tree.metadata.runCodeInPageRules;
+  }
+
+  // Identify placeholder / internal item IDs to exclude from tabs
+  const nonTabItemIds = new Set<number>([
+    ...widgetItems.map((w) => w._id),
+    ...customCssItems.map((c) => c._id),
+    ...runCodeItems.map((r) => r._id),
+  ]);
+
+  const rawTabItems = tree.items.filter(
+    (item) => !isArcableInternalItem(item) && !nonTabItemIds.has(item._id) && !isWidgetItem(item)
+  );
+
+  // Group URL variants by title delimiter: "<name> ||| <variant name>"
+  const variantItemsByBaseTitle = new Map<string, RaindropBookmarkItem[]>();
+  const baseTabItems: RaindropBookmarkItem[] = [];
+
+  for (const item of rawTabItems) {
+    const title = item.title || '';
+    const delimiterIndex = title.indexOf(ARCABLE_VARIANT_DELIMITER);
+    if (delimiterIndex !== -1) {
+      const baseTitle = title.slice(0, delimiterIndex).trim();
+      const groupKey = `${item.collectionId || 0}:::${baseTitle}`;
+      const group = variantItemsByBaseTitle.get(groupKey) || [];
+      group.push(item);
+      variantItemsByBaseTitle.set(groupKey, group);
+    } else {
+      baseTabItems.push(item);
+    }
+  }
+
+  const tabs: Tab[] = [];
+  const processedVariantGroupKeys = new Set<string>();
+
+  for (const item of baseTabItems) {
+    const collectionId = item.collectionId;
+    const favourite = collectionId === root._id;
+    let parentSpaceId: string | undefined;
+    let parentFolderId: string | undefined;
+    if (!favourite && collectionId) {
+      if (spaceIds.has(collectionId)) parentSpaceId = arcableCollectionId(collectionId);
+      else {
+        parentFolderId = arcableCollectionId(collectionId);
+        let cursor = collectionById.get(collectionId);
+        while (cursor?.parent?.$id && !spaceIds.has(cursor.parent.$id)) cursor = collectionById.get(cursor.parent.$id);
+        parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
       }
-      return {
-        id: extra.arcableId || String(item._id),
-        raindropId: item._id,
-        url: item.link,
-        urlVariants: extra.urlVariants,
-        defaultVariantId: extra.defaultVariantId,
-        pinned: Boolean(extra.pinned),
-        favourite: favourite || undefined,
-        customTitle: extra.customTitle || item.title,
-        customEmojiIcon: extra.customEmojiIcon,
-        favIconUrl: item.cover,
-        parentFolderId,
-        parentSpaceId,
-        order: extra.order,
-        createdAt: extra.createdAt || timestamp(item.created),
-        updatedAt: extra.updatedAt || timestamp(item.lastUpdate),
-      };
+    }
+
+    const groupKey = `${collectionId || 0}:::${(item.title || '').trim()}`;
+    const variantItems = variantItemsByBaseTitle.get(groupKey);
+    let urlVariants: TabUrlVariant[] | undefined;
+    let defaultVariantId: string | undefined;
+
+    if (variantItems && variantItems.length > 0) {
+      processedVariantGroupKeys.add(groupKey);
+      const defaultId = String(item._id);
+      urlVariants = [
+        { id: defaultId, name: item.title || 'Default', url: item.link },
+        ...variantItems.map((v) => {
+          const delimIdx = (v.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
+          const variantName = delimIdx !== -1 ? v.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+          return { id: String(v._id), name: variantName, url: v.link };
+        }),
+      ];
+      defaultVariantId = defaultId;
+    }
+
+    tabs.push({
+      id: String(item._id),
+      raindropId: item._id,
+      url: item.link,
+      urlVariants,
+      defaultVariantId,
+      pinned: false,
+      favourite: favourite || undefined,
+      customTitle: item.title,
+      favIconUrl: item.cover,
+      parentFolderId,
+      parentSpaceId,
+      order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
+      createdAt: timestamp(item.created),
+      updatedAt: timestamp(item.lastUpdate),
     });
+  }
+
+  // Handle any orphan variant items whose base title had no standalone item
+  for (const [groupKey, variantItems] of variantItemsByBaseTitle) {
+    if (processedVariantGroupKeys.has(groupKey) || variantItems.length === 0) continue;
+    const first = variantItems[0];
+    const collectionId = first.collectionId;
+    const favourite = collectionId === root._id;
+    let parentSpaceId: string | undefined;
+    let parentFolderId: string | undefined;
+    if (!favourite && collectionId) {
+      if (spaceIds.has(collectionId)) parentSpaceId = arcableCollectionId(collectionId);
+      else {
+        parentFolderId = arcableCollectionId(collectionId);
+        let cursor = collectionById.get(collectionId);
+        while (cursor?.parent?.$id && !spaceIds.has(cursor.parent.$id)) cursor = collectionById.get(cursor.parent.$id);
+        parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
+      }
+    }
+    const baseTitle = groupKey.split(':::')[1] || first.title;
+    const urlVariants: TabUrlVariant[] = variantItems.map((v) => {
+      const delimIdx = (v.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
+      const variantName = delimIdx !== -1 ? v.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+      return { id: String(v._id), name: variantName, url: v.link };
+    });
+    tabs.push({
+      id: String(first._id),
+      raindropId: first._id,
+      url: first.link,
+      urlVariants,
+      defaultVariantId: String(first._id),
+      pinned: false,
+      favourite: favourite || undefined,
+      customTitle: baseTitle,
+      favIconUrl: first.cover,
+      parentFolderId,
+      parentSpaceId,
+      order: itemOrderMap.get(first._id) ?? (first.order ?? 0),
+      createdAt: timestamp(first.created),
+      updatedAt: timestamp(first.lastUpdate),
+    });
+  }
+
+  tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   return {
-    raindropRootCollectionId: tree.root._id,
+    raindropRootCollectionId: root._id,
     raindropMetadataItemId: tree.metadataItemId ?? null,
     version: 1,
     activeSpaceId: spaces[0]?.id || '',
@@ -1248,9 +1778,9 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
     folders,
     tabs,
     tmpTabs: [],
-    widgets: tree.metadata.widgets || [],
-    customCodeRules: tree.metadata.customCodeRules || [],
-    runCodeInPageRules: tree.metadata.runCodeInPageRules || [],
+    widgets,
+    customCodeRules,
+    runCodeInPageRules,
   };
 }
 
@@ -1396,7 +1926,7 @@ export async function syncWorkspaceWithRaindrop(
     let tree = authoritativeTree || await fetchRemoteArcableTree(clean);
     let root = tree.root;
     if (!root) root = await createRaindropCollection(clean, ARCABLE_COLLECTION_NAME);
-    if (!root?._id) throw new Error('Failed to create root "Arcable" collection in Raindrop.');
+    if (!root?._id) throw new Error(`Failed to create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
 
     // No migration is supported: remove retired snapshot files rather than
     // leaving two competing cloud representations under Arcable.
@@ -1516,7 +2046,28 @@ export async function syncWorkspaceWithRaindrop(
       if (remoteId && remoteCollections.has(remoteId)) await deleteRaindropCollection(clean, remoteId);
     }
 
+    // Find or create special collections for Custom CSS and Run Code
+    let customCssColl = tree.collections.find(
+      (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase()
+    );
+    if (!customCssColl && (localState.customCodeRules || []).length > 0) {
+      customCssColl = await createRaindropCollection(clean, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, root._id);
+      tree.collections.push(customCssColl);
+      remoteCollections.set(customCssColl._id, customCssColl);
+    }
+
+    let runCodeColl = tree.collections.find(
+      (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase()
+    );
+    if (!runCodeColl && (localState.runCodeInPageRules || []).length > 0) {
+      runCodeColl = await createRaindropCollection(clean, ARCABLE_RUN_CODE_COLLECTION_NAME, root._id);
+      tree.collections.push(runCodeColl);
+      remoteCollections.set(runCodeColl._id, runCodeColl);
+    }
+
     const bookmarksToCreate = [] as Parameters<typeof createRaindropBookmarks>[1];
+
+    // Sync tabs
     for (const tab of localState.tabs || []) {
       if (deletedIds.has(tab.id)) continue;
       const remoteId = remoteEntityId(tab);
@@ -1528,7 +2079,7 @@ export async function syncWorkspaceWithRaindrop(
         title: tab.customTitle || tab.url,
         link: tab.url,
         cover: tab.favIconUrl,
-        note: bookmarkNote(tab),
+        note: '',
         collection: { $id: parentId },
         order: tab.order,
       };
@@ -1538,32 +2089,106 @@ export async function syncWorkspaceWithRaindrop(
           title: payload.title,
           link: payload.link,
           cover: payload.cover,
-          note: payload.note,
+          note: '',
           collectionId: parentId,
           order: tab.order,
           pleaseParse: { disabled: true },
         });
+        // Extra URL variants
+        if (tab.urlVariants && tab.urlVariants.length > 0) {
+          for (const variant of tab.urlVariants) {
+            if (variant.url === tab.url || variant.id === tab.defaultVariantId) continue;
+            bookmarksToCreate.push({
+              title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+              link: variant.url,
+              cover: payload.cover,
+              note: '',
+              collectionId: parentId,
+              order: tab.order,
+              pleaseParse: { disabled: true },
+            });
+          }
+        }
       } else if (shouldUpdate) {
         await updateRaindropItem(clean, existing._id, payload);
       }
     }
+
+    // Sync Widgets directly to Arcable root collection
+    for (const widget of localState.widgets || []) {
+      if (deletedIds.has(widget.id)) continue;
+      const remoteId = widget.raindropId || numericRaindropId(widget.id);
+      const existing = remoteId ? remoteItems.get(remoteId) : undefined;
+      const input = widgetToRaindropItemInput(widget, root._id);
+      if (!existing) {
+        bookmarksToCreate.push(input);
+      } else {
+        await updateRaindropItem(clean, existing._id, {
+          title: input.title,
+          excerpt: input.excerpt,
+          order: input.order,
+        });
+      }
+    }
+
+    // Sync Custom CSS rules to _custom_css collection
+    if (customCssColl) {
+      for (const rule of localState.customCodeRules || []) {
+        if (deletedIds.has(rule.id)) continue;
+        const remoteId = rule.raindropId || numericRaindropId(rule.id);
+        const existing = remoteId ? remoteItems.get(remoteId) : undefined;
+        const input = customCodeToRaindropItemInput(rule, customCssColl._id);
+        if (!existing) {
+          bookmarksToCreate.push(input);
+        } else {
+          await updateRaindropItem(clean, existing._id, {
+            title: input.title,
+            excerpt: input.excerpt,
+          });
+        }
+      }
+    }
+
+    // Sync Run Code rules to _run_code collection
+    if (runCodeColl) {
+      for (const rule of localState.runCodeInPageRules || []) {
+        if (deletedIds.has(rule.id)) continue;
+        const remoteId = rule.raindropId || numericRaindropId(rule.id);
+        const existing = remoteId ? remoteItems.get(remoteId) : undefined;
+        const input = runCodeToRaindropItemInput(rule, runCodeColl._id);
+        if (!existing) {
+          bookmarksToCreate.push(input);
+        } else {
+          await updateRaindropItem(clean, existing._id, {
+            title: input.title,
+            excerpt: input.excerpt,
+          });
+        }
+      }
+    }
+
+    // Create all new bookmark items in batches of 100
     for (let start = 0; start < bookmarksToCreate.length; start += 100) {
       await createRaindropBookmarks(clean, bookmarksToCreate.slice(start, start + 100));
     }
 
-    const metadata = metadataFromWorkspace(localState);
-    // Raindrop's file endpoint creates immutable file items, so keep exactly one
-    // current-version metadata item. Retired snapshot files were removed above.
+    // Clean up legacy data.json.txt if present (it is retired)
     const oldMetadata = tree.items.filter((item) =>
       (item.file?.name || item.title || '').trim().toLowerCase() === ARCABLE_DATA_FILE_NAME.toLowerCase()
     );
     for (let start = 0; start < oldMetadata.length; start += 100) {
-      const deleted = await deleteRaindropBookmarks(clean, root._id, oldMetadata.slice(start, start + 100).map((item) => item._id));
-      if (!deleted) throw new Error('Failed to replace the previous Arcable metadata item.');
+      await deleteRaindropBookmarks(clean, root._id, oldMetadata.slice(start, start + 100).map((item) => item._id));
     }
-    const uploaded = await uploadRaindropFile(clean, root._id, ARCABLE_DATA_FILE_NAME, JSON.stringify(metadata, null, 2));
-    const uploadedItemId = uploaded?.item?._id;
-    if (uploadedItemId) await updateRaindropItem(clean, uploadedItemId, { title: ARCABLE_DATA_FILE_NAME });
+
+    // Clean up legacy note metadata on existing bookmarks
+    const bookmarksWithLegacyNotes = tree.items.filter((item) =>
+      !isArcableInternalItem(item) &&
+      !isWidgetItem(item) &&
+      Boolean(item.note && (item.note.includes(ARCABLE_NOTE_MARKER) || item.note.includes('"schema"')))
+    );
+    for (const item of bookmarksWithLegacyNotes) {
+      await updateRaindropItem(clean, item._id, { note: '' });
+    }
 
     tree = await fetchRemoteArcableTree(clean);
     const latestSnapshot = reconstructWorkspace(tree);
@@ -1571,7 +2196,7 @@ export async function syncWorkspaceWithRaindrop(
     return {
       success: true,
       collectionId: root._id,
-      dataItemId: uploadedItemId,
+      dataItemId: undefined,
       latestSnapshot,
       syncedAt: Date.now(),
     };
@@ -1730,7 +2355,7 @@ export async function createRaindropBackup(
   try {
     const collection = await getOrCreateArcableCollection(clean);
     if (!collection || !collection._id) {
-      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+      throw new Error(`Failed to find or create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
     }
 
     const deviceName = options.deviceName || getStoredDeviceName(undefined, options.deviceType);
@@ -1780,7 +2405,7 @@ export async function fetchRaindropBackups(
   try {
     const collection = await getOrCreateArcableCollection(clean);
     if (!collection || !collection._id) {
-      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+      throw new Error(`Failed to find or create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
     }
 
     const items: RaindropBookmarkItem[] = [];
@@ -1891,7 +2516,7 @@ export async function restoreRaindropBackup(
   try {
     const collection = await getOrCreateArcableCollection(clean);
     if (!collection || !collection._id) {
-      throw new Error('Failed to find or create root "Arcable" collection in Raindrop.');
+      throw new Error(`Failed to find or create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
     }
 
     // 1. Fetch the backup item detail

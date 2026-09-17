@@ -31,7 +31,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const pathname = new URL(url).pathname;
     if (pathname.endsWith('/collections')) {
       return new Response(JSON.stringify({
-        items: [{ _id: 1, title: 'Arcable', count: 0, sort: 0 }],
+        items: [{ _id: 1, title: 'Arcable v2', count: 0, sort: 0 }],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (pathname.endsWith('/collections/childrens')) {
@@ -185,8 +185,7 @@ assert(calls.length === 1 && calls[0].method === 'DELETE' && calls[0].url.endsWi
 calls.length = 0;
 const widgetState: ArcableWorkspaceData = {
   ...base,
-  raindropMetadataItemId: 77,
-  widgets: [{ id: 'widget-local', style: 'clock', size: 'small', order: 2000 }],
+  widgets: [{ id: 'widget-local', raindropId: 104, style: 'clock', size: 'small', order: 2000 }],
 };
 const widgetUpdate = await syncIncrementalOperations(
   'token',
@@ -194,17 +193,15 @@ const widgetUpdate = await syncIncrementalOperations(
   [operation('WIDGET_UPDATE', 'widget-local', { order: 2000 })],
   false
 );
-assert(widgetUpdate?.success, 'favourite widget changes should use incremental metadata sync');
-assert(calls.length === 2, 'favourite widget changes should replace metadata without a full-tree fetch');
-assert(calls[0].method === 'DELETE' && calls[0].url.endsWith('/raindrops/1'), 'widget sync should remove only the previous metadata item');
-assert(calls[1].method === 'PUT' && calls[1].url.endsWith('/raindrop/file'), 'widget sync should upload only the updated metadata file');
+assert(widgetUpdate?.success, 'favourite widget changes should use incremental sync');
 assert(calls.every((call) => call.method !== 'GET'), 'favourite widget changes should not fetch the full workspace');
-assert(widgetUpdate.latestSnapshot?.raindropMetadataItemId === 105, 'widget sync should retain the replacement metadata item ID');
+const widgetPut = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/raindrop/104'));
+assert(widgetPut, 'widget sync should update the widget placeholder item');
+assert(widgetPut.body.title === '[Widget] clock', 'widget title should be updated');
 
 calls.length = 0;
 const codeRulesState: ArcableWorkspaceData = {
   ...base,
-  raindropMetadataItemId: 105,
   customCodeRules: [{
     id: 'custom-rule',
     pattern: '*://example.com/*',
@@ -227,20 +224,24 @@ const codeRulesUpdate = await syncIncrementalOperations(
   ],
   false
 );
-assert(codeRulesUpdate?.success, 'custom JS/CSS and Run Code edits should use incremental metadata sync');
-assert(calls.length === 2, 'code rule edits should replace only the metadata item without a full-tree fetch');
-assert(calls[0].method === 'DELETE' && calls[0].url.endsWith('/raindrops/1'), 'code rule sync should remove the previous metadata item');
-assert(calls[1].method === 'PUT' && calls[1].url.endsWith('/raindrop/file'), 'code rule sync should upload metadata');
-const uploadedCodeMetadata = JSON.parse(calls[1].body.file as string);
-assert(uploadedCodeMetadata.customCodeRules[0].js === 'window.customRuleRan = true;', 'custom JavaScript content should be uploaded');
-assert(uploadedCodeMetadata.customCodeRules[0].css === 'body { color: red; }', 'custom CSS content should be uploaded');
-assert(uploadedCodeMetadata.runCodeInPageRules[0].code === 'window.runRuleRan = true;', 'Run Code content should be uploaded');
-assert(calls.every((call) => call.method !== 'GET'), 'code rule changes should not fetch the full workspace');
+assert(codeRulesUpdate?.success, 'custom JS/CSS and Run Code edits should use incremental sync');
+assert(calls.every((call) => !call.url.endsWith('/raindrop/file')), 'code rule sync should not upload data.json.txt');
+const createdBookmarksCalls = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/raindrops'));
+assert(createdBookmarksCalls.length > 0, 'code rule sync should create placeholder bookmark items');
+const allCreatedItems = createdBookmarksCalls.flatMap((c) => c.body.items);
+const customCssItem = allCreatedItems.find((i: any) => i.link?.includes('custom-css'));
+const runCodeItem = allCreatedItems.find((i: any) => i.link?.includes('run-code'));
+assert(customCssItem, 'custom CSS placeholder item should be created');
+assert(runCodeItem, 'run code placeholder item should be created');
+const parsedCustomExcerpt = JSON.parse(customCssItem.excerpt);
+assert(parsedCustomExcerpt.js === 'window.customRuleRan = true;', 'custom JavaScript content should be in excerpt');
+assert(parsedCustomExcerpt.css === 'body { color: red; }', 'custom CSS content should be in excerpt');
+const parsedRunCodeExcerpt = JSON.parse(runCodeItem.excerpt);
+assert(parsedRunCodeExcerpt.code === 'window.runRuleRan = true;', 'Run Code content should be in excerpt');
 
 calls.length = 0;
 const mixedFavouriteState: ArcableWorkspaceData = {
   ...widgetState,
-  raindropMetadataItemId: 105,
   tabs: [{
     id: 'favourite-tab',
     raindropId: 501,
@@ -257,17 +258,20 @@ const mixedFavouriteUpdate = await syncWorkspaceWithRaindrop('token', {
   ],
 });
 assert(mixedFavouriteUpdate.success, 'mixed favourite item reordering should stay incremental');
-assert(calls.length === 3, 'mixed favourite reordering should update one bookmark and replace metadata only');
 assert(calls.every((call) => call.method !== 'GET'), 'mixed favourite reordering should not fetch the full workspace');
+const tabUpdateCall = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/raindrop/501'));
+const widgetUpdateCall = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/raindrop/104'));
+assert(tabUpdateCall, 'tab reorder should update tab item');
+assert(widgetUpdateCall, 'widget reorder should update widget item');
 
 calls.length = 0;
 const preHydrationWidgetState: ArcableWorkspaceData = {
   ...widgetState,
-  raindropMetadataItemId: undefined,
+  widgets: [{ id: 'widget-local', style: 'clock', size: 'small', order: 2000 }],
 };
 const hydratedWidgetIdentity: ArcableWorkspaceData = {
   ...widgetState,
-  raindropMetadataItemId: 106,
+  widgets: [{ id: 'widget-local', raindropId: 106, style: 'clock', size: 'small', order: 2000 }],
 };
 const racedWidgetUpdate = await syncWorkspaceWithRaindrop('token', {
   localState: preHydrationWidgetState,
@@ -275,8 +279,9 @@ const racedWidgetUpdate = await syncWorkspaceWithRaindrop('token', {
   pendingOps: [operation('WIDGET_UPDATE', 'widget-local', { order: 2000 })],
 });
 assert(racedWidgetUpdate.success, 'a pending widget edit should reuse identity from the completed hydration');
-assert(calls.length === 2, 'the hydration race should still replace metadata with only two requests');
 assert(calls.every((call) => call.method !== 'GET'), 'the hydration race must not fall back to a full-tree read');
+const racedWidgetPut = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/raindrop/106'));
+assert(racedWidgetPut, 'widget update should use recovered raindropId');
 
 calls.length = 0;
 await fetchAllRaindropItems('token', 1, { nested: true });

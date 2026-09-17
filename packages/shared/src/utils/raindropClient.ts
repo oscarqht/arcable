@@ -567,6 +567,8 @@ export async function fetchRaindropItems(
     cover: item.cover,
     tags: item.tags,
     collectionId: item.collection?.$id,
+    sort: item.sort,
+    order: item.order,
     created: item.created,
     lastUpdate: item.lastUpdate,
   }));
@@ -622,6 +624,8 @@ export async function fetchRaindropItem(
       cover: item.cover,
       tags: item.tags,
       collectionId: item.collection?.$id,
+      sort: item.sort,
+      order: item.order,
       created: item.created,
       lastUpdate: item.lastUpdate,
     };
@@ -646,7 +650,7 @@ export async function createRaindropCollection(
   }
 
   const payload: Record<string, any> = {
-    title: title.trim() || 'Arcable',
+    title: title.trim() || 'Arcable v2',
     view: 'list',
   };
 
@@ -735,7 +739,7 @@ export async function fetchAllRaindropItems(
   const firstPage = await fetchRaindropItems(token, collectionId, {
     page: 0,
     perpage: 50,
-    sort: 'order',
+    sort: '-sort',
     nested: options?.nested,
     cacheBust: options?.cacheBust,
   });
@@ -745,7 +749,7 @@ export async function fetchAllRaindropItems(
     const result = await fetchRaindropItems(token, collectionId, {
       page,
       perpage: 50,
-      sort: 'order',
+      sort: '-sort',
       nested: options?.nested,
       cacheBust: options?.cacheBust,
     });
@@ -798,6 +802,42 @@ export async function deleteRaindropBookmarks(
   return res.ok;
 }
 
+/** Moves bookmarks from one collection to another in Raindrop. */
+export async function moveRaindropBookmarks(
+  token: string,
+  fromCollectionId: number,
+  toCollectionId: number,
+  raindropIds: number[]
+): Promise<boolean> {
+  const cleanToken = cleanRaindropToken(token);
+  const ids = [...new Set(raindropIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!cleanToken) throw new Error('Missing Raindrop authorization token.');
+  if (ids.length === 0) return true;
+
+  try {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops/${fromCollectionId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ ids, collection: { $id: toCollectionId } }),
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn(`[RaindropClient] Batch move failed for collection ${fromCollectionId}:`, err);
+  }
+
+  // Fallback to updating items individually if batch endpoint fails
+  let allOk = true;
+  for (const id of ids) {
+    const res = await updateRaindropItem(token, id, { collection: { $id: toCollectionId } });
+    if (!res) allOk = false;
+  }
+  return allOk;
+}
+
 /**
  * Updates an existing Raindrop item's metadata (e.g. note, title, tags, excerpt).
  */
@@ -846,6 +886,8 @@ export async function updateRaindropItem(
       cover: item.cover,
       tags: item.tags,
       collectionId: item.collection?.$id,
+      sort: item.sort,
+      order: item.order,
       created: item.created,
       lastUpdate: item.lastUpdate,
     };

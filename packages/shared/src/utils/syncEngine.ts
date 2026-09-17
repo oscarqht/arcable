@@ -927,6 +927,9 @@ export function mergeIncrementalSyncSnapshot(
   const syncedSpaces = new Map(synced.spaces.map((space) => [space.id, space]));
   const syncedFolders = new Map(synced.folders.map((folder) => [folder.id, folder]));
   const syncedTabs = new Map(synced.tabs.map((tab) => [tab.id, tab]));
+  const syncedWidgets = new Map((synced.widgets || []).map((widget) => [widget.id, widget]));
+  const syncedCustomCode = new Map((synced.customCodeRules || []).map((rule) => [rule.id, rule]));
+  const syncedRunCode = new Map((synced.runCodeInPageRules || []).map((rule) => [rule.id, rule]));
 
   return {
     ...current,
@@ -945,6 +948,18 @@ export function mergeIncrementalSyncSnapshot(
     tabs: current.tabs.map((tab) => {
       const remoteId = syncedTabs.get(tab.id)?.raindropId;
       return remoteId ? { ...tab, raindropId: remoteId } : tab;
+    }),
+    widgets: (current.widgets || []).map((widget) => {
+      const remoteId = syncedWidgets.get(widget.id)?.raindropId;
+      return remoteId ? { ...widget, raindropId: remoteId } : widget;
+    }),
+    customCodeRules: (current.customCodeRules || []).map((rule) => {
+      const remoteId = syncedCustomCode.get(rule.id)?.raindropId;
+      return remoteId ? { ...rule, raindropId: remoteId } : rule;
+    }),
+    runCodeInPageRules: (current.runCodeInPageRules || []).map((rule) => {
+      const remoteId = syncedRunCode.get(rule.id)?.raindropId;
+      return remoteId ? { ...rule, raindropId: remoteId } : rule;
     }),
   };
 }

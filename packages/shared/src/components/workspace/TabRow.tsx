@@ -113,7 +113,8 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   const domain = getDomain(resolvedUrl);
   const displayTitle = tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
-  const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
+  const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
+  const hasVariants = secondaryVariants.length > 0;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -451,7 +452,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {tab.urlVariants!.map((v, idx) => {
+            {secondaryVariants.map((v, idx) => {
               const isMatch = Boolean(currentUrl && areUrlsMatching(currentUrl, v.url));
               return (
                 <button
@@ -477,7 +478,7 @@ export const TabRow: React.FC<TabRowProps> = ({
                   style={{
                     border: 'none',
                     borderRight:
-                      idx < tab.urlVariants!.length - 1
+                      idx < secondaryVariants.length - 1
                         ? `1px solid ${effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'}`
                         : 'none',
                     background: isMatch

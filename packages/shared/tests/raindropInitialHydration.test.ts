@@ -27,7 +27,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
   if (pathname.endsWith('/collections')) {
     return new Response(JSON.stringify({
-      items: hasArcableRoot ? [{ _id: 1, title: 'Arcable', count: rootItems.length, sort: 0 }] : [],
+      items: hasArcableRoot ? [{ _id: 1, title: 'Arcable v2', count: rootItems.length, sort: 0 }] : [],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   if (pathname.endsWith('/collections/childrens')) {

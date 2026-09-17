@@ -60,7 +60,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
   if (pathname.endsWith('/collections')) {
     return new Response(JSON.stringify({
-      items: mockRemoteTree.hasRoot ? [{ _id: mockRemoteTree.rootId, title: 'Arcable', sort: 0 }] : [],
+      items: mockRemoteTree.hasRoot ? [{ _id: mockRemoteTree.rootId, title: 'Arcable v2', sort: 0 }] : [],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
 
@@ -112,7 +112,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
   // Write endpoints for fallback/new account tests
   if (method === 'POST' && pathname.endsWith('/collection')) {
-    return new Response(JSON.stringify({ item: { _id: 888, title: 'Arcable' } }), {
+    return new Response(JSON.stringify({ item: { _id: 888, title: 'Arcable v2' } }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
