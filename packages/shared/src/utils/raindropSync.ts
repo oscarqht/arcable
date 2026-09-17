@@ -1538,6 +1538,20 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
     .filter((folder) => Boolean(folder.parentSpaceId))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
+  // In Raindrop, manual order is retrieved via sort=-sort which returns items
+  // top-to-bottom in array order. Establish a reliable ascending order per collection
+  // (or preserve explicit item.order if already set) so Arcable's ascending sort (a.order - b.order)
+  // precisely mirrors Raindrop's visual display order.
+  const itemOrderMap = new Map<number, number>();
+  const collectionCounters = new Map<number, number>();
+
+  for (const item of tree.items) {
+    const collId = item.collectionId ?? 0;
+    const nextOrder = (collectionCounters.get(collId) ?? 0) + 1000;
+    collectionCounters.set(collId, nextOrder);
+    itemOrderMap.set(item._id, typeof item.order === 'number' ? item.order : nextOrder);
+  }
+
   // Reconstruct widgets from Arcable root collection
   const widgetItems = tree.items.filter(
     (item) => item.collectionId === root._id && isWidgetItem(item)
@@ -1558,7 +1572,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       style: parsedExcerpt.style || 'combo',
       size: parsedExcerpt.size || 'small',
       config: parsedExcerpt.config || {},
-      order: item.order ?? item.sort ?? 0,
+      order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
     };
@@ -1706,7 +1720,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       favIconUrl: item.cover,
       parentFolderId,
       parentSpaceId,
-      order: item.order ?? item.sort ?? 0,
+      order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
     });
@@ -1747,7 +1761,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       favIconUrl: first.cover,
       parentFolderId,
       parentSpaceId,
-      order: first.order ?? first.sort ?? 0,
+      order: itemOrderMap.get(first._id) ?? (first.order ?? 0),
       createdAt: timestamp(first.created),
       updatedAt: timestamp(first.lastUpdate),
     });

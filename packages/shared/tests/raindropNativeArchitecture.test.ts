@@ -477,6 +477,35 @@ async function runTests(): Promise<void> {
   assert.equal(migratedData.tabs.filter(t => !t.parentSpaceId).length, 1, 'Reconstructed workspace should have 1 favourite tab');
 
   console.log('✓ Automatic migration from legacy "Arcable" root to "Arcable v2" and deletion of old root verified');
+
+  // 5. Verify tabs sorting order strictly matches Raindrop's top-to-bottom manual sequence
+  calls.length = 0;
+  mockState = {
+    collections: [
+      { _id: 1, title: ARCABLE_COLLECTION_NAME, sort: 0 },
+      { _id: 50, title: 'Family', parent: { $id: 1 }, sort: 0 },
+    ],
+    bookmarks: [
+      { _id: 501, title: 'Assistant', link: 'https://assistant.com', collection: { $id: 50 } },
+      { _id: 502, title: 'CDC Vouchers', link: 'https://voucher.com', collection: { $id: 50 } },
+      { _id: 503, title: 'ActiveSG', link: 'https://activesg.com', collection: { $id: 50 } },
+      { _id: 504, title: 'Swimming Complex', link: 'https://swim.com', collection: { $id: 50 } },
+      { _id: 505, title: 'English Listening & Speaking', link: 'https://english.com', collection: { $id: 50 } },
+    ],
+  };
+
+  const familyWorkspace = await fetchRaindropWorkspace('mock-token');
+  assert.equal(familyWorkspace.success, true);
+  assert(calls.some(c => c.url.includes('sort=-sort')), 'Fetch must request manual order via sort=-sort');
+
+  const familySiblings = getSortedSiblings(familyWorkspace.data!.folders, familyWorkspace.data!.tabs, '50');
+  assert.equal(familySiblings.length, 5);
+  assert.equal((familySiblings[0].data as any).customTitle, 'Assistant');
+  assert.equal((familySiblings[1].data as any).customTitle, 'CDC Vouchers');
+  assert.equal((familySiblings[2].data as any).customTitle, 'ActiveSG');
+  assert.equal((familySiblings[3].data as any).customTitle, 'Swimming Complex');
+  assert.equal((familySiblings[4].data as any).customTitle, 'English Listening & Speaking');
+  console.log('✓ Tab items sorting order strictly matches Raindrop top-to-bottom order');
 }
 
 runTests().catch((err) => {

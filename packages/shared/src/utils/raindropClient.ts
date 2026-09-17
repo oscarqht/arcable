@@ -568,7 +568,7 @@ export async function fetchRaindropItems(
     tags: item.tags,
     collectionId: item.collection?.$id,
     sort: item.sort,
-    order: item.order ?? item.sort,
+    order: item.order,
     created: item.created,
     lastUpdate: item.lastUpdate,
   }));
@@ -625,7 +625,7 @@ export async function fetchRaindropItem(
       tags: item.tags,
       collectionId: item.collection?.$id,
       sort: item.sort,
-      order: item.order ?? item.sort,
+      order: item.order,
       created: item.created,
       lastUpdate: item.lastUpdate,
     };
@@ -739,7 +739,7 @@ export async function fetchAllRaindropItems(
   const firstPage = await fetchRaindropItems(token, collectionId, {
     page: 0,
     perpage: 50,
-    sort: 'order',
+    sort: '-sort',
     nested: options?.nested,
     cacheBust: options?.cacheBust,
   });
@@ -749,7 +749,7 @@ export async function fetchAllRaindropItems(
     const result = await fetchRaindropItems(token, collectionId, {
       page,
       perpage: 50,
-      sort: 'order',
+      sort: '-sort',
       nested: options?.nested,
       cacheBust: options?.cacheBust,
     });
@@ -887,7 +887,7 @@ export async function updateRaindropItem(
       tags: item.tags,
       collectionId: item.collection?.$id,
       sort: item.sort,
-      order: item.order ?? item.sort,
+      order: item.order,
       created: item.created,
       lastUpdate: item.lastUpdate,
     };
