@@ -316,8 +316,8 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     // Folders are always on top of tabs in the same level.
-    // Only accept tab items! Folders must not be dragged down to below or onto tab items.
-    if (!isDragAcceptable(e, ['tab'])) {
+    // Only accept tab or tmpTab items! Folders must not be dragged down to below or onto tab items.
+    if (!isDragAcceptable(e, ['tab', 'tmpTab'])) {
       return;
     }
     const activeDrag = getActiveDrag();
@@ -341,7 +341,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!isDragAcceptable(e, ['tab'])) {
+    if (!isDragAcceptable(e, ['tab', 'tmpTab'])) {
       setDropIndicator(null);
       endDrag();
       return;

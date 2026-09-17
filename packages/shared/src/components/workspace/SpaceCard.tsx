@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Space, Folder, Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import {
   isDarkColor,
@@ -78,6 +78,12 @@ export interface SpaceCardProps {
   }) => void;
   onReorderPinnedTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   onMoveSpace?: (spaceId: string, direction: 'left' | 'right') => void;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    folderId: string,
+    position?: 'before' | 'after' | 'inside',
+    targetTabId?: string
+  ) => void;
 }
 
 export const SpaceCard: React.FC<SpaceCardProps> = ({
@@ -119,6 +125,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onReorderSiblingItem,
   onReorderPinnedTabs,
   onMoveSpace,
+  onDropTmpTab,
 }) => {
 
 
@@ -560,6 +567,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         }
                         onMoveSiblingItem={onMoveSiblingItem}
                         onReorderSiblingItem={onReorderSiblingItem}
+                        onDropTmpTab={onDropTmpTab}
                       />
                     );
                   }

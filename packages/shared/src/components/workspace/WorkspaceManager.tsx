@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions, WorkspaceSiblingItem } from '../../types/workspace';
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
-import { useWorkspace } from '../../hooks/useWorkspace';
+import { useWorkspace, getSortedSiblings } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import {
@@ -101,6 +101,12 @@ export interface WorkspaceManagerProps {
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
   onTabPromoted?: (newTab: Tab, tmpTab: TmpTab) => void;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    folderId: string,
+    position?: 'before' | 'after' | 'inside',
+    targetTabId?: string
+  ) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -154,6 +160,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onPromoteTmpTab,
       onRenameTmpTab,
       onTabPromoted,
+      onDropTmpTab: onDropTmpTabProp,
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
@@ -1490,6 +1497,83 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     onRenameTmpTab?.(tab, newTitle);
   }, [updateTmpTab, onRenameTmpTab]);
 
+  const handleDropTmpTabIntoFolder = useCallback(
+    (
+      tmpTab: TmpTab,
+      folderId: string,
+      position?: 'before' | 'after' | 'inside',
+      targetTabId?: string
+    ) => {
+      if (onDropTmpTabProp) {
+        onDropTmpTabProp(tmpTab, folderId, position, targetTabId);
+        return;
+      }
+
+      const targetFolder = data.folders.find((f) => f.id === folderId);
+      if (!targetFolder) return;
+
+      const targetSpaceId = targetFolder.parentSpaceId || activeSpace?.id || 'space_personal';
+
+      const resolvedTmpTab =
+        tmpTab && tmpTab.url
+          ? tmpTab
+          : filteredTmpTabs.find((t) => t.id === tmpTab?.id) ||
+            (data.tmpTabs || []).find((t) => t.id === tmpTab?.id) ||
+            tmpTab;
+
+      let targetOrder: number | undefined = undefined;
+      if (targetTabId && position && (position === 'before' || position === 'after')) {
+        const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolder.id);
+        const tabSiblings = siblings.filter((s: WorkspaceSiblingItem): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+        const targetIdx = tabSiblings.findIndex((s: WorkspaceSiblingItem) => s.id === targetTabId);
+        if (targetIdx >= 0) {
+          if (position === 'before') {
+            const prevOrder = targetIdx > 0 ? tabSiblings[targetIdx - 1].order : 0;
+            const nextOrder = tabSiblings[targetIdx].order;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          } else {
+            const prevOrder = tabSiblings[targetIdx].order;
+            const nextOrder =
+              targetIdx < tabSiblings.length - 1
+                ? tabSiblings[targetIdx + 1].order
+                : prevOrder + 2000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          }
+        }
+      }
+
+      const newTab = createTab({
+        url: resolvedTmpTab.url,
+        customTitle: resolvedTmpTab.customTitle || resolvedTmpTab.title || '',
+        favIconUrl: resolvedTmpTab.favIconUrl,
+        parentFolderId: targetFolder.id,
+        parentSpaceId: targetSpaceId,
+        pinned: false,
+        favourite: false,
+        order: targetOrder,
+      });
+
+      deleteTmpTab(resolvedTmpTab.id);
+      onTabPromoted?.(newTab, resolvedTmpTab);
+
+      if (targetFolder.isExpanded === false) {
+        toggleFolderExpand(targetFolder.id);
+      }
+    },
+    [
+      onDropTmpTabProp,
+      data.folders,
+      data.tabs,
+      data.tmpTabs,
+      filteredTmpTabs,
+      activeSpace,
+      createTab,
+      deleteTmpTab,
+      onTabPromoted,
+      toggleFolderExpand,
+    ]
+  );
+
   const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
 
     setEditingFolder(null);
@@ -2129,6 +2213,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onToggleFavouriteTab={toggleFavouriteTab}
                   onMoveSiblingItem={moveSiblingItem}
                   onReorderSiblingItem={reorderSiblingItem}
+                  onDropTmpTab={handleDropTmpTabIntoFolder}
                   onReorderPinnedTabs={reorderPinnedTabs}
                   onMoveSpace={moveSpace}
                 />
@@ -2268,6 +2353,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onToggleFavouriteTab={toggleFavouriteTab}
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
+                      onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                     />
@@ -2438,6 +2524,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onToggleFavouriteTab={toggleFavouriteTab}
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
+                      onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                     />

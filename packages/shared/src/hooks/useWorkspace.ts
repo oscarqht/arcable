@@ -810,6 +810,7 @@ export function useWorkspace() {
     pinned?: boolean;
     favourite?: boolean;
     parentFolderId?: string;
+    order?: number;
   }) => {
     const normalizeUrl = (u: string) => {
       let c = u.trim();
@@ -875,7 +876,7 @@ export function useWorkspace() {
       favIconUrl: tabInput.favIconUrl,
       parentSpaceId: targetSpaceId,
       parentFolderId: targetFolderId,
-      order: maxOrder + 1000,
+      order: tabInput.order !== undefined ? tabInput.order : maxOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -1429,13 +1430,14 @@ export function useWorkspace() {
     }));
   }, [saveWorkspaceData]);
 
-  const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string) => {
+  const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string, order?: number) => {
     const savedTab = createTab({
       url: tmpTab.url,
       customTitle: tmpTab.customTitle || tmpTab.title,
       favIconUrl: tmpTab.favIconUrl,
       parentSpaceId: targetSpaceId || activeSpace?.id,
       parentFolderId: targetFolderId,
+      order,
     });
 
     deleteTmpTab(tmpTab.id);
