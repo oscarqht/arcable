@@ -412,6 +412,58 @@ async function runTests(): Promise<void> {
 
   console.log('✓ Workspace reconstructed from native Raindrop items successfully');
 
+  // 3b. Modify an existing tab without variants to add URL variants
+  const hnTab = data.tabs.find(t => t.customTitle === 'Hacker News')!;
+  assert(hnTab, 'Hacker News tab must exist');
+  assert(!hnTab.urlVariants, 'Hacker News initially has no variants');
+
+  const updatedHnTab: Tab = {
+    ...hnTab,
+    urlVariants: [
+      { id: hnTab.id, name: 'Hacker News', url: hnTab.url },
+      { id: 'var-newest', name: 'Newest', url: 'https://news.ycombinator.com/newest' },
+      { id: 'var-ask', name: 'Ask', url: 'https://news.ycombinator.com/ask' },
+    ],
+    defaultVariantId: hnTab.id,
+    updatedAt: Date.now(),
+  };
+
+  const modifiedWorkspace: ArcableWorkspaceData = {
+    ...data,
+    tabs: data.tabs.map(t => t.id === hnTab.id ? updatedHnTab : t),
+  };
+
+  calls.length = 0;
+  const modSyncResult = await syncWorkspaceWithRaindrop('test-token', {
+    localState: modifiedWorkspace,
+    pendingOps: [
+      {
+        id: 'op-update-hn',
+        type: 'TAB_UPDATE',
+        entityId: hnTab.id,
+        payload: {
+          urlVariants: updatedHnTab.urlVariants,
+          defaultVariantId: updatedHnTab.defaultVariantId,
+        },
+        deviceId: 'test',
+        timestamp: Date.now(),
+        lamportSeq: 1,
+      },
+    ],
+  });
+
+  assert.equal(modSyncResult.success, true);
+  const hnWithVariants = modSyncResult.latestSnapshot?.tabs.find(t => t.customTitle === 'Hacker News');
+  assert(hnWithVariants, 'Hacker News tab must exist after sync');
+  assert(hnWithVariants.urlVariants, 'Hacker News must have urlVariants after sync');
+  assert.equal(hnWithVariants.urlVariants.length, 3, 'All 3 variants should be in urlVariants');
+  assert.equal(hnWithVariants.urlVariants[1].name, 'Newest');
+  assert.equal(hnWithVariants.urlVariants[1].url, 'https://news.ycombinator.com/newest');
+  assert.equal(hnWithVariants.urlVariants[2].name, 'Ask');
+  assert.equal(hnWithVariants.urlVariants[2].url, 'https://news.ycombinator.com/ask');
+
+  console.log('✓ Modifying existing tab to add URL variants preserved across sync');
+
   // 4. Migration from legacy root collection "Arcable" to "Arcable v2"
   calls.length = 0;
   mockState = {

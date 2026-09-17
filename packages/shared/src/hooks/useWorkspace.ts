@@ -959,6 +959,9 @@ export function useWorkspace() {
       }
 
       const opPayload: Record<string, any> = { ...updates };
+      if ('urlVariants' in normalizedUpdates) opPayload.urlVariants = normalizedUpdates.urlVariants ?? null;
+      if ('defaultVariantId' in normalizedUpdates) opPayload.defaultVariantId = normalizedUpdates.defaultVariantId ?? null;
+      if (normalizedUpdates.url) opPayload.url = normalizedUpdates.url;
       if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updated.customEmojiIcon ?? null;
       if ('customTitle' in updates) opPayload.customTitle = updated.customTitle ?? null;
       if ('parentFolderId' in updates || isLocationChanged) opPayload.parentFolderId = updated.parentFolderId ?? null;

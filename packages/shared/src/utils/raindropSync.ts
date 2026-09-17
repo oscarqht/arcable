@@ -924,9 +924,18 @@ function needsIncrementalIdentityRebase(
   }
 
   for (const operation of pendingOps) {
+    if (operation.type === 'TAB_UPDATE' && 'urlVariants' in (operation.payload || {})) {
+      return true;
+    }
+    if (operation.type === 'TAB_DELETE' && operation.payload?.urlVariants?.length) {
+      return true;
+    }
     if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE') continue;
     const tab = localState.tabs.find((candidate) => candidate.id === operation.entityId);
     if (!tab) return true;
+    if (tab.urlVariants && tab.urlVariants.some((v) => !numericRaindropId(v.id))) {
+      return true;
+    }
     if (tab.favourite) {
       if (!localState.raindropRootCollectionId) return true;
     } else if (!collectionIds.has(tab.parentFolderId || tab.parentSpaceId || '')) {
@@ -1089,8 +1098,11 @@ export async function syncIncrementalOperations(
       } });
       // Extra URL variants
       if (tab.urlVariants && tab.urlVariants.length > 0) {
+        const defaultVar =
+          (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
+          tab.urlVariants[0];
         for (const variant of tab.urlVariants) {
-          if (variant.url === tab.url || variant.id === tab.defaultVariantId) continue;
+          if (variant.id === defaultVar?.id) continue;
           tabCreates.push({
             entityId: `${entityId}:::variant:::${variant.id}`,
             input: {
@@ -1110,6 +1122,45 @@ export async function syncIncrementalOperations(
       const remoteId = remoteEntityId(tab);
       if (!remoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
       tabUpdates.push({ entityId, remoteId, payload, targetOrder });
+      if (tab.urlVariants && tab.urlVariants.length > 0) {
+        const defaultVar =
+          (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
+          tab.urlVariants[0];
+        for (const variant of tab.urlVariants) {
+          if (variant.id === defaultVar?.id) continue;
+          const varRemoteId = numericRaindropId(variant.id);
+          const varTitle = `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
+          if (varRemoteId) {
+            tabUpdates.push({
+              entityId: `${entityId}:::variant:::${variant.id}`,
+              remoteId: varRemoteId,
+              payload: {
+                title: varTitle,
+                link: variant.url,
+                cover: payload.cover,
+                collection: { $id: parentId },
+                order: targetOrder,
+                sort: targetOrder,
+              },
+              targetOrder,
+            });
+          } else {
+            tabCreates.push({
+              entityId: `${entityId}:::variant:::${variant.id}`,
+              input: {
+                title: varTitle,
+                link: variant.url,
+                cover: payload.cover,
+                note: '',
+                collectionId: parentId,
+                order: targetOrder,
+                sort: targetOrder,
+                pleaseParse: { disabled: true },
+              },
+            });
+          }
+        }
+      }
     }
   }
 
@@ -1130,7 +1181,26 @@ export async function syncIncrementalOperations(
       ...latestSnapshot,
       tabs: latestSnapshot.tabs.map((candidate) => {
         const createdId = createdIds.get(candidate.id);
-        return createdId ? { ...candidate, raindropId: createdId } : candidate;
+        const nextVariants = candidate.urlVariants?.map((v) => {
+          const varKey = `${candidate.id}:::variant:::${v.id}`;
+          const varCreatedId = createdIds.get(varKey);
+          if (varCreatedId) {
+            return { ...v, id: String(varCreatedId) };
+          }
+          if (createdId && (v.id === candidate.defaultVariantId || v.url === candidate.url)) {
+            return { ...v, id: String(createdId) };
+          }
+          return v;
+        });
+        const nextDefaultVariantId = createdId && candidate.defaultVariantId === candidate.urlVariants?.[0]?.id
+          ? String(createdId)
+          : candidate.defaultVariantId;
+        return {
+          ...candidate,
+          ...(createdId ? { raindropId: createdId } : {}),
+          ...(nextVariants ? { urlVariants: nextVariants } : {}),
+          ...(nextDefaultVariantId ? { defaultVariantId: nextDefaultVariantId } : {}),
+        };
       }),
     };
   }
@@ -1785,6 +1855,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
     if (variantItems && variantItems.length > 0) {
       processedVariantGroupKeys.add(groupKey);
       const defaultId = String(item._id);
+      variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
       urlVariants = [
         { id: defaultId, name: item.title || 'Default', url: item.link },
         ...variantItems.map((v) => {
@@ -1832,6 +1903,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       }
     }
     const baseTitle = groupKey.split(':::')[1] || first.title;
+    variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
     const urlVariants: TabUrlVariant[] = variantItems.map((v) => {
       const delimIdx = (v.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
       const variantName = delimIdx !== -1 ? v.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
@@ -2126,6 +2198,13 @@ export async function syncWorkspaceWithRaindrop(
       if (!item?.collectionId) continue;
       const ids = deletedItemsByCollection.get(item.collectionId) || [];
       ids.push(item._id);
+      // Also delete any secondary variants belonging to this deleted item
+      const prefix = `${item.title}${ARCABLE_VARIANT_DELIMITER}`;
+      for (const candidate of tree.items) {
+        if (candidate.collectionId === item.collectionId && candidate.title?.startsWith(prefix)) {
+          ids.push(candidate._id);
+        }
+      }
       deletedItemsByCollection.set(item.collectionId, ids);
     }
     for (const [collectionId, ids] of deletedItemsByCollection) {
@@ -2166,6 +2245,8 @@ export async function syncWorkspaceWithRaindrop(
       targetOrder: number;
     }> = [];
 
+    const extraVariantsToDelete: RaindropBookmarkItem[] = [];
+
     // Sync tabs
     for (const tab of localState.tabs || []) {
       if (deletedIds.has(tab.id)) continue;
@@ -2186,6 +2267,14 @@ export async function syncWorkspaceWithRaindrop(
       };
       const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
       const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+
+      const defaultVariant =
+        (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
+        tab.urlVariants?.[0];
+      const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1
+        ? tab.urlVariants.filter((v) => v.id !== defaultVariant?.id)
+        : [];
+
       if (!existing) {
         bookmarksToCreate.push({
           title: payload.title,
@@ -2198,11 +2287,67 @@ export async function syncWorkspaceWithRaindrop(
           pleaseParse: { disabled: true },
         });
         // Extra URL variants
-        if (tab.urlVariants && tab.urlVariants.length > 0) {
-          for (const variant of tab.urlVariants) {
-            if (variant.url === tab.url || variant.id === tab.defaultVariantId) continue;
+        for (const variant of secondaryVariants) {
+          bookmarksToCreate.push({
+            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+            link: variant.url,
+            cover: payload.cover,
+            note: '',
+            collectionId: parentId,
+            order: targetOrder,
+            sort: targetOrder,
+            pleaseParse: { disabled: true },
+          });
+        }
+      } else {
+        if (shouldUpdate) {
+          tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
+        }
+
+        // Reconcile secondary variants for existing tab
+        const existingRemoteVariants = tree.items.filter((item) => {
+          if (item._id === existing._id) return false;
+          const matchesCollection = item.collectionId === existing.collectionId || item.collectionId === parentId;
+          if (!matchesCollection) return false;
+          const hasVariantId = secondaryVariants.some((v) => String(item._id) === v.id);
+          const hasOldTitlePrefix = existing.title ? item.title?.startsWith(`${existing.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
+          const hasNewTitlePrefix = payload.title ? item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
+          return hasVariantId || hasOldTitlePrefix || hasNewTitlePrefix;
+        });
+
+        for (const variant of secondaryVariants) {
+          const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
+          const matchIdx = existingRemoteVariants.findIndex((rv) => {
+            if (String(rv._id) === variant.id) return true;
+            const delimIdx = (rv.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
+            const rvName = delimIdx !== -1 ? rv.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : '';
+            return rvName === variant.name;
+          });
+
+          if (matchIdx >= 0) {
+            const matchedItem = existingRemoteVariants.splice(matchIdx, 1)[0];
+            const variantChanged =
+              matchedItem.title !== expectedTitle ||
+              matchedItem.link !== variant.url ||
+              matchedItem.collectionId !== parentId ||
+              matchedItem.cover !== payload.cover;
+            if (variantChanged || shouldUpdate) {
+              tabUpdatesToPerform.push({
+                remoteId: matchedItem._id,
+                payload: {
+                  title: expectedTitle,
+                  link: variant.url,
+                  cover: payload.cover,
+                  collection: { $id: parentId },
+                  order: targetOrder,
+                  sort: targetOrder,
+                },
+                targetOrder,
+              });
+            }
+          } else {
             bookmarksToCreate.push({
-              title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+              title: expectedTitle,
               link: variant.url,
               cover: payload.cover,
               note: '',
@@ -2213,14 +2358,32 @@ export async function syncWorkspaceWithRaindrop(
             });
           }
         }
-      } else if (shouldUpdate) {
-        tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
+
+        // Any leftover remote variants for this tab were removed locally
+        for (const orphan of existingRemoteVariants) {
+          extraVariantsToDelete.push(orphan);
+        }
       }
     }
 
     tabUpdatesToPerform.sort((a, b) => a.targetOrder - b.targetOrder);
     for (const { remoteId, payload } of tabUpdatesToPerform) {
       await updateRaindropItem(clean, remoteId, payload);
+    }
+
+    if (extraVariantsToDelete.length > 0) {
+      const extraDeletesByColl = new Map<number, number[]>();
+      for (const orphan of extraVariantsToDelete) {
+        const collId = orphan.collectionId || root._id;
+        const ids = extraDeletesByColl.get(collId) || [];
+        ids.push(orphan._id);
+        extraDeletesByColl.set(collId, ids);
+      }
+      for (const [collId, ids] of extraDeletesByColl) {
+        for (let start = 0; start < ids.length; start += 100) {
+          await deleteRaindropBookmarks(clean, collId, ids.slice(start, start + 100));
+        }
+      }
     }
 
     // Sync Widgets directly to Arcable root collection

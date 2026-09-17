@@ -550,6 +550,14 @@ export function applyOperation(
           if ('parentSpaceId' in op.payload) {
             updated.parentSpaceId = op.payload.parentSpaceId || undefined;
           }
+          if ('urlVariants' in op.payload) {
+            updated.urlVariants = op.payload.urlVariants && op.payload.urlVariants.length > 0
+              ? op.payload.urlVariants.map((v: TabUrlVariant) => ({ ...v }))
+              : undefined;
+          }
+          if ('defaultVariantId' in op.payload) {
+            updated.defaultVariantId = op.payload.defaultVariantId || undefined;
+          }
         }
 
         if (updated.favourite) {
