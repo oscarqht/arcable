@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useContext } from 'react';
 
 import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
@@ -25,6 +25,8 @@ import {
   NextTrackIcon,
   PlayIcon,
   PauseIcon,
+  ClockIcon,
+  GlobeIcon,
 } from '../Icons';
 
 export interface TabRowProps {
@@ -44,6 +46,7 @@ export interface TabRowProps {
   /** Raindrop collection containing this tab, when the tab is synced. */
   raindropCollectionId?: number;
   onOpen?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: () => void;
   onResetDivertedUrl?: () => void;
@@ -77,6 +80,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   compactVariantLabels = false,
   raindropCollectionId,
   onOpen,
+  onOpenTmpTab,
   onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
@@ -168,7 +172,50 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
   };
 
+  const handleOpenTmpTab = useCallback(
+    (urlToOpen: string, titleToUse?: string) => {
+      if (onOpenTmpTab) {
+        onOpenTmpTab(urlToOpen, titleToUse);
+      } else if (onOpen) {
+        onOpen(urlToOpen, undefined, { inNewTab: true, asTmpTab: true });
+      } else {
+        window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+      }
+    },
+    [onOpenTmpTab, onOpen]
+  );
+
   const tabMenuItems: ActionDropdownItem[] = useMemo(() => {
+    const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
+    const hasMultipleVariants = validVariants.length > 1;
+
+    const tmpTabMenuItem: ActionDropdownItem = {
+      id: 'open-tmp-tab',
+      label: 'Open tmp tab',
+      icon: <ClockIcon size={15} />,
+      ...(hasMultipleVariants
+        ? {
+            children: validVariants.map((v, idx) => ({
+              id: `open-tmp-var-${v.id || idx}`,
+              label: v.name || cleanUrl(v.url) || 'Variant',
+              icon: <GlobeIcon size={14} />,
+              onClick: (e: React.MouseEvent) => {
+                e.stopPropagation();
+                handleOpenTmpTab(v.url, v.name || displayTitle);
+              },
+            })),
+          }
+        : {
+            onClick: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              if (tab.url) {
+                handleOpenTmpTab(tab.url, displayTitle);
+              }
+            },
+          }),
+      dividerAfter: Boolean(onToggleFavourite || onEdit || onDuplicate || onDelete),
+    };
+
     const items: ActionDropdownItem[] = [
       {
         id: 'copy-url',
@@ -181,8 +228,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: 'Open in new tab',
         icon: <ExternalLinkIcon size={15} />,
         onClick: handleOpenLink,
-        dividerAfter: Boolean(onToggleFavourite || onEdit || onDuplicate || onDelete),
       },
+      tmpTabMenuItem,
     ];
 
     if (onToggleFavourite) {
@@ -243,7 +290,9 @@ export const TabRow: React.FC<TabRowProps> = ({
     copied,
     handleCopyUrl,
     handleOpenLink,
+    handleOpenTmpTab,
     handleEditInRaindrop,
+    displayTitle,
     raindropCollectionId,
     tab,
     onToggleFavourite,

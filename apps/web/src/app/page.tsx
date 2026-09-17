@@ -133,6 +133,10 @@ export default function HomePage() {
       .then((res) => {
         if (res?.success && res.data) {
           clearStoredPendingOperations();
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.data));
+            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.data }));
+          }
           workspaceRef.current?.applySnapshot?.(res.data);
           setRaindropHydrated(true);
         }

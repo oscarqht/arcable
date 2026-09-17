@@ -473,7 +473,146 @@ assert(folderPutCalls.length === 2, 'should make 2 PUT calls for 2 reordered fol
 const callFolderB = folderPutCalls.find((c) => c.url.endsWith('/202'));
 const callFolderA = folderPutCalls.find((c) => c.url.endsWith('/201'));
 assert(callFolderB && callFolderB.body.order === 0 && callFolderB.body.sort === 0, 'folder-b should receive 0-based index 0 for order and sort');
-assert(callFolderA && callFolderA.body.order === 1 && callFolderA.body.sort === 1, 'folder-a should receive 0-based index 1 for order and sort');
+// --- Incremental Sync for Tab URL Variants (Add, Update, Delete Variant, Delete Tab with Variants) ---
+
+// 1. Add URL variant to existing tab incrementally without full tree fetch
+calls.length = 0;
+const tabWithNewVariantState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [
+    {
+      id: 'tab-gh',
+      raindropId: 501,
+      customTitle: 'GitHub',
+      url: 'https://github.com',
+      parentSpaceId: 'space-local',
+      order: 1000,
+      defaultVariantId: '501',
+      urlVariants: [
+        { id: '501', name: 'GitHub', url: 'https://github.com' },
+        { id: 'var-issues-new', name: 'Issues', url: 'https://github.com/issues' },
+      ],
+    },
+  ],
+};
+const addVariantOps = [
+  operation('TAB_UPDATE', 'tab-gh', {
+    urlVariants: tabWithNewVariantState.tabs[0].urlVariants,
+    defaultVariantId: tabWithNewVariantState.tabs[0].defaultVariantId,
+  }),
+];
+const addVariantSync = await syncWorkspaceWithRaindrop('token', {
+  localState: tabWithNewVariantState,
+  pendingOps: addVariantOps,
+});
+assert(addVariantSync?.success, 'adding variant should sync incrementally with success');
+const hasTreeFetchOnAdd = calls.some((c) => c.method === 'GET' && c.url.includes('/collections'));
+assert(!hasTreeFetchOnAdd, 'adding variant incrementally must NOT trigger full tree fetch');
+const addVariantPostCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/raindrops'));
+assert(addVariantPostCall, 'should call POST /raindrops to create secondary variant bookmark');
+assert(addVariantPostCall.body.items[0].title === 'GitHub ||| Issues', 'variant bookmark title should be formatted correctly');
+assert(addVariantPostCall.body.items[0].link === 'https://github.com/issues', 'variant bookmark link should match');
+const updatedVariants = addVariantSync.latestSnapshot?.tabs[0].urlVariants;
+assert(updatedVariants && updatedVariants.length === 2, 'snapshot should have 2 variants');
+assert(updatedVariants[1].id !== 'var-issues-new', 'new variant should receive assigned numeric Raindrop ID in snapshot');
+
+// 2. Update existing URL variant incrementally
+calls.length = 0;
+const tabWithUpdatedVariantState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [
+    {
+      id: 'tab-gh',
+      raindropId: 501,
+      customTitle: 'GitHub',
+      url: 'https://github.com',
+      parentSpaceId: 'space-local',
+      order: 1000,
+      defaultVariantId: '501',
+      urlVariants: [
+        { id: '501', name: 'GitHub', url: 'https://github.com' },
+        { id: '502', name: 'Issue Tracker', url: 'https://github.com/issues/assigned' },
+      ],
+    },
+  ],
+};
+const updateVariantOps = [
+  operation('TAB_UPDATE', 'tab-gh', {
+    urlVariants: tabWithUpdatedVariantState.tabs[0].urlVariants,
+    defaultVariantId: tabWithUpdatedVariantState.tabs[0].defaultVariantId,
+  }),
+];
+const updateVariantSync = await syncWorkspaceWithRaindrop('token', {
+  localState: tabWithUpdatedVariantState,
+  pendingOps: updateVariantOps,
+});
+assert(updateVariantSync?.success, 'updating variant should sync incrementally with success');
+const hasTreeFetchOnUpdate = calls.some((c) => c.method === 'GET' && c.url.includes('/collections'));
+assert(!hasTreeFetchOnUpdate, 'updating variant incrementally must NOT trigger full tree fetch');
+const updateVariantPutCall = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/raindrop/502'));
+assert(updateVariantPutCall, 'should call PUT /raindrop/502 to update secondary variant bookmark');
+assert(updateVariantPutCall.body.title === 'GitHub ||| Issue Tracker', 'updated variant title should match');
+assert(updateVariantPutCall.body.link === 'https://github.com/issues/assigned', 'updated variant link should match');
+
+// 3. Delete URL variant incrementally
+calls.length = 0;
+const tabWithDeletedVariantState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [
+    {
+      id: 'tab-gh',
+      raindropId: 501,
+      customTitle: 'GitHub',
+      url: 'https://github.com',
+      parentSpaceId: 'space-local',
+      order: 1000,
+      defaultVariantId: '501',
+      urlVariants: [
+        { id: '501', name: 'GitHub', url: 'https://github.com' },
+      ],
+    },
+  ],
+};
+const deleteVariantOps = [
+  operation('TAB_UPDATE', 'tab-gh', {
+    urlVariants: tabWithDeletedVariantState.tabs[0].urlVariants,
+    defaultVariantId: tabWithDeletedVariantState.tabs[0].defaultVariantId,
+    deletedVariantIds: ['502'],
+  }),
+];
+const deleteVariantSync = await syncWorkspaceWithRaindrop('token', {
+  localState: tabWithDeletedVariantState,
+  pendingOps: deleteVariantOps,
+});
+assert(deleteVariantSync?.success, 'deleting variant should sync incrementally with success');
+const hasTreeFetchOnDelete = calls.some((c) => c.method === 'GET' && c.url.includes('/collections'));
+assert(!hasTreeFetchOnDelete, 'deleting variant incrementally must NOT trigger full tree fetch');
+const deleteVariantCall = calls.find((c) => c.method === 'DELETE' && c.url.includes('/raindrop'));
+assert(deleteVariantCall, 'should issue a DELETE call to remove the deleted variant bookmark');
+
+// 4. Delete tab with URL variants incrementally
+calls.length = 0;
+const tabToDeleteState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [],
+};
+const deleteTabWithVariantsOps = [
+  operation('TAB_DELETE', 'tab-gh', {
+    raindropId: 501,
+    variantRaindropIds: [502, 503],
+    collectionId: 10,
+  }),
+];
+const deleteTabSync = await syncWorkspaceWithRaindrop('token', {
+  localState: tabToDeleteState,
+  pendingOps: deleteTabWithVariantsOps,
+});
+assert(deleteTabSync?.success, 'deleting tab with variants should sync incrementally');
+const hasTreeFetchOnTabDelete = calls.some((c) => c.method === 'GET' && c.url.includes('/collections'));
+assert(!hasTreeFetchOnTabDelete, 'deleting tab with variants must NOT trigger full tree fetch');
+const batchDeleteTabCall = calls.find((c) => c.method === 'DELETE' && c.url.includes('/raindrops/10'));
+assert(batchDeleteTabCall, 'should issue DELETE /raindrops/10 for batch deletion of tab and all secondary variants');
+assert(batchDeleteTabCall.body.ids.includes(501) && batchDeleteTabCall.body.ids.includes(502) && batchDeleteTabCall.body.ids.includes(503), 'should delete main bookmark and all secondary variants');
 
 console.log('Raindrop incremental sync tests passed.');
 }

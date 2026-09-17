@@ -4,6 +4,7 @@ export type { CustomCodeRule, RunCodeRule, DeviceSyncRecord };
 
 export interface TabOpenOptions {
   inNewTab?: boolean;
+  asTmpTab?: boolean;
   event?: any;
 }
 

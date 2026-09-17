@@ -705,7 +705,7 @@ interface RemoteArcableTree {
 
 const ARCABLE_NOTE_MARKER = 'arcable-bookmark-v1';
 
-function numericRaindropId(id: string | undefined): number | undefined {
+export function numericRaindropId(id: string | undefined): number | undefined {
   if (!id || !/^\d+$/.test(id)) return undefined;
   const parsed = Number(id);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -1024,16 +1024,10 @@ function needsIncrementalIdentityRebase(
   }
 
   for (const operation of pendingOps) {
-    if (operation.type === 'TAB_UPDATE' && 'urlVariants' in (operation.payload || {})) {
-      return true;
-    }
-    if (operation.type === 'TAB_DELETE' && operation.payload?.urlVariants?.length) {
-      return true;
-    }
     if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE') continue;
     const tab = localState.tabs.find((candidate) => candidate.id === operation.entityId);
     if (!tab) return true;
-    if (tab.urlVariants && tab.urlVariants.some((v) => !numericRaindropId(v.id))) {
+    if (operation.type === 'TAB_UPDATE' && !remoteEntityId(tab)) {
       return true;
     }
     if (tab.favourite) {
@@ -1153,6 +1147,9 @@ export async function syncIncrementalOperations(
     }
   }
 
+  const batchDeletes = new Map<number, number[]>();
+  const individualDeletes: number[] = [];
+
   const tabCreates: Array<{
     entityId: string;
     input: Parameters<typeof createRaindropBookmarks>[1][number];
@@ -1173,6 +1170,24 @@ export async function syncIncrementalOperations(
       ? latestSnapshot.raindropRootCollectionId
       : collectionIds.get(tab.parentFolderId || tab.parentSpaceId || '');
     if (!parentId) throw new Error(`Bookmark ${entityId} has no synced Raindrop parent.`);
+
+    // Collect any deleted variant IDs from TAB_UPDATE operations
+    for (const op of operations) {
+      if (Array.isArray(op.payload?.deletedVariantIds)) {
+        for (const vid of op.payload.deletedVariantIds) {
+          const numId = numericRaindropId(vid);
+          if (numId) {
+            if (parentId) {
+              const ids = batchDeletes.get(parentId) || [];
+              if (!ids.includes(numId)) ids.push(numId);
+              batchDeletes.set(parentId, ids);
+            } else {
+              if (!individualDeletes.includes(numId)) individualDeletes.push(numId);
+            }
+          }
+        }
+      }
+    }
 
     const isCreate = operations.some((operation) => operation.type === 'TAB_CREATE');
     const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
@@ -1215,12 +1230,32 @@ export async function syncIncrementalOperations(
         });
       });
     } else {
-      const remoteId = remoteEntityId(tab);
-      if (!remoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
-      tabUpdates.push({ entityId, remoteId, payload, targetOrder });
+      let mainRemoteId = remoteEntityId(tab);
+      if (!mainRemoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
+
+      const defaultVar =
+        (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
+        tab.urlVariants?.[0];
+      const defaultVarRemoteId = defaultVar ? numericRaindropId(defaultVar.id) : undefined;
+      const origRemoteId = mainRemoteId;
+
+      if (defaultVarRemoteId && defaultVarRemoteId !== mainRemoteId) {
+        mainRemoteId = defaultVarRemoteId;
+        latestSnapshot = {
+          ...latestSnapshot,
+          tabs: latestSnapshot.tabs.map((candidate) =>
+            candidate.id === entityId ? { ...candidate, raindropId: mainRemoteId } : candidate
+          ),
+        };
+      }
+
+      tabUpdates.push({ entityId, remoteId: mainRemoteId, payload, targetOrder });
       secondaryVariants.forEach((variant, vIdx) => {
         const variantOrder = targetOrder + 1 + vIdx;
-        const varRemoteId = numericRaindropId(variant.id);
+        let varRemoteId = numericRaindropId(variant.id);
+        if (varRemoteId === mainRemoteId) {
+          varRemoteId = origRemoteId;
+        }
         const varTitle = `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
         if (varRemoteId) {
           tabUpdates.push({
@@ -1296,8 +1331,6 @@ export async function syncIncrementalOperations(
     };
   }
 
-  const batchDeletes = new Map<number, number[]>();
-  const individualDeletes: number[] = [];
   for (const [key, operations] of groups) {
     if (!key.startsWith('tab:') || !operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
     if (operations.some((operation) => operation.type === 'TAB_CREATE')) continue;
@@ -1305,12 +1338,27 @@ export async function syncIncrementalOperations(
     const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
     if (!remoteId) throw new Error(`Bookmark ${deleteOperation.entityId} has no Raindrop ID for incremental delete.`);
     const collectionId = Number(deleteOperation.payload?.collectionId);
+
+    const deleteIds: number[] = [remoteId];
+    if (Array.isArray(deleteOperation.payload?.variantRaindropIds)) {
+      for (const vid of deleteOperation.payload.variantRaindropIds) {
+        const numId = numericRaindropId(vid);
+        if (numId && !deleteIds.includes(numId)) {
+          deleteIds.push(numId);
+        }
+      }
+    }
+
     if (Number.isSafeInteger(collectionId) && collectionId > 0) {
       const ids = batchDeletes.get(collectionId) || [];
-      ids.push(remoteId);
+      for (const id of deleteIds) {
+        if (!ids.includes(id)) ids.push(id);
+      }
       batchDeletes.set(collectionId, ids);
     } else {
-      individualDeletes.push(remoteId);
+      for (const id of deleteIds) {
+        if (!individualDeletes.includes(id)) individualDeletes.push(id);
+      }
     }
   }
   for (const [collectionId, ids] of batchDeletes) {

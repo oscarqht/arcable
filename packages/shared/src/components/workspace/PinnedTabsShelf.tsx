@@ -19,6 +19,8 @@ import {
   TrashIcon,
   CopyIcon,
   ExternalLinkIcon,
+  ClockIcon,
+  GlobeIcon,
 } from '../Icons';
 
 export interface PinnedTabsShelfProps {
@@ -27,6 +29,7 @@ export interface PinnedTabsShelfProps {
   isDarkTheme?: boolean;
   shelfBg?: string;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab: (tabId: string) => void;
@@ -42,6 +45,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   isDarkTheme,
   shelfBg,
   onOpenTab,
+  onOpenTmpTab,
   onEditTab,
   onDuplicateTab,
   onDeleteTab,
@@ -284,8 +288,47 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                         else window.open(tab.url, '_blank', 'noopener,noreferrer');
                       }
                     },
-                    dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
                   },
+                  (() => {
+                    const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
+                    const hasMultipleVariants = validVariants.length > 1;
+                    const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
+                      if (onOpenTmpTab) {
+                        onOpenTmpTab(urlToOpen, titleToUse);
+                      } else if (onOpenTab) {
+                        onOpenTab(urlToOpen, undefined, { inNewTab: true, asTmpTab: true });
+                      } else {
+                        window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+                      }
+                    };
+
+                    return {
+                      id: 'open-tmp-tab',
+                      label: 'Open tmp tab',
+                      icon: <ClockIcon size={14} />,
+                      ...(hasMultipleVariants
+                        ? {
+                            children: validVariants.map((v, idx) => ({
+                              id: `open-tmp-var-${v.id || idx}`,
+                              label: v.name || cleanUrl(v.url) || 'Variant',
+                              icon: <GlobeIcon size={13} />,
+                              onClick: (e: any) => {
+                                e?.stopPropagation?.();
+                                handleOpenTmpTab(v.url, v.name || displayTitle);
+                              },
+                            })),
+                          }
+                        : {
+                            onClick: (e: any) => {
+                              e?.stopPropagation?.();
+                              if (tab.url) {
+                                handleOpenTmpTab(tab.url, displayTitle);
+                              }
+                            },
+                          }),
+                      dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
+                    };
+                  })(),
                   ...(onToggleFavouriteTab
                     ? [
                         {

@@ -42,6 +42,7 @@ export interface FolderItemProps {
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -82,6 +83,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onAddSubFolder,
   onAddTabInFolder,
   onOpenTab,
+  onOpenTmpTab,
   onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
@@ -1087,6 +1089,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onAddSubFolder={onAddSubFolder}
                   onAddTabInFolder={onAddTabInFolder}
                   onOpenTab={onOpenTab}
+                  onOpenTmpTab={onOpenTmpTab}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
                   onMediaControl={onMediaControl}
@@ -1134,6 +1137,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 currentUrl={assoc?.currentUrl}
                 isHighlighted={highlightedTabId === item.id}
                 onOpen={onOpenTab}
+                onOpenTmpTab={onOpenTmpTab}
                 onOpenVariant={onOpenVariant}
                 onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                 onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}

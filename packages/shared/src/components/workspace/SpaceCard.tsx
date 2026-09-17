@@ -48,6 +48,7 @@ export interface SpaceCardProps {
   audibleTabs?: AudibleTab[];
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
@@ -94,6 +95,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   audibleTabs,
   highlightedTabId,
   onOpenTab,
+  onOpenTmpTab,
   onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
@@ -489,6 +491,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       currentUrl={assoc?.currentUrl}
                       isHighlighted={highlightedTabId === t.id}
                       onOpen={onOpenTab}
+                      onOpenTmpTab={onOpenTmpTab}
                       onOpenVariant={onOpenVariant}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
@@ -535,6 +538,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onAddSubFolder={onAddFolder || (() => {})}
                         onAddTabInFolder={(pId) => onAddTab?.(pId, false)}
                         onOpenTab={onOpenTab}
+                        onOpenTmpTab={onOpenTmpTab}
                         onOpenVariant={onOpenVariant}
                         onCloseAssociatedTab={onCloseAssociatedTab}
                         onResetDivertedUrl={onResetDivertedUrl}
@@ -582,6 +586,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       currentUrl={assoc?.currentUrl}
                       isHighlighted={highlightedTabId === item.id}
                       onOpen={onOpenTab}
+                      onOpenTmpTab={onOpenTmpTab}
                       onOpenVariant={onOpenVariant}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}

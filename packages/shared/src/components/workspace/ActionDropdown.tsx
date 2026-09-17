@@ -2,17 +2,18 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreHorizontalIcon } from '../Icons';
+import { MoreHorizontalIcon, ChevronRightIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 export interface ActionDropdownItem {
   id: string;
   label: string;
   icon?: React.ReactNode;
-  onClick: (e: React.MouseEvent) => void;
+  onClick?: (e: React.MouseEvent) => void;
   danger?: boolean;
   disabled?: boolean;
   dividerAfter?: boolean;
+  children?: ActionDropdownItem[];
 }
 
 export interface ActionDropdownProps {
@@ -56,9 +57,14 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   const [mounted, setMounted] = useState(false);
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
   const [menuCoords, setMenuCoords] = useState<MenuCoords | null>(null);
+  const [activeSubmenuId, setActiveSubmenuId] = useState<string | null>(null);
+  const [submenuCoords, setSubmenuCoords] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const closeSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     onOpenChange?.(isOpen);
@@ -69,6 +75,20 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const clearSubmenuTimer = useCallback(() => {
+    if (closeSubmenuTimerRef.current) {
+      clearTimeout(closeSubmenuTimerRef.current);
+      closeSubmenuTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveSubmenuId(null);
+      clearSubmenuTimer();
+    }
+  }, [isOpen, clearSubmenuTimer]);
 
   // Calculate and update menu fixed position relative to viewport
   const updatePosition = useCallback(() => {
@@ -125,17 +145,96 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
     setMenuCoords({ top, bottom, left, right, maxHeight });
   }, [align, activeItems.length]);
 
+  const updateSubmenuPosition = useCallback((itemId: string) => {
+    const itemEl = itemRefs.current[itemId];
+    if (!itemEl) return;
+    const rect = itemEl.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    const subEl = submenuRef.current;
+    const subWidth = subEl ? subEl.offsetWidth : 175;
+    const subHeight = subEl ? subEl.offsetHeight : 120;
+
+    let left: number;
+    if (rect.right + subWidth + 8 <= viewportWidth) {
+      left = rect.right + 4;
+    } else if (rect.left - subWidth - 4 >= 8) {
+      left = rect.left - subWidth - 4;
+    } else {
+      left = Math.max(8, Math.min(viewportWidth - subWidth - 8, rect.left - subWidth + 30));
+    }
+
+    let top = rect.top - 4;
+    const maxHeight = Math.max(120, viewportHeight - 20);
+    if (top + subHeight > viewportHeight - 8) {
+      top = Math.max(8, viewportHeight - subHeight - 8);
+    }
+
+    setSubmenuCoords({ top, left, maxHeight });
+  }, []);
+
+  useEffect(() => {
+    if (!activeSubmenuId) {
+      setSubmenuCoords(null);
+      return;
+    }
+    updateSubmenuPosition(activeSubmenuId);
+    const rafId = requestAnimationFrame(() => {
+      updateSubmenuPosition(activeSubmenuId);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [activeSubmenuId, updateSubmenuPosition]);
+
+  const handleItemMouseEnter = useCallback((item: ActionDropdownItem) => {
+    clearSubmenuTimer();
+    if (item.children && item.children.length > 0) {
+      setActiveSubmenuId(item.id);
+    } else {
+      setActiveSubmenuId(null);
+    }
+  }, [clearSubmenuTimer]);
+
+  const handleItemMouseLeave = useCallback((item: ActionDropdownItem) => {
+    if (item.children && item.children.length > 0) {
+      clearSubmenuTimer();
+      closeSubmenuTimerRef.current = setTimeout(() => {
+        setActiveSubmenuId((curr) => (curr === item.id ? null : curr));
+      }, 150);
+    }
+  }, [clearSubmenuTimer]);
+
+  const handleSubmenuMouseEnter = useCallback(() => {
+    clearSubmenuTimer();
+  }, [clearSubmenuTimer]);
+
+  const handleSubmenuMouseLeave = useCallback(() => {
+    clearSubmenuTimer();
+    closeSubmenuTimerRef.current = setTimeout(() => {
+      setActiveSubmenuId(null);
+    }, 150);
+  }, [clearSubmenuTimer]);
+
   // Position updates on open, resize, or scroll
   useEffect(() => {
     if (!isOpen) return;
 
     updatePosition();
+    if (activeSubmenuId) {
+      updateSubmenuPosition(activeSubmenuId);
+    }
     const rafId = requestAnimationFrame(() => {
       updatePosition();
+      if (activeSubmenuId) {
+        updateSubmenuPosition(activeSubmenuId);
+      }
     });
 
     const handleScrollOrResize = () => {
       updatePosition();
+      if (activeSubmenuId) {
+        updateSubmenuPosition(activeSubmenuId);
+      }
     };
 
     window.addEventListener('resize', handleScrollOrResize);
@@ -146,7 +245,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
       window.removeEventListener('resize', handleScrollOrResize);
       window.removeEventListener('scroll', handleScrollOrResize, true);
     };
-  }, [isOpen, updatePosition]);
+  }, [isOpen, activeSubmenuId, updatePosition, updateSubmenuPosition]);
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {
@@ -158,15 +257,21 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
         containerRef.current &&
         !containerRef.current.contains(target) &&
         menuRef.current &&
-        !menuRef.current.contains(target)
+        !menuRef.current.contains(target) &&
+        (!submenuRef.current || !submenuRef.current.contains(target))
       ) {
         setIsOpen(false);
+        setActiveSubmenuId(null);
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsOpen(false);
+        if (activeSubmenuId) {
+          setActiveSubmenuId(null);
+        } else {
+          setIsOpen(false);
+        }
       }
     };
 
@@ -176,7 +281,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
       document.removeEventListener('mousedown', handleClickOutside, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, activeSubmenuId]);
 
   if (activeItems.length === 0) {
     return null;
@@ -241,92 +346,242 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {activeItems.map((item) => (
-              <React.Fragment key={item.id}>
-                <button
-                  type="button"
-                  disabled={item.disabled}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (item.disabled) return;
-                    setIsOpen(false);
-                    item.onClick(e);
-                  }}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: item.danger ? '#ef4444' : itemTextColor,
-                    padding: '7px 10px',
-                    borderRadius: '8px',
-                    cursor: item.disabled ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    width: '100%',
-                    textAlign: 'left',
-                    transition: 'background-color 0.12s ease, color 0.12s ease',
-                    opacity: item.disabled ? 0.5 : 1,
-                    boxSizing: 'border-box',
-                    whiteSpace: 'nowrap',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (item.disabled) return;
-                    e.currentTarget.style.backgroundColor = item.danger
-                      ? effectiveDark
-                        ? 'rgba(239, 68, 68, 0.18)'
-                        : '#fef2f2'
-                      : itemHoverBg;
-                    if (item.danger) {
-                      e.currentTarget.style.color = '#dc2626';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (item.disabled) return;
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = item.danger ? '#ef4444' : itemTextColor;
-                  }}
-                >
-                  {item.icon && (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '18px',
-                        height: '18px',
-                        flexShrink: 0,
-                        color: item.danger ? 'inherit' : 'inherit',
-                        opacity: 0.9,
-                      }}
-                    >
-                      {item.icon}
-                    </span>
-                  )}
-                  <span
+            {activeItems.map((item) => {
+              const hasChildren = Boolean(item.children && item.children.length > 0);
+              const isSubmenuActive = activeSubmenuId === item.id;
+
+              return (
+                <React.Fragment key={item.id}>
+                  <button
+                    ref={(el) => {
+                      itemRefs.current[item.id] = el;
+                    }}
+                    type="button"
+                    disabled={item.disabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      if (item.disabled) return;
+                      if (hasChildren) {
+                        setActiveSubmenuId((prev) => (prev === item.id ? null : item.id));
+                        return;
+                      }
+                      setActiveSubmenuId(null);
+                      setIsOpen(false);
+                      item.onClick?.(e);
+                    }}
                     style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      border: 'none',
+                      background: isSubmenuActive ? itemHoverBg : 'transparent',
+                      color: item.danger ? '#ef4444' : itemTextColor,
+                      padding: '7px 10px',
+                      borderRadius: '8px',
+                      cursor: item.disabled ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      width: '100%',
+                      textAlign: 'left',
+                      transition: 'background-color 0.12s ease, color 0.12s ease',
+                      opacity: item.disabled ? 0.5 : 1,
+                      boxSizing: 'border-box',
                       whiteSpace: 'nowrap',
-                      flex: 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (item.disabled) return;
+                      handleItemMouseEnter(item);
+                      e.currentTarget.style.backgroundColor = item.danger
+                        ? effectiveDark
+                          ? 'rgba(239, 68, 68, 0.18)'
+                          : '#fef2f2'
+                        : itemHoverBg;
+                      if (item.danger) {
+                        e.currentTarget.style.color = '#dc2626';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (item.disabled) return;
+                      handleItemMouseLeave(item);
+                      if (activeSubmenuId !== item.id) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = item.danger ? '#ef4444' : itemTextColor;
+                      }
                     }}
                   >
-                    {item.label}
-                  </span>
-                </button>
+                    {item.icon && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '18px',
+                          height: '18px',
+                          flexShrink: 0,
+                          color: item.danger ? 'inherit' : 'inherit',
+                          opacity: 0.9,
+                        }}
+                      >
+                        {item.icon}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                    >
+                      {item.label}
+                    </span>
 
-                {item.dividerAfter && (
-                  <div
+                    {hasChildren && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginLeft: 'auto',
+                          opacity: 0.65,
+                          paddingLeft: '6px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <ChevronRightIcon size={13} color="currentColor" />
+                      </span>
+                    )}
+                  </button>
+
+                  {item.dividerAfter && (
+                    <div
+                      style={{
+                        height: '1px',
+                        backgroundColor: dividerColor,
+                        margin: '3px 0',
+                      }}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>,
+          document.body
+        )
+      : null;
+
+  const activeSubmenuItem = activeItems.find(
+    (item) => item.id === activeSubmenuId && item.children && item.children.length > 0
+  );
+
+  const submenuContent =
+    isOpen && mounted && activeSubmenuItem && activeSubmenuItem.children && submenuCoords && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={submenuRef}
+            onMouseEnter={handleSubmenuMouseEnter}
+            onMouseLeave={handleSubmenuMouseLeave}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: `${submenuCoords.top}px`,
+              left: `${submenuCoords.left}px`,
+              maxHeight: `${submenuCoords.maxHeight}px`,
+              backgroundColor: menuBg,
+              borderRadius: '12px',
+              border: `1px solid ${menuBorder}`,
+              boxShadow: effectiveDark
+                ? '0 12px 36px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.4)'
+                : '0 12px 36px rgba(0, 0, 0, 0.16), 0 4px 14px rgba(0, 0, 0, 0.08)',
+              padding: '5px',
+              minWidth: '150px',
+              maxWidth: '240px',
+              overflowY: 'auto',
+              zIndex: 100000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              userSelect: 'none',
+              animation: 'dropdownFadeIn 0.12s ease-out',
+              boxSizing: 'border-box',
+            }}
+          >
+            {activeSubmenuItem.children.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                disabled={child.disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (child.disabled) return;
+                  setActiveSubmenuId(null);
+                  setIsOpen(false);
+                  child.onClick?.(e);
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: child.danger ? '#ef4444' : itemTextColor,
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  cursor: child.disabled ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  width: '100%',
+                  textAlign: 'left',
+                  transition: 'background-color 0.12s ease, color 0.12s ease',
+                  opacity: child.disabled ? 0.5 : 1,
+                  boxSizing: 'border-box',
+                  whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={(e) => {
+                  if (child.disabled) return;
+                  e.currentTarget.style.backgroundColor = child.danger
+                    ? effectiveDark
+                      ? 'rgba(239, 68, 68, 0.18)'
+                      : '#fef2f2'
+                    : itemHoverBg;
+                  if (child.danger) {
+                    e.currentTarget.style.color = '#dc2626';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (child.disabled) return;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = child.danger ? '#ef4444' : itemTextColor;
+                }}
+              >
+                {child.icon && (
+                  <span
                     style={{
-                      height: '1px',
-                      backgroundColor: dividerColor,
-                      margin: '3px 0',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '18px',
+                      height: '18px',
+                      flexShrink: 0,
+                      opacity: 0.9,
                     }}
-                  />
+                  >
+                    {child.icon}
+                  </span>
                 )}
-              </React.Fragment>
+                <span
+                  style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                  }}
+                >
+                  {child.label}
+                </span>
+              </button>
             ))}
           </div>,
           document.body
@@ -409,6 +664,9 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
 
       {/* Portal Menu Popup */}
       {menuContent}
+
+      {/* Portal Submenu Popup */}
+      {submenuContent}
     </div>
   );
 };

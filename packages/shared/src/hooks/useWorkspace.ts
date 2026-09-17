@@ -14,7 +14,7 @@ import {
   getOrCreateDeviceId,
   detectDeviceType,
 } from '../utils/syncEngine';
-import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
+import { syncWorkspaceWithRaindrop, numericRaindropId } from '../utils/raindropSync';
 import { getDescendantFolderIds, getAllSpaceFolderIds } from '../utils/treeUtils';
 
 
@@ -849,7 +849,11 @@ export function useWorkspace() {
 
     let maxOrder = 0;
     if (isFav) {
-      maxOrder = data.tabs.filter((t) => t.favourite).reduce((max, t) => Math.max(max, t.order ?? 0), 0);
+      maxOrder = Math.max(
+        0,
+        ...data.tabs.filter((t) => t.favourite).map((t) => (t.order !== undefined ? t.order : t.createdAt || 0)),
+        ...(data.widgets || []).map((w) => (w.order !== undefined ? w.order : w.createdAt || 0))
+      );
     } else if (isPinned && targetSpaceId) {
       maxOrder = data.tabs
         .filter((t) => !t.favourite && t.pinned && t.parentSpaceId === targetSpaceId)
@@ -884,7 +888,7 @@ export function useWorkspace() {
     }));
 
     return newTab;
-  }, [activeSpace, data.folders, data.tabs, saveWorkspaceData]);
+  }, [activeSpace, data.folders, data.tabs, data.widgets, saveWorkspaceData]);
 
   const updateTab = useCallback((id: string, updates: Partial<Omit<Tab, 'id'>>) => {
     saveWorkspaceData((prev) => {
@@ -986,7 +990,17 @@ export function useWorkspace() {
       }
 
       const opPayload: Record<string, any> = { ...updates };
-      if ('urlVariants' in normalizedUpdates) opPayload.urlVariants = normalizedUpdates.urlVariants ?? null;
+      if ('urlVariants' in normalizedUpdates) {
+        opPayload.urlVariants = normalizedUpdates.urlVariants ?? null;
+        const currentVariants = currentTab.urlVariants || [];
+        const nextVariants = normalizedUpdates.urlVariants || [];
+        const deletedVariantIds = currentVariants
+          .filter((cv) => !nextVariants.some((nv) => nv.id === cv.id))
+          .map((v) => v.id);
+        if (deletedVariantIds.length > 0) {
+          opPayload.deletedVariantIds = deletedVariantIds;
+        }
+      }
       if ('defaultVariantId' in normalizedUpdates) opPayload.defaultVariantId = normalizedUpdates.defaultVariantId ?? null;
       if (normalizedUpdates.url) opPayload.url = normalizedUpdates.url;
       if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updated.customEmojiIcon ?? null;
@@ -1014,8 +1028,12 @@ export function useWorkspace() {
         ? prev.folders.find((folder) => folder.id === deletedTab.parentFolderId)
         : prev.spaces.find((space) => space.id === deletedTab?.parentSpaceId);
       const numericParentId = parent && /^\d+$/.test(parent.id) ? Number(parent.id) : undefined;
+      const secondaryVariantIds = (deletedTab?.urlVariants || [])
+        .map((v) => numericRaindropId(v.id))
+        .filter((vid): vid is number => Boolean(vid) && vid !== (deletedTab?.raindropId || numericTabId));
       savePendingOperation(createWorkspaceOperation('TAB_DELETE', id, {
         raindropId: deletedTab?.raindropId || numericTabId,
+        variantRaindropIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
         collectionId: deletedTab?.favourite
           ? prev.raindropRootCollectionId
           : parent?.raindropId || numericParentId,
@@ -1057,10 +1075,23 @@ export function useWorkspace() {
     const existing = data.tabs.find((t) => t.id === id);
     const nextFavourite = !existing?.favourite;
 
+    let nextOrder = existing?.order;
+    if (nextFavourite) {
+      const existingWidgets = data.widgets || [];
+      const favTabs = data.tabs.filter((t) => Boolean(t.favourite) && t.id !== id);
+      const maxOrder = Math.max(
+        0,
+        ...existingWidgets.map((w) => (w.order !== undefined ? w.order : w.createdAt || 0)),
+        ...favTabs.map((t) => (t.order !== undefined ? t.order : t.createdAt || 0))
+      );
+      nextOrder = maxOrder + 1000;
+    }
+
     const updates: Partial<Tab> = nextFavourite
       ? {
           favourite: true,
           pinned: false,
+          order: nextOrder,
           parentSpaceId: undefined,
           parentFolderId: undefined,
         }
@@ -1074,6 +1105,7 @@ export function useWorkspace() {
       ? {
           favourite: true,
           pinned: false,
+          order: nextOrder,
           parentSpaceId: null,
           parentFolderId: null,
         }
@@ -1089,7 +1121,7 @@ export function useWorkspace() {
       ...prev,
       tabs: prev.tabs.map((t) => (t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t)),
     }));
-  }, [activeSpace, data.spaces, data.tabs, saveWorkspaceData]);
+  }, [activeSpace, data.spaces, data.tabs, data.widgets, saveWorkspaceData]);
 
   const duplicateTab = useCallback(
     (tabOrId: string | Tab) => {
@@ -2062,10 +2094,13 @@ export function useWorkspace() {
       }));
 
       const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
-        if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+        if (a.order !== undefined && b.order !== undefined) {
+          if (a.order !== b.order) return a.order - b.order;
+          return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+        }
         if (a.order !== undefined) return -1;
         if (b.order !== undefined) return 1;
-        return (a.createdAt || 0) - (b.createdAt || 0);
+        return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
       });
       const originalOrder = allItems.map((item) => item.id);
 
@@ -2173,7 +2208,7 @@ export function useWorkspace() {
         // which this client can create on its next metadata sync. A present
         // metadata file (including one containing empty arrays) remains
         // authoritative.
-        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null;
+        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null && !snapshot.raindropRootCollectionId;
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();

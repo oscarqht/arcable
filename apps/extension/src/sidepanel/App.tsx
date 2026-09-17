@@ -509,6 +509,17 @@ export const App: React.FC = () => {
   }, []);
 
   const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab, options?: TabOpenOptions) => {
+    if (options?.asTmpTab) {
+      try {
+        await browser.tabs.create({ url, active: true });
+        return;
+      } catch (e) {
+        console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
     if (tabId) {
       setHighlightedTabId(tabId);
     }
@@ -635,6 +646,18 @@ export const App: React.FC = () => {
     },
     [isMobile]
   );
+
+  const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
+    try {
+      const newTab = await browser.tabs.create({ url, active: true });
+      if (newTab && newTab.id !== undefined && title) {
+        await tabTracker.setTmpTabCustomTitle(newTab.id, url, title);
+      }
+    } catch (e) {
+      console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
 
   const handleCloseTmpTab = async (tab: TmpTab) => {
     // Always remove this tab from arcable_tmp_tabs in browser.storage.local.
@@ -949,6 +972,7 @@ export const App: React.FC = () => {
           onTabPromoted={handleTabPromoted}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}
+          onOpenTmpTab={handleOpenAsTmpTab}
           onOpenVariant={handleOpenVariant}
           onCloseAssociatedTab={handleCloseAssociatedTab}
           onResetDivertedUrl={handleResetDivertedUrl}

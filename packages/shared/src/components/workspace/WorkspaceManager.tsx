@@ -78,6 +78,7 @@ export interface WorkspaceManagerHandle {
 
 export interface WorkspaceManagerProps {
   onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
@@ -133,6 +134,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   function WorkspaceManager(
     {
       onOpenTab,
+      onOpenTmpTab,
       onOpenVariant,
       onCaptureCurrentTab,
       compact = false,
@@ -367,6 +369,32 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       }
     },
     [activeSearchQuery, handleUpdateSearch, onOpenTab]
+  );
+
+  const handleOpenAsTmpTab = useCallback(
+    (url: string, title?: string) => {
+      if (activeSearchQuery) {
+        handleUpdateSearch('');
+      }
+
+      if (onOpenTmpTab) {
+        onOpenTmpTab(url, title);
+      } else if (onOpenTab) {
+        onOpenTab(url, undefined, undefined, { inNewTab: true, asTmpTab: true });
+      } else {
+        createTmpTab({
+          url,
+          title: title || cleanUrl(url),
+          deviceId: effectiveCurrentDeviceId,
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
+          deviceType: 'Web App',
+        });
+        if (typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      }
+    },
+    [activeSearchQuery, handleUpdateSearch, onOpenTmpTab, onOpenTab, createTmpTab, effectiveCurrentDeviceId]
   );
 
   // Temporary tabs are local-only. Extension callers supply their tracker list;
@@ -1265,12 +1293,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
       applySnapshot: (snapshot: ArcableWorkspaceData) => {
-        const hydratedSnapshot = snapshot.raindropMetadataItemId === null
+        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null && !snapshot.raindropRootCollectionId;
+        const hydratedSnapshot = remoteMetadataMissing
           ? {
               ...snapshot,
-              widgets: latestWorkspaceDataRef.current.widgets || [],
-              customCodeRules: latestWorkspaceDataRef.current.customCodeRules || [],
-              runCodeInPageRules: latestWorkspaceDataRef.current.runCodeInPageRules || [],
+              widgets: (snapshot.widgets && snapshot.widgets.length > 0)
+                ? snapshot.widgets
+                : (latestWorkspaceDataRef.current.widgets || []),
+              customCodeRules: (snapshot.customCodeRules && snapshot.customCodeRules.length > 0)
+                ? snapshot.customCodeRules
+                : (latestWorkspaceDataRef.current.customCodeRules || []),
+              runCodeInPageRules: (snapshot.runCodeInPageRules && snapshot.runCodeInPageRules.length > 0)
+                ? snapshot.runCodeInPageRules
+                : (latestWorkspaceDataRef.current.runCodeInPageRules || []),
             }
           : snapshot;
         // React state updates are asynchronous. Keep the imperative sync source
@@ -1604,6 +1639,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         highlightedTabId={highlightedTabId}
         themeStyles={activeSpaceTheme}
         onOpenTab={handleOpenTabWithSearchClear}
+        onOpenTmpTab={handleOpenAsTmpTab}
         onCloseAssociatedTab={onCloseAssociatedTab}
         onResetDivertedUrl={onResetDivertedUrl}
         audibleTabs={audibleTabs}
@@ -2059,6 +2095,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   highlightedTabId={highlightedTabId}
                   onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                   onOpenTab={handleOpenTabWithSearchClear}
+                  onOpenTmpTab={handleOpenAsTmpTab}
                   onOpenVariant={handleOpenVariant}
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
@@ -2198,6 +2235,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       highlightedTabId={highlightedTabId}
                       onToggleCollapse={() => toggleSpaceCollapse(space.id)}
                       onOpenTab={handleOpenTabWithSearchClear}
+                      onOpenTmpTab={handleOpenAsTmpTab}
                       onOpenVariant={handleOpenVariant}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
@@ -2367,6 +2405,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       audibleTabs={audibleTabs}
                       highlightedTabId={highlightedTabId}
                       onOpenTab={handleOpenTabWithSearchClear}
+                      onOpenTmpTab={handleOpenAsTmpTab}
                       onOpenVariant={handleOpenVariant}
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
@@ -2565,7 +2604,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               {bottomBarSyncItem && (
                 <button
                   type="button"
-                  onClick={(event) => { void bottomBarSyncItem.onClick(event); }}
+                  onClick={(event) => { void bottomBarSyncItem.onClick?.(event); }}
                   disabled={Boolean(bottomBarSyncItem.disabled) || isCurrentlySyncing}
                   title={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}
                   aria-label={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}

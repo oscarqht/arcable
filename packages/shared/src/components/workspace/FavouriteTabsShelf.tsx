@@ -36,6 +36,8 @@ import {
   MoreHorizontalIcon,
   MinusIcon,
   SlashIcon,
+  ClockIcon,
+  GlobeIcon,
 } from '../Icons';
 import {
   PomodoroPopover,
@@ -53,6 +55,7 @@ export interface FavouriteTabsShelfProps {
   tabAssociations?: TabAssociationMap;
   highlightedTabId?: string | null;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
+  onOpenTmpTab?: (url: string, title?: string) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   audibleTabs?: AudibleTab[];
@@ -115,6 +118,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   tabAssociations,
   highlightedTabId,
   onOpenTab,
+  onOpenTmpTab,
   onCloseAssociatedTab,
   onResetDivertedUrl,
   audibleTabs,
@@ -234,11 +238,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
     return [...tabItems, ...widgetItems].sort((a, b) => {
       if (a.order !== undefined && b.order !== undefined) {
-        return a.order - b.order;
+        if (a.order !== b.order) return a.order - b.order;
+        return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
       }
       if (a.order !== undefined) return -1;
       if (b.order !== undefined) return 1;
-      return (a.createdAt || 0) - (b.createdAt || 0);
+      return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
     });
   }, [tabs, widgets]);
 
@@ -463,6 +468,45 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                         }
                       },
                     },
+                    (() => {
+                      const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
+                      const hasMultipleVariants = validVariants.length > 1;
+                      const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
+                        if (onOpenTmpTab) {
+                          onOpenTmpTab(urlToOpen, titleToUse);
+                        } else if (onOpenTab) {
+                          onOpenTab(urlToOpen, undefined, { inNewTab: true, asTmpTab: true });
+                        } else {
+                          window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+                        }
+                      };
+
+                      return {
+                        id: 'open-tmp-tab',
+                        label: 'Open tmp tab',
+                        icon: <ClockIcon size={14} />,
+                        ...(hasMultipleVariants
+                          ? {
+                              children: validVariants.map((v, idx) => ({
+                                id: `open-tmp-var-${v.id || idx}`,
+                                label: v.name || cleanUrl(v.url) || 'Variant',
+                                icon: <GlobeIcon size={13} />,
+                                onClick: (e: any) => {
+                                  e?.stopPropagation?.();
+                                  handleOpenTmpTab(v.url, v.name || displayTitle);
+                                },
+                              })),
+                            }
+                          : {
+                              onClick: (e: any) => {
+                                e?.stopPropagation?.();
+                                if (tab.url) {
+                                  handleOpenTmpTab(tab.url, displayTitle);
+                                }
+                              },
+                            }),
+                      };
+                    })(),
                     {
                       id: 'copy-url',
                       label: copiedTabId === tab.id ? 'Copied URL!' : 'Copy URL',
