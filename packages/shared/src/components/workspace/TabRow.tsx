@@ -266,8 +266,9 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    // Only accept tab or folder items! Spaces or shelf tabs MUST NOT light up tab items
-    if (!isDragAcceptable(e, ['tab', 'folder'])) {
+    // Folders are always on top of tabs in the same level.
+    // Only accept tab items! Folders must not be dragged down to below or onto tab items.
+    if (!isDragAcceptable(e, ['tab'])) {
       return;
     }
     const activeDrag = getActiveDrag();
@@ -291,7 +292,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!isDragAcceptable(e, ['tab', 'folder'])) {
+    if (!isDragAcceptable(e, ['tab'])) {
       setDropIndicator(null);
       endDrag();
       return;

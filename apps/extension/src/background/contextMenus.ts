@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { RunCodeRule } from '@arcable/shared/types';
-import { matchAnyUrlPattern } from '@arcable/shared/utils';
+import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
 
 const MENU_ROOT_ID = 'arcable_run_code_root';
@@ -10,7 +10,7 @@ async function getRunCodeRules(): Promise<RunCodeRule[]> {
   try {
     const res = await browser.storage.local.get(RUN_CODE_IN_PAGE_STORAGE_KEY);
     const rules = res[RUN_CODE_IN_PAGE_STORAGE_KEY];
-    return Array.isArray(rules) ? (rules as RunCodeRule[]) : [];
+    return Array.isArray(rules) ? sortRunCodeRules(rules as RunCodeRule[]) : [];
   } catch (err) {
     console.warn('[contextMenus] Error reading run code rules:', err);
     return [];
@@ -22,13 +22,14 @@ export async function getMatchingCodeRules(url: string): Promise<RunCodeRule[]> 
     return [];
   }
   const rules = await getRunCodeRules();
-  return rules.filter((rule) => {
+  const matched = rules.filter((rule) => {
     if (rule.disabled) return false;
     if (!rule.code || !rule.code.trim()) return false;
     // If no patterns specified, does it run on all pages or none? In Nenya, rules without patterns only run if pattern matches or if empty pattern isn't allowed.
     if (!rule.patterns || rule.patterns.length === 0) return false;
     return matchAnyUrlPattern(rule.patterns, url);
   });
+  return sortRunCodeRules(matched);
 }
 
 let isUpdatingMenu = false;

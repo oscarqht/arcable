@@ -454,6 +454,19 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
     e.preventDefault();
     e.stopPropagation();
+
+    // Folders are always sorted on top of tabs in the same level.
+    // When dragging a tab item over a folder, only allow dropping inside the folder.
+    // Dragging tabs to above or below a folder as a sibling is prohibited.
+    const isTabDrag =
+      activeDrag?.type === 'tab' ||
+      (isDragAcceptable(e, ['tab']) && !isDragAcceptable(e, ['folder']));
+
+    if (isTabDrag) {
+      setDropIndicator('inside');
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const relativeY = e.clientY - rect.top;
     const height = rect.height;
@@ -479,21 +492,26 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
     e.preventDefault();
     e.stopPropagation();
-    const currentIndicator = dropIndicator || 'inside';
+    const activeDrag = getActiveDrag();
+    const isTabDrag =
+      activeDrag?.type === 'tab' ||
+      (isDragAcceptable(e, ['tab']) && !isDragAcceptable(e, ['folder']));
+    const currentIndicator = isTabDrag ? 'inside' : (dropIndicator || 'inside');
     setDropIndicator(null);
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      const activeDrag = getActiveDrag();
       const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' }) : null);
       if (!parsed || !parsed.id || parsed.id === folder.id) return;
+
+      const effectivePosition = parsed.type === 'tab' ? 'inside' : currentIndicator;
 
       onReorderSiblingItem?.({
         sourceId: parsed.id,
         sourceType: parsed.type as 'folder' | 'tab',
         targetId: folder.id,
         targetType: 'folder',
-        position: currentIndicator,
+        position: effectivePosition,
       });
     } catch {} finally {
       endDrag();
@@ -1145,6 +1163,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     if (!raw) return;
                     const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
                     if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
+                    // Folders must never be dropped onto or below tab items
+                    if (parsed.type === 'folder') return;
                     const rect = e.currentTarget.getBoundingClientRect();
                     const midY = rect.top + rect.height / 2;
                     const pos = e.clientY < midY ? 'before' : 'after';

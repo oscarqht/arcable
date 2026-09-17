@@ -496,27 +496,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     });
   }, [sortedSpaces, virtualSyncedSpace]);
 
-  const prevHighlightedTabIdRef = useRef<string | null | undefined>(undefined);
-
-  // Auto-switch to the space of the highlighted tab when highlightedTabId genuinely changes
-  useEffect(() => {
-    if (!highlightedTabId) {
-      prevHighlightedTabIdRef.current = highlightedTabId;
-      return;
-    }
-    if (prevHighlightedTabIdRef.current === highlightedTabId) {
-      return;
-    }
-    prevHighlightedTabIdRef.current = highlightedTabId;
-
-    const targetTab = data.tabs.find((t) => t.id === highlightedTabId);
-    if (!targetTab) return;
-
-    if (targetTab.parentSpaceId) {
-      setActiveSpace(targetTab.parentSpaceId);
-    }
-  }, [highlightedTabId, data.tabs, setActiveSpace]);
-
   const toggleSpaceCollapse = (spaceId: string) => {
 
     setSpaceCollapseMap((prev) => {
@@ -996,6 +975,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             : snapshot;
           if (remainingOps.length > 0) {
             nextSnapshot = replayOperations(nextSnapshot, remainingOps);
+          }
+          const currentActive = latestWorkspaceDataRef.current?.activeSpaceId;
+          const currentActiveStillExists = Boolean(
+            currentActive && nextSnapshot.spaces.some((s) => s.id === currentActive)
+          );
+          if (currentActiveStillExists && nextSnapshot.activeSpaceId !== currentActive) {
+            nextSnapshot = {
+              ...nextSnapshot,
+              activeSpaceId: currentActive,
+            };
           }
           latestWorkspaceDataRef.current = nextSnapshot;
           applyLatestSnapshot(nextSnapshot);

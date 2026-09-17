@@ -147,7 +147,10 @@ async function fetchAndCacheRaindropWorkspace(): Promise<ExtensionResponse<Arcab
   }
 
   try {
-    const result = await fetchRaindropWorkspace(auth.accessToken);
+    const stored = await browser.storage.local.get('arcable_workspace_snapshot');
+    const currentActiveSpaceId = (stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined)?.activeSpaceId;
+
+    const result = await fetchRaindropWorkspace(auth.accessToken, currentActiveSpaceId);
     if (!result.success || !result.data) {
       if (result.errorDetails) {
         console.warn('[Arcable Background] Raindrop workspace fetch exhausted transport retries.', result.errorDetails);

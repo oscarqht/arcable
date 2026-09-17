@@ -38,6 +38,10 @@ import {
   replayOperations,
   mergeIncrementalSyncSnapshot,
 } from './syncEngine';
+import {
+  sortCustomCodeRules,
+  sortRunCodeRules,
+} from './customCodeUtils';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
 export const LEGACY_ROOT_COLLECTION_NAMES = ['Arcable'];
@@ -848,10 +852,64 @@ function widgetToRaindropItemInput(
   };
 }
 
+/**
+ * Safely base64 encodes string payloads (such as custom code and CSS) so that
+ * Raindrop's backend HTML/text sanitizers (which strip '<', '>', etc.) cannot alter code content.
+ */
+export function encodeSafePayload(text: string): string {
+  if (!text) return '';
+  try {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(text, 'utf-8').toString('base64');
+    }
+    if (typeof TextEncoder !== 'undefined' && typeof btoa !== 'undefined') {
+      const bytes = new TextEncoder().encode(text);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+    return encodeURIComponent(text);
+  } catch (err) {
+    console.warn('[RaindropSync] Failed to base64 encode payload, fallback to encodeURIComponent:', err);
+    return encodeURIComponent(text);
+  }
+}
+
+/**
+ * Decodes a safe payload from base64 (with fallback to decodeURIComponent or raw text).
+ */
+export function decodeSafePayload(encoded: string): string {
+  if (!encoded) return '';
+  try {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(encoded, 'base64').toString('utf-8');
+    }
+    if (typeof TextDecoder !== 'undefined' && typeof atob !== 'undefined') {
+      const binary = atob(encoded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder().decode(bytes);
+    }
+    return decodeURIComponent(encoded);
+  } catch {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+}
+
 function customCodeToRaindropItemInput(
   rule: CustomCodeRule,
   collectionId: number
 ): Parameters<typeof createRaindropBookmarks>[1][number] {
+  const cssB64 = encodeSafePayload(rule.css || '');
+  const jsB64 = encodeSafePayload(rule.js || '');
   return {
     title: rule.pattern || 'Custom CSS',
     link: `${ARCABLE_CUSTOM_CSS_LINK_PREFIX}${rule.id}`,
@@ -859,9 +917,12 @@ function customCodeToRaindropItemInput(
       id: rule.id,
       pattern: rule.pattern,
       css: rule.css,
+      css_b64: cssB64,
       js: rule.js,
+      js_b64: jsB64,
       disabled: rule.disabled,
     }),
+    note: JSON.stringify({ css_b64: cssB64, js_b64: jsB64 }),
     collectionId,
     pleaseParse: { disabled: true },
   };
@@ -871,6 +932,7 @@ function runCodeToRaindropItemInput(
   rule: RunCodeRule,
   collectionId: number
 ): Parameters<typeof createRaindropBookmarks>[1][number] {
+  const codeB64 = encodeSafePayload(rule.code || '');
   return {
     title: rule.title || 'Run Code',
     link: `${ARCABLE_RUN_CODE_LINK_PREFIX}${rule.id}`,
@@ -879,8 +941,10 @@ function runCodeToRaindropItemInput(
       title: rule.title,
       patterns: rule.patterns,
       code: rule.code,
+      code_b64: codeB64,
       disabled: rule.disabled,
     }),
+    note: codeB64,
     collectionId,
     pleaseParse: { disabled: true },
   };
@@ -1347,6 +1411,7 @@ export async function syncIncrementalOperations(
           const updated = await updateRaindropItem(token, remoteId, {
             title: input.title,
             excerpt: input.excerpt,
+            note: input.note,
           });
           if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${remoteId}.`);
         }
@@ -1401,6 +1466,7 @@ export async function syncIncrementalOperations(
           const updated = await updateRaindropItem(token, remoteId, {
             title: input.title,
             excerpt: input.excerpt,
+            note: input.note,
           });
           if (!updated) throw new Error(`Failed to update Raindrop run code rule ${remoteId}.`);
         }
@@ -1654,7 +1720,7 @@ function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
   };
 }
 
-function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
+function reconstructWorkspace(tree: RemoteArcableTree, targetActiveSpaceId?: string): ArcableWorkspaceData {
   if (!tree.root) return createEmptyRemoteWorkspace();
   const root = tree.root;
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
@@ -1776,17 +1842,44 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
     try {
       if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
     } catch {}
+
+    let parsedNote: any = {};
+    if (typeof item.note === 'string' && item.note.trim().startsWith('{')) {
+      try {
+        parsedNote = JSON.parse(item.note.trim());
+      } catch {}
+    }
+
     const ruleId =
       parsedExcerpt.id ||
       (item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX)
         ? item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length)
         : String(item._id));
+
+    let css = '';
+    if (typeof parsedExcerpt.css_b64 === 'string' && parsedExcerpt.css_b64) {
+      css = decodeSafePayload(parsedExcerpt.css_b64);
+    } else if (typeof parsedNote.css_b64 === 'string' && parsedNote.css_b64) {
+      css = decodeSafePayload(parsedNote.css_b64);
+    } else if (typeof parsedExcerpt.css === 'string') {
+      css = parsedExcerpt.css;
+    }
+
+    let js = '';
+    if (typeof parsedExcerpt.js_b64 === 'string' && parsedExcerpt.js_b64) {
+      js = decodeSafePayload(parsedExcerpt.js_b64);
+    } else if (typeof parsedNote.js_b64 === 'string' && parsedNote.js_b64) {
+      js = decodeSafePayload(parsedNote.js_b64);
+    } else if (typeof parsedExcerpt.js === 'string') {
+      js = parsedExcerpt.js;
+    }
+
     return {
       id: ruleId,
       raindropId: item._id,
       pattern: parsedExcerpt.pattern || item.title || '',
-      css: parsedExcerpt.css || '',
-      js: parsedExcerpt.js || '',
+      css,
+      js,
       disabled: Boolean(parsedExcerpt.disabled),
       createdAt: parsedExcerpt.createdAt || item.created,
       updatedAt: parsedExcerpt.updatedAt || item.lastUpdate,
@@ -1796,6 +1889,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
   if (customCodeRules.length === 0 && tree.metadata.customCodeRules?.length) {
     customCodeRules = tree.metadata.customCodeRules;
   }
+  customCodeRules = sortCustomCodeRules(customCodeRules);
 
   // Reconstruct run code rules from _run_code
   const runCodeItems = runCodeCollection
@@ -1811,12 +1905,26 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
       (item.link?.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX)
         ? item.link.slice(ARCABLE_RUN_CODE_LINK_PREFIX.length)
         : String(item._id));
+
+    let code = '';
+    if (typeof parsedExcerpt.code_b64 === 'string' && parsedExcerpt.code_b64) {
+      code = decodeSafePayload(parsedExcerpt.code_b64);
+    } else if (typeof item.note === 'string' && item.note.trim()) {
+      try {
+        code = decodeSafePayload(item.note.trim());
+      } catch {
+        code = typeof parsedExcerpt.code === 'string' ? parsedExcerpt.code : '';
+      }
+    } else if (typeof parsedExcerpt.code === 'string') {
+      code = parsedExcerpt.code;
+    }
+
     return {
       id: ruleId,
       raindropId: item._id,
       title: parsedExcerpt.title || item.title || '',
       patterns: parsedExcerpt.patterns || [],
-      code: parsedExcerpt.code || '',
+      code,
       disabled: Boolean(parsedExcerpt.disabled),
       createdAt: parsedExcerpt.createdAt || item.created,
       updatedAt: parsedExcerpt.updatedAt || item.lastUpdate,
@@ -1826,6 +1934,7 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
   if (runCodeInPageRules.length === 0 && tree.metadata.runCodeInPageRules?.length) {
     runCodeInPageRules = tree.metadata.runCodeInPageRules;
   }
+  runCodeInPageRules = sortRunCodeRules(runCodeInPageRules);
 
   // Identify placeholder / internal item IDs to exclude from tabs
   const nonTabItemIds = new Set<number>([
@@ -1956,11 +2065,16 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
 
   tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
+  const activeSpaceStillExists = Boolean(targetActiveSpaceId && spaces.some((s) => s.id === targetActiveSpaceId));
+  const activeSpaceId = activeSpaceStillExists
+    ? targetActiveSpaceId!
+    : (spaces[0]?.id || '');
+
   return {
     raindropRootCollectionId: root._id,
     raindropMetadataItemId: tree.metadataItemId ?? null,
     version: 1,
-    activeSpaceId: spaces[0]?.id || '',
+    activeSpaceId,
     spaces,
     folders,
     tabs,
@@ -1972,12 +2086,15 @@ function reconstructWorkspace(tree: RemoteArcableTree): ArcableWorkspaceData {
 }
 
 /** Always rebuilds Arcable's local cache from the live Raindrop tree without mutating Raindrop. */
-export async function fetchRaindropWorkspace(token: string): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string; errorDetails?: RaindropRequestFailureDetails }> {
+export async function fetchRaindropWorkspace(
+  token: string,
+  targetActiveSpaceId?: string
+): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string; errorDetails?: RaindropRequestFailureDetails }> {
   const clean = cleanRaindropToken(token);
   if (!clean) return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
   try {
     const tree = await fetchRemoteArcableTree(clean);
-    return { success: true, data: reconstructWorkspace(tree) };
+    return { success: true, data: reconstructWorkspace(tree, targetActiveSpaceId) };
   } catch (err: any) {
     console.error('[RaindropSync] Failed to fetch Arcable tree:', err);
     return {
@@ -2084,7 +2201,7 @@ export async function syncWorkspaceWithRaindrop(
             success: true,
             collectionId: tree.root._id,
             dataItemId: tree.metadataItemId,
-            latestSnapshot: reconstructWorkspace(tree),
+            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId),
             syncedAt: Date.now(),
           };
         }
@@ -2094,7 +2211,7 @@ export async function syncWorkspaceWithRaindrop(
 
     if (needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {
       authoritativeTree = await fetchRemoteArcableTree(clean);
-      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree);
+      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree, syncLocalState?.activeSpaceId);
       if (authoritativeSnapshot && options?.pendingOps) {
         syncLocalState = replayOperations(authoritativeSnapshot, options.pendingOps);
       }
@@ -2448,6 +2565,7 @@ export async function syncWorkspaceWithRaindrop(
           await updateRaindropItem(clean, existing._id, {
             title: input.title,
             excerpt: input.excerpt,
+            note: input.note,
           });
         }
       }
@@ -2466,6 +2584,7 @@ export async function syncWorkspaceWithRaindrop(
           await updateRaindropItem(clean, existing._id, {
             title: input.title,
             excerpt: input.excerpt,
+            note: input.note,
           });
         }
       }
@@ -2488,6 +2607,8 @@ export async function syncWorkspaceWithRaindrop(
     const bookmarksWithLegacyNotes = tree.items.filter((item) =>
       !isArcableInternalItem(item) &&
       !isWidgetItem(item) &&
+      !isCustomCssItem(item) &&
+      !isRunCodeItem(item) &&
       Boolean(item.note && (item.note.includes(ARCABLE_NOTE_MARKER) || item.note.includes('"schema"')))
     );
     for (const item of bookmarksWithLegacyNotes) {
@@ -2495,7 +2616,7 @@ export async function syncWorkspaceWithRaindrop(
     }
 
     tree = await fetchRemoteArcableTree(clean);
-    const latestSnapshot = reconstructWorkspace(tree);
+    const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId);
 
     return {
       success: true,

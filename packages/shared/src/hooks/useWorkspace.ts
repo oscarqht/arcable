@@ -1607,6 +1607,17 @@ export function useWorkspace() {
       const { sourceId, sourceType, targetId, targetType, position } = params;
       if (sourceId === targetId) return;
 
+      // Folders are always sorted on top of tabs in the same level.
+      // 1. Prevent dragging folders down to below or onto tab items.
+      if (sourceType === 'folder' && targetType === 'tab') {
+        return;
+      }
+
+      // 2. Prevent dragging tab items to above or below folders (only dropping inside a folder is allowed).
+      if (sourceType === 'tab' && targetType === 'folder' && position !== 'inside') {
+        return;
+      }
+
       const sourceFolder = sourceType === 'folder' ? data.folders.find((f) => f.id === sourceId) : undefined;
       const sourceTab = sourceType === 'tab' ? data.tabs.find((t) => t.id === sourceId) : undefined;
       if (!sourceFolder && !sourceTab) return;

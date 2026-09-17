@@ -2,6 +2,7 @@
   "name": "@arcable/shared",
   "version": "0.83.0",
   "description": "Shared logic, hooks, types, and UI components for Arcable apps",
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

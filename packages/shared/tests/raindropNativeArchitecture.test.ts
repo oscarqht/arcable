@@ -635,6 +635,63 @@ async function runTests(): Promise<void> {
   assert(call501 && call501.body.sort === 3 && call501.body.order === 3, 'Tab 501 should have sort 3 (accounting for preceding variants)');
   assert(call502 && call502.body.sort === 4 && call502.body.order === 4, 'Tab 502 should have sort 4');
   console.log('✓ Tab items with URL variants sync with consecutive 0-based order/sort indices');
+
+  // 8. Verify custom code and run code preserve arrow functions =>, <, >, HTML etc. across sync
+  const complexCode = `
+    const taskId = '123';
+    const item = list.find(t => t.id === taskId);
+    if (count < 10 && total > 5) {
+      document.body.innerHTML = '<div>Hello</div>';
+    }
+  `;
+  const codeWorkspace: ArcableWorkspaceData = {
+    ...variantsSyncResult.latestSnapshot!,
+    runCodeInPageRules: [
+      {
+        id: 'run-complex',
+        title: 'Arrow Function Snippet',
+        patterns: ['https://example.com/*'],
+        code: complexCode,
+        disabled: false,
+      },
+    ],
+    customCodeRules: [
+      {
+        id: 'cjc-complex',
+        pattern: 'https://example.com/*',
+        css: 'div > p { color: red; }',
+        js: 'const f = (x) => x > 0 && x < 10;',
+        disabled: false,
+      },
+    ],
+  };
+
+  const codeSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: codeWorkspace,
+    replaceBaseline: true,
+  });
+  assert.equal(codeSyncResult.success, true);
+
+  // Simulate Raindrop backend stripping `<` and `>` from bookmark excerpts:
+  for (const b of mockState.bookmarks) {
+    if (b.excerpt) {
+      b.excerpt = b.excerpt.replace(/[<>]/g, '');
+    }
+  }
+
+  // Fetch workspace again (simulating next sync pull)
+  const fetchedAfterSanitization = await fetchRaindropWorkspace('mock-token');
+  assert.equal(fetchedAfterSanitization.success, true);
+  const reconstructed = fetchedAfterSanitization.data!;
+  const syncedRunRule = reconstructed.runCodeInPageRules?.find((r) => r.id === 'run-complex');
+  assert(syncedRunRule, 'Run code rule must exist');
+  assert.equal(syncedRunRule.code, complexCode, 'Run code must preserve =>, <, >, etc. even if excerpt had <> stripped by Raindrop');
+
+  const syncedCustomRule = reconstructed.customCodeRules?.find((r) => r.id === 'cjc-complex');
+  assert(syncedCustomRule, 'Custom code rule must exist');
+  assert.equal(syncedCustomRule.css, 'div > p { color: red; }', 'Custom CSS must preserve child selector >');
+  assert.equal(syncedCustomRule.js, 'const f = (x) => x > 0 && x < 10;', 'Custom JS must preserve =>, >, <');
+  console.log('✓ Code content (=>, <, >) preserved across Raindrop sync despite remote sanitization');
 }
 
 runTests().catch((err) => {

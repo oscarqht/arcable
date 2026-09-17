@@ -611,6 +611,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                           if (!raw) return;
                           const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
                           if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
+                          // Folders must never be dropped onto or below tab items
+                          if (parsed.type === 'folder') return;
                           const rect = e.currentTarget.getBoundingClientRect();
                           const midY = rect.top + rect.height / 2;
                           const pos = e.clientY < midY ? 'before' : 'after';
