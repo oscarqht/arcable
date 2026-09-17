@@ -1,5 +1,6 @@
 export interface CustomCodeRule {
   id: string;
+  raindropId?: number;
   pattern: string;
   css: string;
   js: string;
@@ -10,6 +11,7 @@ export interface CustomCodeRule {
 
 export interface RunCodeRule {
   id: string;
+  raindropId?: number;
   title: string;
   patterns: string[];
   code: string;

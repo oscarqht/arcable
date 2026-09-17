@@ -114,6 +114,7 @@ export interface SearchConfig {
 
 export interface WorkspaceWidget {
   id: string;
+  raindropId?: number;
   style: WidgetStyle;
   size: WidgetSize;
   order?: number;          // Optional: custom sorting order
