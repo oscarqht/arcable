@@ -754,24 +754,50 @@ export function calculateFolderTargetOrder(folder: Folder, allFolders: Folder[])
   return idx >= 0 ? idx : 0;
 }
 
+export function getTabSecondaryVariants(tab: Tab): TabUrlVariant[] {
+  if (!tab.urlVariants || tab.urlVariants.length <= 1) return [];
+  const defaultVar =
+    (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
+    tab.urlVariants[0];
+  return tab.urlVariants.filter((v) => v.id !== defaultVar?.id);
+}
+
+export function getTabRaindropBookmarkCount(tab: Tab): number {
+  return 1 + getTabSecondaryVariants(tab).length;
+}
+
 export function calculateTabTargetOrder(tab: Tab, allTabs: Tab[], allWidgets?: WorkspaceWidget[]): number {
   if (tab.favourite) {
     const favTabs = allTabs.filter((t) => Boolean(t.favourite));
     const widgets = allWidgets || [];
-    type RootItem = { id: string; order?: number; createdAt?: number };
+    type RootItem = { id: string; type: 'tab' | 'widget'; tab?: Tab; order?: number; createdAt?: number };
     const rootItems: RootItem[] = [
-      ...favTabs.map((t) => ({ id: t.id, order: t.order, createdAt: t.createdAt })),
-      ...widgets.map((w) => ({ id: w.id, order: w.order, createdAt: w.createdAt })),
+      ...favTabs.map((t) => ({ id: t.id, type: 'tab' as const, tab: t, order: t.order, createdAt: t.createdAt })),
+      ...widgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
     ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
-    const idx = rootItems.findIndex((item) => item.id === tab.id);
-    return idx >= 0 ? idx : 0;
+    let slot = 0;
+    for (const item of rootItems) {
+      if (item.id === tab.id) return slot;
+      if (item.type === 'widget') {
+        slot += 1;
+      } else if (item.tab) {
+        slot += getTabRaindropBookmarkCount(item.tab);
+      } else {
+        slot += 1;
+      }
+    }
+    return slot;
   }
   const parentKey = tab.parentFolderId || tab.parentSpaceId;
   const siblings = allTabs
     .filter((t) => !t.favourite && !t.pinned && (t.parentFolderId || t.parentSpaceId) === parentKey)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
-  const idx = siblings.findIndex((t) => t.id === tab.id);
-  return idx >= 0 ? idx : 0;
+  let slot = 0;
+  for (const sibling of siblings) {
+    if (sibling.id === tab.id) return slot;
+    slot += getTabRaindropBookmarkCount(sibling);
+  }
+  return slot;
 }
 
 export function calculateWidgetTargetOrder(
@@ -780,13 +806,23 @@ export function calculateWidgetTargetOrder(
   allWidgets: WorkspaceWidget[]
 ): number {
   const favTabs = allTabs.filter((t) => Boolean(t.favourite));
-  type RootItem = { id: string; order?: number; createdAt?: number };
+  type RootItem = { id: string; type: 'tab' | 'widget'; tab?: Tab; order?: number; createdAt?: number };
   const rootItems: RootItem[] = [
-    ...favTabs.map((t) => ({ id: t.id, order: t.order, createdAt: t.createdAt })),
-    ...allWidgets.map((w) => ({ id: w.id, order: w.order, createdAt: w.createdAt })),
+    ...favTabs.map((t) => ({ id: t.id, type: 'tab' as const, tab: t, order: t.order, createdAt: t.createdAt })),
+    ...allWidgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
   ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
-  const idx = rootItems.findIndex((item) => item.id === widget.id);
-  return idx >= 0 ? idx : 0;
+  let slot = 0;
+  for (const item of rootItems) {
+    if (item.id === widget.id) return slot;
+    if (item.type === 'widget') {
+      slot += 1;
+    } else if (item.tab) {
+      slot += getTabRaindropBookmarkCount(item.tab);
+    } else {
+      slot += 1;
+    }
+  }
+  return slot;
 }
 
 function widgetToRaindropItemInput(
@@ -1085,6 +1121,7 @@ export async function syncIncrementalOperations(
       order: targetOrder,
       sort: targetOrder,
     };
+    const secondaryVariants = getTabSecondaryVariants(tab);
     if (isCreate) {
       tabCreates.push({ entityId, input: {
         title: payload.title,
@@ -1097,70 +1134,60 @@ export async function syncIncrementalOperations(
         pleaseParse: { disabled: true },
       } });
       // Extra URL variants
-      if (tab.urlVariants && tab.urlVariants.length > 0) {
-        const defaultVar =
-          (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
-          tab.urlVariants[0];
-        for (const variant of tab.urlVariants) {
-          if (variant.id === defaultVar?.id) continue;
-          tabCreates.push({
-            entityId: `${entityId}:::variant:::${variant.id}`,
-            input: {
-              title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
-              link: variant.url,
-              cover: payload.cover,
-              note: '',
-              collectionId: parentId,
-              order: targetOrder,
-              sort: targetOrder,
-              pleaseParse: { disabled: true },
-            },
-          });
-        }
-      }
+      secondaryVariants.forEach((variant, vIdx) => {
+        const variantOrder = targetOrder + 1 + vIdx;
+        tabCreates.push({
+          entityId: `${entityId}:::variant:::${variant.id}`,
+          input: {
+            title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+            link: variant.url,
+            cover: payload.cover,
+            note: '',
+            collectionId: parentId,
+            order: variantOrder,
+            sort: variantOrder,
+            pleaseParse: { disabled: true },
+          },
+        });
+      });
     } else {
       const remoteId = remoteEntityId(tab);
       if (!remoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
       tabUpdates.push({ entityId, remoteId, payload, targetOrder });
-      if (tab.urlVariants && tab.urlVariants.length > 0) {
-        const defaultVar =
-          (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
-          tab.urlVariants[0];
-        for (const variant of tab.urlVariants) {
-          if (variant.id === defaultVar?.id) continue;
-          const varRemoteId = numericRaindropId(variant.id);
-          const varTitle = `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
-          if (varRemoteId) {
-            tabUpdates.push({
-              entityId: `${entityId}:::variant:::${variant.id}`,
-              remoteId: varRemoteId,
-              payload: {
-                title: varTitle,
-                link: variant.url,
-                cover: payload.cover,
-                collection: { $id: parentId },
-                order: targetOrder,
-                sort: targetOrder,
-              },
-              targetOrder,
-            });
-          } else {
-            tabCreates.push({
-              entityId: `${entityId}:::variant:::${variant.id}`,
-              input: {
-                title: varTitle,
-                link: variant.url,
-                cover: payload.cover,
-                note: '',
-                collectionId: parentId,
-                order: targetOrder,
-                sort: targetOrder,
-                pleaseParse: { disabled: true },
-              },
-            });
-          }
+      secondaryVariants.forEach((variant, vIdx) => {
+        const variantOrder = targetOrder + 1 + vIdx;
+        const varRemoteId = numericRaindropId(variant.id);
+        const varTitle = `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
+        if (varRemoteId) {
+          tabUpdates.push({
+            entityId: `${entityId}:::variant:::${variant.id}`,
+            remoteId: varRemoteId,
+            payload: {
+              title: varTitle,
+              link: variant.url,
+              cover: payload.cover,
+              collection: { $id: parentId },
+              order: variantOrder,
+              sort: variantOrder,
+            },
+            targetOrder: variantOrder,
+          });
+        } else {
+          tabCreates.push({
+            entityId: `${entityId}:::variant:::${variant.id}`,
+            input: {
+              title: varTitle,
+              link: variant.url,
+              cover: payload.cover,
+              note: '',
+              collectionId: parentId,
+              order: variantOrder,
+              sort: variantOrder,
+              pleaseParse: { disabled: true },
+            },
+          });
         }
-      }
+      });
     }
   }
 
@@ -2268,12 +2295,7 @@ export async function syncWorkspaceWithRaindrop(
       const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
       const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
 
-      const defaultVariant =
-        (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
-        tab.urlVariants?.[0];
-      const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1
-        ? tab.urlVariants.filter((v) => v.id !== defaultVariant?.id)
-        : [];
+      const secondaryVariants = getTabSecondaryVariants(tab);
 
       if (!existing) {
         bookmarksToCreate.push({
@@ -2287,18 +2309,19 @@ export async function syncWorkspaceWithRaindrop(
           pleaseParse: { disabled: true },
         });
         // Extra URL variants
-        for (const variant of secondaryVariants) {
+        secondaryVariants.forEach((variant, vIdx) => {
+          const variantOrder = targetOrder + 1 + vIdx;
           bookmarksToCreate.push({
             title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
             link: variant.url,
             cover: payload.cover,
             note: '',
             collectionId: parentId,
-            order: targetOrder,
-            sort: targetOrder,
+            order: variantOrder,
+            sort: variantOrder,
             pleaseParse: { disabled: true },
           });
-        }
+        });
       } else {
         if (shouldUpdate) {
           tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
@@ -2315,7 +2338,8 @@ export async function syncWorkspaceWithRaindrop(
           return hasVariantId || hasOldTitlePrefix || hasNewTitlePrefix;
         });
 
-        for (const variant of secondaryVariants) {
+        secondaryVariants.forEach((variant, vIdx) => {
+          const variantOrder = targetOrder + 1 + vIdx;
           const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
           const matchIdx = existingRemoteVariants.findIndex((rv) => {
             if (String(rv._id) === variant.id) return true;
@@ -2326,11 +2350,13 @@ export async function syncWorkspaceWithRaindrop(
 
           if (matchIdx >= 0) {
             const matchedItem = existingRemoteVariants.splice(matchIdx, 1)[0];
+            const variantOrderChanged = matchedItem.sort !== variantOrder && matchedItem.order !== variantOrder;
             const variantChanged =
               matchedItem.title !== expectedTitle ||
               matchedItem.link !== variant.url ||
               matchedItem.collectionId !== parentId ||
-              matchedItem.cover !== payload.cover;
+              matchedItem.cover !== payload.cover ||
+              variantOrderChanged;
             if (variantChanged || shouldUpdate) {
               tabUpdatesToPerform.push({
                 remoteId: matchedItem._id,
@@ -2339,10 +2365,10 @@ export async function syncWorkspaceWithRaindrop(
                   link: variant.url,
                   cover: payload.cover,
                   collection: { $id: parentId },
-                  order: targetOrder,
-                  sort: targetOrder,
+                  order: variantOrder,
+                  sort: variantOrder,
                 },
-                targetOrder,
+                targetOrder: variantOrder,
               });
             }
           } else {
@@ -2352,12 +2378,12 @@ export async function syncWorkspaceWithRaindrop(
               cover: payload.cover,
               note: '',
               collectionId: parentId,
-              order: targetOrder,
-              sort: targetOrder,
+              order: variantOrder,
+              sort: variantOrder,
               pleaseParse: { disabled: true },
             });
           }
-        }
+        });
 
         // Any leftover remote variants for this tab were removed locally
         for (const orphan of existingRemoteVariants) {

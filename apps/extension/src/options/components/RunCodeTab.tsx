@@ -32,9 +32,32 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [runningRuleId, setRunningRuleId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const syncToRaindropImmediately = async () => {
+    try {
+      let localState: any = undefined;
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem('arcable_workspace_data');
+        if (stored) {
+          try {
+            localState = JSON.parse(stored);
+          } catch {}
+        }
+      }
+      const res = (await browser.runtime.sendMessage({
+        type: 'RAINDROP_SYNC_WORKSPACE',
+        payload: { localState },
+      })) as { success: boolean; error?: string };
+      return res;
+    } catch (err: any) {
+      console.warn('[RunCodeTab] Immediate Raindrop sync error:', err);
+      return { success: false, error: err?.message };
+    }
+  };
 
   useEffect(() => {
     loadRules();
@@ -128,46 +151,67 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       return;
     }
 
-    const now = new Date().toISOString();
+    setIsSaving(true);
+    try {
+      const now = new Date().toISOString();
 
-    if (editingRuleId) {
-      const updated = rules.map((r) => {
-        if (r.id === editingRuleId) {
-          return {
-            ...r,
+      if (editingRuleId) {
+        const updated = rules.map((r) => {
+          if (r.id === editingRuleId) {
+            return {
+              ...r,
+              title: cleanTitle,
+              patterns,
+              code,
+              updatedAt: now,
+            };
+          }
+          return r;
+        });
+        await saveRulesToStorage(updated);
+        await queueOperations(
+          createWorkspaceOperation('RUN_CODE_UPDATE', editingRuleId, {
             title: cleanTitle,
             patterns,
             code,
-            updatedAt: now,
-          };
-        }
-        return r;
-      });
-      await saveRulesToStorage(updated);
-      await queueOperations(
-        createWorkspaceOperation('RUN_CODE_UPDATE', editingRuleId, {
+          })
+        );
+      } else {
+        const newRule: RunCodeRule = {
+          id: generateRuleId('run'),
           title: cleanTitle,
           patterns,
           code,
-        })
-      );
-      showToast('Snippet updated successfully!', 'success');
-    } else {
-      const newRule: RunCodeRule = {
-        id: generateRuleId('run'),
-        title: cleanTitle,
-        patterns,
-        code,
-        disabled: false,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await saveRulesToStorage([...rules, newRule]);
-      await queueOperations(createWorkspaceOperation('RUN_CODE_CREATE', newRule.id, newRule));
-      showToast('Snippet created successfully!', 'success');
-    }
+          disabled: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveRulesToStorage([...rules, newRule]);
+        await queueOperations(createWorkspaceOperation('RUN_CODE_CREATE', newRule.id, newRule));
+      }
 
-    resetForm();
+      // Immediately save the changes to Raindrop
+      const syncRes = await syncToRaindropImmediately();
+      if (syncRes?.success) {
+        showToast(
+          editingRuleId ? 'Snippet updated and saved to Raindrop!' : 'Snippet created and saved to Raindrop!',
+          'success'
+        );
+      } else if (syncRes?.error && syncRes.error !== 'Not authenticated with Raindrop') {
+        showToast(`Snippet saved locally, but Raindrop sync failed: ${syncRes.error}`, 'warning');
+      } else {
+        showToast(
+          editingRuleId ? 'Snippet updated successfully!' : 'Snippet created successfully!',
+          'success'
+        );
+      }
+
+      resetForm();
+    } catch (err: any) {
+      setFormError(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleEditRule = (rule: RunCodeRule) => {
@@ -192,6 +236,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     };
     await saveRulesToStorage([...rules, dup]);
     await queueOperations(createWorkspaceOperation('RUN_CODE_CREATE', dup.id, dup));
+    void syncToRaindropImmediately();
     showToast('Snippet duplicated!', 'info');
   };
 
@@ -201,6 +246,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       if (editingRuleId === rule.id) resetForm();
       await saveRulesToStorage(remaining);
       await queueOperations(createWorkspaceOperation('RUN_CODE_DELETE', rule.id));
+      void syncToRaindropImmediately();
       showToast('Snippet deleted', 'info');
     }
   };
@@ -216,6 +262,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     await queueOperations(
       createWorkspaceOperation('RUN_CODE_UPDATE', rule.id, { disabled: !rule.disabled })
     );
+    void syncToRaindropImmediately();
   };
 
   const handleRunOnActiveTab = async (ruleId: string, ruleTitle: string) => {
@@ -319,6 +366,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
         if (opsToQueue.length > 0) {
           await queueOperations(opsToQueue);
+          void syncToRaindropImmediately();
         }
 
         if (runAdded > 0 && customAdded > 0) {
@@ -490,18 +538,18 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
               value={code}
               onChange={setCode}
               mode="javascript"
-              height="260px"
+              height="800px"
               placeholder="// Write your snippet here:&#10;const title = document.title;&#10;console.log('Active tab:', title);&#10;&#10;// Cross-origin fetch through extension background:&#10;const res = await arcableFetch('https://api.raindrop.io');&#10;console.log('Status:', res.status);"
             />
           </div>
 
           {/* Form Actions */}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
-            <Button variant="primary" type="submit">
-              {editingRuleId ? 'Save Changes' : 'Add Snippet'}
+            <Button variant="primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving...' : editingRuleId ? 'Save Changes' : 'Add Snippet'}
             </Button>
             {editingRuleId && (
-              <Button variant="outline" type="button" onClick={resetForm}>
+              <Button variant="outline" type="button" onClick={resetForm} disabled={isSaving}>
                 Cancel Edit
               </Button>
             )}

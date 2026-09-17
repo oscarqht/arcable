@@ -195,6 +195,17 @@ async function processOAuthTokens(tokens: {
   return authState;
 }
 
+const BACKGROUND_SYNC_DEBOUNCE_MS = 2_000;
+// Every extension surface shares this worker. Serialize the actual Raindrop
+// request so a popup, side panel, option page, or alarm cannot write the same
+// workspace concurrently.
+let raindropWorkspaceSyncTail: Promise<void> = Promise.resolve();
+let queuedWorkspaceSyncCount = 0;
+let isBackgroundSyncInFlight = false;
+let isBackgroundSyncQueued = false;
+let queuedBackgroundSyncIsPendingOnly = true;
+let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
   async (rawMessage: any, sender: any): Promise<ExtensionResponse> => {
@@ -394,6 +405,11 @@ browser.runtime.onMessage.addListener(
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
       case 'RAINDROP_SYNC_WORKSPACE': {
+        if (debouncedSyncTimer) {
+          clearTimeout(debouncedSyncTimer);
+          debouncedSyncTimer = null;
+        }
+
         const auth = await getStoredAuthState();
         if (!auth.isAuthenticated || !auth.accessToken) {
           return { success: false, error: 'Not authenticated with Raindrop' };
@@ -454,7 +470,7 @@ browser.runtime.onMessage.addListener(
               deviceType: 'Ext' as const,
             }));
 
-          let stateToSync = payload?.localState;
+          let stateToSync = payload?.localState || identitySnapshot;
           if (stateToSync) {
             // Also filter deletions from the localState tmpTabs supplied by the UI
             const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
@@ -542,6 +558,10 @@ browser.runtime.onMessage.addListener(
             }
 
             await browser.storage.local.set(updates);
+            if (debouncedSyncTimer) {
+              clearTimeout(debouncedSyncTimer);
+              debouncedSyncTimer = null;
+            }
           }
 
           if (!result.success && result.errorDetails) {
@@ -685,13 +705,6 @@ async function getExtensionDeviceName(): Promise<string> {
   return (typeof stored[STORAGE_KEY_DEVICE_NAME] === 'string' && stored[STORAGE_KEY_DEVICE_NAME]) || getDefaultDeviceName('Ext');
 }
 
-const BACKGROUND_SYNC_DEBOUNCE_MS = 2_000;
-// Every extension surface shares this worker. Serialize the actual Raindrop
-// request so a popup, side panel, option page, or alarm cannot write the same
-// workspace concurrently.
-let raindropWorkspaceSyncTail: Promise<void> = Promise.resolve();
-let queuedWorkspaceSyncCount = 0;
-
 async function syncWorkspaceWithRaindropQueued(
   ...args: Parameters<typeof syncWorkspaceWithRaindrop>
 ): ReturnType<typeof syncWorkspaceWithRaindrop> {
@@ -710,11 +723,6 @@ async function syncWorkspaceWithRaindropQueued(
     releaseQueue();
   }
 }
-
-let isBackgroundSyncInFlight = false;
-let isBackgroundSyncQueued = false;
-let queuedBackgroundSyncIsPendingOnly = true;
-let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 function triggerDebouncedBackgroundSync(
   delayMs: number = BACKGROUND_SYNC_DEBOUNCE_MS,

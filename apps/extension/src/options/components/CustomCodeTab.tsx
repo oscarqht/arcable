@@ -39,9 +39,32 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
   const [activeCodeTab, setActiveCodeTab] = useState<'css' | 'js'>('css');
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const patternInputRef = useRef<HTMLInputElement>(null);
+
+  const syncToRaindropImmediately = async () => {
+    try {
+      let localState: any = undefined;
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem('arcable_workspace_data');
+        if (stored) {
+          try {
+            localState = JSON.parse(stored);
+          } catch {}
+        }
+      }
+      const res = (await browser.runtime.sendMessage({
+        type: 'RAINDROP_SYNC_WORKSPACE',
+        payload: { localState },
+      })) as { success: boolean; error?: string };
+      return res;
+    } catch (err: any) {
+      console.warn('[CustomCodeTab] Immediate Raindrop sync error:', err);
+      return { success: false, error: err?.message };
+    }
+  };
 
   useEffect(() => {
     loadRules();
@@ -141,46 +164,67 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       return;
     }
 
-    const now = new Date().toISOString();
+    setIsSaving(true);
+    try {
+      const now = new Date().toISOString();
 
-    if (editingRuleId) {
-      const updated = rules.map((r) => {
-        if (r.id === editingRuleId) {
-          return {
-            ...r,
+      if (editingRuleId) {
+        const updated = rules.map((r) => {
+          if (r.id === editingRuleId) {
+            return {
+              ...r,
+              pattern: cleanPattern,
+              css: cssCode,
+              js: jsCode,
+              updatedAt: now,
+            };
+          }
+          return r;
+        });
+        await saveRulesToStorage(updated);
+        await queueOperations(
+          createWorkspaceOperation('CUSTOM_CODE_UPDATE', editingRuleId, {
             pattern: cleanPattern,
             css: cssCode,
             js: jsCode,
-            updatedAt: now,
-          };
-        }
-        return r;
-      });
-      await saveRulesToStorage(updated);
-      await queueOperations(
-        createWorkspaceOperation('CUSTOM_CODE_UPDATE', editingRuleId, {
+          })
+        );
+      } else {
+        const newRule: CustomCodeRule = {
+          id: generateRuleId('cjc'),
           pattern: cleanPattern,
           css: cssCode,
           js: jsCode,
-        })
-      );
-      showToast('Rule updated successfully!', 'success');
-    } else {
-      const newRule: CustomCodeRule = {
-        id: generateRuleId('cjc'),
-        pattern: cleanPattern,
-        css: cssCode,
-        js: jsCode,
-        disabled: false,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await saveRulesToStorage([...rules, newRule]);
-      await queueOperations(createWorkspaceOperation('CUSTOM_CODE_CREATE', newRule.id, newRule));
-      showToast('Rule created successfully!', 'success');
-    }
+          disabled: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await saveRulesToStorage([...rules, newRule]);
+        await queueOperations(createWorkspaceOperation('CUSTOM_CODE_CREATE', newRule.id, newRule));
+      }
 
-    resetForm();
+      // Immediately save the changes to Raindrop
+      const syncRes = await syncToRaindropImmediately();
+      if (syncRes?.success) {
+        showToast(
+          editingRuleId ? 'Rule updated and saved to Raindrop!' : 'Rule created and saved to Raindrop!',
+          'success'
+        );
+      } else if (syncRes?.error && syncRes.error !== 'Not authenticated with Raindrop') {
+        showToast(`Rule saved locally, but Raindrop sync failed: ${syncRes.error}`, 'warning');
+      } else {
+        showToast(
+          editingRuleId ? 'Rule updated successfully!' : 'Rule created successfully!',
+          'success'
+        );
+      }
+
+      resetForm();
+    } catch (err: any) {
+      setFormError(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleEditRule = (rule: CustomCodeRule) => {
@@ -210,6 +254,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
     };
     await saveRulesToStorage([...rules, dup]);
     await queueOperations(createWorkspaceOperation('CUSTOM_CODE_CREATE', dup.id, dup));
+    void syncToRaindropImmediately();
     showToast('Rule duplicated!', 'info');
   };
 
@@ -220,6 +265,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       if (selectedRule?.id === rule.id) setSelectedRule(null);
       await saveRulesToStorage(remaining);
       await queueOperations(createWorkspaceOperation('CUSTOM_CODE_DELETE', rule.id));
+      void syncToRaindropImmediately();
       showToast('Rule deleted', 'info');
     }
   };
@@ -235,6 +281,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
     await queueOperations(
       createWorkspaceOperation('CUSTOM_CODE_UPDATE', rule.id, { disabled: !rule.disabled })
     );
+    void syncToRaindropImmediately();
   };
 
   const handleExportSingleRule = (rule: CustomCodeRule) => {
@@ -313,6 +360,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
 
         if (opsToQueue.length > 0) {
           await queueOperations(opsToQueue);
+          void syncToRaindropImmediately();
         }
 
         if (customAdded > 0 && runAdded > 0) {
@@ -454,7 +502,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
                 value={cssCode}
                 onChange={setCssCode}
                 mode="css"
-                height="240px"
+                height="800px"
                 placeholder="/* Add custom CSS styles here */&#10;body {&#10;  filter: grayscale(20%);&#10;}"
               />
             ) : (
@@ -462,7 +510,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
                 value={jsCode}
                 onChange={setJsCode}
                 mode="javascript"
-                height="240px"
+                height="800px"
                 placeholder="// Add custom JavaScript here&#10;console.log('Arcable Custom JS initialized on:', window.location.href);"
               />
             )}
@@ -470,11 +518,11 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
 
           {/* Form Actions */}
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
-            <Button variant="primary" type="submit">
-              {editingRuleId ? 'Save Changes' : 'Add Rule'}
+            <Button variant="primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving...' : editingRuleId ? 'Save Changes' : 'Add Rule'}
             </Button>
             {editingRuleId && (
-              <Button variant="outline" type="button" onClick={resetForm}>
+              <Button variant="outline" type="button" onClick={resetForm} disabled={isSaving}>
                 Cancel Edit
               </Button>
             )}

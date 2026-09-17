@@ -174,6 +174,35 @@ export function getAllSpaceTabUrls(
 }
 
 /**
+ * Recursively extracts all folder IDs belonging to a space (including nested child folders).
+ */
+export function getAllSpaceFolderIds(
+  spaceId: string,
+  allFolders: Folder[]
+): Set<string> {
+  const result = new Set<string>();
+
+  for (const f of allFolders) {
+    if (f.parentSpaceId === spaceId) {
+      result.add(f.id);
+    }
+  }
+
+  let added = true;
+  while (added) {
+    added = false;
+    for (const f of allFolders) {
+      if (!result.has(f.id) && f.parentFolderId && result.has(f.parentFolderId)) {
+        result.add(f.id);
+        added = true;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Recursively extracts all valid tab URLs inside a folder and its subfolders
  */
 export function getAllFolderTabUrls(

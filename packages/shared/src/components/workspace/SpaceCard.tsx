@@ -7,12 +7,13 @@ import {
   isDarkColor,
   getSpaceColorStyle,
   getAllSpaceTabUrls,
+  getAllSpaceFolderIds,
   getDomain,
   getFaviconUrl,
   isValidHttpUrl,
 } from '../../utils/treeUtils';
 import { getSpaceThemeStyles } from '../../utils/spaceTheme';
-import { getSortedSiblings } from '../../hooks/useWorkspace';
+import { getSortedSiblings, setLocalFolderExpanded } from '../../hooks/useWorkspace';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
@@ -27,6 +28,7 @@ import {
   EditIcon,
   TrashIcon,
   FolderIcon,
+  FolderOpenIcon,
   FolderPlusIcon,
   FolderInputIcon,
 } from '../Icons';
@@ -58,6 +60,8 @@ export interface SpaceCardProps {
   onEditFolder?: (folder: Folder) => void;
   onDeleteFolder?: (folderId: string) => void;
   onToggleFolderExpand?: (folderId: string) => void;
+  onExpandAllFolders?: (spaceId: string) => void;
+  onCollapseAllFolders?: (spaceId: string) => void;
   onEditTab?: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
   onDeleteTab?: (tabId: string) => void;
@@ -102,6 +106,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onEditFolder,
   onDeleteFolder,
   onToggleFolderExpand,
+  onExpandAllFolders,
+  onCollapseAllFolders,
   onEditTab,
   onDuplicateTab,
   onDeleteTab,
@@ -194,6 +200,45 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     }
   };
 
+  // Expand all folders in this space (including nested)
+  const handleExpandAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (isCollapsed && onToggleCollapse) {
+      onToggleCollapse();
+    }
+    if (onExpandAllFolders) {
+      onExpandAllFolders(space.id);
+    } else {
+      const folderIds = getAllSpaceFolderIds(space.id, allFolders);
+      folderIds.forEach((fId) => {
+        setLocalFolderExpanded(fId, true);
+        const f = allFolders.find((folder) => folder.id === fId);
+        if (f && f.isExpanded === false && onToggleFolderExpand) {
+          onToggleFolderExpand(fId);
+        }
+      });
+    }
+  };
+
+  // Collapse all folders in this space (including nested)
+  const handleCollapseAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (onCollapseAllFolders) {
+      onCollapseAllFolders(space.id);
+    } else {
+      const folderIds = getAllSpaceFolderIds(space.id, allFolders);
+      folderIds.forEach((fId) => {
+        setLocalFolderExpanded(fId, false);
+        const f = allFolders.find((folder) => folder.id === fId);
+        if (f && f.isExpanded !== false && onToggleFolderExpand) {
+          onToggleFolderExpand(fId);
+        }
+      });
+    }
+  };
+
   const handleEditInRaindrop = () => {
     if (Number.isSafeInteger(space.raindropId) && (space.raindropId ?? 0) > 0) {
       window.open(`https://app.raindrop.io/my/${space.raindropId}`, '_blank', 'noopener,noreferrer');
@@ -225,7 +270,27 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         label: 'Open all tabs',
         icon: <ExternalLinkIcon size={16} />,
         onClick: handleOpenAllTabs,
-        dividerAfter: Boolean(onAddTab || onAddFolder),
+        dividerAfter: true,
+      },
+      {
+        id: 'expand-all',
+        label: 'Expand all',
+        icon: <FolderOpenIcon size={16} />,
+        onClick: handleExpandAll,
+      },
+      {
+        id: 'collapse-all',
+        label: 'Collapse all',
+        icon: <FolderIcon size={16} />,
+        onClick: handleCollapseAll,
+        dividerAfter: Boolean(
+          onAddTab ||
+          onAddFolder ||
+          (Number.isSafeInteger(space.raindropId) && (space.raindropId ?? 0) > 0) ||
+          (onConvertSpace && allSpaces.length > 1) ||
+          onEditSpace ||
+          (onDeleteSpace && allSpaces.length > 1)
+        ),
       },
     ];
 
@@ -291,6 +356,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     copied,
     handleCopyAllUrls,
     handleOpenAllTabs,
+    handleExpandAll,
+    handleCollapseAll,
     onAddTab,
     onAddFolder,
     space.raindropId,

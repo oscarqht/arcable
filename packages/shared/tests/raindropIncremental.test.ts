@@ -374,6 +374,85 @@ assert(tabPutCalls[1].body.order === 1 && tabPutCalls[1].body.sort === 1, 'tab-1
 assert(tabPutCalls[2].url.endsWith('/302'), 'third update call should be for tab-2 (index 2)');
 assert(tabPutCalls[2].body.order === 2 && tabPutCalls[2].body.sort === 2, 'tab-2 should receive 0-based index 2 for order and sort');
 
+// --- Tab with URL Variants Reordering Sync Verification ---
+calls.length = 0;
+const reorderTabsWithVariantsState: ArcableWorkspaceData = {
+  ...base,
+  tabs: [
+    { id: 'tab-3', raindropId: 303, url: 'https://three.com', parentSpaceId: 'space-local', order: 1000 },
+    {
+      id: 'tab-1',
+      raindropId: 301,
+      url: 'https://one.com',
+      parentSpaceId: 'space-local',
+      order: 2000,
+      defaultVariantId: '301',
+      urlVariants: [
+        { id: '301', name: 'Default', url: 'https://one.com' },
+        { id: '401', name: 'Issues', url: 'https://one.com/issues' },
+        { id: '402', name: 'PRs', url: 'https://one.com/pulls' },
+      ],
+    },
+    { id: 'tab-2', raindropId: 302, url: 'https://two.com', parentSpaceId: 'space-local', order: 3000 },
+  ],
+};
+const tabVariantReorderOps = [
+  operation('TAB_UPDATE', 'tab-1', { order: 2000 }),
+  operation('TAB_UPDATE', 'tab-2', { order: 3000 }),
+  operation('TAB_UPDATE', 'tab-3', { order: 1000 }),
+];
+const tabVariantReorderSync = await syncIncrementalOperations('token', reorderTabsWithVariantsState, tabVariantReorderOps, false);
+assert(tabVariantReorderSync?.success, 'tab variant reorder incremental sync should succeed');
+const tabVariantPutCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/raindrop/'));
+assert(tabVariantPutCalls.length === 5, `should make 5 PUT calls for 3 tabs (1 tab has 2 secondary variants), got ${tabVariantPutCalls.length}`);
+// Verify all 5 calls were executed in strict ascending targetOrder (0, 1, 2, 3, 4)
+assert(tabVariantPutCalls[0].url.endsWith('/303'), 'call 0 should be tab-3');
+assert(tabVariantPutCalls[0].body.order === 0 && tabVariantPutCalls[0].body.sort === 0, 'tab-3 should receive sort 0');
+assert(tabVariantPutCalls[1].url.endsWith('/301'), 'call 1 should be tab-1 base');
+assert(tabVariantPutCalls[1].body.order === 1 && tabVariantPutCalls[1].body.sort === 1, 'tab-1 base should receive sort 1');
+assert(tabVariantPutCalls[2].url.endsWith('/401'), 'call 2 should be tab-1 variant 1');
+assert(tabVariantPutCalls[2].body.order === 2 && tabVariantPutCalls[2].body.sort === 2, 'tab-1 variant 1 should receive sort 2');
+assert(tabVariantPutCalls[3].url.endsWith('/402'), 'call 3 should be tab-1 variant 2');
+assert(tabVariantPutCalls[3].body.order === 3 && tabVariantPutCalls[3].body.sort === 3, 'tab-1 variant 2 should receive sort 3');
+assert(tabVariantPutCalls[4].url.endsWith('/302'), 'call 4 should be tab-2');
+assert(tabVariantPutCalls[4].body.order === 4 && tabVariantPutCalls[4].body.sort === 4, 'tab-2 should receive sort 4 accounting for preceding variants');
+
+// --- Favourites Shelf with Variants & Widgets Reordering Sync Verification ---
+calls.length = 0;
+const favsWithVariantsState: ArcableWorkspaceData = {
+  ...base,
+  widgets: [
+    { id: 'widget-clock', style: 'clock', size: 'small', order: 2000, config: {} },
+  ],
+  tabs: [
+    {
+      id: 'tab-fav',
+      raindropId: 601,
+      url: 'https://fav.com',
+      favourite: true,
+      order: 1000,
+      defaultVariantId: '601',
+      urlVariants: [
+        { id: '601', name: 'Default', url: 'https://fav.com' },
+        { id: '701', name: 'Alt', url: 'https://fav.com/alt' },
+      ],
+    },
+    { id: 'tab-fav-2', raindropId: 602, url: 'https://fav2.com', favourite: true, order: 3000 },
+  ],
+};
+const favReorderOps = [
+  operation('TAB_UPDATE', 'tab-fav', { order: 1000 }),
+  operation('TAB_UPDATE', 'tab-fav-2', { order: 3000 }),
+];
+const favReorderSync = await syncIncrementalOperations('token', favsWithVariantsState, favReorderOps, false);
+assert(favReorderSync?.success, 'fav variant reorder incremental sync should succeed');
+const favPutCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/raindrop/'));
+assert(favPutCalls.length === 3, `should make 3 PUT calls for favourite tabs, got ${favPutCalls.length}`);
+assert(favPutCalls[0].url.endsWith('/601') && favPutCalls[0].body.sort === 0, 'tab-fav base should be sort 0');
+assert(favPutCalls[1].url.endsWith('/701') && favPutCalls[1].body.sort === 1, 'tab-fav variant should be sort 1');
+// Since widget-clock is order 2000, it occupies slot 2 in Raindrop root. tab-fav-2 (order 3000) should be slot 3!
+assert(favPutCalls[2].url.endsWith('/602') && favPutCalls[2].body.sort === 3, 'tab-fav-2 should receive sort 3 after widget and variants');
+
 // --- Folder Reordering Sync Verification ---
 calls.length = 0;
 const reorderFoldersState: ArcableWorkspaceData = {

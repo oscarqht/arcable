@@ -14,7 +14,19 @@ let executeScriptCalls = 0;
   },
 };
 
-const { executeAutomaticCustomCode } = await import('../src/background/runCodeRunner');
+const { executeAutomaticCustomCode, buildUserScriptCode } = await import('../src/background/runCodeRunner');
+
+// Verify buildUserScriptCode produces syntactically valid JavaScript
+for (const bgFetch of [true, false]) {
+  const generated = buildUserScriptCode(
+    'const x = 1 + 2;',
+    '[Test Label]',
+    'arcable-run-code-test.js',
+    bgFetch
+  );
+  // Parsing via new Function will throw SyntaxError if there is any syntax error in generated
+  new Function(generated);
+}
 
 await executeAutomaticCustomCode(42, 'document.documentElement.dataset.arcableTest = "ran";');
 assert(executeScriptCalls === 1, 'Non-empty custom JavaScript should execute once.');

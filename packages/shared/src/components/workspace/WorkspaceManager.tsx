@@ -72,6 +72,8 @@ export interface WorkspaceManagerHandle {
   isSyncing: boolean;
   applySnapshot?: (snapshot: ArcableWorkspaceData) => void;
   setActiveSpace?: (spaceId: string) => void;
+  expandAllFolders?: (spaceId: string) => void;
+  collapseAllFolders?: (spaceId: string) => void;
 }
 
 export interface WorkspaceManagerProps {
@@ -195,6 +197,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateFolder,
     deleteFolder,
     toggleFolderExpand,
+    setAllFoldersExpanded,
+    expandAllFolders,
+    collapseAllFolders,
     createTab,
     updateTab,
     deleteTab,
@@ -227,6 +232,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const isMobile = useIsMobile();
   const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
+  const handleExpandAllFolders = isMobile ? (() => {}) : expandAllFolders;
+  const handleCollapseAllFolders = isMobile ? (() => {}) : collapseAllFolders;
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -1286,6 +1293,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       setActiveSpace: (spaceId: string) => {
         setActiveSpace(spaceId);
       },
+      expandAllFolders: (spaceId: string) => {
+        handleExpandAllFolders(spaceId);
+      },
+      collapseAllFolders: (spaceId: string) => {
+        handleCollapseAllFolders(spaceId);
+      },
     }),
     [
       isCurrentlySyncing,
@@ -1293,9 +1306,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       applyLatestSnapshot,
       handleCaptureTab,
       data.tabs,
-      setActiveSpace,
       activeSpace,
       activeSpaceTheme,
+      setActiveSpace,
+      handleExpandAllFolders,
+      handleCollapseAllFolders,
     ]
   );
 
@@ -2075,6 +2090,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   }}
                   onDeleteFolder={handleRequestDeleteFolder}
                   onToggleFolderExpand={handleToggleFolderExpand}
+                  onExpandAllFolders={handleExpandAllFolders}
+                  onCollapseAllFolders={handleCollapseAllFolders}
                   onEditTab={(t) => {
                     setEditingTab(t);
                     setTargetSpaceIdForModal(space.id);
@@ -2211,6 +2228,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
                       onToggleFolderExpand={handleToggleFolderExpand}
+                      onExpandAllFolders={handleExpandAllFolders}
+                      onCollapseAllFolders={handleCollapseAllFolders}
                       onEditTab={(t) => {
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);
@@ -2378,6 +2397,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
                       onToggleFolderExpand={handleToggleFolderExpand}
+                      onExpandAllFolders={handleExpandAllFolders}
+                      onCollapseAllFolders={handleCollapseAllFolders}
                       onEditTab={(t) => {
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);

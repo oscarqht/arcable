@@ -103,8 +103,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   value,
   onChange,
   mode,
-  height = '220px',
-  minHeight = '140px',
+  height = '800px',
+  minHeight = '200px',
   placeholder = '',
   readOnly = false,
 }) => {

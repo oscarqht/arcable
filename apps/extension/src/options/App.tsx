@@ -280,6 +280,7 @@ export const App: React.FC = () => {
             const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
             curOps.push(...opsToQueue);
             await browser.storage.local.set({ arcable_pending_ops: curOps });
+            void browser.runtime.sendMessage({ type: 'RAINDROP_SYNC_WORKSPACE' });
           } catch (e) {
             console.warn('Failed to queue Nenya import operations:', e);
           }

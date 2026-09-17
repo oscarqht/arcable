@@ -90,6 +90,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     } else {
       items = mockState.bookmarks.filter(b => b.collection?.$id === collId);
     }
+    const sortParam = new URL(url).searchParams.get('sort');
+    if (sortParam === '-sort') {
+      items = [...items].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || (a.order ?? 0) - (b.order ?? 0));
+    }
     return new Response(JSON.stringify({ items, count: items.length }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -584,6 +588,53 @@ async function runTests(): Promise<void> {
   assert.equal(englishCall.body.order, 0);
   assert.equal(englishCall.body.sort, 0);
   console.log('✓ Reordered tabs sync with 0-based order/sort indices');
+
+  // 7. Verify tabs with URL variants receive consecutive 0-based order/sort indices
+  calls.length = 0;
+  const workspaceWithVariants: ArcableWorkspaceData = {
+    ...reorderedData,
+    tabs: [
+      {
+        id: '505',
+        raindropId: 505,
+        url: 'https://english.com',
+        parentSpaceId: '50',
+        order: 1000,
+        defaultVariantId: '505',
+        urlVariants: [
+          { id: '505', name: 'English Main', url: 'https://english.com' },
+          { id: '551', name: 'English Listening', url: 'https://english.com/listening' },
+          { id: '552', name: 'English Speaking', url: 'https://english.com/speaking' },
+        ],
+        updatedAt: Date.now(),
+      },
+      { id: '501', raindropId: 501, url: 'https://dentist.com', parentSpaceId: '50', order: 2000, updatedAt: Date.now() },
+      { id: '502', raindropId: 502, url: 'https://childcare.com', parentSpaceId: '50', order: 3000, updatedAt: Date.now() },
+    ],
+  };
+  // Ensure variants exist in mock state
+  mockState.bookmarks.push(
+    { _id: 551, title: `English Listening & Speaking ${ARCABLE_VARIANT_DELIMITER} English Listening`, link: 'https://english.com/listening', collection: { $id: 50 }, sort: 99 },
+    { _id: 552, title: `English Listening & Speaking ${ARCABLE_VARIANT_DELIMITER} English Speaking`, link: 'https://english.com/speaking', collection: { $id: 50 }, sort: 99 }
+  );
+
+  const variantsSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: workspaceWithVariants,
+    replaceBaseline: true,
+  });
+  assert.equal(variantsSyncResult.success, true);
+  const variantPutCalls = calls.filter((c) => c.method === 'PUT' && c.url.includes('/raindrop/'));
+  const call505 = variantPutCalls.find((c) => c.url.endsWith('/505'));
+  const call551 = variantPutCalls.find((c) => c.url.endsWith('/551'));
+  const call552 = variantPutCalls.find((c) => c.url.endsWith('/552'));
+  const call501 = variantPutCalls.find((c) => c.url.endsWith('/501'));
+  const call502 = variantPutCalls.find((c) => c.url.endsWith('/502'));
+  assert(call505 && call505.body.sort === 0 && call505.body.order === 0, 'Tab 505 should have sort 0');
+  assert(call551 && call551.body.sort === 1 && call551.body.order === 1, 'Variant 551 should have sort 1');
+  assert(call552 && call552.body.sort === 2 && call552.body.order === 2, 'Variant 552 should have sort 2');
+  assert(call501 && call501.body.sort === 3 && call501.body.order === 3, 'Tab 501 should have sort 3 (accounting for preceding variants)');
+  assert(call502 && call502.body.sort === 4 && call502.body.order === 4, 'Tab 502 should have sort 4');
+  console.log('✓ Tab items with URL variants sync with consecutive 0-based order/sort indices');
 }
 
 runTests().catch((err) => {

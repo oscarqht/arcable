@@ -119,7 +119,7 @@ function buildRunCodeHelperPrelude(backgroundFetchAvailable: boolean): string {
     '  const headers = new Headers(payload?.headers && typeof payload.headers === "object" ? payload.headers : {});',
     '  return {',
     '    ok: Boolean(payload?.ok),',
-    '    status: Number.isFinite(payload?.status) ? payload.status : 0;',
+    '    status: Number.isFinite(payload?.status) ? payload.status : 0,',
     '    statusText: typeof payload?.statusText === "string" ? payload.statusText : "",',
     '    url: typeof payload?.url === "string" ? payload.url : "",',
     '    redirected: Boolean(payload?.redirected),',

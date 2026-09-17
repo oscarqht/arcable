@@ -15,7 +15,7 @@ import {
   detectDeviceType,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop } from '../utils/raindropSync';
-import { getDescendantFolderIds } from '../utils/treeUtils';
+import { getDescendantFolderIds, getAllSpaceFolderIds } from '../utils/treeUtils';
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -718,6 +718,33 @@ export function useWorkspace() {
       };
     });
   }, [saveWorkspaceData]);
+
+  const setAllFoldersExpanded = useCallback((spaceId: string, isExpanded: boolean) => {
+    saveWorkspaceData((prev) => {
+      const folderIdsInSpace = getAllSpaceFolderIds(spaceId, prev.folders);
+      if (folderIdsInSpace.size === 0) return prev;
+
+      folderIdsInSpace.forEach((folderId) => {
+        setLocalFolderExpanded(folderId, isExpanded);
+      });
+
+      return {
+        ...prev,
+        folders: prev.folders.map((f) => {
+          if (!folderIdsInSpace.has(f.id)) return f;
+          return { ...f, isExpanded };
+        }),
+      };
+    });
+  }, [saveWorkspaceData]);
+
+  const expandAllFolders = useCallback((spaceId: string) => {
+    setAllFoldersExpanded(spaceId, true);
+  }, [setAllFoldersExpanded]);
+
+  const collapseAllFolders = useCallback((spaceId: string) => {
+    setAllFoldersExpanded(spaceId, false);
+  }, [setAllFoldersExpanded]);
 
   const deleteFolder = useCallback((id: string, recursive: boolean = true) => {
     saveWorkspaceData((prev) => {
@@ -2315,6 +2342,9 @@ export function useWorkspace() {
     updateFolder,
     deleteFolder,
     toggleFolderExpand,
+    setAllFoldersExpanded,
+    expandAllFolders,
+    collapseAllFolders,
     // Tab operations
     createTab,
     updateTab,
