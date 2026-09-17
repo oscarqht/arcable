@@ -103,9 +103,10 @@ export interface WorkspaceManagerProps {
   onTabPromoted?: (newTab: Tab, tmpTab: TmpTab) => void;
   onDropTmpTab?: (
     tmpTab: TmpTab,
-    folderId: string,
+    folderId: string | undefined,
     position?: 'before' | 'after' | 'inside',
-    targetTabId?: string
+    targetTabId?: string,
+    spaceId?: string
   ) => void;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
@@ -1511,19 +1512,20 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleDropTmpTabIntoFolder = useCallback(
     (
       tmpTab: TmpTab,
-      folderId: string,
+      folderId: string | undefined,
       position?: 'before' | 'after' | 'inside',
-      targetTabId?: string
+      targetTabId?: string,
+      spaceId?: string
     ) => {
       if (onDropTmpTabProp) {
-        onDropTmpTabProp(tmpTab, folderId, position, targetTabId);
+        onDropTmpTabProp(tmpTab, folderId, position, targetTabId, spaceId);
         return;
       }
 
-      const targetFolder = data.folders.find((f) => f.id === folderId);
-      if (!targetFolder) return;
+      const targetFolder = folderId ? data.folders.find((f) => f.id === folderId) : undefined;
+      if (folderId && !targetFolder) return;
 
-      const targetSpaceId = targetFolder.parentSpaceId || activeSpace?.id || 'space_personal';
+      const targetSpaceId = targetFolder?.parentSpaceId || spaceId || activeSpace?.id || 'space_personal';
 
       const resolvedTmpTab =
         tmpTab && tmpTab.url
@@ -1534,7 +1536,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
       let targetOrder: number | undefined = undefined;
       if (targetTabId && position && (position === 'before' || position === 'after')) {
-        const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolder.id);
+        const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolder?.id);
         const tabSiblings = siblings.filter((s: WorkspaceSiblingItem): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
         const targetIdx = tabSiblings.findIndex((s: WorkspaceSiblingItem) => s.id === targetTabId);
         if (targetIdx >= 0) {
@@ -1557,7 +1559,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         url: resolvedTmpTab.url,
         customTitle: resolvedTmpTab.customTitle || resolvedTmpTab.title || '',
         favIconUrl: resolvedTmpTab.favIconUrl,
-        parentFolderId: targetFolder.id,
+        parentFolderId: targetFolder?.id,
         parentSpaceId: targetSpaceId,
         pinned: false,
         favourite: false,
@@ -1567,7 +1569,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       deleteTmpTab(resolvedTmpTab.id);
       onTabPromoted?.(newTab, resolvedTmpTab);
 
-      if (targetFolder.isExpanded === false) {
+      if (targetFolder && targetFolder.isExpanded === false) {
         toggleFolderExpand(targetFolder.id);
       }
     },

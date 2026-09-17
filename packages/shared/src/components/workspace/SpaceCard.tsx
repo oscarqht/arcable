@@ -14,6 +14,7 @@ import {
 } from '../../utils/treeUtils';
 import { getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { getSortedSiblings, setLocalFolderExpanded } from '../../hooks/useWorkspace';
+import { isDragAcceptable, getActiveDrag, endDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
@@ -80,9 +81,10 @@ export interface SpaceCardProps {
   onMoveSpace?: (spaceId: string, direction: 'left' | 'right') => void;
   onDropTmpTab?: (
     tmpTab: TmpTab,
-    folderId: string,
+    folderId: string | undefined,
     position?: 'before' | 'after' | 'inside',
-    targetTabId?: string
+    targetTabId?: string,
+    spaceId?: string
   ) => void;
 }
 
@@ -135,6 +137,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
   const [compactVariantLabels, setCompactVariantLabels] = useState(false);
+  const [rootDropActive, setRootDropActive] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -520,7 +523,42 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           ) : (
             <>
               {/* Folders & Tabs Hierarchy (Interleaved Siblings) */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <div
+                onDragOver={(e) => {
+                  if (isDragAcceptable(e, ['tmpTab'])) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRootDropActive(true);
+                  }
+                }}
+                onDragLeave={() => {
+                  setRootDropActive(false);
+                }}
+                onDrop={(e) => {
+                  if (!isDragAcceptable(e, ['tmpTab'])) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRootDropActive(false);
+                  try {
+                    const raw = e.dataTransfer.getData('application/json');
+                    const activeDrag = getActiveDrag();
+                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+                    if (!parsed || !parsed.id || parsed.type !== 'tmpTab') return;
+                    const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+                    onDropTmpTab?.(tmpTab, undefined, undefined, undefined, space.id);
+                  } catch {} finally {
+                    endDrag();
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '5px',
+                  borderRadius: '12px',
+                  backgroundColor: rootDropActive ? (themeStyles.isDark ? 'rgba(255, 255, 255, 0.08)' : '#e0f2fe') : 'transparent',
+                  transition: 'background-color 0.12s ease',
+                }}
+              >
                 {rootSiblings.map((item, index) => {
                   const hasPrev = index > 0;
                   const hasNext = index < rootSiblings.length - 1;
@@ -621,8 +659,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       onDropItem={(e, targetTab) => {
                         try {
                           const raw = e.dataTransfer.getData('application/json');
-                          if (!raw) return;
-                          const parsed = JSON.parse(raw) as { id: string; type: 'folder' | 'tab' };
+                          const activeDrag = getActiveDrag();
+                          const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
                           if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
                           // Folders must never be dropped onto or below tab items
                           if (parsed.type === 'folder') return;
@@ -630,9 +668,15 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                           const midY = rect.top + rect.height / 2;
                           const pos = e.clientY < midY ? 'before' : 'after';
 
+                          if (parsed.type === 'tmpTab') {
+                            const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+                            onDropTmpTab?.(tmpTab, undefined, pos, targetTab.id, space.id);
+                            return;
+                          }
+
                           onReorderSiblingItem?.({
                             sourceId: parsed.id,
-                            sourceType: parsed.type,
+                            sourceType: parsed.type as 'folder' | 'tab',
                             targetId: targetTab.id,
                             targetType: 'tab',
                             position: pos,
