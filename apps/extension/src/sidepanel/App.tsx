@@ -836,7 +836,10 @@ export const App: React.FC = () => {
       id: 'run-code',
       label: 'Run Code in Page...',
       icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>⚡</span>,
-      onClick: () => void browser.runtime.openOptionsPage(),
+      onClick: async () => {
+        await browser.storage.local.set({ optionsInitialTab: 'run-code' });
+        void browser.runtime.openOptionsPage();
+      },
     },
     {
       id: 'settings',

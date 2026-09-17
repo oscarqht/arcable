@@ -12,7 +12,7 @@ import {
   mergeRunCodeRules,
   createWorkspaceOperation,
 } from '@arcable/shared/utils';
-import { browser, getActiveTab } from '../../utils/browser';
+import { browser } from '../../utils/browser';
 import { CodeEditor } from './CodeEditor';
 
 const STORAGE_KEY = 'runCodeInPageRules';
@@ -31,7 +31,6 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [runningRuleId, setRunningRuleId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -263,31 +262,6 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       createWorkspaceOperation('RUN_CODE_UPDATE', rule.id, { disabled: !rule.disabled })
     );
     void syncToRaindropImmediately();
-  };
-
-  const handleRunOnActiveTab = async (ruleId: string, ruleTitle: string) => {
-    setRunningRuleId(ruleId);
-    try {
-      const tab = await getActiveTab();
-      if (!tab?.id) {
-        showToast('No active browser tab found to run on.', 'warning');
-        return;
-      }
-      const res = (await browser.runtime.sendMessage({
-        type: 'RUN_CODE_IN_PAGE_EXECUTE',
-        payload: { ruleId, tabId: tab.id },
-      })) as { success: boolean; error?: string };
-
-      if (res?.success) {
-        showToast(`Ran "${ruleTitle}" on ${tab.title || 'tab'}`, 'success');
-      } else {
-        showToast(`Execution error: ${res?.error || 'Unknown error'}`, 'warning');
-      }
-    } catch (err: any) {
-      showToast(`Error running snippet: ${err.message}`, 'warning');
-    } finally {
-      setTimeout(() => setRunningRuleId(null), 1000);
-    }
   };
 
   const handleExportSingleRule = (rule: RunCodeRule) => {
@@ -560,7 +534,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       {/* Snippets List Card */}
       <Card
         title={`Saved Snippets (${rules.length})`}
-        subtitle="Run snippets manually on the active tab, or via right-click context menu and popup."
+        subtitle="Snippets are executed via right-click context menu and popup."
         style={{ borderRadius: '16px', padding: '24px' }}
       >
         <div
@@ -574,7 +548,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
           }}
         >
           <span style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
-            Click "Run" to test a snippet on your current tab immediately.
+            Snippets run automatically via right-click context menu or matching URL patterns.
           </span>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button
@@ -612,7 +586,6 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {rules.map((rule) => {
-              const isRunning = runningRuleId === rule.id;
               return (
                 <div
                   key={rule.id}
@@ -668,22 +641,6 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Run on Active Tab Button */}
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={isRunning || rule.disabled}
-                      onClick={() => handleRunOnActiveTab(rule.id, rule.title)}
-                      style={{
-                        backgroundColor: '#10b981',
-                        color: '#ffffff',
-                        borderColor: '#10b981',
-                        minWidth: '70px',
-                      }}
-                    >
-                      {isRunning ? 'Running...' : '▶ Run'}
-                    </Button>
-
                     {/* Toggle Switch */}
                     <label
                       title={rule.disabled ? 'Enable snippet' : 'Disable snippet'}

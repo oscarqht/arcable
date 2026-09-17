@@ -70,6 +70,14 @@ export const App: React.FC = () => {
       }
     });
 
+    // Check for requested tab (e.g. from "Run Code in Page..." action)
+    browser.storage.local.get('optionsInitialTab').then((res: any) => {
+      if (res.optionsInitialTab) {
+        setActiveTab(res.optionsInitialTab);
+        void browser.storage.local.remove('optionsInitialTab');
+      }
+    });
+
     // 1. Load Raindrop auth state
     fetchAuthState();
 
