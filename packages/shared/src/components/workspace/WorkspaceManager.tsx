@@ -707,6 +707,32 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     displayIndexRef.current = displayIndex;
   }, [displayIndex]);
 
+  // Backfill missing favIconUrl on workspace tabs and urlVariants from active browser tab associations
+  useEffect(() => {
+    if (!tabAssociations) return;
+
+    data.tabs.forEach((tab) => {
+      if (!tab.favIconUrl && tabAssociations[tab.id]?.favIconUrl) {
+        updateTab(tab.id, { favIconUrl: tabAssociations[tab.id].favIconUrl });
+      }
+
+      if (tab.urlVariants && tab.urlVariants.length > 0) {
+        let changed = false;
+        const updatedVariants = tab.urlVariants.map((v) => {
+          const assocFavIcon = tabAssociations[v.id]?.favIconUrl;
+          if (!v.favIconUrl && assocFavIcon) {
+            changed = true;
+            return { ...v, favIconUrl: assocFavIcon };
+          }
+          return v;
+        });
+        if (changed) {
+          updateTab(tab.id, { urlVariants: updatedVariants });
+        }
+      }
+    });
+  }, [data.tabs, tabAssociations, updateTab]);
+
   const handleNavigateSpace = useCallback(
     (direction: 'next' | 'prev') => {
       if (sortedSpaces.length <= 1) return;

@@ -66,6 +66,7 @@ interface TabModalProps {
     favIconUrl?: string;
     pinned?: boolean;
     favourite?: boolean;
+    isGroup?: boolean;
   }) => void;
 }
 
@@ -298,6 +299,7 @@ export const TabModal: React.FC<TabModalProps> = ({
               }))
             : undefined,
         defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
+        isGroup: Boolean(tab?.isGroup || initialIsGroup),
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,

@@ -455,21 +455,29 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           if (item.type === 'tab') {
             const tab = item.tab;
             const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
-            const isGroup = validVariants.length > 1;
+            const isGroup = Boolean(tab.isGroup || validVariants.length > 1);
 
             // Check if group is associated with any open browser tab
             let isGroupAssociated = false;
             let groupAudibleInfo: AudibleTab | undefined = undefined;
             if (isGroup && tabAssociations) {
               for (const v of validVariants) {
-                for (const assocEntry of Object.values(tabAssociations)) {
-                  const assocUrl = assocEntry.currentUrl || assocEntry.originalUrl;
-                  if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
-                    isGroupAssociated = true;
-                    if (!groupAudibleInfo && audibleTabs) {
-                      groupAudibleInfo = audibleTabs.find((a) => a.id === assocEntry.browserTabId);
+                if (v.id && tabAssociations[v.id]) {
+                  isGroupAssociated = true;
+                  if (!groupAudibleInfo && audibleTabs) {
+                    groupAudibleInfo = audibleTabs.find((a) => a.id === tabAssociations[v.id]?.browserTabId);
+                  }
+                }
+                if (!isGroupAssociated) {
+                  for (const assocEntry of Object.values(tabAssociations)) {
+                    const assocUrl = assocEntry.currentUrl || assocEntry.originalUrl;
+                    if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
+                      isGroupAssociated = true;
+                      if (!groupAudibleInfo && audibleTabs) {
+                        groupAudibleInfo = audibleTabs.find((a) => a.id === assocEntry.browserTabId);
+                      }
+                      break;
                     }
-                    break;
                   }
                 }
                 if (isGroupAssociated && groupAudibleInfo) break;
@@ -485,7 +493,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isAudible = Boolean(audibleInfo);
             const isMuted = audibleInfo?.muted === true;
             const badge = !isGroup ? assoc?.badge : undefined;
-            const isHighlighted = !isGroup && highlightedTabId === tab.id;
+            const isGroupHighlighted = isGroup && Boolean(
+              highlightedTabId && (
+                highlightedTabId === tab.id ||
+                validVariants.some((v) => v.id === highlightedTabId)
+              )
+            );
+            const isHighlighted = isGroup ? isGroupHighlighted : highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
             const displayTitle = tab.customTitle || (isGroup ? 'Group' : (domain || cleanUrl(tab.url) || 'Untitled'));
             const canEditInRaindrop =
@@ -656,7 +670,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onClick: () => {
                   validVariants.forEach((v) => {
                     if (v.url && onOpenTab) {
-                      onOpenTab(v.url, undefined, { inNewTab: true });
+                      onOpenTab(v.url, v.id, { inNewTab: true });
                     }
                   });
                 },
@@ -826,6 +840,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                         <TabFavicon
                           key={variant.id || vIdx}
                           url={variant.url}
+                          favIconUrl={variant.favIconUrl || tabAssociations?.[variant.id]?.favIconUrl}
+                          customEmojiIcon={variant.customEmojiIcon}
                           size={16}
                           emojiSize={15}
                           globeIconSize={14}
@@ -2316,10 +2332,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           isOpen={Boolean(groupPopoverTab)}
           onClose={() => setGroupPopoverTab(null)}
           onOpenItem={(variant, options) => {
-            if (onOpenVariant) {
+            if (onOpenTab) {
+              onOpenTab(variant.url, variant.id, options);
+            } else if (onOpenVariant) {
               onOpenVariant(variant.url, activePopoverGroupTab, variant, options);
-            } else if (onOpenTab) {
-              onOpenTab(variant.url, activePopoverGroupTab.id, options);
+            } else if (typeof window !== 'undefined' && variant.url) {
+              window.open(variant.url, '_blank', 'noopener,noreferrer');
             }
           }}
           onEditGroup={(gTab) => onEditTab(gTab)}
@@ -2327,11 +2345,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           onOpenAll={(gTab) => {
             (gTab.urlVariants || []).forEach((v) => {
               if (v.url && onOpenTab) {
-                onOpenTab(v.url, undefined, { inNewTab: true });
+                onOpenTab(v.url, v.id, { inNewTab: true });
               }
             });
           }}
           tabAssociations={tabAssociations}
+          highlightedTabId={highlightedTabId}
+          onCloseAssociatedTab={onCloseAssociatedTab}
           onUngroup={onUngroupTab}
           theme={shelfTheme}
         />

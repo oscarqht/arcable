@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
@@ -20,6 +20,8 @@ export interface FavouriteGroupPopoverProps {
   onOpenAll?: (groupTab: Tab) => void;
   onUngroup?: (tabId: string) => void;
   tabAssociations?: TabAssociationMap;
+  highlightedTabId?: string | null;
+  onCloseAssociatedTab?: (tabId: string) => void;
   theme: SpaceThemeTokens;
 }
 
@@ -34,9 +36,12 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   onOpenAll,
   onUngroup,
   tabAssociations,
+  highlightedTabId,
+  onCloseAssociatedTab,
   theme,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [hoveredVariantId, setHoveredVariantId] = useState<string | null>(null);
 
   // Click outside and Escape key to close
   useEffect(() => {
@@ -290,30 +295,40 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
         }}
       >
         {variants.map((v, idx) => {
+          const itemKey = v.id || String(idx);
           // Check if open in browser via tabAssociations
-          let isAssociated = false;
-          if (tabAssociations) {
+          let itemAssoc = v.id && tabAssociations ? tabAssociations[v.id] : undefined;
+          if (!itemAssoc && tabAssociations) {
             for (const assoc of Object.values(tabAssociations)) {
               const assocUrl = assoc.currentUrl || assoc.originalUrl;
               if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
-                isAssociated = true;
+                itemAssoc = assoc;
                 break;
               }
             }
           }
+          const isAssociated = Boolean(itemAssoc);
+          const isItemHighlighted = Boolean(
+            highlightedTabId && (
+              v.id === highlightedTabId ||
+              (itemAssoc && tabAssociations && tabAssociations[highlightedTabId]?.browserTabId === itemAssoc.browserTabId)
+            )
+          );
 
           const itemTitle = v.name || 'Tab';
           const tooltip = `${itemTitle}\n${v.url}${isAssociated ? ' • Open in browser' : ''}`;
 
           return (
             <button
-              key={v.id || idx}
+              key={itemKey}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                 onOpenItem(v, { inNewTab, event: e });
-                onClose();
+                if (!e.ctrlKey && !e.metaKey) {
+                  onClose();
+                }
               }}
               title={tooltip}
               style={{
@@ -323,28 +338,38 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 width: '46px',
                 height: '46px',
                 borderRadius: '10px',
-                border: `1px solid ${
-                  isAssociated
-                    ? theme.isDark
-                      ? 'rgba(255, 255, 255, 0.18)'
-                      : 'rgba(0, 0, 0, 0.12)'
-                    : theme.isDark
-                    ? 'rgba(255, 255, 255, 0.06)'
-                    : 'rgba(0, 0, 0, 0.05)'
-                }`,
-                backgroundColor: isAssociated
+                border: isItemHighlighted
+                  ? `1.5px solid ${theme.primaryColor}`
+                  : `1px solid ${
+                      isAssociated
+                        ? theme.isDark
+                          ? 'rgba(255, 255, 255, 0.18)'
+                          : 'rgba(0, 0, 0, 0.12)'
+                        : theme.isDark
+                        ? 'rgba(255, 255, 255, 0.06)'
+                        : 'rgba(0, 0, 0, 0.05)'
+                    }`,
+                backgroundColor: isItemHighlighted
+                  ? theme.isDark
+                    ? 'rgba(255, 255, 255, 0.16)'
+                    : 'rgba(255, 255, 255, 0.95)'
+                  : isAssociated
                   ? theme.isDark
                     ? 'rgba(255, 255, 255, 0.12)'
                     : 'rgba(255, 255, 255, 0.85)'
                   : theme.isDark
                   ? 'rgba(255, 255, 255, 0.04)'
                   : 'rgba(0, 0, 0, 0.03)',
+                boxShadow: isItemHighlighted
+                  ? `0 0 8px ${theme.primaryColor}55`
+                  : 'none',
                 cursor: 'pointer',
                 position: 'relative',
                 padding: 0,
                 transition: 'transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease',
               }}
               onMouseEnter={(e) => {
+                setHoveredVariantId(itemKey);
                 e.currentTarget.style.backgroundColor = theme.isDark
                   ? 'rgba(255, 255, 255, 0.14)'
                   : 'rgba(0, 0, 0, 0.08)';
@@ -352,14 +377,21 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 e.currentTarget.style.transform = 'scale(1.06)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = isAssociated
+                setHoveredVariantId(null);
+                e.currentTarget.style.backgroundColor = isItemHighlighted
+                  ? theme.isDark
+                    ? 'rgba(255, 255, 255, 0.16)'
+                    : 'rgba(255, 255, 255, 0.95)'
+                  : isAssociated
                   ? theme.isDark
                     ? 'rgba(255, 255, 255, 0.12)'
                     : 'rgba(255, 255, 255, 0.85)'
                   : theme.isDark
                   ? 'rgba(255, 255, 255, 0.04)'
                   : 'rgba(0, 0, 0, 0.03)';
-                e.currentTarget.style.borderColor = isAssociated
+                e.currentTarget.style.borderColor = isItemHighlighted
+                  ? theme.primaryColor
+                  : isAssociated
                   ? theme.isDark
                     ? 'rgba(255, 255, 255, 0.18)'
                     : 'rgba(0, 0, 0, 0.12)'
@@ -371,12 +403,63 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
             >
               <TabFavicon
                 url={v.url}
+                favIconUrl={v.favIconUrl || tabAssociations?.[itemKey]?.favIconUrl || tabAssociations?.[v.id]?.favIconUrl}
+                customEmojiIcon={v.customEmojiIcon}
                 size={22}
                 emojiSize={22}
                 globeIconSize={20}
                 globeIconColor={theme.subtextColor}
                 showDomainFallback={true}
               />
+
+              {/* Close button on hover if associated */}
+              {isAssociated && onCloseAssociatedTab && hoveredVariantId === itemKey && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (v.id) {
+                      onCloseAssociatedTab(v.id);
+                    }
+                  }}
+                  title="Close browser tab"
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    width: '15px',
+                    height: '15px',
+                    borderRadius: '50%',
+                    backgroundColor: theme.isDark ? '#334155' : '#e2e8f0',
+                    color: theme.isDark ? '#f1f5f9' : '#0f172a',
+                    border: `1px solid ${theme.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '9px',
+                    lineHeight: 1,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    zIndex: 10,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                    transition: 'transform 0.1s ease, background-color 0.1s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'scale(1.15)';
+                    e.currentTarget.style.backgroundColor = '#ef4444';
+                    e.currentTarget.style.color = '#ffffff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.backgroundColor = theme.isDark ? '#334155' : '#e2e8f0';
+                    e.currentTarget.style.color = theme.isDark ? '#f1f5f9' : '#0f172a';
+                  }}
+                >
+                  ✕
+                </span>
+              )}
 
               {/* Active running indicator pill */}
               {isAssociated && (
@@ -386,10 +469,12 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                     bottom: '3px',
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    width: '12px',
+                    width: isItemHighlighted ? '16px' : '12px',
                     height: '2.5px',
                     borderRadius: '9999px',
                     backgroundColor: theme.primaryColor,
+                    boxShadow: isItemHighlighted ? `0 0 6px ${theme.primaryColor}` : 'none',
+                    transition: 'all 0.15s ease',
                   }}
                 />
               )}

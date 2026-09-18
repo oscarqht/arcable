@@ -74,7 +74,12 @@ export function getFaviconCandidates(urlStr: string | null | undefined): string[
         `${origin}/favicon.svg`,
       ];
     }
-    return [`https://faviconapi.com/${url.hostname}`];
+    return [
+      `https://faviconapi.com/${url.hostname}`,
+      `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`,
+      `https://icons.duckduckgo.com/ip3/${url.hostname}.ico`,
+      `${url.origin}/favicon.ico`,
+    ];
   } catch {
     return [];
   }

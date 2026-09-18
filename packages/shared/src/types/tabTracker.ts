@@ -6,6 +6,7 @@ export interface AssociatedTabInfo {
   originalUrl: string;
   isDiverted: boolean;
   badge?: string | number | null;
+  favIconUrl?: string;
 }
 
 export type TabAssociationMap = Record<string, AssociatedTabInfo>; // tabItemId -> AssociatedTabInfo

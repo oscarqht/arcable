@@ -1230,7 +1230,7 @@ export async function syncIncrementalOperations(
           input: {
             title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
             link: variant.url,
-            cover: payload.cover,
+            cover: variant.favIconUrl || payload.cover,
             note: '',
             collectionId: parentId,
             order: variantOrder,
@@ -1274,7 +1274,7 @@ export async function syncIncrementalOperations(
             payload: {
               title: varTitle,
               link: variant.url,
-              cover: payload.cover,
+              cover: variant.favIconUrl || payload.cover,
               collection: { $id: parentId },
               order: variantOrder,
               sort: variantOrder,
@@ -1288,7 +1288,7 @@ export async function syncIncrementalOperations(
             input: {
               title: varTitle,
               link: variant.url,
-              cover: payload.cover,
+              cover: variant.favIconUrl || payload.cover,
               note: '',
               collectionId: parentId,
               order: variantOrder,
@@ -2098,12 +2098,12 @@ function reconstructWorkspace(
       const defaultId = String(item._id);
       variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
       urlVariants = [
-        { id: defaultId, name: decodedTitle || 'Default', url: item.link },
+        { id: defaultId, name: decodedTitle || 'Default', url: item.link, favIconUrl: item.cover },
         ...variantItems.map((v) => {
           const vTitle = decodeRaindropTitle(v.title || '');
           const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
           const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
-          return { id: String(v._id), name: variantName, url: v.link };
+          return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
         }),
       ];
       defaultVariantId = defaultId;
@@ -2150,7 +2150,7 @@ function reconstructWorkspace(
       const vTitle = decodeRaindropTitle(v.title || '');
       const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
       const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
-      return { id: String(v._id), name: variantName, url: v.link };
+      return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
     });
     tabs.push({
       id: String(first._id),
@@ -2559,7 +2559,7 @@ export async function syncWorkspaceWithRaindrop(
           bookmarksToCreate.push({
             title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
             link: variant.url,
-            cover: payload.cover,
+            cover: variant.favIconUrl || payload.cover,
             note: '',
             collectionId: parentId,
             order: variantOrder,
@@ -2596,11 +2596,12 @@ export async function syncWorkspaceWithRaindrop(
           if (matchIdx >= 0) {
             const matchedItem = existingRemoteVariants.splice(matchIdx, 1)[0];
             const variantOrderChanged = matchedItem.sort !== variantOrder && matchedItem.order !== variantOrder;
+            const expectedCover = variant.favIconUrl || payload.cover;
             const variantChanged =
               matchedItem.title !== expectedTitle ||
               matchedItem.link !== variant.url ||
               matchedItem.collectionId !== parentId ||
-              matchedItem.cover !== payload.cover ||
+              matchedItem.cover !== expectedCover ||
               variantOrderChanged;
             if (variantChanged || shouldUpdate) {
               tabUpdatesToPerform.push({
@@ -2608,7 +2609,7 @@ export async function syncWorkspaceWithRaindrop(
                 payload: {
                   title: expectedTitle,
                   link: variant.url,
-                  cover: payload.cover,
+                  cover: expectedCover,
                   collection: { $id: parentId },
                   order: variantOrder,
                   sort: variantOrder,
@@ -2620,7 +2621,7 @@ export async function syncWorkspaceWithRaindrop(
             bookmarksToCreate.push({
               title: expectedTitle,
               link: variant.url,
-              cover: payload.cover,
+              cover: variant.favIconUrl || payload.cover,
               note: '',
               collectionId: parentId,
               order: variantOrder,

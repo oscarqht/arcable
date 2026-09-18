@@ -828,6 +828,8 @@ export function useWorkspace() {
         id: v.id || generateId('var'),
         name: v.name.trim(),
         url: normalizeUrl(v.url),
+        favIconUrl: v.favIconUrl,
+        customEmojiIcon: v.customEmojiIcon,
       }));
 
       let defaultVar = selectedDefaultId
@@ -910,6 +912,8 @@ export function useWorkspace() {
             id: v.id || generateId('var'),
             name: v.name.trim(),
             url: normalizeUrl(v.url),
+            favIconUrl: v.favIconUrl,
+            customEmojiIcon: v.customEmojiIcon,
           }));
           let defaultVar = normalizedUpdates.defaultVariantId
             ? cleanedVariants.find((v) => v.id === normalizedUpdates.defaultVariantId)
@@ -1142,6 +1146,8 @@ export function useWorkspace() {
               id: generateId('var'),
               name: v.name,
               url: v.url, // Original raw URL with template variables preserved
+              favIconUrl: v.favIconUrl,
+              customEmojiIcon: v.customEmojiIcon,
             }))
           : undefined;
 
@@ -2195,23 +2201,35 @@ export function useWorkspace() {
 
         const targetVariants: TabUrlVariant[] =
           targetTab.urlVariants && targetTab.urlVariants.length > 0
-            ? targetTab.urlVariants.map((v) => ({ ...v }))
+            ? targetTab.urlVariants.map((v, i) => ({
+                ...v,
+                favIconUrl: v.favIconUrl || (i === 0 ? targetTab.favIconUrl : undefined),
+                customEmojiIcon: v.customEmojiIcon || (i === 0 ? targetTab.customEmojiIcon : undefined),
+              }))
             : [
                 {
                   id: generateId('var'),
                   name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
                   url: targetTab.url,
+                  favIconUrl: targetTab.favIconUrl,
+                  customEmojiIcon: targetTab.customEmojiIcon,
                 },
               ];
 
         const sourceVariants: TabUrlVariant[] =
           sourceTab.urlVariants && sourceTab.urlVariants.length > 0
-            ? sourceTab.urlVariants.map((v) => ({ ...v }))
+            ? sourceTab.urlVariants.map((v, i) => ({
+                ...v,
+                favIconUrl: v.favIconUrl || (i === 0 ? sourceTab.favIconUrl : undefined),
+                customEmojiIcon: v.customEmojiIcon || (i === 0 ? sourceTab.customEmojiIcon : undefined),
+              }))
             : [
                 {
                   id: generateId('var'),
                   name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 2',
                   url: sourceTab.url,
+                  favIconUrl: sourceTab.favIconUrl,
+                  customEmojiIcon: sourceTab.customEmojiIcon,
                 },
               ];
 
@@ -2225,6 +2243,7 @@ export function useWorkspace() {
           url: defaultVariant.url,
           urlVariants: mergedVariants,
           defaultVariantId: defaultVariant.id,
+          isGroup: true,
           updatedAt: Date.now(),
         };
 
@@ -2283,6 +2302,9 @@ export function useWorkspace() {
             ...groupTab,
             customTitle: variants[0]?.name || groupTab.customTitle,
             url: variants[0]?.url || groupTab.url,
+            favIconUrl: variants[0]?.favIconUrl || groupTab.favIconUrl,
+            customEmojiIcon: variants[0]?.customEmojiIcon || groupTab.customEmojiIcon,
+            isGroup: false,
             urlVariants: undefined,
             defaultVariantId: undefined,
             updatedAt: Date.now(),
@@ -2291,6 +2313,8 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: updatedTab.customTitle,
               url: updatedTab.url,
+              favIconUrl: updatedTab.favIconUrl,
+              customEmojiIcon: updatedTab.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
             })
@@ -2312,6 +2336,9 @@ export function useWorkspace() {
           ...groupTab,
           customTitle: firstVariant.name || groupTab.customTitle,
           url: firstVariant.url,
+          favIconUrl: firstVariant.favIconUrl || groupTab.favIconUrl,
+          customEmojiIcon: firstVariant.customEmojiIcon || groupTab.customEmojiIcon,
+          isGroup: false,
           urlVariants: undefined,
           defaultVariantId: undefined,
           updatedAt: Date.now(),
@@ -2319,10 +2346,17 @@ export function useWorkspace() {
 
         // Remaining variants become separate new tabs
         const newTabs: Tab[] = variants.slice(1).map((v, idx) => {
+          const matchingFavIcon =
+            v.favIconUrl ||
+            prev.tabs.find((t) => t.url === v.url && t.favIconUrl)?.favIconUrl ||
+            prev.tmpTabs?.find((t) => t.url === v.url && t.favIconUrl)?.favIconUrl;
+
           const newTab: Tab = {
             id: generateId('tab'),
             url: v.url,
             customTitle: v.name,
+            favIconUrl: matchingFavIcon,
+            customEmojiIcon: v.customEmojiIcon,
             pinned: Boolean(groupTab.pinned),
             favourite: Boolean(groupTab.favourite),
             parentSpaceId: groupTab.parentSpaceId,
@@ -2413,6 +2447,8 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: firstTabFinal.customTitle,
               url: firstTabFinal.url,
+              favIconUrl: firstTabFinal.favIconUrl,
+              customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
               order: firstTabFinal.order,
@@ -2474,6 +2510,8 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: firstTabFinal.customTitle,
               url: firstTabFinal.url,
+              favIconUrl: firstTabFinal.favIconUrl,
+              customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
               order: firstTabFinal.order,
@@ -2533,6 +2571,8 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: firstTabFinal.customTitle,
               url: firstTabFinal.url,
+              favIconUrl: firstTabFinal.favIconUrl,
+              customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
               order: firstTabFinal.order,

@@ -480,9 +480,49 @@ class TabTracker {
       const isInitialSync = !this.hasCompletedInitialSync && workspaceTabs.length > 0;
       if (isInitialSync) this.hasCompletedInitialSync = true;
 
+      // Extract trackable items from workspace:
+      // Includes both standalone saved tabs AND individual items in tab groups (variants of group tabs)
+      interface TrackableTabItem {
+        id: string;
+        url: string;
+        urlVariants?: TabUrlVariant[];
+      }
+
+      const trackableItems: TrackableTabItem[] = [];
+      for (const t of workspaceTabs) {
+        const isGroup = Boolean(t.isGroup || (t.urlVariants && t.urlVariants.length > 1));
+        if (isGroup && t.urlVariants && t.urlVariants.length > 0) {
+          // Add each child variant as a trackable tab item
+          for (const v of t.urlVariants) {
+            if (v.id && v.url) {
+              trackableItems.push({
+                id: v.id,
+                url: v.url,
+              });
+            }
+          }
+        } else if (t.url) {
+          trackableItems.push({
+            id: t.id,
+            url: t.url,
+            urlVariants: t.urlVariants,
+          });
+        }
+      }
+
+      const findTrackableItem = (id: string): TrackableTabItem | undefined => {
+        const found = trackableItems.find((item) => item.id === id);
+        if (found) return found;
+        const fromWs = workspaceTabs.find((t) => t.id === id);
+        if (fromWs) {
+          return { id: fromWs.id, url: fromWs.url, urlVariants: fromWs.urlVariants };
+        }
+        return undefined;
+      };
+
       // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
       for (const [tabItemId, info] of Object.entries(currentAssociations)) {
-        const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
+        const matchingWorkspaceItem = findTrackableItem(tabItemId);
         const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
 
         if (
@@ -502,6 +542,7 @@ class TabTracker {
               originalUrl: matchingWorkspaceItem.url,
               isDiverted: false,
               badge: badge || undefined,
+              favIconUrl: matchingBrowserTab.favIconUrl,
             };
             assignedBrowserTabIds.add(matchingBrowserTab.id);
             assignedTabItemIds.add(tabItemId);
@@ -514,7 +555,7 @@ class TabTracker {
       // already open when the extension loaded get recognized instead of becoming tmp tabs.
       // Outside of the initial sync, manually opened tabs must never be automatically associated
       // with saved tab items.
-      const unassociatedWorkspaceTabs = workspaceTabs.filter(
+      const unassociatedWorkspaceTabs = trackableItems.filter(
         (item) =>
           !assignedTabItemIds.has(item.id) &&
           Boolean(item.url) &&
@@ -542,6 +583,7 @@ class TabTracker {
             originalUrl: item.url,
             isDiverted: false,
             badge: badge || undefined,
+            favIconUrl: matchingBrowserTab.favIconUrl,
           };
           assignedBrowserTabIds.add(matchingBrowserTab.id);
           assignedTabItemIds.add(item.id);
@@ -554,7 +596,7 @@ class TabTracker {
         if (assignedTabItemIds.has(tabItemId)) continue;
         if (assignedBrowserTabIds.has(info.browserTabId)) continue;
 
-        const matchingWorkspaceItem = workspaceTabs.find((t) => t.id === tabItemId);
+        const matchingWorkspaceItem = findTrackableItem(tabItemId);
         const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
 
         if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
@@ -568,6 +610,7 @@ class TabTracker {
             originalUrl: matchingWorkspaceItem.url || info.originalUrl,
             isDiverted: true,
             badge: badge || undefined,
+            favIconUrl: matchingBrowserTab.favIconUrl || info.favIconUrl,
           };
           assignedBrowserTabIds.add(matchingBrowserTab.id);
           assignedTabItemIds.add(tabItemId);

@@ -600,8 +600,26 @@ export const App: React.FC = () => {
 
   const handleOpenVariant = useCallback(
     async (variantUrl: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => {
-      setHighlightedTabId(tab.id);
       const inNewTab = Boolean(options?.inNewTab);
+      const isGroup = Boolean(tab.isGroup || (tab.urlVariants && tab.urlVariants.length > 1 && !tab.url));
+
+      // For tab groups, each item is its own distinct tab item that opens/activates its own browser tab
+      if (isGroup && variant?.id) {
+        setHighlightedTabId(variant.id);
+        if (tabAssociations[variant.id] && !inNewTab) {
+          const assoc = tabAssociations[variant.id];
+          await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+          return;
+        }
+        if (!inNewTab) {
+          await tabTracker.openAndAssociateTab(variant.id, variantUrl);
+          return;
+        }
+        await browser.tabs.create({ url: variantUrl, active: true });
+        return;
+      }
+
+      setHighlightedTabId(tab.id);
 
       // In mobile device:
       // 1. Click URL variant open URL in current tab;
@@ -644,7 +662,7 @@ export const App: React.FC = () => {
         }
       }
     },
-    [isMobile]
+    [isMobile, tabAssociations]
   );
 
   const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
@@ -718,7 +736,10 @@ export const App: React.FC = () => {
 
 
   const handleCloseAssociatedTab = async (tabId: string) => {
-    const assoc = tabAssociations[tabId];
+    let assoc = tabAssociations[tabId];
+    if (!assoc) {
+      assoc = Object.values(tabAssociations).find((a) => a?.tabItemId === tabId);
+    }
     if (assoc) {
       await tabTracker.closeAssociatedTab(assoc.browserTabId, tabId);
     }

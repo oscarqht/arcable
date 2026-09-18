@@ -12,6 +12,8 @@ export interface TabUrlVariant {
   id: string;
   name: string;
   url: string;
+  favIconUrl?: string;
+  customEmojiIcon?: string;
 }
 
 export interface Tab {
@@ -21,6 +23,7 @@ export interface Tab {
   url: string;
   urlVariants?: TabUrlVariant[];
   defaultVariantId?: string;
+  isGroup?: boolean;        // Optional: if true, tab represents a group containing multiple child items
   pinned: boolean;
   favourite?: boolean;     // Optional: if true, tab is a global favourite and does not belong to any space or folder
   customTitle?: string;
