@@ -123,7 +123,7 @@ export interface WorkspaceManagerProps {
   hasRaindropAuth?: boolean;
   onSearchCollectionCovers?: (query: string) => Promise<string[]>;
   searchPlaceholder?: string;
-  onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
+  onSearchRaindrop?: (query: string, options?: { signal?: AbortSignal }) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
   autoSync?: boolean;
   defaultViewMode?: 'grid' | 'focused';
@@ -2278,6 +2278,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onExpandAllFolders={handleExpandAllFolders}
                   onCollapseAllFolders={handleCollapseAllFolders}
                   onEditTab={(t) => {
+                    setIsTabGroupModal(false);
                     setEditingTab(t);
                     setTargetSpaceIdForModal(space.id);
                     setIsTabModalOpen(true);
@@ -2418,6 +2419,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onExpandAllFolders={handleExpandAllFolders}
                       onCollapseAllFolders={handleCollapseAllFolders}
                       onEditTab={(t) => {
+                        setIsTabGroupModal(false);
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
@@ -2589,6 +2591,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onExpandAllFolders={handleExpandAllFolders}
                       onCollapseAllFolders={handleCollapseAllFolders}
                       onEditTab={(t) => {
+                        setIsTabGroupModal(false);
                         setEditingTab(t);
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);

@@ -795,6 +795,17 @@ export function calculateTabTargetOrder(tab: Tab, allTabs: Tab[], allWidgets?: W
     }
     return slot;
   }
+  if (tab.pinned) {
+    const siblings = allTabs
+      .filter((t) => !t.favourite && t.pinned && t.parentSpaceId === tab.parentSpaceId)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
+    let slot = 0;
+    for (const sibling of siblings) {
+      if (sibling.id === tab.id) return slot;
+      slot += getTabRaindropBookmarkCount(sibling);
+    }
+    return slot;
+  }
   const parentKey = tab.parentFolderId || tab.parentSpaceId;
   const siblings = allTabs
     .filter((t) => !t.favourite && !t.pinned && (t.parentFolderId || t.parentSpaceId) === parentKey)
@@ -1155,7 +1166,6 @@ export async function syncIncrementalOperations(
 
   const tabCreates: Array<{
     entityId: string;
-    isFavourite?: boolean;
     input: Parameters<typeof createRaindropBookmarks>[1][number];
   }> = [];
   const tabUpdates: Array<{
@@ -1209,7 +1219,6 @@ export async function syncIncrementalOperations(
     if (isCreate) {
       tabCreates.push({
         entityId,
-        isFavourite: Boolean(tab.favourite),
         input: {
           title: payload.title,
           link: payload.link,
@@ -1218,7 +1227,6 @@ export async function syncIncrementalOperations(
           collectionId: parentId,
           order: targetOrder,
           sort: targetOrder,
-          pleaseParse: { disabled: true },
         },
       });
       // Extra URL variants
@@ -1226,7 +1234,6 @@ export async function syncIncrementalOperations(
         const variantOrder = targetOrder + 1 + vIdx;
         tabCreates.push({
           entityId: `${entityId}:::variant:::${variant.id}`,
-          isFavourite: Boolean(tab.favourite),
           input: {
             title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
             link: variant.url,
@@ -1235,7 +1242,6 @@ export async function syncIncrementalOperations(
             collectionId: parentId,
             order: variantOrder,
             sort: variantOrder,
-            pleaseParse: { disabled: true },
           },
         });
       });
@@ -1284,7 +1290,6 @@ export async function syncIncrementalOperations(
         } else {
           tabCreates.push({
             entityId: `${entityId}:::variant:::${variant.id}`,
-            isFavourite: Boolean(tab.favourite),
             input: {
               title: varTitle,
               link: variant.url,
@@ -1293,7 +1298,6 @@ export async function syncIncrementalOperations(
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,
-              pleaseParse: { disabled: true },
             },
           });
         }
@@ -1320,10 +1324,9 @@ export async function syncIncrementalOperations(
       .map((entry, index) => ({
         createdId: createdItems[index]._id,
         targetOrder: entry.input.order !== undefined ? entry.input.order : entry.input.sort,
-        isFavourite: entry.isFavourite,
       }))
-      .filter((entry): entry is { createdId: number; targetOrder: number; isFavourite: boolean } =>
-        Boolean(entry.isFavourite) && entry.targetOrder !== undefined && entry.targetOrder >= 0
+      .filter((entry): entry is { createdId: number; targetOrder: number } =>
+        entry.targetOrder !== undefined && entry.targetOrder > 0
       )
       .sort((a, b) => a.targetOrder - b.targetOrder);
 
@@ -1482,12 +1485,20 @@ export async function syncIncrementalOperations(
       }),
     };
   }
+  const widgetDeleteIds = new Set<string>();
   for (const [key, operations] of groups) {
     if (!key.startsWith('widget:') || !operations.some((op) => op.type === 'WIDGET_DELETE')) continue;
     if (operations.some((op) => op.type === 'WIDGET_CREATE')) continue;
     const deleteOp = [...operations].reverse().find((op) => op.type === 'WIDGET_DELETE')!;
+    widgetDeleteIds.add(deleteOp.entityId);
     const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
     if (remoteId) await deleteRaindropBookmark(token, remoteId);
+  }
+  if (widgetDeleteIds.size > 0) {
+    latestSnapshot = {
+      ...latestSnapshot,
+      widgets: (latestSnapshot.widgets || []).filter((w) => !widgetDeleteIds.has(w.id)),
+    };
   }
 
   // Process Custom Code operations
@@ -1536,12 +1547,43 @@ export async function syncIncrementalOperations(
         }),
       };
     }
+
+    const customCodeDeletes: Array<{ entityId: string; raindropId?: number }> = [];
     for (const [key, operations] of groups) {
       if (!key.startsWith('custom_code:') || !operations.some((op) => op.type === 'CUSTOM_CODE_DELETE')) continue;
       if (operations.some((op) => op.type === 'CUSTOM_CODE_CREATE')) continue;
       const deleteOp = [...operations].reverse().find((op) => op.type === 'CUSTOM_CODE_DELETE')!;
       const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
-      if (remoteId) await deleteRaindropBookmark(token, remoteId);
+      customCodeDeletes.push({ entityId: deleteOp.entityId, raindropId: remoteId });
+    }
+    const unresolvedCustomDeletes = customCodeDeletes.filter((d) => !d.raindropId);
+    if (unresolvedCustomDeletes.length > 0) {
+      const remoteBookmarks = await fetchAllRaindropItems(token, customCssCollId);
+      for (const item of remoteBookmarks) {
+        let ruleId = item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX)
+          ? item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length)
+          : undefined;
+        if (!ruleId && item.excerpt) {
+          try {
+            const parsed = JSON.parse(item.excerpt);
+            if (parsed && typeof parsed.id === 'string') ruleId = parsed.id;
+          } catch {}
+        }
+        if (ruleId) {
+          const match = unresolvedCustomDeletes.find((d) => d.entityId === ruleId);
+          if (match) match.raindropId = item._id;
+        }
+      }
+    }
+    for (const d of customCodeDeletes) {
+      if (d.raindropId) await deleteRaindropBookmark(token, d.raindropId);
+    }
+    const deletedCustomCodeIds = new Set(customCodeDeletes.map((d) => d.entityId));
+    if (deletedCustomCodeIds.size > 0) {
+      latestSnapshot = {
+        ...latestSnapshot,
+        customCodeRules: (latestSnapshot.customCodeRules || []).filter((r) => !deletedCustomCodeIds.has(r.id)),
+      };
     }
   }
 
@@ -1591,12 +1633,43 @@ export async function syncIncrementalOperations(
         }),
       };
     }
+
+    const runCodeDeletes: Array<{ entityId: string; raindropId?: number }> = [];
     for (const [key, operations] of groups) {
       if (!key.startsWith('run_code:') || !operations.some((op) => op.type === 'RUN_CODE_DELETE')) continue;
       if (operations.some((op) => op.type === 'RUN_CODE_CREATE')) continue;
       const deleteOp = [...operations].reverse().find((op) => op.type === 'RUN_CODE_DELETE')!;
       const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
-      if (remoteId) await deleteRaindropBookmark(token, remoteId);
+      runCodeDeletes.push({ entityId: deleteOp.entityId, raindropId: remoteId });
+    }
+    const unresolvedRunDeletes = runCodeDeletes.filter((d) => !d.raindropId);
+    if (unresolvedRunDeletes.length > 0) {
+      const remoteBookmarks = await fetchAllRaindropItems(token, runCodeCollId);
+      for (const item of remoteBookmarks) {
+        let ruleId = item.link?.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX)
+          ? item.link.slice(ARCABLE_RUN_CODE_LINK_PREFIX.length)
+          : undefined;
+        if (!ruleId && item.excerpt) {
+          try {
+            const parsed = JSON.parse(item.excerpt);
+            if (parsed && typeof parsed.id === 'string') ruleId = parsed.id;
+          } catch {}
+        }
+        if (ruleId) {
+          const match = unresolvedRunDeletes.find((d) => d.entityId === ruleId);
+          if (match) match.raindropId = item._id;
+        }
+      }
+    }
+    for (const d of runCodeDeletes) {
+      if (d.raindropId) await deleteRaindropBookmark(token, d.raindropId);
+    }
+    const deletedRunCodeIds = new Set(runCodeDeletes.map((d) => d.entityId));
+    if (deletedRunCodeIds.size > 0) {
+      latestSnapshot = {
+        ...latestSnapshot,
+        runCodeInPageRules: (latestSnapshot.runCodeInPageRules || []).filter((r) => !deletedRunCodeIds.has(r.id)),
+      };
     }
   }
 
@@ -1838,8 +1911,9 @@ export function reconstructWorkspace(
   // device has already established a root collection for this workspace, an empty list
   // of live items is a legitimate deletion, not evidence of un-migrated data — the legacy
   // blob can otherwise resurrect items that were deleted after it was last written (its
-  // deletion on push is best-effort and can silently fail, leaving stale data behind).
-  const allowLegacyMetadataFallback = options?.allowLegacyMetadataFallback ?? true;
+  const nonLegacyItems = tree.items.filter((item) => !isArcableInternalItem(item));
+  const hasNativeTreeStructure = tree.collections.length > 0 || nonLegacyItems.length > 0;
+  const allowLegacyMetadataFallback = options?.allowLegacyMetadataFallback ?? !hasNativeTreeStructure;
   if (!tree.root) return createEmptyRemoteWorkspace();
   const root = tree.root;
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
@@ -2139,7 +2213,7 @@ export function reconstructWorkspace(
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
-      isGroup: Boolean(urlVariants && urlVariants.length > 1) || undefined,
+      isGroup: Boolean(favourite && urlVariants && urlVariants.length > 1) || undefined,
     });
   }
 
@@ -2206,7 +2280,9 @@ export function reconstructWorkspace(
       }
       if (addedVariants.length > 0) {
         matchingTab.urlVariants = [...(matchingTab.urlVariants || []), ...addedVariants];
-        matchingTab.isGroup = true;
+        if (favourite) {
+          matchingTab.isGroup = true;
+        }
       }
       continue;
     }
@@ -2232,7 +2308,7 @@ export function reconstructWorkspace(
       order: itemOrderMap.get(first._id) ?? (first.order ?? 0),
       createdAt: timestamp(first.created),
       updatedAt: timestamp(first.lastUpdate),
-      isGroup: true,
+      isGroup: favourite ? true : undefined,
     });
   }
 
@@ -2597,19 +2673,6 @@ export async function syncWorkspaceWithRaindrop(
       if (remoteId && remoteCollections.has(remoteId)) await deleteRaindropCollection(clean, remoteId);
     }
 
-    // Widgets, custom code rules, and run code rules live outside the space/folder
-    // collection tree and their bookmark items don't carry an arcableId in `note`
-    // (they encode their local id in `excerpt`/`link` instead), so they can't be
-    // resolved via remoteItemByArcableId like tabs above. Their WIDGET_DELETE /
-    // CUSTOM_CODE_DELETE / RUN_CODE_DELETE operations carry the raindropId
-    // directly in the payload - use that to delete them explicitly, otherwise
-    // they're silently skipped and resurrect on the next sync.
-    for (const op of pendingOps) {
-      if (op.type !== 'WIDGET_DELETE' && op.type !== 'CUSTOM_CODE_DELETE' && op.type !== 'RUN_CODE_DELETE') continue;
-      const remoteId = Number(op.payload?.raindropId) || numericRaindropId(op.entityId);
-      if (remoteId && remoteItems.has(remoteId)) await deleteRaindropBookmark(clean, remoteId);
-    }
-
     // Find or create special collections for Custom CSS and Run Code
     let customCssColl = tree.collections.find(
       (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase()
@@ -2627,6 +2690,50 @@ export async function syncWorkspaceWithRaindrop(
       runCodeColl = await createRaindropCollection(clean, ARCABLE_RUN_CODE_COLLECTION_NAME, root._id);
       tree.collections.push(runCodeColl);
       remoteCollections.set(runCodeColl._id, runCodeColl);
+    }
+
+    // Widgets, custom code rules, and run code rules live outside the space/folder
+    // collection tree and their bookmark items don't carry an arcableId in `note`
+    // (they encode their local id in `excerpt`/`link` instead), so they can't be
+    // resolved via remoteItemByArcableId like tabs above. Their WIDGET_DELETE /
+    // CUSTOM_CODE_DELETE / RUN_CODE_DELETE operations carry the raindropId
+    // directly in the payload - use that to delete them explicitly, or resolve from tree.items.
+    for (const op of pendingOps) {
+      if (op.type !== 'WIDGET_DELETE' && op.type !== 'CUSTOM_CODE_DELETE' && op.type !== 'RUN_CODE_DELETE') continue;
+      let remoteId = Number(op.payload?.raindropId) || numericRaindropId(op.entityId);
+      if (!remoteId) {
+        if (op.type === 'CUSTOM_CODE_DELETE') {
+          const match = tree.items.find((item) => {
+            if (!isCustomCssItem(item, customCssColl?._id)) return false;
+            if (item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX) && item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length) === op.entityId) return true;
+            if (item.excerpt) {
+              try {
+                const parsed = JSON.parse(item.excerpt);
+                if (parsed?.id === op.entityId) return true;
+              } catch {}
+            }
+            return String(item._id) === op.entityId;
+          });
+          if (match) remoteId = match._id;
+        } else if (op.type === 'RUN_CODE_DELETE') {
+          const match = tree.items.find((item) => {
+            if (!isRunCodeItem(item, runCodeColl?._id)) return false;
+            if (item.link?.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX) && item.link.slice(ARCABLE_RUN_CODE_LINK_PREFIX.length) === op.entityId) return true;
+            if (item.excerpt) {
+              try {
+                const parsed = JSON.parse(item.excerpt);
+                if (parsed?.id === op.entityId) return true;
+              } catch {}
+            }
+            return String(item._id) === op.entityId;
+          });
+          if (match) remoteId = match._id;
+        }
+      }
+      if (remoteId && remoteItems.has(remoteId)) {
+        await deleteRaindropBookmark(clean, remoteId);
+        remoteItems.delete(remoteId);
+      }
     }
 
     const bookmarksToCreate = [] as Parameters<typeof createRaindropBookmarks>[1];
@@ -2673,7 +2780,6 @@ export async function syncWorkspaceWithRaindrop(
           collectionId: parentId,
           order: targetOrder,
           sort: targetOrder,
-          pleaseParse: { disabled: true },
         });
         // Extra URL variants
         secondaryVariants.forEach((variant, vIdx) => {
@@ -2703,7 +2809,6 @@ export async function syncWorkspaceWithRaindrop(
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,
-              pleaseParse: { disabled: true },
             });
           }
         });
@@ -2776,7 +2881,6 @@ export async function syncWorkspaceWithRaindrop(
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,
-              pleaseParse: { disabled: true },
             });
           }
         });
@@ -2897,15 +3001,14 @@ export async function syncWorkspaceWithRaindrop(
       }
 
       // Raindrop batch creation defaults new bookmarks to index 0 (top of collection).
-      // Reposition created favourite/widget items that have a positive targetOrder so manual ordering is respected.
+      // Reposition created items that have a positive targetOrder so manual ordering is respected.
       const bookmarksWithOrder = batch
         .map((entry, index) => ({
           createdId: createdItems[index]._id,
           targetOrder: entry.order !== undefined ? entry.order : entry.sort,
-          isRootItem: entry.collectionId === root._id,
         }))
-        .filter((entry): entry is { createdId: number; targetOrder: number; isRootItem: boolean } =>
-          Boolean(entry.isRootItem) && entry.targetOrder !== undefined && entry.targetOrder > 0
+        .filter((entry): entry is { createdId: number; targetOrder: number } =>
+          entry.targetOrder !== undefined && entry.targetOrder > 0
         )
         .sort((a, b) => a.targetOrder - b.targetOrder);
 
@@ -2935,7 +3038,7 @@ export async function syncWorkspaceWithRaindrop(
     }
 
     tree = await fetchRemoteArcableTree(clean);
-    const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId);
+    const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId, { allowLegacyMetadataFallback: false });
 
     return {
       success: true,

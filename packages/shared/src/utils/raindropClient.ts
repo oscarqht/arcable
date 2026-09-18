@@ -76,23 +76,57 @@ function paceFromRateLimitHeaders(response: Response): void {
   nextRequestAt = Math.max(nextRequestAt, Date.now() + Math.max(MIN_REQUEST_INTERVAL_MS, interval));
 }
 
-async function fetchRaindropApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export interface RaindropApiRequestInit extends RequestInit {
+  bypassQueue?: boolean;
+}
+
+async function fetchRaindropApi(input: RequestInfo | URL, init?: RaindropApiRequestInit): Promise<Response> {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   if (!url.startsWith(RAINDROP_API_ORIGIN)) return fetch(input, init);
+
+  if (init?.signal?.aborted) {
+    throw new DOMException('The user aborted a request.', 'AbortError');
+  }
+
   const operation = (init?.method || 'GET').toUpperCase();
   const endpoint = new URL(url).pathname;
   const canRetryTransportFailure = operation === 'GET';
 
   const request = async (): Promise<Response> => {
     for (let attempt = 0; ; attempt += 1) {
-      const waitMs = Math.max(0, nextRequestAt - Date.now());
-      nextRequestAt = Math.max(nextRequestAt, Date.now()) + MIN_REQUEST_INTERVAL_MS;
-      if (waitMs > 0) await sleep(waitMs);
+      if (init?.signal?.aborted) {
+        throw new DOMException('The user aborted a request.', 'AbortError');
+      }
+
+      if (!init?.bypassQueue) {
+        const waitMs = Math.max(0, nextRequestAt - Date.now());
+        nextRequestAt = Math.max(nextRequestAt, Date.now()) + MIN_REQUEST_INTERVAL_MS;
+        if (waitMs > 0) {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, waitMs);
+            if (init?.signal) {
+              const onAbort = () => {
+                clearTimeout(timer);
+                reject(new DOMException('The user aborted a request.', 'AbortError'));
+              };
+              if (init.signal.aborted) {
+                clearTimeout(timer);
+                reject(new DOMException('The user aborted a request.', 'AbortError'));
+              } else {
+                init.signal.addEventListener('abort', onAbort, { once: true });
+              }
+            }
+          });
+        }
+      }
 
       let response: Response;
       try {
         response = await fetch(input, init);
       } catch (error) {
+        if (init?.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          throw error;
+        }
         if (!canRetryTransportFailure || attempt === MAX_TRANSPORT_RETRIES) {
           throw new RaindropTransportError(operation, endpoint, attempt, error);
         }
@@ -114,6 +148,10 @@ async function fetchRaindropApi(input: RequestInfo | URL, init?: RequestInit): P
       await sleep(retryDelay);
     }
   };
+
+  if (init?.bypassQueue) {
+    return request();
+  }
 
   const queuedRequest = requestQueue.then(request, request);
   requestQueue = queuedRequest.then(() => undefined, () => undefined);
@@ -395,8 +433,11 @@ export async function createRaindropBookmark(
   const payload: Record<string, any> = {
     link: input.link,
     title: encodeRaindropTitle(input.title || input.link),
-    pleaseParse: input.pleaseParse ?? {},
   };
+
+  if (input.pleaseParse !== undefined) {
+    payload.pleaseParse = input.pleaseParse;
+  }
 
   if (input.excerpt) {
     payload.excerpt = input.excerpt;
@@ -482,8 +523,8 @@ export async function createRaindropBookmarks(
     const item: Record<string, unknown> = {
       link: input.link,
       title: encodeRaindropTitle(input.title || input.link),
-      pleaseParse: input.pleaseParse ?? {},
     };
+    if (input.pleaseParse !== undefined) item.pleaseParse = input.pleaseParse;
     if (input.excerpt) item.excerpt = input.excerpt;
     if (input.tags?.length) item.tags = input.tags;
     if (input.collectionId !== undefined) item.collection = { $id: input.collectionId };
@@ -704,6 +745,7 @@ export async function createRaindropCollection(
   }
 
   const data = (await res.json()) as { item: RaindropCollectionItem };
+  clearSearchCollectionsCache();
   return data.item;
 }
 
@@ -738,6 +780,7 @@ export async function updateRaindropCollection(
       body: JSON.stringify(payload),
     });
     if (!res.ok) return null;
+    clearSearchCollectionsCache();
     const data = (await res.json()) as { item?: RaindropCollectionItem };
     return data.item || null;
   } catch (error) {
@@ -754,6 +797,9 @@ export async function deleteRaindropCollection(token: string, collectionId: numb
     method: 'DELETE',
     headers: { Authorization: `Bearer ${cleanToken}`, Accept: 'application/json' },
   });
+  if (res.ok) {
+    clearSearchCollectionsCache();
+  }
   return res.ok;
 }
 
@@ -1168,6 +1214,22 @@ export async function exchangeRaindropOAuthCode(
   return data;
 }
 
+interface CachedCollectionsData {
+  collections: RaindropCollectionItem[];
+  fetchedAt: number;
+}
+let searchCollectionsCache: CachedCollectionsData | null = null;
+const SEARCH_COLLECTIONS_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+
+export function clearSearchCollectionsCache(): void {
+  searchCollectionsCache = null;
+}
+
+export interface SearchRaindropOptions {
+  perpage?: number;
+  signal?: AbortSignal;
+}
+
 /**
  * Search Raindrop items and collections with ranking and mapping.
  * Mirrors the search implementation from nenya-ext.
@@ -1175,11 +1237,15 @@ export async function exchangeRaindropOAuthCode(
 export async function searchRaindrop(
   token: string,
   query: string,
-  options?: { perpage?: number }
+  options?: SearchRaindropOptions
 ): Promise<RaindropSearchResult> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken || !query.trim()) {
     return { items: [], collections: [] };
+  }
+
+  if (options?.signal?.aborted) {
+    throw new DOMException('The user aborted a request.', 'AbortError');
   }
 
   const perpage = options?.perpage || 50;
@@ -1189,41 +1255,84 @@ export async function searchRaindrop(
   };
 
   try {
-    const [itemsRes, rootColRes, childColRes] = await Promise.allSettled([
-      fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`, {
-        method: 'GET',
-        headers,
-      }),
-      fetchRaindropApi(`${RAINDROP_API_BASE}/collections`, {
-        method: 'GET',
-        headers,
-      }),
-      fetchRaindropApi(`${RAINDROP_API_BASE}/collections/childrens`, {
-        method: 'GET',
-        headers,
-      }),
-    ]);
+    const isCollectionsCacheValid = Boolean(
+      searchCollectionsCache &&
+      Date.now() - searchCollectionsCache.fetchedAt < SEARCH_COLLECTIONS_CACHE_TTL_MS &&
+      searchCollectionsCache.collections.length > 0
+    );
 
     let rawItems: any[] = [];
-    if (itemsRes.status === 'fulfilled' && itemsRes.value.ok) {
-      const data = await itemsRes.value.json().catch(() => ({}));
-      if (Array.isArray(data.items)) {
-        rawItems = data.items;
-      }
-    }
+    let allCollections: RaindropCollectionItem[] = [];
 
-    const allCollections: RaindropCollectionItem[] = [];
-    if (rootColRes.status === 'fulfilled' && rootColRes.value.ok) {
-      const data = await rootColRes.value.json().catch(() => ({}));
-      if (Array.isArray(data.items)) {
-        allCollections.push(...data.items);
+    if (isCollectionsCacheValid && searchCollectionsCache) {
+      allCollections = searchCollectionsCache.collections;
+      const itemsRes = await fetchRaindropApi(
+        `${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`,
+        {
+          method: 'GET',
+          headers,
+          signal: options?.signal,
+          bypassQueue: true,
+        }
+      );
+      if (itemsRes.ok) {
+        const data = await itemsRes.json().catch(() => ({}));
+        if (Array.isArray(data.items)) {
+          rawItems = data.items;
+        }
       }
-    }
+    } else {
+      const [itemsRes, rootColRes, childColRes] = await Promise.allSettled([
+        fetchRaindropApi(`${RAINDROP_API_BASE}/raindrops/0?search=${encodeURIComponent(query.trim())}&perpage=${perpage}&sort=score`, {
+          method: 'GET',
+          headers,
+          signal: options?.signal,
+          bypassQueue: true,
+        }),
+        fetchRaindropApi(`${RAINDROP_API_BASE}/collections`, {
+          method: 'GET',
+          headers,
+          signal: options?.signal,
+          bypassQueue: true,
+        }),
+        fetchRaindropApi(`${RAINDROP_API_BASE}/collections/childrens`, {
+          method: 'GET',
+          headers,
+          signal: options?.signal,
+          bypassQueue: true,
+        }),
+      ]);
 
-    if (childColRes.status === 'fulfilled' && childColRes.value.ok) {
-      const data = await childColRes.value.json().catch(() => ({}));
-      if (Array.isArray(data.items)) {
-        allCollections.push(...data.items);
+      if (options?.signal?.aborted) {
+        throw new DOMException('The user aborted a request.', 'AbortError');
+      }
+
+      if (itemsRes.status === 'fulfilled' && itemsRes.value.ok) {
+        const data = await itemsRes.value.json().catch(() => ({}));
+        if (Array.isArray(data.items)) {
+          rawItems = data.items;
+        }
+      }
+
+      if (rootColRes.status === 'fulfilled' && rootColRes.value.ok) {
+        const data = await rootColRes.value.json().catch(() => ({}));
+        if (Array.isArray(data.items)) {
+          allCollections.push(...data.items);
+        }
+      }
+
+      if (childColRes.status === 'fulfilled' && childColRes.value.ok) {
+        const data = await childColRes.value.json().catch(() => ({}));
+        if (Array.isArray(data.items)) {
+          allCollections.push(...data.items);
+        }
+      }
+
+      if (allCollections.length > 0) {
+        searchCollectionsCache = {
+          collections: allCollections,
+          fetchedAt: Date.now(),
+        };
       }
     }
 

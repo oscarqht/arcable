@@ -220,7 +220,6 @@ export const App: React.FC = () => {
           collectionId: -1,
           coverDataUrl,
           tags: ['Arcable', 'Extension'],
-          pleaseParse: {},
         },
       });
       const response = rawRes as ExtensionResponse;

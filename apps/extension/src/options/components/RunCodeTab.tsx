@@ -50,7 +50,13 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       const res = (await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: { localState },
-      })) as { success: boolean; error?: string };
+      })) as { success: boolean; data?: { latestSnapshot?: any }; latestSnapshot?: any; error?: string };
+      const latestSnapshot = res?.data?.latestSnapshot || (res as any)?.latestSnapshot;
+      if (res?.success && latestSnapshot && typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(latestSnapshot));
+        } catch {}
+      }
       return res;
     } catch (err: any) {
       console.warn('[RunCodeTab] Immediate Raindrop sync error:', err);
@@ -243,6 +249,16 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     if (window.confirm(`Delete snippet "${rule.title}"?`)) {
       const remaining = rules.filter((r) => r.id !== rule.id);
       if (editingRuleId === rule.id) resetForm();
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = window.localStorage.getItem('arcable_workspace_data');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            parsed.runCodeInPageRules = remaining;
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(parsed));
+          }
+        } catch {}
+      }
       await saveRulesToStorage(remaining);
       await queueOperations(createWorkspaceOperation('RUN_CODE_DELETE', rule.id, { raindropId: rule.raindropId }));
       void syncToRaindropImmediately();

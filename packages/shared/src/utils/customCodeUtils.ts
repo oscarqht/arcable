@@ -97,9 +97,14 @@ export function normalizeCustomCodeRules(value: unknown): { rules: CustomCodeRul
 
       const css = typeof raw.css === 'string' ? raw.css : '';
       const js = typeof raw.js === 'string' ? raw.js : '';
+      const raindropId =
+        typeof raw.raindropId === 'number' && Number.isSafeInteger(raw.raindropId) && raw.raindropId > 0
+          ? raw.raindropId
+          : undefined;
 
       const rule: CustomCodeRule = {
         id,
+        raindropId,
         pattern,
         css,
         js,
@@ -148,9 +153,14 @@ export function normalizeRunCodeRules(value: unknown): { rules: RunCodeRule[]; m
       }
 
       const code = typeof raw.code === 'string' ? raw.code : '';
+      const raindropId =
+        typeof raw.raindropId === 'number' && Number.isSafeInteger(raw.raindropId) && raw.raindropId > 0
+          ? raw.raindropId
+          : undefined;
 
       const rule: RunCodeRule = {
         id,
+        raindropId,
         title,
         patterns,
         code,
@@ -230,6 +240,7 @@ export function mergeCustomCodeRules(
     let target = { ...rule };
     if (existingIds.has(target.id)) {
       target.id = generateRuleId('cjc');
+      delete target.raindropId;
     }
     existingIds.add(target.id);
     merged.push(target);
@@ -254,6 +265,7 @@ export function mergeRunCodeRules(
     let target = { ...rule };
     if (existingIds.has(target.id)) {
       target.id = generateRuleId('run');
+      delete target.raindropId;
     }
     existingIds.add(target.id);
     merged.push(target);

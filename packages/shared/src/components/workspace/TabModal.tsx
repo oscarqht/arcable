@@ -299,7 +299,7 @@ export const TabModal: React.FC<TabModalProps> = ({
               }))
             : undefined,
         defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
-        isGroup: Boolean(tab?.isGroup || initialIsGroup),
+        isGroup: Boolean(favourite && (initialIsGroup || (tab?.favourite && tab?.isGroup))),
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,
@@ -319,6 +319,7 @@ export const TabModal: React.FC<TabModalProps> = ({
       url: url.trim(),
       urlVariants: undefined,
       defaultVariantId: undefined,
+      isGroup: false,
       parentSpaceId: favourite ? undefined : parentSpaceId,
       parentFolderId: favourite ? undefined : parentFolderId || undefined,
       customTitle: customTitle.trim() || undefined,

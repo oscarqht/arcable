@@ -257,15 +257,28 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     }
   };
 
+  const folderMap = useMemo(() => {
+    const map = new Map<string, Folder>();
+    allFolders.forEach((f) => map.set(f.id, f));
+    return map;
+  }, [allFolders]);
+
   // Filter items matching active search
   const filteredTabs = useMemo(() => {
     if (!activeSearch) return null;
     return spaceTabs.filter((t) => {
       const matchTitle = t.customTitle && t.customTitle.toLowerCase().includes(activeSearch);
       const matchUrl = t.url && t.url.toLowerCase().includes(activeSearch);
-      return matchTitle || matchUrl;
+      const matchVariants = t.urlVariants?.some(
+        (v) =>
+          (v.name && v.name.toLowerCase().includes(activeSearch)) ||
+          (v.url && v.url.toLowerCase().includes(activeSearch))
+      );
+      const folder = t.parentFolderId ? folderMap.get(t.parentFolderId) : undefined;
+      const matchFolder = folder?.name && folder.name.toLowerCase().includes(activeSearch);
+      return Boolean(matchTitle || matchUrl || matchVariants || matchFolder);
     });
-  }, [spaceTabs, activeSearch]);
+  }, [spaceTabs, activeSearch, folderMap]);
 
   const totalTabsCount = spaceTabs.length;
 
@@ -483,39 +496,57 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
                   const isAudible = Boolean(audibleInfo);
                   const isMuted = audibleInfo?.muted === true;
+                  const folder = t.parentFolderId ? folderMap.get(t.parentFolderId) : undefined;
 
                   return (
-                    <TabRow
-                      key={t.id}
-                      tab={t}
-                      raindropCollectionId={space.raindropId}
-                      isDarkTheme={themeStyles.isDark}
-                      compact={isSingleColumn}
-                      compactVariantLabels={compactVariantLabels}
-                      alwaysShowActions={alwaysShowActions}
-                      isAssociated={Boolean(assoc)}
-                      isDiverted={Boolean(assoc?.isDiverted)}
-                      isAudible={isAudible}
-                      isMuted={isMuted}
-                      badge={assoc?.badge}
-                      currentUrl={assoc?.currentUrl}
-                      isHighlighted={highlightedTabId === t.id}
-                      onOpen={onOpenTab}
-                      onOpenTmpTab={onOpenTmpTab}
-                      onOpenVariant={onOpenVariant}
-                      onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
-                      onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
-                      onMediaControl={
-                        onMediaControl && assoc
-                          ? (action) => onMediaControl(assoc.browserTabId, action)
-                          : undefined
-                      }
-                      onEdit={onEditTab || (() => {})}
-                      onDuplicate={onDuplicateTab}
-                      onDelete={onDeleteTab || (() => {})}
-                      onTogglePin={onTogglePinTab}
-                      onToggleFavourite={onToggleFavouriteTab}
-                    />
+                    <div key={t.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                      {folder && (
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 500,
+                            opacity: 0.65,
+                            padding: '2px 8px 1px 8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <span style={{ fontSize: '11px' }}>📁</span>
+                          <span>{folder.name}</span>
+                        </div>
+                      )}
+                      <TabRow
+                        tab={t}
+                        raindropCollectionId={space.raindropId}
+                        isDarkTheme={themeStyles.isDark}
+                        compact={isSingleColumn}
+                        compactVariantLabels={compactVariantLabels}
+                        alwaysShowActions={alwaysShowActions}
+                        isAssociated={Boolean(assoc)}
+                        isDiverted={Boolean(assoc?.isDiverted)}
+                        isAudible={isAudible}
+                        isMuted={isMuted}
+                        badge={assoc?.badge}
+                        currentUrl={assoc?.currentUrl}
+                        isHighlighted={highlightedTabId === t.id}
+                        onOpen={onOpenTab}
+                        onOpenTmpTab={onOpenTmpTab}
+                        onOpenVariant={onOpenVariant}
+                        onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
+                        onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
+                        onMediaControl={
+                          onMediaControl && assoc
+                            ? (action) => onMediaControl(assoc.browserTabId, action)
+                            : undefined
+                        }
+                        onEdit={onEditTab || (() => {})}
+                        onDuplicate={onDuplicateTab}
+                        onDelete={onDeleteTab || (() => {})}
+                        onTogglePin={onTogglePinTab}
+                        onToggleFavourite={onToggleFavouriteTab}
+                      />
+                    </div>
                   );
                 })
               )}

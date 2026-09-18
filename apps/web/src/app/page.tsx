@@ -183,12 +183,13 @@ export default function HomePage() {
     }
   }, [authState.accessToken]);
 
-  const handleSearchRaindrop = async (query: string) => {
+  const handleSearchRaindrop = async (query: string, options?: { signal?: AbortSignal }) => {
     try {
       const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(query)}`, {
         headers: authState.accessToken
           ? { Authorization: `Bearer ${authState.accessToken}` }
           : undefined,
+        signal: options?.signal,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -196,6 +197,9 @@ export default function HomePage() {
       }
       return data;
     } catch (err: any) {
+      if (err?.name === 'AbortError' || options?.signal?.aborted) {
+        throw err;
+      }
       console.error('Raindrop search error:', err);
       throw err;
     }

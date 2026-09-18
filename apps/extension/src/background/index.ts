@@ -456,10 +456,20 @@ browser.runtime.onMessage.addListener(
           const combinedPendingOps = Array.from(opMap.values());
           const syncedOpIds = new Set(combinedPendingOps.map((op) => op.id));
 
-          // Collect all tmp tab IDs pending deletion (from UI or stored ops)
+          // Collect all entity IDs pending deletion (from UI or stored ops)
           const pendingDeletedTmpIds = new Set<string>(
             combinedPendingOps
               .filter((op) => op.type === 'TMP_TAB_DELETE')
+              .map((op) => op.entityId)
+          );
+          const pendingDeletedCustomCodeIds = new Set<string>(
+            combinedPendingOps
+              .filter((op) => op.type === 'CUSTOM_CODE_DELETE')
+              .map((op) => op.entityId)
+          );
+          const pendingDeletedRunCodeIds = new Set<string>(
+            combinedPendingOps
+              .filter((op) => op.type === 'RUN_CODE_DELETE')
               .map((op) => op.entityId)
           );
 
@@ -479,15 +489,17 @@ browser.runtime.onMessage.addListener(
             const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
               (t: TmpTab) => !pendingDeletedTmpIds.has(t.id)
             );
+            const rawCustomRules = localCustomRules ?? stateToSync.customCodeRules ?? [];
+            const rawRunRules = localRunRules ?? stateToSync.runCodeInPageRules ?? [];
             stateToSync = {
               ...stateToSync,
               tmpTabs: taggedTmp.length > 0 ? taggedTmp : filteredStateTmpTabs,
               // Rules are edited in dedicated extension storage. A present empty
               // array is meaningful (it represents deletion), so use nullish
               // fallback rather than truthiness and never let a stale snapshot
-              // hide current rule content.
-              customCodeRules: localCustomRules ?? stateToSync.customCodeRules ?? [],
-              runCodeInPageRules: localRunRules ?? stateToSync.runCodeInPageRules ?? [],
+              // hide current rule content. Also filter out pending deleted rule IDs.
+              customCodeRules: rawCustomRules.filter((r: CustomCodeRule) => !pendingDeletedCustomCodeIds.has(r.id)),
+              runCodeInPageRules: rawRunRules.filter((r: RunCodeRule) => !pendingDeletedRunCodeIds.has(r.id)),
             };
           } else {
             stateToSync = {
@@ -497,8 +509,8 @@ browser.runtime.onMessage.addListener(
               folders: [],
               tabs: [],
               tmpTabs: taggedTmp,
-              customCodeRules: localCustomRules || [],
-              runCodeInPageRules: localRunRules || [],
+              customCodeRules: (localCustomRules || []).filter((r: CustomCodeRule) => !pendingDeletedCustomCodeIds.has(r.id)),
+              runCodeInPageRules: (localRunRules || []).filter((r: RunCodeRule) => !pendingDeletedRunCodeIds.has(r.id)),
             };
           }
 
@@ -783,19 +795,39 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
     const deviceId = await getOrCreateExtensionDeviceId();
     const deviceName = await getExtensionDeviceName();
 
-    const taggedTmpTabs = localTmpTabs.map((t) => ({
-      ...t,
-      deviceId: t.deviceId || deviceId,
-      deviceName: t.deviceName || deviceName,
-      deviceType: 'Ext' as const,
-    }));
+    const pendingDeletedTmpIds = new Set<string>(
+      pendingOps
+        .filter((op) => op.type === 'TMP_TAB_DELETE')
+        .map((op) => op.entityId)
+    );
+    const pendingDeletedCustomCodeIds = new Set<string>(
+      pendingOps
+        .filter((op) => op.type === 'CUSTOM_CODE_DELETE')
+        .map((op) => op.entityId)
+    );
+    const pendingDeletedRunCodeIds = new Set<string>(
+      pendingOps
+        .filter((op) => op.type === 'RUN_CODE_DELETE')
+        .map((op) => op.entityId)
+    );
+
+    const taggedTmpTabs = localTmpTabs
+      .filter((t) => !pendingDeletedTmpIds.has(t.id))
+      .map((t) => ({
+        ...t,
+        deviceId: t.deviceId || deviceId,
+        deviceName: t.deviceName || deviceName,
+        deviceType: 'Ext' as const,
+      }));
 
     if (localState) {
+      const rawCustomRules = localCustomRules ?? localState.customCodeRules ?? [];
+      const rawRunRules = localRunRules ?? localState.runCodeInPageRules ?? [];
       localState = {
         ...localState,
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localCustomRules ?? localState.customCodeRules ?? [],
-        runCodeInPageRules: localRunRules ?? localState.runCodeInPageRules ?? [],
+        customCodeRules: rawCustomRules.filter((r: CustomCodeRule) => !pendingDeletedCustomCodeIds.has(r.id)),
+        runCodeInPageRules: rawRunRules.filter((r: RunCodeRule) => !pendingDeletedRunCodeIds.has(r.id)),
       };
     } else {
       localState = {
@@ -805,8 +837,8 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
         folders: [],
         tabs: [],
         tmpTabs: taggedTmpTabs,
-        customCodeRules: localCustomRules || [],
-        runCodeInPageRules: localRunRules || [],
+        customCodeRules: (localCustomRules || []).filter((r: CustomCodeRule) => !pendingDeletedCustomCodeIds.has(r.id)),
+        runCodeInPageRules: (localRunRules || []).filter((r: RunCodeRule) => !pendingDeletedRunCodeIds.has(r.id)),
       };
     }
 

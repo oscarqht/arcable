@@ -11,6 +11,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const calls: Array<{ url: string; method: string; body?: any; cache?: RequestCache; headers?: Headers }> = [];
 let nextId = 100;
 let remoteChildren: any[] = [];
+let remoteItems: any[] = [];
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const method = init?.method || 'GET';
@@ -36,6 +37,12 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     if (pathname.endsWith('/collections/childrens')) {
       return new Response(JSON.stringify({ items: remoteChildren }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (pathname.includes('/raindrops/')) {
+      return new Response(JSON.stringify({ items: remoteItems, count: remoteItems.length }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -154,7 +161,9 @@ const severalBookmarkCreate = await syncIncrementalOperations(
   false
 );
 assert(severalBookmarkCreate?.success, 'multiple bookmark creates should use incremental sync');
-assert(calls.length === 1 && calls[0].method === 'POST' && calls[0].body.items.length === 3, 'multiple bookmarks should be created in one batch API call');
+const postCalls = calls.filter((call) => call.method === 'POST');
+assert(postCalls.length === 1 && postCalls[0].url.endsWith('/raindrops') && postCalls[0].body.items.length === 3, 'multiple bookmarks should be created in one batch API call');
+assert(calls.every((call) => call.method !== 'GET'), 'multiple bookmark creates should not fetch the full workspace');
 assert(severalBookmarkCreate.latestSnapshot?.tabs.length === 3, 'the incremental response should keep every newly created bookmark');
 assert(severalBookmarkCreate.latestSnapshot?.tabs.every((tab) => Boolean(tab.raindropId)), 'every batch-created bookmark should receive its Raindrop ID');
 
@@ -238,6 +247,57 @@ assert(parsedCustomExcerpt.js === 'window.customRuleRan = true;', 'custom JavaSc
 assert(parsedCustomExcerpt.css === 'body { color: red; }', 'custom CSS content should be in excerpt');
 const parsedRunCodeExcerpt = JSON.parse(runCodeItem.excerpt);
 assert(parsedRunCodeExcerpt.code === 'window.runRuleRan = true;', 'Run Code content should be in excerpt');
+
+calls.length = 0;
+// Test deleting custom code and run code with raindropId in payload
+const deleteWithIdUpdate = await syncWorkspaceWithRaindrop('token', {
+  localState: codeRulesUpdate.latestSnapshot,
+  pendingOps: [
+    operation('CUSTOM_CODE_DELETE', 'custom-rule', { raindropId: codeRulesUpdate.latestSnapshot.customCodeRules[0].raindropId }),
+    operation('RUN_CODE_DELETE', 'run-rule', { raindropId: codeRulesUpdate.latestSnapshot.runCodeInPageRules[0].raindropId }),
+  ],
+});
+assert(deleteWithIdUpdate?.success, 'custom code and run code deletions should succeed');
+const deleteCalls = calls.filter((c) => c.method === 'DELETE' && c.url.includes('/raindrop/'));
+assert(deleteCalls.length === 2, 'should delete both bookmarks from Raindrop');
+assert(deleteWithIdUpdate.latestSnapshot.customCodeRules.length === 0, 'customCodeRules in snapshot should not contain deleted rule');
+assert(deleteWithIdUpdate.latestSnapshot.runCodeInPageRules.length === 0, 'runCodeInPageRules in snapshot should not contain deleted rule');
+
+// Test deleting custom code and run code without raindropId in payload (fallback by link/excerpt lookup)
+remoteItems = [
+  {
+    _id: 991,
+    collection: { $id: 1 },
+    link: 'https://arcable.app/custom-css/unresolved-custom',
+    excerpt: JSON.stringify({ id: 'unresolved-custom' }),
+  },
+  {
+    _id: 992,
+    collection: { $id: 1 },
+    link: 'https://arcable.app/run-code/unresolved-run',
+    excerpt: JSON.stringify({ id: 'unresolved-run' }),
+  },
+];
+calls.length = 0;
+const deleteWithoutIdUpdate = await syncWorkspaceWithRaindrop('token', {
+  localState: {
+    ...codeRulesUpdate.latestSnapshot,
+    customCodeRules: [{ id: 'unresolved-custom', pattern: '*', css: '', js: '' }],
+    runCodeInPageRules: [{ id: 'unresolved-run', title: 'test', patterns: [], code: '' }],
+  },
+  pendingOps: [
+    operation('CUSTOM_CODE_DELETE', 'unresolved-custom', {}),
+    operation('RUN_CODE_DELETE', 'unresolved-run', {}),
+  ],
+});
+assert(deleteWithoutIdUpdate?.success, 'unresolved deletions should succeed');
+const unresolvedDeleteCalls = calls.filter((c) => c.method === 'DELETE' && c.url.includes('/raindrop/'));
+assert(unresolvedDeleteCalls.length === 2, 'should delete both resolved bookmarks from Raindrop');
+assert(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/991')), 'should delete custom css bookmark 991');
+assert(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/992')), 'should delete run code bookmark 992');
+assert(deleteWithoutIdUpdate.latestSnapshot.customCodeRules.length === 0, 'snapshot customCodeRules should be filtered');
+assert(deleteWithoutIdUpdate.latestSnapshot.runCodeInPageRules.length === 0, 'snapshot runCodeInPageRules should be filtered');
+remoteItems = [];
 
 calls.length = 0;
 const mixedFavouriteState: ArcableWorkspaceData = {

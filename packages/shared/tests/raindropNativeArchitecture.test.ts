@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   syncWorkspaceWithRaindrop,
+  syncIncrementalOperations,
   fetchRaindropWorkspace,
   ARCABLE_COLLECTION_NAME,
   ARCABLE_CUSTOM_CSS_COLLECTION_NAME,
@@ -943,6 +944,173 @@ async function runTests(): Promise<void> {
   assert.equal(incRecTab.urlVariants[1].name, 'Variant <Staging>');
 
   console.log('✓ Spaces, folders, tabs, and URL variants preserve "<" and ">" across full and incremental sync');
+
+  // 11. Newly added normal tab items (in spaces/folders) sorting order post-sync:
+  // Expected behavior:
+  // 1. Initially after added it shows at the end of tab items (correct);
+  // 2. After sync it maintains the same sorting order (stays at the end, not moved to the top);
+  // 3. Unless user has manually changed the order, in which case it maintains the manually sorted position.
+  calls.length = 0;
+  mockState = {
+    collections: [
+      { _id: 1, title: ARCABLE_COLLECTION_NAME, sort: 0 },
+      { _id: 10, title: 'Work Space', parent: { $id: 1 }, sort: 0 },
+      { _id: 20, title: 'Project Folder', parent: { $id: 10 }, sort: 0 },
+    ],
+    bookmarks: [
+      { _id: 2001, title: 'Tab 1', link: 'https://tab1.com', collection: { $id: 10 }, sort: 0, order: 0 },
+      { _id: 2002, title: 'Tab 2', link: 'https://tab2.com', collection: { $id: 10 }, sort: 1, order: 1 },
+      { _id: 2003, title: 'Folder Tab 1', link: 'https://ftab1.com', collection: { $id: 20 }, sort: 0, order: 0 },
+      { _id: 2004, title: 'Folder Tab 2', link: 'https://ftab2.com', collection: { $id: 20 }, sort: 1, order: 1 },
+    ],
+  };
+
+  const initialNormalFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(initialNormalFetch.success, true);
+  const initialNormalData = initialNormalFetch.data!;
+  assert.equal(initialNormalData.tabs.length, 4);
+
+  // 11.1 Add a new tab to the space locally: maxOrder + 1000 places it at the end
+  const spaceTabs = initialNormalData.tabs.filter((t) => t.parentSpaceId === '10' && !t.parentFolderId);
+  assert.equal(spaceTabs.length, 2);
+  const maxSpaceTabOrder = Math.max(0, ...spaceTabs.map((t) => t.order ?? 0));
+  const newSpaceTab: Tab = {
+    id: 'tab-space-3',
+    url: 'https://tab3.com',
+    customTitle: 'Tab 3',
+    parentSpaceId: '10',
+    order: maxSpaceTabOrder + 1000,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  // Verify that before sync, new space tab is at the end of the space tabs
+  const localSpaceTabs = [...spaceTabs, newSpaceTab].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(localSpaceTabs[localSpaceTabs.length - 1].id, 'tab-space-3', 'New space tab must be at the end locally');
+
+  // Full sync with Raindrop
+  calls.length = 0;
+  const syncNewSpaceTabResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: {
+      ...initialNormalData,
+      tabs: [...initialNormalData.tabs, newSpaceTab],
+    },
+    pendingOps: [
+      {
+        id: 'op-space-3',
+        type: 'TAB_CREATE',
+        entityId: 'tab-space-3',
+        payload: newSpaceTab,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+  assert.equal(syncNewSpaceTabResult.success, true);
+
+  // Verify that PUT call was made to reposition the created tab to targetOrder = 2
+  const spaceTabPutCall = calls.find(
+    (c) => c.method === 'PUT' && c.url.includes('/raindrop/') && (c.body?.order === 2 || c.body?.sort === 2)
+  );
+  assert(spaceTabPutCall, 'Newly created space tab must be repositioned to targetOrder at the end via PUT');
+
+  // Verify that after sync, it remains at the end of the space tabs (not moved to top)
+  const afterSpaceTabSync = await fetchRaindropWorkspace('mock-token');
+  assert.equal(afterSpaceTabSync.success, true);
+  const fetchedSpaceTabs = afterSpaceTabSync.data!.tabs
+    .filter((t) => t.parentSpaceId === '10' && !t.parentFolderId)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(fetchedSpaceTabs.length, 3);
+  assert.equal(fetchedSpaceTabs[0].customTitle, 'Tab 1');
+  assert.equal(fetchedSpaceTabs[1].customTitle, 'Tab 2');
+  assert.equal(fetchedSpaceTabs[2].customTitle, 'Tab 3', 'Newly added space tab must remain at the end after sync');
+
+  // 11.2 Incremental sync test: Add a new tab to folder '20' via incremental sync
+  const folderTabs = afterSpaceTabSync.data!.tabs.filter((t) => t.parentFolderId === '20');
+  assert.equal(folderTabs.length, 2);
+  const maxFolderTabOrder = Math.max(0, ...folderTabs.map((t) => t.order ?? 0));
+  const newFolderTab: Tab = {
+    id: 'tab-folder-3',
+    url: 'https://ftab3.com',
+    customTitle: 'Folder Tab 3',
+    parentFolderId: '20',
+    parentSpaceId: '10',
+    order: maxFolderTabOrder + 1000,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  calls.length = 0;
+  const incFolderTabResult = await syncIncrementalOperations(
+    'mock-token',
+    {
+      ...afterSpaceTabSync.data!,
+      tabs: [...afterSpaceTabSync.data!.tabs, newFolderTab],
+    },
+    [
+      {
+        id: 'op-folder-3',
+        type: 'TAB_CREATE',
+        entityId: 'tab-folder-3',
+        payload: newFolderTab,
+        timestamp: Date.now(),
+      },
+    ]
+  );
+  assert.equal(incFolderTabResult.success, true);
+
+  // Verify that incremental sync repositioned the folder tab to targetOrder = 2
+  const folderTabPutCall = calls.find(
+    (c) => c.method === 'PUT' && c.url.includes('/raindrop/') && (c.body?.order === 2 || c.body?.sort === 2)
+  );
+  assert(folderTabPutCall, 'Incrementally created folder tab must be repositioned to targetOrder at the end via PUT');
+
+  const afterFolderTabSync = await fetchRaindropWorkspace('mock-token');
+  assert.equal(afterFolderTabSync.success, true);
+  const fetchedFolderTabs = afterFolderTabSync.data!.tabs
+    .filter((t) => t.parentFolderId === '20')
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(fetchedFolderTabs.length, 3);
+  assert.equal(fetchedFolderTabs[0].customTitle, 'Folder Tab 1');
+  assert.equal(fetchedFolderTabs[1].customTitle, 'Folder Tab 2');
+  assert.equal(fetchedFolderTabs[2].customTitle, 'Folder Tab 3', 'Newly added folder tab must remain at the end after incremental sync');
+
+  // 11.3 Verify manual reordering in folder before sync: tab placed at index 0 (top)
+  calls.length = 0;
+  const manuallyMovedTab: Tab = {
+    id: 'tab-folder-front',
+    url: 'https://ftab-front.com',
+    customTitle: 'Folder Tab Front',
+    parentFolderId: '20',
+    parentSpaceId: '10',
+    order: 500, // Manually sorted before folder tab 1 (1000)
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const manualSortResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: {
+      ...afterFolderTabSync.data!,
+      tabs: [manuallyMovedTab, ...afterFolderTabSync.data!.tabs],
+    },
+    pendingOps: [
+      {
+        id: 'op-folder-front',
+        type: 'TAB_CREATE',
+        entityId: 'tab-folder-front',
+        payload: manuallyMovedTab,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+  assert.equal(manualSortResult.success, true);
+
+  const afterManualSortNormalFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(afterManualSortNormalFetch.success, true);
+  const fetchedManualFolderTabs = afterManualSortNormalFetch.data!.tabs
+    .filter((t) => t.parentFolderId === '20')
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(fetchedManualFolderTabs[0].customTitle, 'Folder Tab Front', 'Manually sorted tab before sync must remain at the front');
+  console.log('✓ Newly added space and folder tab items stay at the end after sync, or maintain manually sorted position');
 }
 
 runTests().catch((err) => {

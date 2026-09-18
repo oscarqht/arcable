@@ -16,6 +16,7 @@ import {
   areUrlsMatching,
   getSpaceThemeStyles,
   SpaceThemeTokens,
+  searchRaindrop,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -134,6 +135,7 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [raindropToken, setRaindropToken] = useState<string | null>(null);
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
@@ -239,6 +241,7 @@ export const App: React.FC = () => {
       const auth = res.arcable_raindrop_auth;
       const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
       setHasRaindropAuth(isRaindropAuth);
+      setRaindropToken(auth?.accessToken || null);
 
       if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
@@ -290,7 +293,9 @@ export const App: React.FC = () => {
     const handleStorageChange = (changes: Record<string, any>, area: string) => {
       if (area === 'local') {
         if (changes.arcable_raindrop_auth) {
-          setHasRaindropAuth(Boolean(changes.arcable_raindrop_auth.newValue?.isAuthenticated));
+          const authVal = changes.arcable_raindrop_auth.newValue;
+          setHasRaindropAuth(Boolean(authVal?.isAuthenticated));
+          setRaindropToken(authVal?.accessToken || null);
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
@@ -441,11 +446,32 @@ export const App: React.FC = () => {
     return res.data;
   };
 
-  const handleSearchRaindrop = async (query: string) => {
+  const handleSearchRaindrop = async (query: string, options?: { signal?: AbortSignal }) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return { items: [], collections: [] };
+    }
+
+    if (options?.signal?.aborted) {
+      throw new DOMException('The user aborted a request.', 'AbortError');
+    }
+
+    // Follow webapp's approach: perform fast, non-blocking search in sidepanel context
+    if (raindropToken) {
+      try {
+        return await searchRaindrop(raindropToken, trimmed, { signal: options?.signal });
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || options?.signal?.aborted) {
+          throw err;
+        }
+        console.warn('[Arcable Sidepanel] Direct Raindrop search failed, falling back to background worker:', err);
+      }
+    }
+
     try {
       const res: any = await browser.runtime.sendMessage({
         type: 'RAINDROP_SEARCH',
-        payload: { query },
+        payload: { query: trimmed },
       });
       if (!res || !res.success) {
         if (res?.error === 'Not authenticated with Raindrop') {
@@ -601,10 +627,12 @@ export const App: React.FC = () => {
   const handleOpenVariant = useCallback(
     async (variantUrl: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => {
       const inNewTab = Boolean(options?.inNewTab);
-      const isGroup = Boolean(tab.isGroup || (tab.urlVariants && tab.urlVariants.length > 1 && !tab.url));
+      // Only favorite groups open each individual item in a separate browser tab and track them separately.
+      // Normal tab items with URL variants must open all variants in the same tab.
+      const isFavoriteGroup = Boolean(tab.favourite && (tab.isGroup || (tab.urlVariants && tab.urlVariants.length > 1)));
 
-      // For tab groups, each item is its own distinct tab item that opens/activates its own browser tab
-      if (isGroup && variant?.id) {
+      // For favorite groups, each item is its own distinct tab item that opens/activates its own browser tab
+      if (isFavoriteGroup && variant?.id) {
         setHighlightedTabId(variant.id);
         if (tabAssociations[variant.id] && !inNewTab) {
           const assoc = tabAssociations[variant.id];
@@ -846,7 +874,6 @@ export const App: React.FC = () => {
         title: tab.title || tab.url,
         collectionId: -1,
         coverDataUrl,
-        pleaseParse: {},
       },
     });
     if (!res || !res.success) {
@@ -1047,6 +1074,7 @@ export const App: React.FC = () => {
           onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
 
           hasRaindropAuth={hasRaindropAuth}
+          raindropToken={raindropToken || undefined}
           autoSync={Boolean(hasRaindropAuth && raindropHydrated)}
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}

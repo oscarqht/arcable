@@ -491,8 +491,10 @@ class TabTracker {
 
       const trackableItems: TrackableTabItem[] = [];
       for (const t of workspaceTabs) {
-        const isGroup = Boolean(t.isGroup || (t.urlVariants && t.urlVariants.length > 1));
-        if (isGroup && t.urlVariants && t.urlVariants.length > 0) {
+        // Only favorite groups have each child variant tracked separately as an individual trackable item.
+        // Normal tab items (in spaces/folders/pinned) with URL variants are tracked as a single tab under t.id.
+        const isFavoriteGroup = Boolean(t.favourite && (t.isGroup || (t.urlVariants && t.urlVariants.length > 1)));
+        if (isFavoriteGroup && t.urlVariants && t.urlVariants.length > 0) {
           // Add each child variant as a trackable tab item
           for (const v of t.urlVariants) {
             if (v.id && v.url) {
@@ -502,12 +504,15 @@ class TabTracker {
               });
             }
           }
-        } else if (t.url) {
-          trackableItems.push({
-            id: t.id,
-            url: t.url,
-            urlVariants: t.urlVariants,
-          });
+        } else if (t.url || (t.urlVariants && t.urlVariants.length > 0)) {
+          const tabUrl = t.url || t.urlVariants?.[0]?.url || '';
+          if (tabUrl) {
+            trackableItems.push({
+              id: t.id,
+              url: tabUrl,
+              urlVariants: t.urlVariants,
+            });
+          }
         }
       }
 

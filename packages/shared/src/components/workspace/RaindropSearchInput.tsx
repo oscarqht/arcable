@@ -12,7 +12,7 @@ import { SearchIcon, CloseIcon, DropletIcon, ExternalLinkIcon } from '../Icons';
 export interface RaindropSearchInputProps {
   raindropToken?: string;
   hasRaindropAuth?: boolean;
-  onSearchRaindrop?: (query: string) => Promise<RaindropSearchResult>;
+  onSearchRaindrop?: (query: string, options?: { signal?: AbortSignal }) => Promise<RaindropSearchResult>;
   onSaveToRaindrop?: () => Promise<void>;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   compact?: boolean;
@@ -90,6 +90,16 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const activeRequestIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   // Sync internal query if external searchQuery changes
   useEffect(() => {
@@ -122,12 +132,23 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const executeSearch = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
+
+      // Abort previous on-going search request immediately instead of queue and wait
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+
       if (!trimmed) {
         setSearchResults(null);
         setIsSearching(false);
         setSearchError(null);
         return;
       }
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const { signal } = controller;
 
       const requestId = ++activeRequestIdRef.current;
       setIsSearching(true);
@@ -138,9 +159,9 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
         let results: RaindropSearchResult;
 
         if (onSearchRaindrop) {
-          results = await onSearchRaindrop(trimmed);
+          results = await onSearchRaindrop(trimmed, { signal });
         } else if (raindropToken) {
-          results = await searchRaindrop(raindropToken, trimmed);
+          results = await searchRaindrop(raindropToken, trimmed, { signal });
         } else if (
           typeof window !== 'undefined' &&
           window.location?.protocol &&
@@ -148,7 +169,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
           window.location.protocol.startsWith('http')
         ) {
           // Fallback to web API route (web app HTTP/HTTPS environments only)
-          const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(trimmed)}`);
+          const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(trimmed)}`, { signal });
           if (res.ok) {
             results = await res.json();
           } else {
@@ -159,20 +180,20 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
           results = { items: [], collections: [] };
         }
 
-        if (requestId === activeRequestIdRef.current) {
+        if (requestId === activeRequestIdRef.current && !signal.aborted) {
           setSearchResults(results || { items: [], collections: [] });
         }
       } catch (err: any) {
+        if (err?.name === 'AbortError' || signal.aborted) {
+          return;
+        }
         if (requestId === activeRequestIdRef.current) {
-          if (err?.name === 'AbortError' || err?.message?.toLowerCase().includes('aborted')) {
-            return;
-          }
           console.warn('[RaindropSearchInput] Search failed:', err);
           setSearchError(err?.message || 'Search failed');
           setSearchResults({ items: [], collections: [] });
         }
       } finally {
-        if (requestId === activeRequestIdRef.current) {
+        if (requestId === activeRequestIdRef.current && !signal.aborted) {
           setIsSearching(false);
         }
       }
@@ -198,6 +219,10 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     }
 
     if (!value.trim()) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       activeRequestIdRef.current++;
       setSearchResults(null);
       setIsSearching(false);
@@ -212,6 +237,10 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   };
 
   const handleClear = (shouldFocus: boolean = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setInternalQuery('');
     onSearchChange?.('');
     activeRequestIdRef.current++;

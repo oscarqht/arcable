@@ -227,7 +227,13 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
           isExpanded: isExp,
         };
       }),
-      tabs: parsed.tabs || [],
+      tabs: (parsed.tabs || []).map((t: Tab) => {
+        if (!t.favourite && t.isGroup) {
+          const { isGroup, ...rest } = t;
+          return rest;
+        }
+        return t;
+      }),
       tmpTabs: parsed.tmpTabs || [],
       widgets: parsed.widgets || [],
       customCodeRules: parsed.customCodeRules || [],
