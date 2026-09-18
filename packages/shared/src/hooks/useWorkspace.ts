@@ -2199,6 +2199,7 @@ export function useWorkspace() {
         const targetTab = prev.tabs.find((t) => t.id === targetTabId);
         if (!sourceTab || !targetTab || sourceTabId === targetTabId) return prev;
 
+        const targetBaseId = targetTab.raindropId ? String(targetTab.raindropId) : targetTab.id;
         const targetVariants: TabUrlVariant[] =
           targetTab.urlVariants && targetTab.urlVariants.length > 0
             ? targetTab.urlVariants.map((v, i) => ({
@@ -2208,7 +2209,7 @@ export function useWorkspace() {
               }))
             : [
                 {
-                  id: generateId('var'),
+                  id: targetBaseId || generateId('var'),
                   name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
                   url: targetTab.url,
                   favIconUrl: targetTab.favIconUrl,
@@ -2216,6 +2217,7 @@ export function useWorkspace() {
                 },
               ];
 
+        const sourceBaseId = sourceTab.raindropId ? String(sourceTab.raindropId) : sourceTab.id;
         const sourceVariants: TabUrlVariant[] =
           sourceTab.urlVariants && sourceTab.urlVariants.length > 0
             ? sourceTab.urlVariants.map((v, i) => ({
@@ -2225,7 +2227,7 @@ export function useWorkspace() {
               }))
             : [
                 {
-                  id: generateId('var'),
+                  id: sourceBaseId || generateId('var'),
                   name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 2',
                   url: sourceTab.url,
                   favIconUrl: sourceTab.favIconUrl,
@@ -2233,8 +2235,25 @@ export function useWorkspace() {
                 },
               ];
 
-        const mergedVariants = [...targetVariants, ...sourceVariants];
-        const defaultVariant = mergedVariants[0];
+        // Deduplicate variants by URL to prevent identical duplicates from accumulating
+        const combinedVariants = [...targetVariants, ...sourceVariants];
+        const seenUrls = new Set<string>();
+        const mergedVariants: TabUrlVariant[] = [];
+        for (const variant of combinedVariants) {
+          const urlKey = (variant.url || '').trim().toLowerCase();
+          if (urlKey && seenUrls.has(urlKey)) {
+            continue;
+          }
+          if (urlKey) seenUrls.add(urlKey);
+          mergedVariants.push(variant);
+        }
+        if (mergedVariants.length === 0 && combinedVariants.length > 0) {
+          mergedVariants.push(combinedVariants[0]);
+        }
+
+        const defaultVariant =
+          (targetTab.defaultVariantId && mergedVariants.find((v) => v.id === targetTab.defaultVariantId)) ||
+          mergedVariants[0];
         const groupTitle = targetTab.customTitle?.trim() || 'Group';
 
         const updatedTarget: Tab = {
@@ -2251,25 +2270,38 @@ export function useWorkspace() {
         savePendingOperation(
           createWorkspaceOperation('TAB_UPDATE', targetTab.id, {
             title: groupTitle,
+            customTitle: groupTitle,
+            isGroup: true,
             url: defaultVariant.url,
             urlVariants: mergedVariants,
             defaultVariantId: defaultVariant.id,
           })
         );
 
-        // 2. Delete source tab
+        // 2. Delete source tab, while preserving any remote IDs that were absorbed into mergedVariants
         const numericSourceId = /^\d+$/.test(sourceTab.id) ? Number(sourceTab.id) : undefined;
+        const sourceRemoteId = sourceTab.raindropId || numericSourceId;
         const parent = sourceTab.parentFolderId
           ? prev.folders.find((f) => f.id === sourceTab.parentFolderId)
           : prev.spaces.find((s) => s.id === sourceTab.parentSpaceId);
         const numericParentId = parent && /^\d+$/.test(parent.id) ? Number(parent.id) : undefined;
+
+        const isSourceAbsorbed =
+          Boolean(sourceRemoteId) &&
+          mergedVariants.some((v) => numericRaindropId(v.id) === sourceRemoteId);
+
         const secondaryVariantIds = (sourceTab.urlVariants || [])
           .map((v) => numericRaindropId(v.id))
-          .filter((vid): vid is number => Boolean(vid) && vid !== (sourceTab.raindropId || numericSourceId));
+          .filter(
+            (vid): vid is number =>
+              Boolean(vid) &&
+              vid !== sourceRemoteId &&
+              !mergedVariants.some((mv) => numericRaindropId(mv.id) === vid)
+          );
 
         savePendingOperation(
           createWorkspaceOperation('TAB_DELETE', sourceTab.id, {
-            raindropId: sourceTab.raindropId || numericSourceId,
+            raindropId: isSourceAbsorbed ? undefined : sourceRemoteId,
             variantRaindropIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
             collectionId: sourceTab.favourite
               ? prev.raindropRootCollectionId

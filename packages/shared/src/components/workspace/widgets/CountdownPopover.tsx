@@ -1,10 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { WorkspaceWidget, CountdownConfig } from '../../../types/workspace';
 import { SpaceThemeTokens } from '../../../utils/spaceTheme';
-import { HourglassIcon, CheckIcon } from '../../Icons';
+import { HourglassIcon } from '../../Icons';
+import { sendTimerNotification } from '../../../utils/timerAlert';
+import {
+  COUNTDOWN_PRESETS,
+  calculateCountdownStatus,
+  createDefaultCountdownConfig,
+  createTargetDateFromMinutes,
+  toDatetimeLocalString,
+} from '../../../utils/countdown';
 
 export interface CountdownPopoverProps {
   widget: WorkspaceWidget;
@@ -24,16 +32,32 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
   theme,
 }) => {
   const config = (widget.config as CountdownConfig) || {};
-  const [title, setTitle] = useState(config.title || 'My Event');
+  const [title, setTitle] = useState(config.title || 'Countdown');
   const [targetDateStr, setTargetDateStr] = useState(() => {
-    if (config.targetDate) return config.targetDate;
-    // Default to tomorrow 9am
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(9, 0, 0, 0);
-    return tomorrow.toISOString().slice(0, 16);
+    return config.targetDate || createDefaultCountdownConfig().targetDate!;
   });
+  const [customMinutes, setCustomMinutes] = useState('');
+  const [isCustomMinutesDirty, setIsCustomMinutesDirty] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Sync state if widget config changes from external source
+  useEffect(() => {
+    if (config.title) setTitle(config.title);
+    if (config.targetDate) setTargetDateStr(config.targetDate);
+  }, [config.title, config.targetDate, widget.id]);
+
+  // Ensure default targetDate is persisted if widget was added without it
+  useEffect(() => {
+    if (!config.targetDate && isOpen) {
+      const defaultCfg = createDefaultCountdownConfig();
+      setTargetDateStr(defaultCfg.targetDate!);
+      onUpdateConfig({
+        ...config,
+        title: config.title || defaultCfg.title,
+        targetDate: defaultCfg.targetDate,
+      });
+    }
+  }, [config.targetDate, isOpen]);
 
   // Live countdown state
   const [now, setNow] = useState(() => Date.now());
@@ -42,6 +66,27 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isOpen]);
+
+  // Current status
+  const status = calculateCountdownStatus(targetDateStr, now);
+
+  // Completion notification (fires only if completed within last 30s)
+  const notifiedRef = useRef(false);
+  useEffect(() => {
+    if (status.isCompleted && !notifiedRef.current && targetDateStr) {
+      const targetTime = new Date(targetDateStr).getTime();
+      if (!isNaN(targetTime) && Date.now() - targetTime < 30000) {
+        notifiedRef.current = true;
+        sendTimerNotification(
+          '⏳ Countdown Finished!',
+          `"${title || 'Countdown'}" has reached zero!`
+        );
+      }
+    }
+    if (!status.isCompleted) {
+      notifiedRef.current = false;
+    }
+  }, [status.isCompleted, targetDateStr, title]);
 
   // Click outside to close
   useEffect(() => {
@@ -68,40 +113,54 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
 
   if (!isOpen || !anchorRect || typeof document === 'undefined') return null;
 
-  const width = 250;
-  const height = isEditing ? 250 : 210;
+  const width = 260;
+  const height = isEditing ? 300 : 220;
   const spaceBelow = window.innerHeight - anchorRect.bottom;
   const fitsBelow = spaceBelow >= height + 10;
   const top = fitsBelow ? anchorRect.bottom + 6 : Math.max(10, anchorRect.top - height - 6);
   const left = Math.min(Math.max(10, anchorRect.left), Math.max(10, window.innerWidth - width - 10));
 
-  const targetTimestamp = new Date(targetDateStr).getTime();
-  const diffMs = Math.max(0, targetTimestamp - now);
-
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
-  const isCompleted = diffMs <= 0;
-
-  const handleSave = () => {
-    setIsEditing(false);
+  const handleSetPreset = (minutesToAdd: number) => {
+    const newTarget = createTargetDateFromMinutes(minutesToAdd);
+    setTargetDateStr(newTarget);
+    setCustomMinutes(String(minutesToAdd));
+    setIsCustomMinutesDirty(false);
     onUpdateConfig({
       ...config,
-      title: title.trim() || 'My Event',
-      targetDate: targetDateStr,
+      title: title.trim() || 'Countdown',
+      targetDate: newTarget,
     });
   };
 
-  const handleSetPreset = (hoursToAdd: number) => {
-    const d = new Date(Date.now() + hoursToAdd * 60 * 60 * 1000);
-    const str = d.toISOString().slice(0, 16);
-    setTargetDateStr(str);
+  const handleApplyCustom = () => {
+    const mins = parseFloat(customMinutes);
+    if (!isNaN(mins) && mins > 0) {
+      const newTarget = createTargetDateFromMinutes(mins);
+      setTargetDateStr(newTarget);
+      setIsCustomMinutesDirty(false);
+      onUpdateConfig({
+        ...config,
+        title: title.trim() || 'Countdown',
+        targetDate: newTarget,
+      });
+    }
+  };
+
+  const handleSave = () => {
+    setIsEditing(false);
+    let finalTarget = targetDateStr;
+    if (isCustomMinutesDirty) {
+      const mins = parseFloat(customMinutes);
+      if (!isNaN(mins) && mins > 0) {
+        finalTarget = createTargetDateFromMinutes(mins);
+        setTargetDateStr(finalTarget);
+        setIsCustomMinutesDirty(false);
+      }
+    }
     onUpdateConfig({
       ...config,
-      title: title.trim() || 'My Event',
-      targetDate: str,
+      title: title.trim() || 'Countdown',
+      targetDate: finalTarget,
     });
   };
 
@@ -155,16 +214,16 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
       </div>
 
       {isEditing ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div>
             <label style={{ fontSize: '10.5px', color: theme.subtextColor, display: 'block', marginBottom: '3px' }}>
-              Event Title
+              Title
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Product Launch"
+              placeholder="e.g. Focus, Tea, Meeting"
               style={{
                 width: '100%',
                 padding: '6px 8px',
@@ -179,96 +238,175 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
           </div>
 
           <div>
-            <label style={{ fontSize: '10.5px', color: theme.subtextColor, display: 'block', marginBottom: '3px' }}>
-              Target Date & Time
+            <label style={{ fontSize: '10.5px', color: theme.subtextColor, display: 'block', marginBottom: '4px' }}>
+              Predefined Duration
             </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+              {COUNTDOWN_PRESETS.map((mins) => {
+                const isSelected = customMinutes === String(mins) && !isCustomMinutesDirty;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => handleSetPreset(mins)}
+                    style={{
+                      padding: '5px 0',
+                      fontSize: '11px',
+                      fontWeight: isSelected ? 700 : 500,
+                      borderRadius: '6px',
+                      border: `1px solid ${isSelected ? theme.primaryColor : theme.borderColor}`,
+                      background: isSelected
+                        ? (theme.isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.1)')
+                        : 'transparent',
+                      color: isSelected ? theme.primaryColor : theme.textColor,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {mins}m
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '10.5px', color: theme.subtextColor, display: 'block', marginBottom: '4px' }}>
+              Custom Minutes
+            </label>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input
+                type="number"
+                min="1"
+                max="10000"
+                placeholder="e.g. 20"
+                value={customMinutes}
+                onChange={(e) => {
+                  setCustomMinutes(e.target.value);
+                  setIsCustomMinutesDirty(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleApplyCustom();
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: '8px',
+                  border: `1px solid ${theme.borderColor}`,
+                  background: theme.isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc',
+                  color: theme.textColor,
+                  fontSize: '12px',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleApplyCustom}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: theme.primaryColor,
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                Set
+              </button>
+            </div>
+          </div>
+
+          <details style={{ fontSize: '10.5px', color: theme.subtextColor, marginTop: '2px' }}>
+            <summary style={{ cursor: 'pointer', userSelect: 'none', marginBottom: '4px' }}>
+              Or pick specific date & time...
+            </summary>
             <input
               type="datetime-local"
-              value={targetDateStr}
-              onChange={(e) => setTargetDateStr(e.target.value)}
+              value={toDatetimeLocalString(new Date(targetDateStr))}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const d = new Date(e.target.value);
+                  if (!isNaN(d.getTime())) {
+                    const iso = d.toISOString();
+                    setTargetDateStr(iso);
+                    setCustomMinutes('');
+                    setIsCustomMinutesDirty(false);
+                    onUpdateConfig({
+                      ...config,
+                      title: title.trim() || 'Countdown',
+                      targetDate: iso,
+                    });
+                  }
+                }
+              }}
               style={{
                 width: '100%',
-                padding: '6px 8px',
-                borderRadius: '8px',
+                padding: '4px 6px',
+                borderRadius: '6px',
                 border: `1px solid ${theme.borderColor}`,
                 background: theme.isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc',
                 color: theme.textColor,
-                fontSize: '12px',
+                fontSize: '11px',
                 boxSizing: 'border-box',
               }}
             />
-          </div>
-
-          <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
-            <button
-              type="button"
-              onClick={() => handleSetPreset(24)}
-              style={{
-                flex: 1,
-                padding: '4px',
-                fontSize: '10.5px',
-                borderRadius: '6px',
-                border: `1px solid ${theme.borderColor}`,
-                background: 'transparent',
-                color: theme.textColor,
-                cursor: 'pointer',
-              }}
-            >
-              +1 Day
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset(168)}
-              style={{
-                flex: 1,
-                padding: '4px',
-                fontSize: '10.5px',
-                borderRadius: '6px',
-                border: `1px solid ${theme.borderColor}`,
-                background: 'transparent',
-                color: theme.textColor,
-                cursor: 'pointer',
-              }}
-            >
-              +1 Week
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset(720)}
-              style={{
-                flex: 1,
-                padding: '4px',
-                fontSize: '10.5px',
-                borderRadius: '6px',
-                border: `1px solid ${theme.borderColor}`,
-                background: 'transparent',
-                color: theme.textColor,
-                cursor: 'pointer',
-              }}
-            >
-              +1 Month
-            </button>
-          </div>
+          </details>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-          {isCompleted ? (
-            <div style={{ padding: '16px 0', textAlign: 'center' }}>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: '#10b981' }}>🎉 Reached!</div>
-              <div style={{ fontSize: '11px', color: theme.subtextColor, marginTop: '4px' }}>
-                This event has arrived.
+          {status.isCompleted ? (
+            <div style={{ padding: '12px 0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+              <div style={{ fontSize: '22px' }}>🎉</div>
+              <div style={{ fontSize: '15px', fontWeight: 800, color: '#10b981' }}>Time's up!</div>
+              <div style={{ fontSize: '11px', color: theme.subtextColor }}>
+                Countdown has reached zero.
               </div>
+              <button
+                type="button"
+                onClick={() => handleSetPreset(15)}
+                style={{
+                  marginTop: '4px',
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: `1px solid ${theme.borderColor}`,
+                  background: theme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                  color: theme.textColor,
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Restart (15m)
+              </button>
             </div>
           ) : (
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: status.days > 0 ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
                 gap: '6px',
                 width: '100%',
                 textAlign: 'center',
               }}
             >
+              {status.days > 0 && (
+                <div
+                  style={{
+                    background: theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    borderRadius: '10px',
+                    padding: '8px 4px',
+                  }}
+                >
+                  <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{status.days}</div>
+                  <div style={{ fontSize: '9px', color: theme.subtextColor, textTransform: 'uppercase' }}>Days</div>
+                </div>
+              )}
               <div
                 style={{
                   background: theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
@@ -276,17 +414,7 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
                   padding: '8px 4px',
                 }}
               >
-                <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{days}</div>
-                <div style={{ fontSize: '9px', color: theme.subtextColor, textTransform: 'uppercase' }}>Days</div>
-              </div>
-              <div
-                style={{
-                  background: theme.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: '10px',
-                  padding: '8px 4px',
-                }}
-              >
-                <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{hours}</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{status.hours}</div>
                 <div style={{ fontSize: '9px', color: theme.subtextColor, textTransform: 'uppercase' }}>Hours</div>
               </div>
               <div
@@ -296,7 +424,7 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
                   padding: '8px 4px',
                 }}
               >
-                <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{minutes}</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{status.minutes}</div>
                 <div style={{ fontSize: '9px', color: theme.subtextColor, textTransform: 'uppercase' }}>Mins</div>
               </div>
               <div
@@ -307,16 +435,26 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
                 }}
               >
                 <div style={{ fontSize: '18px', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: theme.primaryColor }}>
-                  {seconds}
+                  {status.seconds}
                 </div>
                 <div style={{ fontSize: '9px', color: theme.subtextColor, textTransform: 'uppercase' }}>Secs</div>
               </div>
             </div>
           )}
 
-          <div style={{ fontSize: '11px', color: theme.subtextColor }}>
-            Target: {new Date(targetDateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-          </div>
+          {targetDateStr && (
+            <div style={{ fontSize: '11px', color: theme.subtextColor }}>
+              {(() => {
+                const target = new Date(targetDateStr);
+                if (isNaN(target.getTime())) return null;
+                const isToday = target.toDateString() === new Date().toDateString();
+                const timeStr = target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return isToday
+                  ? `Target: Today at ${timeStr}`
+                  : `Target: ${target.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${timeStr}`;
+              })()}
+            </div>
+          )}
         </div>
       )}
     </div>,

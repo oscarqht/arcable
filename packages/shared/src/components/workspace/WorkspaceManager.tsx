@@ -33,7 +33,7 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
-import { cleanUrl } from '../../utils/format';
+import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
@@ -1558,12 +1558,22 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
       const targetSpaceId = targetFolder?.parentSpaceId || spaceId || activeSpace?.id || 'space_personal';
 
-      const resolvedTmpTab =
-        tmpTab && tmpTab.url
-          ? tmpTab
-          : filteredTmpTabs.find((t) => t.id === tmpTab?.id) ||
-            (data.tmpTabs || []).find((t) => t.id === tmpTab?.id) ||
-            tmpTab;
+      const liveTmpTab =
+        filteredTmpTabs.find((t) => t.id === tmpTab?.id) ||
+        (data.tmpTabs || []).find((t) => t.id === tmpTab?.id) ||
+        filteredTmpTabs.find((t) => t.url && tmpTab?.url && areUrlsMatching(t.url, tmpTab.url)) ||
+        (data.tmpTabs || []).find((t) => t.url && tmpTab?.url && areUrlsMatching(t.url, tmpTab.url));
+
+      const resolvedTmpTab: TmpTab = {
+        ...tmpTab,
+        ...(liveTmpTab || {}),
+        url: tmpTab?.url || liveTmpTab?.url || '',
+        browserTabId: liveTmpTab?.browserTabId ?? tmpTab?.browserTabId,
+        windowId: liveTmpTab?.windowId ?? tmpTab?.windowId,
+        deviceId: liveTmpTab?.deviceId ?? tmpTab?.deviceId,
+        deviceName: liveTmpTab?.deviceName ?? tmpTab?.deviceName,
+        deviceType: liveTmpTab?.deviceType ?? tmpTab?.deviceType,
+      };
 
       let targetOrder: number | undefined = undefined;
       if (targetTabId && position && (position === 'before' || position === 'after')) {
@@ -2929,8 +2939,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               favIconUrl: tabData.favIconUrl || promotingTmpTab?.favIconUrl,
             });
             if (promotingTmpTab) {
-              deleteTmpTab(promotingTmpTab.id);
-              onTabPromoted?.(newTab, promotingTmpTab);
+              const liveTmp =
+                effectiveTmpTabs.find((t) => t.id === promotingTmpTab.id) ||
+                (data.tmpTabs || []).find((t) => t.id === promotingTmpTab.id) ||
+                effectiveTmpTabs.find((t) => t.url && promotingTmpTab.url && areUrlsMatching(t.url, promotingTmpTab.url)) ||
+                (data.tmpTabs || []).find((t) => t.url && promotingTmpTab.url && areUrlsMatching(t.url, promotingTmpTab.url));
+
+              const fullTmpTab: TmpTab = {
+                ...promotingTmpTab,
+                ...(liveTmp || {}),
+                url: promotingTmpTab.url || liveTmp?.url || '',
+                browserTabId: liveTmp?.browserTabId ?? promotingTmpTab.browserTabId,
+                windowId: liveTmp?.windowId ?? promotingTmpTab.windowId,
+                deviceId: liveTmp?.deviceId ?? promotingTmpTab.deviceId,
+                deviceName: liveTmp?.deviceName ?? promotingTmpTab.deviceName,
+                deviceType: liveTmp?.deviceType ?? promotingTmpTab.deviceType,
+              };
+
+              deleteTmpTab(fullTmpTab.id);
+              onTabPromoted?.(newTab, fullTmpTab);
               setPromotingTmpTab(null);
             }
           }

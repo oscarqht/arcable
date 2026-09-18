@@ -28,6 +28,7 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
+  private recentlyAssociatedIds: Map<string, number> = new Map();
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
@@ -510,12 +511,32 @@ class TabTracker {
         }
       }
 
+      const now = Date.now();
+      // Prune expired entries older than 30s
+      for (const [id, ts] of this.recentlyAssociatedIds.entries()) {
+        if (now - ts > 30000) {
+          this.recentlyAssociatedIds.delete(id);
+        }
+      }
+
       const findTrackableItem = (id: string): TrackableTabItem | undefined => {
         const found = trackableItems.find((item) => item.id === id);
         if (found) return found;
         const fromWs = workspaceTabs.find((t) => t.id === id);
         if (fromWs) {
+          this.recentlyAssociatedIds.delete(id);
           return { id: fromWs.id, url: fromWs.url, urlVariants: fromWs.urlVariants };
+        }
+        const fromCurrent = this.currentWorkspaceTabs.find((t) => t.id === id);
+        if (fromCurrent) {
+          return { id: fromCurrent.id, url: fromCurrent.url, urlVariants: fromCurrent.urlVariants };
+        }
+        const recentTs = this.recentlyAssociatedIds.get(id);
+        if (recentTs && now - recentTs < 15000) {
+          const existingAssoc = currentAssociations[id];
+          if (existingAssoc) {
+            return { id, url: existingAssoc.originalUrl, urlVariants: undefined };
+          }
         }
         return undefined;
       };
@@ -623,6 +644,15 @@ class TabTracker {
       const associatedBrowserTabIds = new Set(Object.values(newAssociations).map((a) => a.browserTabId));
       const unmatchedBrowserTabs = allBrowserTabs.filter((bt) => {
         if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
+        // Never convert tabs that belong to recently associated tab items into tmp tabs
+        for (const [recentId, recentTs] of this.recentlyAssociatedIds.entries()) {
+          if (now - recentTs < 15000) {
+            const assoc = currentAssociations[recentId] || newAssociations[recentId];
+            if (assoc && assoc.browserTabId === bt.id) {
+              return false;
+            }
+          }
+        }
         const rawUrl = bt.url || bt.pendingUrl || '';
         if (
           rawUrl.startsWith('chrome-extension://') ||
@@ -919,40 +949,89 @@ class TabTracker {
     browserTabId: number,
     originalUrl: string,
     windowId?: number,
-    urlVariants?: TabUrlVariant[]
+    urlVariants?: TabUrlVariant[],
+    tabData?: Partial<Tab>
   ): Promise<void> {
     return this.runWithLock(async () => {
       try {
-        let currentUrl = originalUrl;
+        let finalBrowserTabId = browserTabId;
         let finalWindowId = windowId || 0;
+        let currentUrl = originalUrl;
         let title = '';
+        let tabFound = false;
 
-        try {
-          if (typeof browser !== 'undefined' && browser.tabs && browser.tabs.get) {
-            const bt = await browser.tabs.get(browserTabId);
+        const tabsApi =
+          typeof browser !== 'undefined' && browser.tabs
+            ? browser.tabs
+            : typeof chrome !== 'undefined' && chrome.tabs
+            ? chrome.tabs
+            : null;
+
+        if (tabsApi && finalBrowserTabId) {
+          try {
+            const bt = await tabsApi.get(finalBrowserTabId);
             if (bt) {
               currentUrl = bt.url || (bt as any).pendingUrl || originalUrl;
               finalWindowId = bt.windowId || finalWindowId;
               title = bt.title || (bt as any).pendingTitle || '';
+              tabFound = true;
             }
-          } else if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.get) {
-            const bt = await chrome.tabs.get(browserTabId);
-            if (bt) {
-              currentUrl = bt.url || (bt as any).pendingUrl || originalUrl;
-              finalWindowId = bt.windowId || finalWindowId;
-              title = bt.title || (bt as any).pendingTitle || '';
-            }
+          } catch {
+            // Tab not found by ID (e.g. invalid, closed, or stale ID)
           }
-        } catch (err) {
-          console.warn('[TabTracker] Could not get tab details for browserTabId:', browserTabId, err);
+        }
+
+        // Fallback: If not found by tab ID, search open browser tabs by URL
+        if (!tabFound && tabsApi && tabsApi.query) {
+          try {
+            const allOpenTabs = await tabsApi.query({});
+            const candidateUrls = [originalUrl, ...(urlVariants || []).map((v) => v.url)].filter(Boolean);
+            const matchedTab = allOpenTabs.find((bt: any) =>
+              bt.id !== undefined && candidateUrls.some((u) => areUrlsMatching(bt.url || bt.pendingUrl, u))
+            );
+            if (matchedTab && matchedTab.id !== undefined) {
+              finalBrowserTabId = matchedTab.id;
+              finalWindowId = matchedTab.windowId || finalWindowId;
+              currentUrl = matchedTab.url || (matchedTab as any).pendingUrl || originalUrl;
+              title = matchedTab.title || (matchedTab as any).pendingTitle || '';
+              tabFound = true;
+            }
+          } catch (queryErr) {
+            console.warn('[TabTracker] Fallback tab query failed:', queryErr);
+          }
+        }
+
+        if (!finalBrowserTabId) {
+          console.warn('[TabTracker] Cannot associate tab item without a valid browserTabId:', tabItemId);
+          return;
+        }
+
+        // Register in recentlyAssociatedIds with timestamp to guard against race conditions with workspace sync
+        this.recentlyAssociatedIds.set(tabItemId, Date.now());
+
+        // Immediately update currentWorkspaceTabs so any concurrent or scheduled sync sees this tab item
+        const existingIdx = this.currentWorkspaceTabs.findIndex((t) => t.id === tabItemId);
+        const wsTabEntry: Tab = {
+          id: tabItemId,
+          url: originalUrl,
+          urlVariants,
+          ...(tabData || {}),
+        } as Tab;
+        if (existingIdx >= 0) {
+          this.currentWorkspaceTabs[existingIdx] = {
+            ...this.currentWorkspaceTabs[existingIdx],
+            ...wsTabEntry,
+          };
+        } else {
+          this.currentWorkspaceTabs = [...this.currentWorkspaceTabs, wsTabEntry];
         }
 
         const badge = extractTabNotificationBadge(title);
         const associations = await this.getAssociations();
 
-        // Strictly 1-to-1: clear any existing association tied to this browserTabId or tabItemId
+        // Strictly 1-to-1: clear any existing association tied to this finalBrowserTabId or tabItemId
         for (const [id, info] of Object.entries(associations)) {
-          if (info.browserTabId === browserTabId || id === tabItemId) {
+          if (info.browserTabId === finalBrowserTabId || id === tabItemId) {
             delete associations[id];
           }
         }
@@ -963,7 +1042,7 @@ class TabTracker {
 
         associations[tabItemId] = {
           tabItemId,
-          browserTabId,
+          browserTabId: finalBrowserTabId,
           windowId: finalWindowId,
           currentUrl: currentUrl || originalUrl,
           originalUrl,
@@ -974,11 +1053,13 @@ class TabTracker {
         await this.saveAssociations(associations);
 
         // Remove custom title record for this tab if one existed
-        await this.removeTmpTabCustomTitle(browserTabId);
+        await this.removeTmpTabCustomTitle(finalBrowserTabId);
 
         // Remove from tmp tabs list immediately
         const currentTmpTabs = await this.getTmpTabs();
-        const updatedTmpTabs = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+        const updatedTmpTabs = currentTmpTabs.filter(
+          (t) => t.browserTabId !== finalBrowserTabId && t.id !== tabItemId
+        );
         await this.saveTmpTabs(updatedTmpTabs);
 
         // Notify active listener so UI highlights the newly created tab item

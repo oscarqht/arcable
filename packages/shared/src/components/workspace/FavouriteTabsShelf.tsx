@@ -51,6 +51,7 @@ import {
   NOTE_COLORS,
 } from './widgets';
 import { getWeatherInterpretation } from '../../utils/weatherService';
+import { calculateCountdownStatus, createDefaultCountdownConfig } from '../../utils/countdown';
 
 export interface FavouriteTabsShelfProps {
   tabs: Tab[];
@@ -1512,30 +1513,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               {widget.style === 'countdown' && (() => {
                 const countConfig = (widget.config as CountdownConfig) || {};
                 const targetStr = countConfig.targetDate;
-                const title = countConfig.title || 'Event';
-
-                let displayNum = '--';
-                let displayUnit = '';
-                if (targetStr) {
-                  const diffMs = Math.max(0, new Date(targetStr).getTime() - now.getTime());
-                  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                  const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-                  if (diffMs <= 0) {
-                    displayNum = '🎉';
-                    displayUnit = 'Done';
-                  } else if (days > 0) {
-                    displayNum = `${days}d`;
-                    displayUnit = `${hours}h left`;
-                  } else if (hours > 0) {
-                    displayNum = `${hours}h`;
-                    displayUnit = `${mins}m left`;
-                  } else {
-                    displayNum = `${mins}m`;
-                    displayUnit = 'left';
-                  }
-                }
+                const title = countConfig.title || 'Countdown';
+                const { displayNum, displayUnit } = calculateCountdownStatus(targetStr, now.getTime());
 
                 return (
                   <div
@@ -2120,7 +2099,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           {/* 7. Countdown Timer */}
           <button
             type="button"
-            onClick={() => handleSelectAddWidget('countdown', { title: 'My Event' })}
+            onClick={() => handleSelectAddWidget('countdown', createDefaultCountdownConfig())}
             style={{
               display: 'flex',
               alignItems: 'center',

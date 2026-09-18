@@ -1360,19 +1360,34 @@ export async function syncIncrementalOperations(
     };
   }
 
+  const retainedRemoteIds = new Set<number>();
+  for (const tab of latestSnapshot.tabs || []) {
+    const rId = remoteEntityId(tab);
+    if (rId) retainedRemoteIds.add(rId);
+    if (tab.urlVariants) {
+      for (const v of tab.urlVariants) {
+        const vId = numericRaindropId(v.id);
+        if (vId) retainedRemoteIds.add(vId);
+      }
+    }
+  }
+
   for (const [key, operations] of groups) {
     if (!key.startsWith('tab:') || !operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
     if (operations.some((operation) => operation.type === 'TAB_CREATE')) continue;
     const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'TAB_DELETE')!;
     const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
-    if (!remoteId) throw new Error(`Bookmark ${deleteOperation.entityId} has no Raindrop ID for incremental delete.`);
+    if (!remoteId && (!Array.isArray(deleteOperation.payload?.variantRaindropIds) || deleteOperation.payload.variantRaindropIds.length === 0)) {
+      continue;
+    }
     const collectionId = Number(deleteOperation.payload?.collectionId);
 
-    const deleteIds: number[] = [remoteId];
+    const deleteIds: number[] = [];
+    if (remoteId && !retainedRemoteIds.has(remoteId)) deleteIds.push(remoteId);
     if (Array.isArray(deleteOperation.payload?.variantRaindropIds)) {
       for (const vid of deleteOperation.payload.variantRaindropIds) {
         const numId = numericRaindropId(vid);
-        if (numId && !deleteIds.includes(numId)) {
+        if (numId && !retainedRemoteIds.has(numId) && !deleteIds.includes(numId)) {
           deleteIds.push(numId);
         }
       }
@@ -1812,7 +1827,7 @@ function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
   };
 }
 
-function reconstructWorkspace(
+export function reconstructWorkspace(
   tree: RemoteArcableTree,
   targetActiveSpaceId?: string,
   options?: { allowLegacyMetadataFallback?: boolean }
@@ -1933,7 +1948,7 @@ function reconstructWorkspace(
     };
   }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  if (allowLegacyMetadataFallback && widgets.length === 0 && tree.metadata.widgets?.length) {
+  if (allowLegacyMetadataFallback && widgets.length === 0 && tree.metadata?.widgets?.length) {
     widgets = tree.metadata.widgets;
   }
 
@@ -1990,7 +2005,7 @@ function reconstructWorkspace(
     };
   });
 
-  if (allowLegacyMetadataFallback && customCodeRules.length === 0 && tree.metadata.customCodeRules?.length) {
+  if (allowLegacyMetadataFallback && customCodeRules.length === 0 && tree.metadata?.customCodeRules?.length) {
     customCodeRules = tree.metadata.customCodeRules;
   }
   customCodeRules = sortCustomCodeRules(customCodeRules);
@@ -2035,7 +2050,7 @@ function reconstructWorkspace(
     };
   });
 
-  if (allowLegacyMetadataFallback && runCodeInPageRules.length === 0 && tree.metadata.runCodeInPageRules?.length) {
+  if (allowLegacyMetadataFallback && runCodeInPageRules.length === 0 && tree.metadata?.runCodeInPageRules?.length) {
     runCodeInPageRules = tree.metadata.runCodeInPageRules;
   }
   runCodeInPageRules = sortRunCodeRules(runCodeInPageRules);
@@ -2124,6 +2139,7 @@ function reconstructWorkspace(
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
+      isGroup: Boolean(urlVariants && urlVariants.length > 1) || undefined,
     });
   }
 
@@ -2146,7 +2162,56 @@ function reconstructWorkspace(
     }
     const baseTitle = groupKey.split(':::')[1] || decodeRaindropTitle(first.title);
     variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
-    const urlVariants: TabUrlVariant[] = variantItems.map((v) => {
+
+    // Deduplicate orphan variant items by URL
+    const seenVariantUrls = new Set<string>();
+    const deduplicatedVariantItems: RaindropBookmarkItem[] = [];
+    for (const item of variantItems) {
+      const urlKey = (item.link || '').trim().toLowerCase();
+      if (urlKey && seenVariantUrls.has(urlKey)) continue;
+      if (urlKey) seenVariantUrls.add(urlKey);
+      deduplicatedVariantItems.push(item);
+    }
+    const finalItems = deduplicatedVariantItems.length > 0 ? deduplicatedVariantItems : variantItems;
+
+    // Check if an existing tab in the same scope already matches this base title OR contains matching variant URLs
+    const orphanUrls = new Set(finalItems.map((item) => (item.link || '').trim().toLowerCase()).filter(Boolean));
+    const matchingTab = tabs.find((t) => {
+      const sameScope = favourite
+        ? Boolean(t.favourite)
+        : t.parentFolderId === parentFolderId && t.parentSpaceId === parentSpaceId;
+      if (!sameScope) return false;
+      const tabTitle = (t.customTitle || '').trim().toLowerCase();
+      const targetBase = baseTitle.trim().toLowerCase();
+      if (tabTitle && tabTitle === targetBase) return true;
+      if (t.urlVariants && t.urlVariants.some((v) => (v.name || '').trim().toLowerCase() === targetBase)) return true;
+      if (t.url && orphanUrls.has(t.url.trim().toLowerCase())) return true;
+      if (t.urlVariants && t.urlVariants.some((v) => v.url && orphanUrls.has(v.url.trim().toLowerCase()))) return true;
+      return false;
+    });
+
+    if (matchingTab) {
+      // Merge orphan variants into the existing matching tab instead of creating a duplicate group
+      const existingUrls = new Set((matchingTab.urlVariants || []).map((v) => (v.url || '').trim().toLowerCase()));
+      const addedVariants: TabUrlVariant[] = [];
+      for (const v of finalItems) {
+        const vUrl = (v.link || '').trim().toLowerCase();
+        if (vUrl && !existingUrls.has(vUrl)) {
+          existingUrls.add(vUrl);
+          const vTitle = decodeRaindropTitle(v.title || '');
+          const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
+          const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+          addedVariants.push({ id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover });
+        }
+      }
+      if (addedVariants.length > 0) {
+        matchingTab.urlVariants = [...(matchingTab.urlVariants || []), ...addedVariants];
+        matchingTab.isGroup = true;
+      }
+      continue;
+    }
+
+    const urlVariants: TabUrlVariant[] = finalItems.map((v) => {
       const vTitle = decodeRaindropTitle(v.title || '');
       const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
       const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
@@ -2167,6 +2232,7 @@ function reconstructWorkspace(
       order: itemOrderMap.get(first._id) ?? (first.order ?? 0),
       createdAt: timestamp(first.created),
       updatedAt: timestamp(first.lastUpdate),
+      isGroup: true,
     });
   }
 
@@ -2447,21 +2513,77 @@ export async function syncWorkspaceWithRaindrop(
       if (!progressed) throw new Error('A folder references a missing parent; cannot build the Arcable collection tree.');
     }
 
+    const retainedRemoteIds = new Set<number>();
+    for (const tab of localState.tabs || []) {
+      const rId = remoteEntityId(tab);
+      if (rId) retainedRemoteIds.add(rId);
+      if (tab.urlVariants) {
+        for (const v of tab.urlVariants) {
+          const vId = numericRaindropId(v.id);
+          if (vId) retainedRemoteIds.add(vId);
+        }
+      }
+    }
+
     const deletedItemsByCollection = new Map<number, number[]>();
+    const enqueueItemDelete = (itemId: number, colId?: number) => {
+      if (retainedRemoteIds.has(itemId)) return;
+      const collectionId = colId || remoteItems.get(itemId)?.collectionId;
+      if (!collectionId) return;
+      const ids = deletedItemsByCollection.get(collectionId) || [];
+      if (!ids.includes(itemId)) ids.push(itemId);
+      deletedItemsByCollection.set(collectionId, ids);
+    };
+
+    // Collect remote item deletions from pending operations (TAB_DELETE, TAB_UPDATE deletedVariantIds)
+    for (const op of pendingOps) {
+      if (op.type === 'TAB_DELETE') {
+        const payloadRemoteId = Number(op.payload?.raindropId) || numericRaindropId(op.payload?.raindropId);
+        const entityRemoteId = numericRaindropId(op.entityId) || remoteItemByArcableId.get(op.entityId);
+        const targetRemoteId = payloadRemoteId || entityRemoteId;
+        const colId = Number(op.payload?.collectionId) || undefined;
+        if (targetRemoteId) {
+          enqueueItemDelete(targetRemoteId, colId);
+          const item = remoteItems.get(targetRemoteId);
+          if (item?.title) {
+            const prefix = `${item.title}${ARCABLE_VARIANT_DELIMITER}`;
+            for (const candidate of tree.items) {
+              if (candidate.collectionId === (colId || item.collectionId) && candidate.title?.startsWith(prefix)) {
+                enqueueItemDelete(candidate._id, candidate.collectionId);
+              }
+            }
+          }
+        }
+        if (Array.isArray(op.payload?.variantRaindropIds)) {
+          for (const vid of op.payload.variantRaindropIds) {
+            const numId = numericRaindropId(vid);
+            if (numId) enqueueItemDelete(numId, colId);
+          }
+        }
+      } else if (op.type === 'TAB_UPDATE') {
+        if (Array.isArray(op.payload?.deletedVariantIds)) {
+          const colId = Number(op.payload?.collectionId) || undefined;
+          for (const vid of op.payload.deletedVariantIds) {
+            const numId = numericRaindropId(vid);
+            if (numId) enqueueItemDelete(numId, colId);
+          }
+        }
+      }
+    }
+
+    // Also process any entity in deletedIds (e.g. widgets or direct deletes)
     for (const id of deletedIds) {
       const remoteId = numericRaindropId(id) || remoteItemByArcableId.get(id);
       const item = remoteId ? remoteItems.get(remoteId) : undefined;
       if (!item?.collectionId) continue;
-      const ids = deletedItemsByCollection.get(item.collectionId) || [];
-      ids.push(item._id);
+      enqueueItemDelete(item._id, item.collectionId);
       // Also delete any secondary variants belonging to this deleted item
       const prefix = `${item.title}${ARCABLE_VARIANT_DELIMITER}`;
       for (const candidate of tree.items) {
         if (candidate.collectionId === item.collectionId && candidate.title?.startsWith(prefix)) {
-          ids.push(candidate._id);
+          enqueueItemDelete(candidate._id, candidate.collectionId);
         }
       }
-      deletedItemsByCollection.set(item.collectionId, ids);
     }
     for (const [collectionId, ids] of deletedItemsByCollection) {
       for (let start = 0; start < ids.length; start += 100) {
@@ -2556,17 +2678,45 @@ export async function syncWorkspaceWithRaindrop(
         // Extra URL variants
         secondaryVariants.forEach((variant, vIdx) => {
           const variantOrder = targetOrder + 1 + vIdx;
-          bookmarksToCreate.push({
-            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
-            link: variant.url,
-            cover: variant.favIconUrl || payload.cover,
-            note: '',
-            collectionId: parentId,
-            order: variantOrder,
-            sort: variantOrder,
-            pleaseParse: { disabled: true },
-          });
+          const varRemoteId = numericRaindropId(variant.id);
+          const varExisting = varRemoteId ? remoteItems.get(varRemoteId) : undefined;
+          const varTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
+          if (varExisting) {
+            tabUpdatesToPerform.push({
+              remoteId: varExisting._id,
+              payload: {
+                title: varTitle,
+                link: variant.url,
+                cover: variant.favIconUrl || payload.cover,
+                collection: { $id: parentId },
+                order: variantOrder,
+                sort: variantOrder,
+              },
+              targetOrder: variantOrder,
+            });
+          } else {
+            bookmarksToCreate.push({
+              title: varTitle,
+              link: variant.url,
+              cover: variant.favIconUrl || payload.cover,
+              note: '',
+              collectionId: parentId,
+              order: variantOrder,
+              sort: variantOrder,
+              pleaseParse: { disabled: true },
+            });
+          }
         });
+
+        // Purge any orphan remote variants in this collection matching the new title prefix
+        const orphanVariants = tree.items.filter((item) => {
+          if (item.collectionId !== parentId) return false;
+          if (!item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`)) return false;
+          return !secondaryVariants.some((v) => String(item._id) === v.id);
+        });
+        for (const ov of orphanVariants) {
+          extraVariantsToDelete.push(ov);
+        }
       } else {
         if (shouldUpdate) {
           tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
@@ -2641,6 +2791,25 @@ export async function syncWorkspaceWithRaindrop(
     tabUpdatesToPerform.sort((a, b) => a.targetOrder - b.targetOrder);
     for (const { remoteId, payload } of tabUpdatesToPerform) {
       await updateRaindropItem(clean, remoteId, payload);
+    }
+
+    // Collect any orphan variant bookmarks whose prefix doesn't match any active tab and are not retained
+    const activeTabTitles = new Set(
+      (localState.tabs || [])
+        .map((t) => encodeRaindropTitle(t.customTitle || t.url).toLowerCase())
+        .filter(Boolean)
+    );
+    for (const item of tree.items) {
+      if (retainedRemoteIds.has(item._id)) continue;
+      const delimIdx = (item.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
+      if (delimIdx !== -1) {
+        const prefix = item.title.slice(0, delimIdx).trim().toLowerCase();
+        if (!activeTabTitles.has(prefix)) {
+          if (!extraVariantsToDelete.some((ov) => ov._id === item._id)) {
+            extraVariantsToDelete.push(item);
+          }
+        }
+      }
     }
 
     if (extraVariantsToDelete.length > 0) {

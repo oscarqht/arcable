@@ -5,7 +5,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
+import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile, isLegacyDemoWorkspace } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
@@ -707,36 +707,62 @@ export const App: React.FC = () => {
   };
 
   const handleTabPromoted = async (newTab: Tab, tmpTab: TmpTab) => {
-    try {
-      const stored = await browser.storage.local.get('arcable_tmp_tabs');
-      const currentTmpTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
-      const updated = currentTmpTabs.filter((t) => t.id !== tmpTab.id);
-      if (updated.length !== currentTmpTabs.length) {
-        await browser.storage.local.set({ arcable_tmp_tabs: updated });
-      }
-    } catch (err) {
-      console.warn('[Sidepanel] Could not clean up arcable_tmp_tabs on promote:', err);
-    }
-
     setHighlightedTabId(newTab.id);
     workspaceRef.current?.revealAndHighlightTab?.(newTab.id);
 
-    if (tmpTab.browserTabId !== undefined) {
+    let targetBrowserTabId = tmpTab.browserTabId;
+    let targetWindowId = tmpTab.windowId;
+
+    // Fallback 1: match from local tmpTabs state or tracker
+    if (targetBrowserTabId === undefined) {
+      const matchInState =
+        tmpTabs.find((t) => t.id === tmpTab.id) ||
+        tmpTabs.find((t) => t.url && (areUrlsMatching(t.url, newTab.url) || areUrlsMatching(t.url, tmpTab.url)));
+      if (matchInState?.browserTabId !== undefined) {
+        targetBrowserTabId = matchInState.browserTabId;
+        targetWindowId = matchInState.windowId ?? targetWindowId;
+      }
+    }
+
+    // Fallback 2: extract browserTabId from tmpTab.id pattern (tmp_<deviceId>_<tabId>_<timestamp>)
+    if (targetBrowserTabId === undefined && typeof tmpTab.id === 'string') {
+      const idMatch = tmpTab.id.match(/^tmp_[^_]+_(\d+)_/);
+      if (idMatch) {
+        targetBrowserTabId = parseInt(idMatch[1], 10);
+      }
+    }
+
+    // Fallback 3: query browser tabs for matching URL
+    if (targetBrowserTabId === undefined && typeof browser !== 'undefined' && browser.tabs?.query) {
+      try {
+        const candidateUrls = [newTab.url, tmpTab.url, ...(newTab.urlVariants || []).map((v) => v.url)].filter(Boolean);
+        const openTabs = await browser.tabs.query({});
+        const matched = openTabs.find((bt: any) =>
+          bt.id !== undefined && candidateUrls.some((u) => areUrlsMatching(bt.url || bt.pendingUrl, u))
+        );
+        if (matched && matched.id !== undefined) {
+          targetBrowserTabId = matched.id;
+          targetWindowId = matched.windowId ?? targetWindowId;
+        }
+      } catch (err) {
+        console.warn('[Sidepanel] Failed to find open browser tab by URL during promote:', err);
+      }
+    }
+
+    if (targetBrowserTabId !== undefined) {
       await tabTracker.associateExistingBrowserTab(
         newTab.id,
-        tmpTab.browserTabId,
+        targetBrowserTabId,
         newTab.url,
-        tmpTab.windowId,
-        newTab.urlVariants
+        targetWindowId,
+        newTab.urlVariants,
+        newTab
       );
     }
   };
 
-
-
-
   const handleCloseAssociatedTab = async (tabId: string) => {
-    let assoc = tabAssociations[tabId];
+    let assoc: AssociatedTabInfo | undefined = tabAssociations[tabId];
     if (!assoc) {
       assoc = Object.values(tabAssociations).find((a) => a?.tabItemId === tabId);
     }

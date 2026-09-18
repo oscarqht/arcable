@@ -543,6 +543,11 @@ export function applyOperation(
           }
           if ('customTitle' in op.payload) {
             updated.customTitle = op.payload.customTitle || undefined;
+          } else if ('title' in op.payload && !updated.customTitle) {
+            updated.customTitle = op.payload.title || undefined;
+          }
+          if ('isGroup' in op.payload) {
+            updated.isGroup = Boolean(op.payload.isGroup);
           }
           if ('parentFolderId' in op.payload) {
             updated.parentFolderId = op.payload.parentFolderId || undefined;
