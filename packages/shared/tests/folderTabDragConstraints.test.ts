@@ -8,7 +8,7 @@ function assert(condition: unknown, message: string): asserts condition {
 
 console.log('Testing folder and tab drag constraints...');
 
-// 1. Verify getSortedSiblings always places folders before tabs in the same level
+// 1. Verify getSortedSiblings always places tabs before folders in the same level
 const testFolders: Folder[] = [
   { id: 'f2', name: 'Folder 2', parentSpaceId: 'space-1', order: 2000 },
   { id: 'f1', name: 'Folder 1', parentSpaceId: 'space-1', order: 1000 },
@@ -20,11 +20,11 @@ const testTabs: Tab[] = [
 
 const siblings = getSortedSiblings(testFolders, testTabs, 'space-1');
 assert(siblings.length === 4, 'Should have 4 siblings total');
-assert(siblings[0].id === 'f1' && siblings[0].type === 'folder', 'First item should be f1 folder');
-assert(siblings[1].id === 'f2' && siblings[1].type === 'folder', 'Second item should be f2 folder');
-assert(siblings[2].id === 't1' && siblings[2].type === 'tab', 'Third item should be t1 tab');
-assert(siblings[3].id === 't2' && siblings[3].type === 'tab', 'Fourth item should be t2 tab');
-console.log('✓ Folders always precede tabs at same level');
+assert(siblings[0].id === 't1' && siblings[0].type === 'tab', 'First item should be t1 tab');
+assert(siblings[1].id === 't2' && siblings[1].type === 'tab', 'Second item should be t2 tab');
+assert(siblings[2].id === 'f1' && siblings[2].type === 'folder', 'Third item should be f1 folder');
+assert(siblings[3].id === 'f2' && siblings[3].type === 'folder', 'Fourth item should be f2 folder');
+console.log('✓ Tabs always precede folders at same level');
 
 // 2. Verify TabRow rejects folders during drag-over/drop
 const mockDragEvent = {
@@ -67,7 +67,7 @@ function simulateReorder(
   const { sourceId, sourceType, targetId, targetType, position } = params;
   if (sourceId === targetId) return { folders, tabs, rejected: true };
 
-  // Folders are always sorted on top of tabs in the same level.
+  // Tabs and folders are separated groups in the same level (tabs first, then folders).
   // 1. Prevent dragging folders down to below or onto tab items.
   if (sourceType === 'folder' && targetType === 'tab') {
     return { folders, tabs, rejected: true };

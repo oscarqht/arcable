@@ -21,7 +21,10 @@ import {
   cleanRaindropToken,
   getRaindropRequestFailureDetails,
   RAINDROP_API_BASE,
+  encodeRaindropTitle,
+  decodeRaindropTitle,
 } from './raindropClient';
+export { encodeRaindropTitle, decodeRaindropTitle } from './raindropClient';
 import { ARCABLE_VERSION } from '../version';
 import {
   getOrCreateDeviceId,
@@ -1112,7 +1115,7 @@ export async function syncIncrementalOperations(
       const isCreate = operations.some((operation) => operation.type === 'FOLDER_CREATE');
       const targetOrder = calculateFolderTargetOrder(folder, latestSnapshot.folders);
       if (isCreate) {
-        const created = await createRaindropCollection(token, folder.name, parentId, {
+        const created = await createRaindropCollection(token, encodeRaindropTitle(folder.name), parentId, {
           color: folder.colors,
           cover: folder.coverUrl ? [folder.coverUrl] : undefined,
           sort: targetOrder,
@@ -1129,7 +1132,7 @@ export async function syncIncrementalOperations(
         const remoteId = remoteEntityId(folder);
         if (!remoteId) throw new Error(`Folder ${entityId} has no Raindrop ID for incremental update.`);
         const updated = await updateRaindropCollection(token, remoteId, {
-          title: folder.name,
+          title: encodeRaindropTitle(folder.name),
           parentId,
           color: folder.colors ?? null,
           cover: folder.coverUrl ? [folder.coverUrl] : [],
@@ -1152,6 +1155,7 @@ export async function syncIncrementalOperations(
 
   const tabCreates: Array<{
     entityId: string;
+    isFavourite?: boolean;
     input: Parameters<typeof createRaindropBookmarks>[1][number];
   }> = [];
   const tabUpdates: Array<{
@@ -1191,8 +1195,9 @@ export async function syncIncrementalOperations(
 
     const isCreate = operations.some((operation) => operation.type === 'TAB_CREATE');
     const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
+    const rawTitle = tab.customTitle || tab.url;
     const payload = {
-      title: tab.customTitle || tab.url,
+      title: encodeRaindropTitle(rawTitle),
       link: tab.url,
       cover: tab.favIconUrl,
       note: '',
@@ -1202,23 +1207,28 @@ export async function syncIncrementalOperations(
     };
     const secondaryVariants = getTabSecondaryVariants(tab);
     if (isCreate) {
-      tabCreates.push({ entityId, input: {
-        title: payload.title,
-        link: payload.link,
-        cover: payload.cover,
-        note: '',
-        collectionId: parentId,
-        order: targetOrder,
-        sort: targetOrder,
-        pleaseParse: { disabled: true },
-      } });
+      tabCreates.push({
+        entityId,
+        isFavourite: Boolean(tab.favourite),
+        input: {
+          title: payload.title,
+          link: payload.link,
+          cover: payload.cover,
+          note: '',
+          collectionId: parentId,
+          order: targetOrder,
+          sort: targetOrder,
+          pleaseParse: { disabled: true },
+        },
+      });
       // Extra URL variants
       secondaryVariants.forEach((variant, vIdx) => {
         const variantOrder = targetOrder + 1 + vIdx;
         tabCreates.push({
           entityId: `${entityId}:::variant:::${variant.id}`,
+          isFavourite: Boolean(tab.favourite),
           input: {
-            title: `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
             link: variant.url,
             cover: payload.cover,
             note: '',
@@ -1256,7 +1266,7 @@ export async function syncIncrementalOperations(
         if (varRemoteId === mainRemoteId) {
           varRemoteId = origRemoteId;
         }
-        const varTitle = `${tab.customTitle || tab.url}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
+        const varTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
         if (varRemoteId) {
           tabUpdates.push({
             entityId: `${entityId}:::variant:::${variant.id}`,
@@ -1302,6 +1312,24 @@ export async function syncIncrementalOperations(
     if (createdItems.length !== batch.length) {
       throw new Error(`Raindrop created ${createdItems.length} of ${batch.length} requested bookmarks.`);
     }
+
+    // Raindrop batch creation defaults new bookmarks to index 0 (top of collection).
+    // Reposition created items that have a positive targetOrder so manual ordering is respected.
+    const createdWithOrder = batch
+      .map((entry, index) => ({
+        createdId: createdItems[index]._id,
+        targetOrder: entry.input.order !== undefined ? entry.input.order : entry.input.sort,
+        isFavourite: entry.isFavourite,
+      }))
+      .filter((entry): entry is { createdId: number; targetOrder: number; isFavourite: boolean } =>
+        Boolean(entry.isFavourite) && entry.targetOrder !== undefined && entry.targetOrder > 0
+      )
+      .sort((a, b) => a.targetOrder - b.targetOrder);
+
+    for (const { createdId, targetOrder } of createdWithOrder) {
+      await updateRaindropItem(token, createdId, { order: targetOrder, sort: targetOrder });
+    }
+
     const createdIds = new Map(batch.map((entry, index) => [entry.entityId, createdItems[index]._id]));
     latestSnapshot = {
       ...latestSnapshot,
@@ -1414,6 +1442,21 @@ export async function syncIncrementalOperations(
     if (createdItems.length !== batch.length) {
       throw new Error(`Raindrop created ${createdItems.length} of ${batch.length} requested widgets.`);
     }
+
+    // Raindrop batch creation defaults new bookmarks to index 0 (top of collection).
+    // Reposition created widgets that have a positive targetOrder so manual ordering is respected.
+    const widgetsWithOrder = batch
+      .map((entry, index) => ({
+        createdId: createdItems[index]._id,
+        targetOrder: entry.input.order !== undefined ? entry.input.order : entry.input.sort,
+      }))
+      .filter((entry): entry is { createdId: number; targetOrder: number } => entry.targetOrder !== undefined && entry.targetOrder > 0)
+      .sort((a, b) => a.targetOrder - b.targetOrder);
+
+    for (const { createdId, targetOrder } of widgetsWithOrder) {
+      await updateRaindropItem(token, createdId, { order: targetOrder, sort: targetOrder });
+    }
+
     const createdIds = new Map(batch.map((entry, index) => [entry.entityId, createdItems[index]._id]));
     latestSnapshot = {
       ...latestSnapshot,
@@ -1805,7 +1848,7 @@ function reconstructWorkspace(
     .map((collection, index) => ({
       id: arcableCollectionId(collection._id),
       raindropId: collection._id,
-      name: collection.title,
+      name: decodeRaindropTitle(collection.title),
       emojiIcon: emojiFromCover(collection.cover),
       coverUrl: collection.cover?.[0],
       order: (index + 1) * 1000,
@@ -1822,7 +1865,7 @@ function reconstructWorkspace(
       return {
         id: arcableCollectionId(collection._id),
         raindropId: collection._id,
-        name: collection.title,
+        name: decodeRaindropTitle(collection.title),
         customEmojiIcon: emojiFromCover(collection.cover),
         coverUrl: collection.cover?.[0],
         colors: collection.color,
@@ -2012,10 +2055,10 @@ function reconstructWorkspace(
   const baseTabItems: RaindropBookmarkItem[] = [];
 
   for (const item of rawTabItems) {
-    const title = item.title || '';
-    const delimiterIndex = title.indexOf(ARCABLE_VARIANT_DELIMITER);
+    const rawTitle = decodeRaindropTitle(item.title || '');
+    const delimiterIndex = rawTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
     if (delimiterIndex !== -1) {
-      const baseTitle = title.slice(0, delimiterIndex).trim();
+      const baseTitle = rawTitle.slice(0, delimiterIndex).trim();
       const groupKey = `${item.collectionId || 0}:::${baseTitle}`;
       const group = variantItemsByBaseTitle.get(groupKey) || [];
       group.push(item);
@@ -2043,7 +2086,8 @@ function reconstructWorkspace(
       }
     }
 
-    const groupKey = `${collectionId || 0}:::${(item.title || '').trim()}`;
+    const decodedTitle = decodeRaindropTitle(item.title || '');
+    const groupKey = `${collectionId || 0}:::${decodedTitle.trim()}`;
     const variantItems = variantItemsByBaseTitle.get(groupKey);
     let urlVariants: TabUrlVariant[] | undefined;
     let defaultVariantId: string | undefined;
@@ -2053,10 +2097,11 @@ function reconstructWorkspace(
       const defaultId = String(item._id);
       variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
       urlVariants = [
-        { id: defaultId, name: item.title || 'Default', url: item.link },
+        { id: defaultId, name: decodedTitle || 'Default', url: item.link },
         ...variantItems.map((v) => {
-          const delimIdx = (v.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
-          const variantName = delimIdx !== -1 ? v.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+          const vTitle = decodeRaindropTitle(v.title || '');
+          const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
+          const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
           return { id: String(v._id), name: variantName, url: v.link };
         }),
       ];
@@ -2071,7 +2116,7 @@ function reconstructWorkspace(
       defaultVariantId,
       pinned: false,
       favourite: favourite || undefined,
-      customTitle: item.title,
+      customTitle: decodedTitle,
       favIconUrl: item.cover,
       parentFolderId,
       parentSpaceId,
@@ -2098,11 +2143,12 @@ function reconstructWorkspace(
         parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
       }
     }
-    const baseTitle = groupKey.split(':::')[1] || first.title;
+    const baseTitle = groupKey.split(':::')[1] || decodeRaindropTitle(first.title);
     variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
     const urlVariants: TabUrlVariant[] = variantItems.map((v) => {
-      const delimIdx = (v.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
-      const variantName = delimIdx !== -1 ? v.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+      const vTitle = decodeRaindropTitle(v.title || '');
+      const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
+      const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
       return { id: String(v._id), name: variantName, url: v.link };
     });
     tabs.push({
@@ -2362,7 +2408,8 @@ export async function syncWorkspaceWithRaindrop(
           ? calculateSpaceTargetOrder(entry.entity as Space, localState.spaces || [])
           : calculateFolderTargetOrder(entry.entity as Folder, localState.folders || []);
         const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
-        const shouldUpdate = Boolean(existing) && (changedIds.has(id) || orderChanged || (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate));
+        const titleChanged = existing !== undefined && existing.title !== encodeRaindropTitle(entry.entity.name);
+        const shouldUpdate = Boolean(existing) && (changedIds.has(id) || orderChanged || titleChanged || (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate));
         // Space and folder covers come from Raindrop's own icon catalogue. Only
         // search when creating or modifying the corresponding collection.
         const cover = !existing || shouldUpdate
@@ -2372,7 +2419,7 @@ export async function syncWorkspaceWithRaindrop(
           : undefined;
         const color = entry.entity.colors;
         if (!existing) {
-          const created = await createRaindropCollection(clean, entry.entity.name, parentRemoteId, {
+          const created = await createRaindropCollection(clean, encodeRaindropTitle(entry.entity.name), parentRemoteId, {
             ...(entry.kind === 'folder' ? { color } : {}),
             cover: cover ? [cover] : undefined,
             sort: targetOrder,
@@ -2384,7 +2431,7 @@ export async function syncWorkspaceWithRaindrop(
           localCollectionToRemote.set(id, existing._id);
           if (shouldUpdate) {
             await updateRaindropCollection(clean, existing._id, {
-              title: entry.entity.name,
+              title: encodeRaindropTitle(entry.entity.name),
               parentId: parentRemoteId,
               ...(entry.kind === 'folder' ? { color } : {}),
               cover: cover ? [cover] : undefined,
@@ -2477,8 +2524,9 @@ export async function syncWorkspaceWithRaindrop(
       const parentId = tab.favourite ? root._id : localCollectionToRemote.get(tab.parentFolderId || tab.parentSpaceId || '');
       if (!parentId) continue;
       const targetOrder = calculateTabTargetOrder(tab, localState.tabs || [], localState.widgets || []);
+      const rawTitle = tab.customTitle || tab.url;
       const payload = {
-        title: tab.customTitle || tab.url,
+        title: encodeRaindropTitle(rawTitle),
         link: tab.url,
         cover: tab.favIconUrl,
         note: '',
@@ -2487,7 +2535,9 @@ export async function syncWorkspaceWithRaindrop(
         sort: targetOrder,
       };
       const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
-      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+      const titleChanged = existing !== undefined && existing.title !== payload.title;
+      const linkChanged = existing !== undefined && existing.link !== payload.link;
+      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
 
       const secondaryVariants = getTabSecondaryVariants(tab);
 
@@ -2506,7 +2556,7 @@ export async function syncWorkspaceWithRaindrop(
         secondaryVariants.forEach((variant, vIdx) => {
           const variantOrder = targetOrder + 1 + vIdx;
           bookmarksToCreate.push({
-            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
             link: variant.url,
             cover: payload.cover,
             note: '',
@@ -2534,11 +2584,11 @@ export async function syncWorkspaceWithRaindrop(
 
         secondaryVariants.forEach((variant, vIdx) => {
           const variantOrder = targetOrder + 1 + vIdx;
-          const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${variant.name}`;
+          const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
           const matchIdx = existingRemoteVariants.findIndex((rv) => {
             if (String(rv._id) === variant.id) return true;
             const delimIdx = (rv.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
-            const rvName = delimIdx !== -1 ? rv.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : '';
+            const rvName = delimIdx !== -1 ? decodeRaindropTitle(rv.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim()) : '';
             return rvName === variant.name;
           });
 
@@ -2669,7 +2719,28 @@ export async function syncWorkspaceWithRaindrop(
 
     // Create all new bookmark items in batches of 100
     for (let start = 0; start < bookmarksToCreate.length; start += 100) {
-      await createRaindropBookmarks(clean, bookmarksToCreate.slice(start, start + 100));
+      const batch = bookmarksToCreate.slice(start, start + 100);
+      const createdItems = await createRaindropBookmarks(clean, batch);
+      if (createdItems.length !== batch.length) {
+        throw new Error(`Raindrop created ${createdItems.length} of ${batch.length} requested bookmarks.`);
+      }
+
+      // Raindrop batch creation defaults new bookmarks to index 0 (top of collection).
+      // Reposition created favourite/widget items that have a positive targetOrder so manual ordering is respected.
+      const bookmarksWithOrder = batch
+        .map((entry, index) => ({
+          createdId: createdItems[index]._id,
+          targetOrder: entry.order !== undefined ? entry.order : entry.sort,
+          isRootItem: entry.collectionId === root._id,
+        }))
+        .filter((entry): entry is { createdId: number; targetOrder: number; isRootItem: boolean } =>
+          Boolean(entry.isRootItem) && entry.targetOrder !== undefined && entry.targetOrder > 0
+        )
+        .sort((a, b) => a.targetOrder - b.targetOrder);
+
+      for (const { createdId, targetOrder } of bookmarksWithOrder) {
+        await updateRaindropItem(clean, createdId, { order: targetOrder, sort: targetOrder });
+      }
     }
 
     // Clean up legacy data.json.txt if present (it is retired)

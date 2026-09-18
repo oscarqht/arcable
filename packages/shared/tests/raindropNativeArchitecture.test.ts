@@ -12,6 +12,8 @@ import {
   ARCABLE_VARIANT_DELIMITER,
   isSystemCollection,
   isWidgetItem,
+  encodeRaindropTitle,
+  decodeRaindropTitle,
 } from '../src/utils/raindropSync';
 import { getSortedSiblings } from '../src/hooks/useWorkspace';
 import type { ArcableWorkspaceData } from '../src/types/workspace';
@@ -138,13 +140,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         note: itemInput.note,
         tags: itemInput.tags || [],
         cover: itemInput.cover,
-        order: itemInput.order,
-        sort: itemInput.order,
+        // Real Raindrop batch creation ignores order/sort and defaults to 0
+        order: 0,
+        sort: 0,
         collection: itemInput.collection,
         created: '2026-01-01T00:00:00Z',
         lastUpdate: '2026-01-01T00:00:00Z',
       };
-      mockState.bookmarks.push(created);
+      mockState.bookmarks.unshift(created);
       return created;
     });
     return new Response(JSON.stringify({ items: createdItems }), {
@@ -213,7 +216,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch;
 
 async function runTests(): Promise<void> {
-  // 1. Sibling order test: Folders must precede tabs
+  // 1. Sibling order test: Tabs must precede folders
   const testFolders = [
     { id: 'f1', name: 'Folder 1', parentSpaceId: 's1', order: 10 },
     { id: 'f2', name: 'Folder 2', parentSpaceId: 's1', order: 5 },
@@ -223,11 +226,11 @@ async function runTests(): Promise<void> {
     { id: 't2', url: 'https://b.com', pinned: false, parentSpaceId: 's1', order: 20 },
   ];
   const sortedSiblings = getSortedSiblings(testFolders as any, testTabs as any, 's1');
-  assert.equal(sortedSiblings[0].id, 'f2', 'First sibling should be folder with lower order');
-  assert.equal(sortedSiblings[1].id, 'f1', 'Second sibling should be folder with higher order');
-  assert.equal(sortedSiblings[2].id, 't1', 'Third sibling should be tab with lower order');
-  assert.equal(sortedSiblings[3].id, 't2', 'Fourth sibling should be tab with higher order');
-  console.log('✓ Sibling sorting: folders precede tabs');
+  assert.equal(sortedSiblings[0].id, 't1', 'First sibling should be tab with lower order');
+  assert.equal(sortedSiblings[1].id, 't2', 'Second sibling should be tab with higher order');
+  assert.equal(sortedSiblings[2].id, 'f2', 'Third sibling should be folder with lower order');
+  assert.equal(sortedSiblings[3].id, 'f1', 'Fourth sibling should be folder with higher order');
+  console.log('✓ Sibling sorting: tabs precede folders');
 
   // 2. Full baseline sync with widgets, code rules, variants, and legacy cleanup
   calls.length = 0;
@@ -692,6 +695,254 @@ async function runTests(): Promise<void> {
   assert.equal(syncedCustomRule.css, 'div > p { color: red; }', 'Custom CSS must preserve child selector >');
   assert.equal(syncedCustomRule.js, 'const f = (x) => x > 0 && x < 10;', 'Custom JS must preserve =>, >, <');
   console.log('✓ Code content (=>, <, >) preserved across Raindrop sync despite remote sanitization');
+
+  // 9. Newly added favourite items sorting order post-sync:
+  // Expected behavior:
+  // 1. after added, new item appears at the end of favorite items list, unless manually sorted to other places;
+  // 2. after sync, it remains at the same position.
+  calls.length = 0;
+  mockState = {
+    collections: [
+      { _id: 1, title: ARCABLE_COLLECTION_NAME, sort: 0 },
+    ],
+    bookmarks: [
+      { _id: 1001, title: 'Fav 1', link: 'https://fav1.com', collection: { $id: 1 }, sort: 0, order: 0 },
+      { _id: 1002, title: 'Fav 2', link: 'https://fav2.com', collection: { $id: 1 }, sort: 1, order: 1 },
+    ],
+  };
+
+  const initialFavFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(initialFavFetch.success, true);
+  const initialData = initialFavFetch.data!;
+  assert.equal(initialData.tabs.length, 2);
+
+  // User adds a new favourite tab locally: order is maxOrder + 1000
+  const maxFavOrder = Math.max(0, ...initialData.tabs.map((t) => t.order ?? t.createdAt ?? 0));
+  const newFavTab: Tab = {
+    id: 'fav-3',
+    url: 'https://fav3.com',
+    customTitle: 'Fav 3',
+    favourite: true,
+    order: maxFavOrder + 1000,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  // 1. Verify that before sync, the new item appears at the end of favorite items list
+  const localTabsWithNewFav = [...initialData.tabs, newFavTab].sort(
+    (a, b) => (a.order ?? 0) - (b.order ?? 0)
+  );
+  assert.equal(localTabsWithNewFav[localTabsWithNewFav.length - 1].id, 'fav-3', 'New favourite tab must be at the end locally');
+
+  // Sync the new favourite tab with Raindrop
+  calls.length = 0;
+  const syncWithNewFavResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: {
+      ...initialData,
+      tabs: [...initialData.tabs, newFavTab],
+    },
+    pendingOps: [
+      {
+        id: 'op-fav-3',
+        type: 'TAB_CREATE',
+        entityId: 'fav-3',
+        payload: newFavTab,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+  assert.equal(syncWithNewFavResult.success, true);
+
+  // Verify that an explicit PUT call was made to position the newly created bookmark at targetOrder = 2
+  const newFavPutCall = calls.find(
+    (c) => c.method === 'PUT' && c.url.includes('/raindrop/') && (c.body?.order === 2 || c.body?.sort === 2)
+  );
+  assert(newFavPutCall, 'Newly created favourite tab must be repositioned to targetOrder at the end via PUT');
+
+  // 2. Verify that after sync, it remains at the exact same position (at the end)
+  const afterSyncFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(afterSyncFetch.success, true);
+  const afterSyncTabs = afterSyncFetch.data!.tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(afterSyncTabs.length, 3);
+  assert.equal(afterSyncTabs[0].customTitle, 'Fav 1');
+  assert.equal(afterSyncTabs[1].customTitle, 'Fav 2');
+  assert.equal(afterSyncTabs[2].customTitle, 'Fav 3', 'Newly added favourite tab must remain at the end after sync');
+
+  // 3. Verify manual reordering: if new item was manually moved to the front (order: 500) before sync,
+  // it remains at the front after sync
+  calls.length = 0;
+  const newFavFront: Tab = {
+    id: 'fav-front',
+    url: 'https://fav-front.com',
+    customTitle: 'Fav Front',
+    favourite: true,
+    order: 500, // Manually sorted before fav 1 (1000)
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const manualSortSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: {
+      ...afterSyncFetch.data!,
+      tabs: [newFavFront, ...afterSyncFetch.data!.tabs],
+    },
+    pendingOps: [
+      {
+        id: 'op-fav-front',
+        type: 'TAB_CREATE',
+        entityId: 'fav-front',
+        payload: newFavFront,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+  assert.equal(manualSortSyncResult.success, true);
+
+  const afterManualSortFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(afterManualSortFetch.success, true);
+  const afterManualSortTabs = afterManualSortFetch.data!.tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  assert.equal(afterManualSortTabs[0].customTitle, 'Fav Front', 'Manually sorted item before sync must remain at the front');
+  console.log('✓ Newly added favourite items stay at the end after sync, or maintain manually sorted position');
+
+  // 10. Verify '<' and '>' in space, folder, tab customTitle, and variant names are preserved across sync
+  // 10.1 Verify encoder/decoder helpers and idempotency
+  assert.equal(encodeRaindropTitle('Test <Foo> & >Bar<'), 'Test ＜Foo＞ & ＞Bar＜');
+  assert.equal(decodeRaindropTitle('Test ＜Foo＞ & ＞Bar＜'), 'Test <Foo> & >Bar<');
+  assert.equal(encodeRaindropTitle('Test ＜Foo＞'), 'Test ＜Foo＞', 'Encoder should be idempotent');
+  assert.equal(decodeRaindropTitle('Test <Foo>'), 'Test <Foo>', 'Decoder should be idempotent');
+  assert.equal(encodeRaindropTitle(undefined), '');
+  assert.equal(decodeRaindropTitle(undefined), '');
+
+  // 10.2 Setup workspace with spaces, folders, tabs, and URL variants containing '<' and '>'
+  calls.length = 0;
+  mockState = {
+    collections: [
+      { _id: 1, title: ARCABLE_COLLECTION_NAME, sort: 0 },
+    ],
+    bookmarks: [],
+  };
+
+  const angleWorkspace: ArcableWorkspaceData = {
+    spaces: [
+      {
+        id: 'space-angle',
+        name: '<Project Alpha>',
+        order: 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ],
+    folders: [
+      {
+        id: 'folder-angle',
+        name: 'Folder <v1.0>',
+        parentSpaceId: 'space-angle',
+        order: 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ],
+    tabs: [
+      {
+        id: 'tab-angle',
+        url: 'https://example.com/main',
+        customTitle: 'Tab <Main & Test>',
+        parentFolderId: 'folder-angle',
+        order: 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        urlVariants: [
+          { id: 'var-1', name: 'Tab <Main & Test>', url: 'https://example.com/main' },
+          { id: 'var-2', name: 'Variant <Dev>', url: 'https://example.com/dev' },
+        ],
+        defaultVariantId: 'var-1',
+      },
+    ],
+  };
+
+  const angleSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: angleWorkspace,
+    replaceBaseline: true,
+  });
+  assert.equal(angleSyncResult.success, true);
+
+  // 10.3 Verify Raindrop API received encoded '＜' and '＞' without raw '<' or '>'
+  const spaceCol = mockState.collections.find((c) => c.title === '＜Project Alpha＞');
+  assert(spaceCol, 'Space collection must have title encoded as ＜Project Alpha＞ in Raindrop');
+  const folderCol = mockState.collections.find((c) => c.title === 'Folder ＜v1.0＞');
+  assert(folderCol, 'Folder collection must have title encoded as Folder ＜v1.0＞ in Raindrop');
+
+  const mainBookmark = mockState.bookmarks.find((b) => b.title === 'Tab ＜Main & Test＞');
+  assert(mainBookmark, 'Tab bookmark must have title encoded as Tab ＜Main & Test＞ in Raindrop');
+  const variantBookmark = mockState.bookmarks.find(
+    (b) => b.title === `Tab ＜Main & Test＞${ARCABLE_VARIANT_DELIMITER}Variant ＜Dev＞`
+  );
+  assert(variantBookmark, 'Variant bookmark must have title encoded with delimiter in Raindrop');
+
+  // Verify Raindrop received ZERO raw ASCII '<' or '>' in titles (simulating backend sanitization)
+  assert(!mockState.collections.some((c) => /[<>]/.test(c.title)), 'No raw < or > in collection titles');
+  assert(!mockState.bookmarks.some((b) => /[<>]/.test(b.title)), 'No raw < or > in bookmark titles');
+
+  // 10.4 Verify fetchRaindropWorkspace reconstructs the original '<' and '>' characters
+  const fetchedAngleWorkspace = await fetchRaindropWorkspace('mock-token');
+  assert.equal(fetchedAngleWorkspace.success, true);
+  const reconstructedAngle = fetchedAngleWorkspace.data!;
+
+  const recSpace = reconstructedAngle.spaces.find((s) => s.name === '<Project Alpha>');
+  assert(recSpace, 'Reconstructed space must retain <Project Alpha>');
+
+  const recFolder = reconstructedAngle.folders.find((f) => f.name === 'Folder <v1.0>');
+  assert(recFolder, 'Reconstructed folder must retain Folder <v1.0>');
+
+  const recTab = reconstructedAngle.tabs.find((t) => t.customTitle === 'Tab <Main & Test>');
+  assert(recTab, 'Reconstructed tab must retain customTitle "Tab <Main & Test>"');
+  assert(recTab.urlVariants, 'Reconstructed tab must have urlVariants');
+  assert.equal(recTab.urlVariants.length, 2);
+  assert.equal(recTab.urlVariants[0].name, 'Tab <Main & Test>');
+  assert.equal(recTab.urlVariants[1].name, 'Variant <Dev>');
+
+  // 10.5 Verify incremental sync preserves '<' and '>'
+  calls.length = 0;
+  const newIncrementalTab: Tab = {
+    id: 'tab-inc-angle',
+    url: 'https://example.com/inc',
+    customTitle: 'Tab <Incremental>',
+    parentSpaceId: recSpace.id,
+    order: 2000,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    urlVariants: [
+      { id: 'inc-v1', name: 'Tab <Incremental>', url: 'https://example.com/inc' },
+      { id: 'inc-v2', name: 'Variant <Staging>', url: 'https://example.com/staging' },
+    ],
+    defaultVariantId: 'inc-v1',
+  };
+
+  const incSyncResult = await syncWorkspaceWithRaindrop('mock-token', {
+    localState: {
+      ...reconstructedAngle,
+      tabs: [...reconstructedAngle.tabs, newIncrementalTab],
+    },
+    pendingOps: [
+      {
+        id: 'op-inc-angle',
+        type: 'TAB_CREATE',
+        entityId: 'tab-inc-angle',
+        payload: newIncrementalTab,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+  assert.equal(incSyncResult.success, true);
+
+  const incFetch = await fetchRaindropWorkspace('mock-token');
+  assert.equal(incFetch.success, true);
+  const incRecTab = incFetch.data!.tabs.find((t) => t.customTitle === 'Tab <Incremental>');
+  assert(incRecTab, 'Incrementally synced tab must retain customTitle "Tab <Incremental>"');
+  assert(incRecTab.urlVariants, 'Incrementally synced tab must have urlVariants');
+  assert.equal(incRecTab.urlVariants[1].name, 'Variant <Staging>');
+
+  console.log('✓ Spaces, folders, tabs, and URL variants preserve "<" and ">" across full and incremental sync');
 }
 
 runTests().catch((err) => {

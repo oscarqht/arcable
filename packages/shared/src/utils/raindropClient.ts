@@ -129,6 +129,24 @@ export function cleanRaindropToken(token: string): string {
 }
 
 /**
+ * Encodes ASCII '<' and '>' characters to Unicode full-width counterparts '＜' (\uFF1C) and '＞' (\uFF1E).
+ * Raindrop's backend API sanitizes and strips ASCII '<' and '>' from titles, but faithfully
+ * preserves full-width '＜' and '＞'.
+ */
+export function encodeRaindropTitle(title: string | undefined | null): string {
+  if (!title || typeof title !== 'string') return title ?? '';
+  return title.replace(/</g, '\uff1c').replace(/>/g, '\uff1e');
+}
+
+/**
+ * Decodes Unicode full-width '＜' and '＞' back to ASCII '<' and '>'.
+ */
+export function decodeRaindropTitle(title: string | undefined | null): string {
+  if (!title || typeof title !== 'string') return title ?? '';
+  return title.replace(/\uff1c/g, '<').replace(/\uff1e/g, '>');
+}
+
+/**
  * Validates a Raindrop token and retrieves the current user profile.
  */
 export async function fetchRaindropUser(token: string): Promise<RaindropUserProfile | null> {
@@ -251,7 +269,7 @@ export async function fetchRaindropCollections(
 /** Returns image URLs from Raindrop's collection cover/icon catalogue. */
 export async function searchRaindropCollectionCovers(token: string, text: string): Promise<string[]> {
   const cleanToken = cleanRaindropToken(token);
-  const query = text.trim();
+  const query = text.replace(/[<>＜＞]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!cleanToken || !query) return [];
 
   try {
@@ -376,7 +394,7 @@ export async function createRaindropBookmark(
 
   const payload: Record<string, any> = {
     link: input.link,
-    title: input.title || input.link,
+    title: encodeRaindropTitle(input.title || input.link),
     pleaseParse: input.pleaseParse ?? {},
   };
 
@@ -463,7 +481,7 @@ export async function createRaindropBookmarks(
     if (!input.link) throw new Error('Link is required to create a bookmark.');
     const item: Record<string, unknown> = {
       link: input.link,
-      title: input.title || input.link,
+      title: encodeRaindropTitle(input.title || input.link),
       pleaseParse: input.pleaseParse ?? {},
     };
     if (input.excerpt) item.excerpt = input.excerpt;
@@ -654,7 +672,7 @@ export async function createRaindropCollection(
   }
 
   const payload: Record<string, any> = {
-    title: title.trim() || 'Arcable v2',
+    title: encodeRaindropTitle(title.trim()) || 'Arcable v2',
     view: 'list',
   };
 
@@ -699,7 +717,7 @@ export async function updateRaindropCollection(
   if (!cleanToken || !collectionId) return null;
 
   const payload: Record<string, unknown> = {};
-  if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.title !== undefined) payload.title = encodeRaindropTitle(updates.title);
   if (updates.parentId !== undefined) payload.parent = updates.parentId === null ? {} : { $id: updates.parentId };
   if (updates.color !== undefined) payload.color = updates.color;
   if (updates.cover !== undefined) payload.cover = updates.cover;
@@ -862,6 +880,10 @@ export async function updateRaindropItem(
   if (!cleanToken || !itemId) return null;
 
   try {
+    const payload = updates.title !== undefined
+      ? { ...updates, title: encodeRaindropTitle(updates.title) }
+      : updates;
+
     const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/${itemId}`, {
       method: 'PUT',
       headers: {
@@ -869,7 +891,7 @@ export async function updateRaindropItem(
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(updates),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -1222,7 +1244,7 @@ export async function searchRaindrop(
     const collectionIdParentMap = new Map<number, number>();
     allCollections.forEach((c) => {
       if (c._id && c.title) {
-        collectionIdTitleMap.set(c._id, c.title);
+        collectionIdTitleMap.set(c._id, decodeRaindropTitle(c.title));
       }
       if (c._id && c.parent?.$id) {
         collectionIdParentMap.set(c._id, c.parent.$id);
@@ -1238,7 +1260,7 @@ export async function searchRaindrop(
           return false;
         }
 
-        const title = (item.title || '').toLowerCase();
+        const title = decodeRaindropTitle(item.title || '').toLowerCase();
         const link = (item.link || '').toLowerCase();
         const excerpt = (item.excerpt || '').toLowerCase();
         const tags = Array.isArray(item.tags)
@@ -1267,7 +1289,7 @@ export async function searchRaindrop(
 
         return {
           _id: item._id,
-          title: item.title || '',
+          title: decodeRaindropTitle(item.title || ''),
           excerpt: item.excerpt,
           note: item.note,
           link: item.link || '',
@@ -1296,11 +1318,16 @@ export async function searchRaindrop(
     });
 
     // Filter collections matching query
-    const filteredCollections = allCollections.filter((c) => {
-      const titleLower = (c.title || '').toLowerCase().trim();
-      if (EXCLUDED_COLLECTIONS.includes(titleLower)) return false;
-      return searchTerms.every((term) => titleLower.includes(term));
-    });
+    const filteredCollections = allCollections
+      .filter((c) => {
+        const titleLower = decodeRaindropTitle(c.title || '').toLowerCase().trim();
+        if (EXCLUDED_COLLECTIONS.includes(titleLower)) return false;
+        return searchTerms.every((term) => titleLower.includes(term));
+      })
+      .map((c) => ({
+        ...c,
+        title: decodeRaindropTitle(c.title),
+      }));
 
     return {
       items: filteredItems,

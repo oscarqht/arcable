@@ -123,10 +123,9 @@ export function getSortedSiblings(
       order: t.order !== undefined ? t.order : t.createdAt || 0,
     }));
 
-  return [...matchingFolders, ...matchingTabs].sort((a, b) => {
-    // Folders are rendered before bookmarks at every level of the workspace tree,
-    // mirroring Raindrop's native model.
-    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+  return [...matchingTabs, ...matchingFolders].sort((a, b) => {
+    // Items (tabs) are rendered before folders at every level of the workspace tree.
+    if (a.type !== b.type) return a.type === 'tab' ? -1 : 1;
     if (a.order !== b.order) return a.order - b.order;
     return a.id.localeCompare(b.id);
   });
@@ -1646,13 +1645,13 @@ export function useWorkspace() {
       const { sourceId, sourceType, targetId, targetType, position } = params;
       if (sourceId === targetId) return;
 
-      // Folders are always sorted on top of tabs in the same level.
-      // 1. Prevent dragging folders down to below or onto tab items.
+      // Items and folders are grouped separately in the same level (items/tabs first, then folders).
+      // 1. Prevent dragging folders onto tab items.
       if (sourceType === 'folder' && targetType === 'tab') {
         return;
       }
 
-      // 2. Prevent dragging tab items to above or below folders (only dropping inside a folder is allowed).
+      // 2. Prevent dragging tab items to before or after folders (only dropping inside a folder is allowed).
       if (sourceType === 'tab' && targetType === 'folder' && position !== 'inside') {
         return;
       }
