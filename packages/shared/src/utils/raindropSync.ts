@@ -1284,6 +1284,7 @@ export async function syncIncrementalOperations(
         } else {
           tabCreates.push({
             entityId: `${entityId}:::variant:::${variant.id}`,
+            isFavourite: Boolean(tab.favourite),
             input: {
               title: varTitle,
               link: variant.url,
@@ -1322,7 +1323,7 @@ export async function syncIncrementalOperations(
         isFavourite: entry.isFavourite,
       }))
       .filter((entry): entry is { createdId: number; targetOrder: number; isFavourite: boolean } =>
-        Boolean(entry.isFavourite) && entry.targetOrder !== undefined && entry.targetOrder > 0
+        Boolean(entry.isFavourite) && entry.targetOrder !== undefined && entry.targetOrder >= 0
       )
       .sort((a, b) => a.targetOrder - b.targetOrder);
 

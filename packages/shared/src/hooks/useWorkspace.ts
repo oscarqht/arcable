@@ -15,7 +15,7 @@ import {
   detectDeviceType,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop, numericRaindropId } from '../utils/raindropSync';
-import { getDescendantFolderIds, getAllSpaceFolderIds } from '../utils/treeUtils';
+import { getDescendantFolderIds, getAllSpaceFolderIds, getDomain } from '../utils/treeUtils';
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -2122,19 +2122,9 @@ export function useWorkspace() {
       if (allItems.every((item, index) => item.id === originalOrder[index])) return;
 
       const orderMap = new Map<string, number>();
-      const sparseOrder = getSparseOrderBetween(
-        allItems[insertIdx - 1]?.order,
-        allItems[insertIdx + 1]?.order
-      );
-      if (sparseOrder !== undefined) {
-        orderMap.set(sourceId, sparseOrder);
-      } else {
-        // Orders can eventually become adjacent after repeated midpoint moves.
-        // Only then pay the cost of compacting the full shelf.
-        allItems.forEach((item, idx) => {
-          orderMap.set(item.id, (idx + 1) * 1000);
-        });
-      }
+      allItems.forEach((item, idx) => {
+        orderMap.set(item.id, (idx + 1) * 1000);
+      });
 
       // Update tabs
       const updatedTabs = data.tabs.map((t) => {
@@ -2194,6 +2184,383 @@ export function useWorkspace() {
       reorderFavouriteItem(sourceTabId, targetTabId, position);
     },
     [reorderFavouriteItem]
+  );
+
+  const mergeTabsIntoGroup = useCallback(
+    (sourceTabId: string, targetTabId: string) => {
+      saveWorkspaceData((prev) => {
+        const sourceTab = prev.tabs.find((t) => t.id === sourceTabId);
+        const targetTab = prev.tabs.find((t) => t.id === targetTabId);
+        if (!sourceTab || !targetTab || sourceTabId === targetTabId) return prev;
+
+        const targetVariants: TabUrlVariant[] =
+          targetTab.urlVariants && targetTab.urlVariants.length > 0
+            ? targetTab.urlVariants.map((v) => ({ ...v }))
+            : [
+                {
+                  id: generateId('var'),
+                  name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
+                  url: targetTab.url,
+                },
+              ];
+
+        const sourceVariants: TabUrlVariant[] =
+          sourceTab.urlVariants && sourceTab.urlVariants.length > 0
+            ? sourceTab.urlVariants.map((v) => ({ ...v }))
+            : [
+                {
+                  id: generateId('var'),
+                  name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 2',
+                  url: sourceTab.url,
+                },
+              ];
+
+        const mergedVariants = [...targetVariants, ...sourceVariants];
+        const defaultVariant = mergedVariants[0];
+        const groupTitle = targetTab.customTitle?.trim() || 'Group';
+
+        const updatedTarget: Tab = {
+          ...targetTab,
+          customTitle: groupTitle,
+          url: defaultVariant.url,
+          urlVariants: mergedVariants,
+          defaultVariantId: defaultVariant.id,
+          updatedAt: Date.now(),
+        };
+
+        // 1. Update target tab with merged variants
+        savePendingOperation(
+          createWorkspaceOperation('TAB_UPDATE', targetTab.id, {
+            title: groupTitle,
+            url: defaultVariant.url,
+            urlVariants: mergedVariants,
+            defaultVariantId: defaultVariant.id,
+          })
+        );
+
+        // 2. Delete source tab
+        const numericSourceId = /^\d+$/.test(sourceTab.id) ? Number(sourceTab.id) : undefined;
+        const parent = sourceTab.parentFolderId
+          ? prev.folders.find((f) => f.id === sourceTab.parentFolderId)
+          : prev.spaces.find((s) => s.id === sourceTab.parentSpaceId);
+        const numericParentId = parent && /^\d+$/.test(parent.id) ? Number(parent.id) : undefined;
+        const secondaryVariantIds = (sourceTab.urlVariants || [])
+          .map((v) => numericRaindropId(v.id))
+          .filter((vid): vid is number => Boolean(vid) && vid !== (sourceTab.raindropId || numericSourceId));
+
+        savePendingOperation(
+          createWorkspaceOperation('TAB_DELETE', sourceTab.id, {
+            raindropId: sourceTab.raindropId || numericSourceId,
+            variantRaindropIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
+            collectionId: sourceTab.favourite
+              ? prev.raindropRootCollectionId
+              : parent?.raindropId || numericParentId,
+          })
+        );
+
+        return {
+          ...prev,
+          tabs: prev.tabs
+            .filter((t) => t.id !== sourceTabId)
+            .map((t) => (t.id === targetTabId ? updatedTarget : t)),
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const ungroupTab = useCallback(
+    (tabId: string) => {
+      saveWorkspaceData((prev) => {
+        const groupTab = prev.tabs.find((t) => t.id === tabId);
+        if (!groupTab || !groupTab.urlVariants || groupTab.urlVariants.length === 0) {
+          return prev;
+        }
+
+        const variants = groupTab.urlVariants;
+        if (variants.length <= 1) {
+          const updatedTab: Tab = {
+            ...groupTab,
+            customTitle: variants[0]?.name || groupTab.customTitle,
+            url: variants[0]?.url || groupTab.url,
+            urlVariants: undefined,
+            defaultVariantId: undefined,
+            updatedAt: Date.now(),
+          };
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+              title: updatedTab.customTitle,
+              url: updatedTab.url,
+              urlVariants: null,
+              defaultVariantId: null,
+            })
+          );
+          return {
+            ...prev,
+            tabs: prev.tabs.map((t) => (t.id === tabId ? updatedTab : t)),
+          };
+        }
+
+        const secondaryVariantIds = variants
+          .slice(1)
+          .map((v) => v.id)
+          .filter(Boolean);
+
+        // First variant stays on the existing tab preserving identity & browser associations
+        const firstVariant = variants[0];
+        const updatedFirstTab: Tab = {
+          ...groupTab,
+          customTitle: firstVariant.name || groupTab.customTitle,
+          url: firstVariant.url,
+          urlVariants: undefined,
+          defaultVariantId: undefined,
+          updatedAt: Date.now(),
+        };
+
+        // Remaining variants become separate new tabs
+        const newTabs: Tab[] = variants.slice(1).map((v, idx) => {
+          const newTab: Tab = {
+            id: generateId('tab'),
+            url: v.url,
+            customTitle: v.name,
+            pinned: Boolean(groupTab.pinned),
+            favourite: Boolean(groupTab.favourite),
+            parentSpaceId: groupTab.parentSpaceId,
+            parentFolderId: groupTab.parentFolderId,
+            createdAt: Date.now() + idx,
+            updatedAt: Date.now() + idx,
+          };
+          return newTab;
+        });
+
+        // Replace groupTab with [updatedFirstTab, ...newTabs] in tab list
+        const groupIdxInPrev = prev.tabs.findIndex((t) => t.id === tabId);
+        const nextTabsList = [...prev.tabs];
+        if (groupIdxInPrev >= 0) {
+          nextTabsList.splice(groupIdxInPrev, 1, updatedFirstTab, ...newTabs);
+        } else {
+          nextTabsList.push(updatedFirstTab, ...newTabs);
+        }
+
+        let updatedWidgets = prev.widgets || [];
+
+        if (groupTab.favourite) {
+          // Keep all children tabs at the EXACT place on the favourite shelf where the group was
+          type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
+          const favTabs: FavItem[] = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite))).map((t) => ({
+            id: t.id,
+            type: 'tab' as const,
+            order: t.order,
+            createdAt: t.createdAt,
+          }));
+          const currentWidgets: FavItem[] = getSortedWidgets(prev.widgets || []).map((w) => ({
+            id: w.id,
+            type: 'widget' as const,
+            order: w.order,
+            createdAt: w.createdAt,
+          }));
+
+          const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
+            if (a.order !== undefined && b.order !== undefined) {
+              if (a.order !== b.order) return a.order - b.order;
+              return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+            }
+            if (a.order !== undefined) return -1;
+            if (b.order !== undefined) return 1;
+            return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+          });
+
+          // Replace the group entry at its exact index in allItems with [updatedFirstTab, ...newTabs]
+          const groupIdx = allItems.findIndex((item) => item.id === tabId);
+          const unpackedItems: FavItem[] = [
+            { id: updatedFirstTab.id, type: 'tab' as const },
+            ...newTabs.map((nt) => ({ id: nt.id, type: 'tab' as const })),
+          ];
+          if (groupIdx >= 0) {
+            allItems.splice(groupIdx, 1, ...unpackedItems);
+          } else {
+            allItems.push(...unpackedItems);
+          }
+
+          // Re-index all favourite items sequentially
+          const orderMap = new Map<string, number>();
+          allItems.forEach((item, idx) => {
+            orderMap.set(item.id, (idx + 1) * 1000);
+          });
+
+          // Update tab orders
+          const finalTabs = nextTabsList.map((t) => {
+            const newOrder = orderMap.get(t.id);
+            if (newOrder !== undefined) {
+              return { ...t, order: newOrder };
+            }
+            return t;
+          });
+
+          // Update widget orders
+          updatedWidgets = (prev.widgets || []).map((w) => {
+            const newOrder = orderMap.get(w.id);
+            if (newOrder !== undefined) {
+              return { ...w, order: newOrder };
+            }
+            return w;
+          });
+
+          // Save pending operations:
+          // 1. Updated first tab (with deletedVariantIds to purge old secondary bookmarks in Raindrop)
+          const firstTabFinal = finalTabs.find((t) => t.id === updatedFirstTab.id) || updatedFirstTab;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+              title: firstTabFinal.customTitle,
+              url: firstTabFinal.url,
+              urlVariants: null,
+              defaultVariantId: null,
+              order: firstTabFinal.order,
+              deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
+            })
+          );
+
+          // 2. New tabs
+          newTabs.forEach((nt) => {
+            const ntFinal = finalTabs.find((t) => t.id === nt.id) || nt;
+            savePendingOperation(createWorkspaceOperation('TAB_CREATE', ntFinal.id, ntFinal));
+          });
+
+          // 3. Other existing tabs whose orders shifted
+          finalTabs.forEach((t) => {
+            if (t.id === groupTab.id || newTabs.some((nt) => nt.id === t.id)) return;
+            const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+            if (oldTab && oldTab.order !== t.order) {
+              savePendingOperation(createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order }));
+            }
+          });
+
+          // 4. Widgets whose orders shifted
+          updatedWidgets.forEach((w) => {
+            const oldWidget = (prev.widgets || []).find((orig) => orig.id === w.id);
+            if (oldWidget && oldWidget.order !== w.order) {
+              savePendingOperation(createWorkspaceOperation('WIDGET_UPDATE', w.id, { order: w.order }));
+            }
+          });
+
+          return {
+            ...prev,
+            tabs: finalTabs,
+            widgets: updatedWidgets,
+          };
+        } else if (groupTab.pinned) {
+          // Pinned tabs
+          const pinnedTabs = getSortedTabs(prev.tabs.filter((t) => t.pinned));
+          const groupIdx = pinnedTabs.findIndex((t) => t.id === tabId);
+          const unpackedTabs = [updatedFirstTab, ...newTabs];
+          if (groupIdx >= 0) {
+            pinnedTabs.splice(groupIdx, 1, ...unpackedTabs);
+          } else {
+            pinnedTabs.push(...unpackedTabs);
+          }
+
+          const orderMap = new Map<string, number>();
+          pinnedTabs.forEach((t, idx) => {
+            orderMap.set(t.id, (idx + 1) * 1000);
+          });
+
+          const finalTabs = nextTabsList.map((t) => {
+            const newOrder = orderMap.get(t.id);
+            return newOrder !== undefined ? { ...t, order: newOrder } : t;
+          });
+
+          const firstTabFinal = finalTabs.find((t) => t.id === updatedFirstTab.id) || updatedFirstTab;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+              title: firstTabFinal.customTitle,
+              url: firstTabFinal.url,
+              urlVariants: null,
+              defaultVariantId: null,
+              order: firstTabFinal.order,
+              deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
+            })
+          );
+
+          newTabs.forEach((nt) => {
+            const ntFinal = finalTabs.find((t) => t.id === nt.id) || nt;
+            savePendingOperation(createWorkspaceOperation('TAB_CREATE', ntFinal.id, ntFinal));
+          });
+
+          finalTabs.forEach((t) => {
+            if (t.id === groupTab.id || newTabs.some((nt) => nt.id === t.id)) return;
+            const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+            if (oldTab && oldTab.order !== t.order) {
+              savePendingOperation(createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order }));
+            }
+          });
+
+          return {
+            ...prev,
+            tabs: finalTabs,
+          };
+        } else {
+          // Regular space / folder tabs
+          const siblings = prev.tabs
+            .filter(
+              (t) =>
+                !t.favourite &&
+                !t.pinned &&
+                t.parentSpaceId === groupTab.parentSpaceId &&
+                t.parentFolderId === groupTab.parentFolderId
+            )
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt || 0) - (b.createdAt || 0));
+
+          const groupIdx = siblings.findIndex((t) => t.id === tabId);
+          const unpackedTabs = [updatedFirstTab, ...newTabs];
+          if (groupIdx >= 0) {
+            siblings.splice(groupIdx, 1, ...unpackedTabs);
+          } else {
+            siblings.push(...unpackedTabs);
+          }
+
+          const orderMap = new Map<string, number>();
+          siblings.forEach((t, idx) => {
+            orderMap.set(t.id, (idx + 1) * 1000);
+          });
+
+          const finalTabs = nextTabsList.map((t) => {
+            const newOrder = orderMap.get(t.id);
+            return newOrder !== undefined ? { ...t, order: newOrder } : t;
+          });
+
+          const firstTabFinal = finalTabs.find((t) => t.id === updatedFirstTab.id) || updatedFirstTab;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+              title: firstTabFinal.customTitle,
+              url: firstTabFinal.url,
+              urlVariants: null,
+              defaultVariantId: null,
+              order: firstTabFinal.order,
+              deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
+            })
+          );
+
+          newTabs.forEach((nt) => {
+            const ntFinal = finalTabs.find((t) => t.id === nt.id) || nt;
+            savePendingOperation(createWorkspaceOperation('TAB_CREATE', ntFinal.id, ntFinal));
+          });
+
+          finalTabs.forEach((t) => {
+            if (t.id === groupTab.id || newTabs.some((nt) => nt.id === t.id)) return;
+            const oldTab = prev.tabs.find((orig) => orig.id === t.id);
+            if (oldTab && oldTab.order !== t.order) {
+              savePendingOperation(createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order }));
+            }
+          });
+
+          return {
+            ...prev,
+            tabs: finalTabs,
+          };
+        }
+      });
+    },
+    [saveWorkspaceData]
   );
 
   const resetToDefault = useCallback(() => {
@@ -2422,6 +2789,8 @@ export function useWorkspace() {
     reorderPinnedTabs,
     reorderFavouriteTabs,
     reorderFavouriteItem,
+    mergeTabsIntoGroup,
+    ungroupTab,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,

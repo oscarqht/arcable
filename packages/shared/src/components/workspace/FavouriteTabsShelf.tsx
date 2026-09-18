@@ -4,6 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Tab,
+  TabUrlVariant,
   TabOpenOptions,
   WorkspaceWidget,
   WidgetStyle,
@@ -15,7 +16,7 @@ import {
   SearchConfig,
 } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
-import { cleanUrl } from '../../utils/format';
+import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
@@ -24,6 +25,7 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { FavouriteGroupPopover } from './FavouriteGroupPopover';
 import {
   StarIcon,
   PlusIcon,
@@ -38,6 +40,7 @@ import {
   SlashIcon,
   ClockIcon,
   GlobeIcon,
+  GridViewIcon,
 } from '../Icons';
 import {
   PomodoroPopover,
@@ -65,6 +68,10 @@ export interface FavouriteTabsShelfProps {
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
+  onAddFavouriteGroup?: () => void;
+  onMergeFavouriteTabs?: (sourceTabId: string, targetTabId: string) => void;
+  onUngroupTab?: (tabId: string) => void;
+  onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => void;
   onUpdateWidget?: (id: string, updates: Partial<WorkspaceWidget>) => void;
   onRemoveWidget?: (id: string) => void;
@@ -128,6 +135,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onDeleteTab,
   onToggleFavouriteTab,
   onAddFavouriteTab,
+  onAddFavouriteGroup,
+  onMergeFavouriteTabs,
+  onUngroupTab,
+  onOpenVariant,
   onAddWidget,
   onUpdateWidget,
   onRemoveWidget,
@@ -156,7 +167,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [openMenuTabId, setOpenMenuTabId] = useState<string | null>(null);
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
-  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside' | null>(null);
+  const [groupPopoverTab, setGroupPopoverTab] = useState<{ tab: Tab; anchorRect: DOMRect } | null>(null);
+
+  const activePopoverGroupTab = useMemo(() => {
+    if (!groupPopoverTab) return null;
+    return tabs.find((t) => t.id === groupPopoverTab.tab.id) || groupPopoverTab.tab;
+  }, [groupPopoverTab, tabs]);
 
   // Active Widget Popover State (for interactive widgets)
   const [activeWidgetPopover, setActiveWidgetPopover] = useState<{
@@ -255,7 +272,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     setMenuVisibleTabId(null);
     setOpenMenuTabId(null);
     setIsAddMenuOpen(false);
-    startDrag(e, { id, type: 'favTab' });
+    const isWidget = widgets.some((w) => w.id === id);
+    startDrag(e, { id, type: isWidget ? 'widget' : 'favTab' });
   };
 
   const handleDragOver = (e: React.DragEvent, id: string) => {
@@ -269,8 +287,25 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
-    const midX = rect.left + rect.width / 2;
-    const pos = e.clientX < midX ? 'before' : 'after';
+    const relX = e.clientX - rect.left;
+    const width = rect.width;
+
+    const isTargetTab = tabs.some((t) => t.id === id);
+    const isSourceTab = activeDrag ? (activeDrag.type === 'favTab' || activeDrag.type === 'tab') : !widgets.some((w) => w.id === (activeDrag as any)?.id);
+
+    let pos: 'before' | 'after' | 'inside' = 'after';
+    if (isTargetTab && isSourceTab && onMergeFavouriteTabs) {
+      if (relX < width * 0.35) {
+        pos = 'before';
+      } else if (relX > width * 0.65) {
+        pos = 'after';
+      } else {
+        pos = 'inside';
+      }
+    } else {
+      pos = relX < width / 2 ? 'before' : 'after';
+    }
+
     setDragOverTabId(id);
     setDropPosition(pos);
   };
@@ -299,10 +334,25 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
       if (!sourceId || sourceId === targetId) return;
 
+      if (pos === 'inside') {
+        const isTargetTab = tabs.some((t) => t.id === targetId);
+        const isSourceTab = tabs.some((t) => t.id === sourceId);
+        if (isTargetTab && isSourceTab && onMergeFavouriteTabs) {
+          onMergeFavouriteTabs(sourceId, targetId);
+          return;
+        }
+      }
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      const effectivePos: 'before' | 'after' =
+        pos === 'inside'
+          ? (e.clientX - rect.left < rect.width / 2 ? 'before' : 'after')
+          : pos;
+
       if (onReorderFavouriteItem) {
-        onReorderFavouriteItem(sourceId, targetId, pos);
+        onReorderFavouriteItem(sourceId, targetId, effectivePos);
       } else if (onReorderFavouriteTabs) {
-        onReorderFavouriteTabs(sourceId, targetId, pos);
+        onReorderFavouriteTabs(sourceId, targetId, effectivePos);
       }
     } catch {} finally {
       endDrag();
@@ -404,18 +454,40 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
           if (item.type === 'tab') {
             const tab = item.tab;
+            const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
+            const isGroup = validVariants.length > 1;
+
+            // Check if group is associated with any open browser tab
+            let isGroupAssociated = false;
+            let groupAudibleInfo: AudibleTab | undefined = undefined;
+            if (isGroup && tabAssociations) {
+              for (const v of validVariants) {
+                for (const assocEntry of Object.values(tabAssociations)) {
+                  const assocUrl = assocEntry.currentUrl || assocEntry.originalUrl;
+                  if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
+                    isGroupAssociated = true;
+                    if (!groupAudibleInfo && audibleTabs) {
+                      groupAudibleInfo = audibleTabs.find((a) => a.id === assocEntry.browserTabId);
+                    }
+                    break;
+                  }
+                }
+                if (isGroupAssociated && groupAudibleInfo) break;
+              }
+            }
+
             const isHovered = hoveredTabId === tab.id;
             const isMenuVisible = !isMobile && (menuVisibleTabId === tab.id || openMenuTabId === tab.id);
             const assoc = tabAssociations ? tabAssociations[tab.id] : undefined;
-            const isAssociated = Boolean(assoc);
-            const isDiverted = Boolean(assoc?.isDiverted);
-            const audibleInfo = assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined;
+            const isAssociated = isGroup ? isGroupAssociated : Boolean(assoc);
+            const isDiverted = !isGroup && Boolean(assoc?.isDiverted);
+            const audibleInfo = isGroup ? groupAudibleInfo : (assoc ? audibleTabs?.find((a) => a.id === assoc.browserTabId) : undefined);
             const isAudible = Boolean(audibleInfo);
             const isMuted = audibleInfo?.muted === true;
-            const badge = assoc?.badge;
-            const isHighlighted = highlightedTabId === tab.id;
+            const badge = !isGroup ? assoc?.badge : undefined;
+            const isHighlighted = !isGroup && highlightedTabId === tab.id;
             const domain = getDomain(tab.url);
-            const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Untitled';
+            const displayTitle = tab.customTitle || (isGroup ? 'Group' : (domain || cleanUrl(tab.url) || 'Untitled'));
             const canEditInRaindrop =
               Number.isSafeInteger(raindropRootCollectionId) &&
               (raindropRootCollectionId ?? 0) > 0 &&
@@ -428,9 +500,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 : ' • Open in browser'
               : ' • Closed (Click to open)';
             const divertedSuffix = isDiverted ? ' (Navigated away from original URL)' : '';
-            const tooltipText = tab.url ? `${displayTitle}\n${tab.url}${statusSuffix}${divertedSuffix}` : displayTitle;
+            const tooltipText = isGroup
+              ? `${displayTitle} (${validVariants.length} items)${isAssociated ? ' • Has open tab(s)' : ''}`
+              : tab.url
+              ? `${displayTitle}\n${tab.url}${statusSuffix}${divertedSuffix}`
+              : displayTitle;
 
-            const menuItems: ActionDropdownItem[] = [
+            const standardMenuItems: ActionDropdownItem[] = [
               ...(isAssociated && onCloseAssociatedTab
                 ? [
                     {
@@ -469,7 +545,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       },
                     },
                     (() => {
-                      const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
                       const hasMultipleVariants = validVariants.length > 1;
                       const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
                         if (onOpenTmpTab) {
@@ -573,7 +648,63 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               },
             ];
 
-            const cardBg = isHovered
+            const groupMenuItems: ActionDropdownItem[] = [
+              {
+                id: 'open-all',
+                label: 'Open all tabs',
+                icon: <ExternalLinkIcon size={14} />,
+                onClick: () => {
+                  validVariants.forEach((v) => {
+                    if (v.url && onOpenTab) {
+                      onOpenTab(v.url, undefined, { inNewTab: true });
+                    }
+                  });
+                },
+                dividerAfter: true,
+              },
+              {
+                id: 'edit-group',
+                label: 'Edit group',
+                icon: <EditIcon size={14} />,
+                onClick: () => onEditTab(tab),
+              },
+              ...(onUngroupTab
+                ? [
+                    {
+                      id: 'ungroup-tab',
+                      label: 'Ungroup',
+                      icon: <GridViewIcon size={14} />,
+                      onClick: () => onUngroupTab(tab.id),
+                    },
+                  ]
+                : []),
+              {
+                id: 'remove-favourite',
+                label: 'Remove from favourites',
+                icon: <StarIcon size={14} filled={true} color="#eab308" />,
+                onClick: () => onToggleFavouriteTab(tab.id),
+                dividerAfter: Boolean(onDeleteTab),
+              },
+              ...(onDeleteTab
+                ? [
+                    {
+                      id: 'delete-group',
+                      label: 'Delete group',
+                      icon: <TrashIcon size={14} />,
+                      danger: true,
+                      onClick: () => onDeleteTab(tab.id),
+                    },
+                  ]
+                : []),
+            ];
+
+            const menuItems = isGroup ? groupMenuItems : standardMenuItems;
+
+            const isDroppingInside = isDragTarget && dropPosition === 'inside';
+
+            const cardBg = isDroppingInside
+              ? (shelfTheme.isDark ? 'rgba(59, 130, 246, 0.22)' : 'rgba(59, 130, 246, 0.15)')
+              : isHovered
               ? (isAssociated
                   ? (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.85)')
                   : shelfTheme.actionHoverBg)
@@ -581,7 +712,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               ? (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.13)' : 'rgba(255, 255, 255, 0.70)')
               : (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)');
 
-            const cardBorder = isHovered
+            const cardBorder = isDroppingInside
+              ? `1.5px dashed ${shelfTheme.primaryColor}`
+              : isHovered
               ? `1px solid ${shelfTheme.primaryColor}`
               : isAssociated
               ? (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.18)' : '1px solid rgba(0, 0, 0, 0.1)')
@@ -611,6 +744,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onMouseEnter={() => handleItemMouseEnter(tab.id)}
                 onMouseLeave={() => handleItemMouseLeave(tab.id)}
                 onClick={(e) => {
+                  if (isGroup) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setGroupPopoverTab({ tab, anchorRect: rect });
+                    return;
+                  }
                   if (tab.url) {
                     const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                     if (onOpenTab) {
@@ -651,36 +789,64 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 }}
                 title={tooltipText}
               >
-                {/* Favicon or Custom Emoji */}
+                {/* Favicon or Custom Emoji or 2x2 Mini Grid for Groups */}
                 <div
                   style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '7px',
+                    width: isGroup ? '42px' : '32px',
+                    height: isGroup ? '42px' : '32px',
+                    borderRadius: isGroup ? '10px' : '8px',
                     backgroundColor: isHovered
                       ? (shelfTheme.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.3)')
+                      : isGroup
+                      ? (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)')
                       : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
                     position: 'relative',
-                    opacity: isAssociated || isHovered ? 1 : 0.75,
+                    opacity: isAssociated || isHovered ? 1 : 0.8,
                     transform: isHovered ? 'scale(1.04)' : 'scale(1)',
                     transition: 'opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease',
                   }}
                 >
-                  <TabFavicon
-                    url={tab.url}
-                    favIconUrl={tab.favIconUrl}
-                    customEmojiIcon={tab.customEmojiIcon}
-                    size={26}
-                    emojiSize={26}
-                    globeIconSize={26}
-                    globeIconColor={shelfTheme.subtextColor}
-                    showDomainFallback={true}
-                    badge={badge}
-                  />
+                  {isGroup && !tab.customEmojiIcon ? (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, 1fr)',
+                        gap: '3px',
+                        alignItems: 'center',
+                        justifyItems: 'center',
+                        width: '36px',
+                        height: '36px',
+                      }}
+                    >
+                      {validVariants.slice(0, 4).map((variant, vIdx) => (
+                        <TabFavicon
+                          key={variant.id || vIdx}
+                          url={variant.url}
+                          size={16}
+                          emojiSize={15}
+                          globeIconSize={14}
+                          globeIconColor={shelfTheme.subtextColor}
+                          showDomainFallback={false}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <TabFavicon
+                      url={tab.url}
+                      favIconUrl={tab.favIconUrl}
+                      customEmojiIcon={tab.customEmojiIcon}
+                      size={26}
+                      emojiSize={26}
+                      globeIconSize={26}
+                      globeIconColor={shelfTheme.subtextColor}
+                      showDomainFallback={true}
+                      badge={badge}
+                    />
+                  )}
                 </div>
 
                 {/* Arc-style active running indicator pill at bottom center */}
@@ -713,8 +879,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
-                      if (assoc?.browserTabId) {
-                        onToggleTabMute?.(assoc.browserTabId, !isMuted);
+                      const tabIdToMute = isGroup ? audibleInfo?.id : assoc?.browserTabId;
+                      if (tabIdToMute) {
+                        onToggleTabMute?.(tabIdToMute, !isMuted);
                       }
                     }}
                     title={isMuted ? 'Muted (Click to unmute)' : 'Playing audio (Click to mute)'}
@@ -1707,6 +1874,44 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             <span>Add Tab</span>
           </button>
 
+          {/* 1b. Add Tab Group */}
+          {onAddFavouriteGroup && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddMenuOpen(false);
+                onAddFavouriteGroup();
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
+                padding: '7px 10px',
+                borderRadius: '8px',
+                border: 'none',
+                background: 'transparent',
+                color: shelfTheme.textColor,
+                fontSize: '13px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'background-color 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                  ? 'rgba(255, 255, 255, 0.08)'
+                  : 'rgba(0, 0, 0, 0.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <GridViewIcon size={15} color={shelfTheme.primaryColor} />
+              <span>Add Tab Group</span>
+            </button>
+          )}
+
           {/* Section Divider */}
           <div
             style={{
@@ -2102,6 +2307,35 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             return null;
         }
       })()}
+
+      {/* Favourite Group Popover */}
+      {groupPopoverTab && activePopoverGroupTab && (
+        <FavouriteGroupPopover
+          groupTab={activePopoverGroupTab}
+          anchorRect={groupPopoverTab.anchorRect}
+          isOpen={Boolean(groupPopoverTab)}
+          onClose={() => setGroupPopoverTab(null)}
+          onOpenItem={(variant, options) => {
+            if (onOpenVariant) {
+              onOpenVariant(variant.url, activePopoverGroupTab, variant, options);
+            } else if (onOpenTab) {
+              onOpenTab(variant.url, activePopoverGroupTab.id, options);
+            }
+          }}
+          onEditGroup={(gTab) => onEditTab(gTab)}
+          onAddItem={(gTab) => onEditTab(gTab)}
+          onOpenAll={(gTab) => {
+            (gTab.urlVariants || []).forEach((v) => {
+              if (v.url && onOpenTab) {
+                onOpenTab(v.url, undefined, { inNewTab: true });
+              }
+            });
+          }}
+          tabAssociations={tabAssociations}
+          onUngroup={onUngroupTab}
+          theme={shelfTheme}
+        />
+      )}
     </div>
   );
 };

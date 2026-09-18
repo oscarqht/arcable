@@ -221,6 +221,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     reorderPinnedTabs,
     reorderFavouriteTabs,
     reorderFavouriteItem,
+    mergeTabsIntoGroup,
+    ungroupTab,
     resetToDefault,
     applyLatestSnapshot,
     favouriteTabs,
@@ -462,6 +464,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const [defaultFolderParentId, setDefaultFolderParentId] = useState<string | undefined>();
 
   const [isTabModalOpen, setIsTabModalOpen] = useState(false);
+  const [isTabGroupModal, setIsTabGroupModal] = useState(false);
   const [editingTab, setEditingTab] = useState<Tab | null>(null);
   const [promotingTmpTab, setPromotingTmpTab] = useState<TmpTab | null>(null);
   const [defaultTabFolderId, setDefaultTabFolderId] = useState<string | undefined>();
@@ -1469,7 +1472,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     spaceId?: string,
     folderId?: string,
     pinned: boolean = false,
-    favourite: boolean = false
+    favourite: boolean = false,
+    isGroup: boolean = false
   ) => {
     setPromotingTmpTab(null);
     setEditingTab(null);
@@ -1477,6 +1481,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setDefaultTabFolderId(folderId);
     setDefaultTabPinned(pinned);
     setDefaultTabFavourite(favourite);
+    setIsTabGroupModal(isGroup);
     setInitialTabUrl('');
     setInitialTabTitle('');
     setIsTabModalOpen(true);
@@ -1736,12 +1741,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         highlightedTabId={highlightedTabId}
         themeStyles={activeSpaceTheme}
         onOpenTab={handleOpenTabWithSearchClear}
+        onOpenVariant={handleOpenVariant}
         onOpenTmpTab={handleOpenAsTmpTab}
         onCloseAssociatedTab={onCloseAssociatedTab}
         onResetDivertedUrl={onResetDivertedUrl}
         audibleTabs={audibleTabs}
         onToggleTabMute={onToggleTabMute}
         onEditTab={(tab) => {
+          setIsTabGroupModal(Boolean(tab.urlVariants && tab.urlVariants.length > 1));
           setEditingTab(tab);
           setTargetSpaceIdForModal(tab.parentSpaceId);
           setIsTabModalOpen(true);
@@ -1749,7 +1756,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onDuplicateTab={(tab) => duplicateTab(tab.id)}
         onDeleteTab={handleRequestDeleteTab}
         onToggleFavouriteTab={toggleFavouriteTab}
-        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true)}
+        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true, false)}
+        onAddFavouriteGroup={() => handleOpenNewTabModal(undefined, undefined, false, true, true)}
+        onMergeFavouriteTabs={mergeTabsIntoGroup}
+        onUngroupTab={ungroupTab}
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
         raindropRootCollectionId={data.raindropRootCollectionId}
@@ -2869,6 +2879,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setIsTabModalOpen(false);
           setEditingTab(null);
           setPromotingTmpTab(null);
+          setIsTabGroupModal(false);
         }}
         tab={editingTab}
         allFolders={data.folders}
@@ -2879,6 +2890,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         initialTitle={initialTabTitle}
         initialPinned={defaultTabPinned}
         initialFavourite={defaultTabFavourite}
+        initialIsGroup={isTabGroupModal}
         raindropToken={raindropToken}
         onSearchCovers={onSearchCollectionCovers}
         onDelete={handleRequestDeleteTab}

@@ -7,6 +7,7 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
+import { generateId } from '../../utils/format';
 
 interface UrlInputProps {
   value: string;
@@ -50,6 +51,7 @@ interface TabModalProps {
   initialTitle?: string;
   initialPinned?: boolean;
   initialFavourite?: boolean;
+  initialIsGroup?: boolean;
   raindropToken?: string;
   onSearchCovers?: (query: string) => Promise<string[]>;
   onDelete?: (tabId: string) => void;
@@ -79,6 +81,7 @@ export const TabModal: React.FC<TabModalProps> = ({
   initialTitle,
   initialPinned,
   initialFavourite,
+  initialIsGroup,
   raindropToken,
   onSearchCovers,
   onDelete,
@@ -138,15 +141,23 @@ export const TabModal: React.FC<TabModalProps> = ({
         setFavourite(Boolean(initialFavourite));
         setParentSpaceId(defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(defaultFolderId || '');
-        setShowVariants(false);
-        setVariants([]);
-        setDefaultVariantId('');
+        if (initialIsGroup) {
+          setShowVariants(true);
+          const v1 = { id: generateId('var'), name: '', url: '' };
+          const v2 = { id: generateId('var'), name: '', url: '' };
+          setVariants([v1, v2]);
+          setDefaultVariantId(v1.id);
+        } else {
+          setShowVariants(false);
+          setVariants([]);
+          setDefaultVariantId('');
+        }
       }
     }
 
     prevIsOpenRef.current = isOpen;
     prevTabIdRef.current = tab?.id;
-  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, orderedSpaces]);
+  }, [isOpen, tab, defaultSpaceId, defaultFolderId, initialUrl, initialTitle, initialFavourite, initialIsGroup, orderedSpaces]);
 
   useEffect(() => {
     if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
