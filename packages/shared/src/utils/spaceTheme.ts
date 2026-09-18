@@ -776,3 +776,30 @@ export function getSpaceThemeStyles(
 
   return baseStyles;
 }
+
+export const PRESET_SOLID_COLORS = [
+  '#f29bbb',
+  '#a6729e',
+  '#f25e6c',
+  '#ff8657',
+  '#f8d558',
+  '#33e895',
+  '#6dbad9',
+  '#666789',
+  '#f4efdf',
+  '#3b82f6',
+  '#ef4444',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#06b6d4',
+  '#84cc16',
+  '#6366f1',
+  '#14b8a6',
+  '#f97316',
+];
+
+export const NOISE_SVG_DATA_URI =
+  "data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E";
+

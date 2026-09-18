@@ -347,7 +347,7 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   // ================= Space CRUD =================
-  const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; coverUrl?: string }) => {
+  const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; coverUrl?: string; colors?: string; themeNoise?: number }) => {
     const sorted = getSortedSpaces(data.spaces);
     const lastSpace = sorted[sorted.length - 1];
     const highestOrder = lastSpace
@@ -359,6 +359,8 @@ export function useWorkspace() {
       name: spaceInput.name.trim() || 'New Space',
       emojiIcon: spaceInput.emojiIcon || '📁',
       coverUrl: spaceInput.coverUrl,
+      colors: spaceInput.colors,
+      themeNoise: spaceInput.themeNoise,
       order: highestOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -381,10 +383,12 @@ export function useWorkspace() {
   }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
-    const normalizedUpdates = { ...updates, ...('colors' in updates ? { colors: undefined } : {}) };
+    const normalizedUpdates = { ...updates };
     const opPayload: Record<string, any> = { ...normalizedUpdates };
     if ('emojiIcon' in updates) opPayload.emojiIcon = updates.emojiIcon ?? null;
-    if ('colors' in normalizedUpdates) opPayload.colors = normalizedUpdates.colors ?? null;
+    if ('coverUrl' in updates) opPayload.coverUrl = updates.coverUrl ?? null;
+    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+    if ('themeNoise' in updates) opPayload.themeNoise = updates.themeNoise ?? null;
 
     savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, opPayload));
 

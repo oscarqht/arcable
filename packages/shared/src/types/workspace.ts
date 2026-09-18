@@ -64,6 +64,7 @@ export interface Space {
   /** The cover selected for the matching Raindrop collection. */
   coverUrl?: string;
   colors?: string;         // Optional theme color or gradient
+  themeNoise?: number;     // Optional noise/grain intensity (0 to 1)
   order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
