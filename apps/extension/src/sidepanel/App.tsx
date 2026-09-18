@@ -537,7 +537,10 @@ export const App: React.FC = () => {
   const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab, options?: TabOpenOptions) => {
     if (options?.asTmpTab) {
       try {
-        await browser.tabs.create({ url, active: true });
+        const newTab = await browser.tabs.create({ url, active: true });
+        if (newTab && newTab.id !== undefined && tmpTabInfo?.title) {
+          tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo.title);
+        }
         return;
       } catch (e) {
         console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
@@ -593,8 +596,13 @@ export const App: React.FC = () => {
         // Otherwise it is not open locally (or the user requested a new tab).
         const newTab = await browser.tabs.create({ url, active: true });
         const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
-        if (newTab && newTab.id !== undefined && customTitle) {
-          await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
+        const initialTitle = tmpTabInfo?.title || localTmp?.title;
+        if (newTab && newTab.id !== undefined) {
+          if (customTitle) {
+            await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
+          } else if (initialTitle) {
+            tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle);
+          }
         }
         return;
       }
@@ -696,8 +704,8 @@ export const App: React.FC = () => {
   const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
     try {
       const newTab = await browser.tabs.create({ url, active: true });
-      if (newTab && newTab.id !== undefined && title) {
-        await tabTracker.setTmpTabCustomTitle(newTab.id, url, title);
+      if (newTab && newTab.id !== undefined) {
+        tabTracker.registerInitialTmpTab(newTab.id, url, title);
       }
     } catch (e) {
       console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
