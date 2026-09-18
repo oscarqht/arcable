@@ -6,6 +6,12 @@ import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
 import { startDrag, endDrag } from '../../utils/dragState';
+import {
+  isElementUnderCursor,
+  updateLastMousePos,
+  refreshHoverUnderCursor,
+  REFRESH_HOVER_EVENT,
+} from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -76,6 +82,34 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkHover = () => {
+      if (!rowRef.current || isEditing || isDragging) return;
+      if (isElementUnderCursor(rowRef.current)) {
+        setIsHovered(true);
+      }
+    };
+
+    checkHover();
+    const rafId = requestAnimationFrame(checkHover);
+
+    const handleRefresh = () => {
+      checkHover();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener(REFRESH_HOVER_EVENT, handleRefresh);
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(REFRESH_HOVER_EVENT, handleRefresh);
+      }
+    };
+  });
 
   const [editTitle, setEditTitle] = useState(tab.customTitle || tab.title || '');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -174,10 +208,14 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
 
   return (
     <div
+      ref={rowRef}
       draggable={!isEditing}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onMouseEnter={() => setIsHovered(true)}
+      onMouseMove={() => {
+        if (!isHovered) setIsHovered(true);
+      }}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
       style={{
@@ -495,7 +533,12 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
+                      updateLastMousePos(e.clientX, e.clientY);
                       onClose(tab);
+                      requestAnimationFrame(() => {
+                        refreshHoverUnderCursor();
+                        setTimeout(refreshHoverUnderCursor, 40);
+                      });
                     }}
                     title="Close tab"
                     aria-label="Close tab"

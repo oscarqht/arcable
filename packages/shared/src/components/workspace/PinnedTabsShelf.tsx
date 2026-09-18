@@ -19,7 +19,6 @@ import {
   TrashIcon,
   CopyIcon,
   ExternalLinkIcon,
-  ClockIcon,
   GlobeIcon,
 } from '../Icons';
 
@@ -278,17 +277,6 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       if (tab.url) navigator.clipboard.writeText(tab.url);
                     },
                   },
-                  {
-                    id: 'open-tab',
-                    label: 'Open in new tab',
-                    icon: <ExternalLinkIcon size={14} />,
-                    onClick: (e?: any) => {
-                      if (tab.url) {
-                        if (onOpenTab) onOpenTab(tab.url, tab.id, { inNewTab: true, event: e });
-                        else window.open(tab.url, '_blank', 'noopener,noreferrer');
-                      }
-                    },
-                  },
                   (() => {
                     const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
                     const hasMultipleVariants = validVariants.length > 1;
@@ -304,8 +292,8 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
 
                     return {
                       id: 'open-tmp-tab',
-                      label: 'Open tmp tab',
-                      icon: <ClockIcon size={14} />,
+                      label: 'Open in new tab',
+                      icon: <ExternalLinkIcon size={14} />,
                       ...(hasMultipleVariants
                         ? {
                             children: validVariants.map((v, idx) => ({

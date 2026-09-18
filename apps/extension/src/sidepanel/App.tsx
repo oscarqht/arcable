@@ -706,6 +706,10 @@ export const App: React.FC = () => {
   }, []);
 
   const handleCloseTmpTab = async (tab: TmpTab) => {
+    // Optimistically update tmpTabs in local state so the item disappears immediately
+    // and the next item shifts up instantaneously without waiting for IPC
+    setTmpTabs((prev) => prev.filter((t) => t.id !== tab.id));
+
     // Always remove this tab from arcable_tmp_tabs in browser.storage.local.
     // This prevents resurrection: even if the deviceId mismatch causes isLocal=false,
     // the background sync reads arcable_tmp_tabs and would re-upload the deleted tab.

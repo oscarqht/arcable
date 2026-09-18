@@ -38,7 +38,6 @@ import {
   MoreHorizontalIcon,
   MinusIcon,
   SlashIcon,
-  ClockIcon,
   GlobeIcon,
   GridViewIcon,
 } from '../Icons';
@@ -547,18 +546,22 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 : []),
               ...(tab.url
                 ? [
-                    {
-                      id: 'open-tab',
-                      label: isAssociated ? 'Switch to tab' : 'Open in new tab',
-                      icon: <ExternalLinkIcon size={14} />,
-                      onClick: (e?: any) => {
-                        if (onOpenTab) {
-                          onOpenTab(tab.url, tab.id, { inNewTab: true, event: e });
-                        } else {
-                          window.open(tab.url, '_blank', 'noopener,noreferrer');
-                        }
-                      },
-                    },
+                    ...(isAssociated
+                      ? [
+                          {
+                            id: 'switch-tab',
+                            label: 'Switch to tab',
+                            icon: <ExternalLinkIcon size={14} />,
+                            onClick: (e?: any) => {
+                              if (onOpenTab) {
+                                onOpenTab(tab.url, tab.id, { inNewTab: false, event: e });
+                              } else {
+                                window.open(tab.url, '_blank', 'noopener,noreferrer');
+                              }
+                            },
+                          },
+                        ]
+                      : []),
                     (() => {
                       const hasMultipleVariants = validVariants.length > 1;
                       const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
@@ -573,8 +576,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
                       return {
                         id: 'open-tmp-tab',
-                        label: 'Open tmp tab',
-                        icon: <ClockIcon size={14} />,
+                        label: 'Open in new tab',
+                        icon: <ExternalLinkIcon size={14} />,
                         ...(hasMultipleVariants
                           ? {
                               children: validVariants.map((v, idx) => ({

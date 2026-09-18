@@ -24,7 +24,7 @@ function buildTabMenuItems(
 
   const tmpTabMenuItem: ActionDropdownItem = {
     id: 'open-tmp-tab',
-    label: 'Open tmp tab',
+    label: 'Open in new tab',
     ...(hasMultipleVariants
       ? {
           children: validVariants.map((v, idx) => ({
@@ -46,12 +46,11 @@ function buildTabMenuItems(
 
   return [
     { id: 'copy-url', label: 'Copy URL', onClick: () => {} },
-    { id: 'open-tab', label: 'Open in new tab', onClick: () => {} },
     tmpTabMenuItem,
   ];
 }
 
-test('Tab without variants: Open tmp tab is a top-level menu item without children', () => {
+test('Tab without variants: Open in new tab is a top-level menu item without children', () => {
   const tab: Tab = {
     id: 'tab_1',
     url: 'https://example.com/docs',
@@ -68,9 +67,10 @@ test('Tab without variants: Open tmp tab is a top-level menu item without childr
     openedTitle = title || null;
   });
 
+  assert.equal(items.filter((i) => i.label === 'Open in new tab').length, 1);
   const tmpItem = items.find((i) => i.id === 'open-tmp-tab');
-  assert.ok(tmpItem, 'Open tmp tab item must exist');
-  assert.equal(tmpItem.label, 'Open tmp tab');
+  assert.ok(tmpItem, 'Open in new tab item must exist');
+  assert.equal(tmpItem.label, 'Open in new tab');
   assert.equal(tmpItem.children, undefined, 'Must not have children when tab has no variants');
 
   tmpItem.onClick?.({} as any);
@@ -78,7 +78,7 @@ test('Tab without variants: Open tmp tab is a top-level menu item without childr
   assert.equal(openedTitle, 'Example Documentation');
 });
 
-test('Tab with single variant: Open tmp tab does not show secondary level', () => {
+test('Tab with single variant: Open in new tab does not show secondary level', () => {
   const tab: Tab = {
     id: 'tab_single_var',
     url: 'https://example.com',
@@ -103,7 +103,7 @@ test('Tab with single variant: Open tmp tab does not show secondary level', () =
   assert.equal(openedUrl, 'https://example.com');
 });
 
-test('Tab with multiple variants: Open tmp tab has secondary level with all variant names', () => {
+test('Tab with multiple variants: Open in new tab has secondary level with all variant names', () => {
   const variants: TabUrlVariant[] = [
     { id: 'v1', name: 'App', url: 'https://github.com' },
     { id: 'v2', name: 'Issues', url: 'https://github.com/issues' },
@@ -128,8 +128,8 @@ test('Tab with multiple variants: Open tmp tab has secondary level with all vari
   });
 
   const tmpItem = items.find((i) => i.id === 'open-tmp-tab');
-  assert.ok(tmpItem, 'Open tmp tab item must exist');
-  assert.equal(tmpItem.label, 'Open tmp tab');
+  assert.ok(tmpItem, 'Open in new tab item must exist');
+  assert.equal(tmpItem.label, 'Open in new tab');
   assert.ok(Array.isArray(tmpItem.children), 'Must have children array for multiple variants');
   assert.equal(tmpItem.children.length, 3, 'Children must list all 3 variants');
 

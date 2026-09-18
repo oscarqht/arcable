@@ -146,17 +146,6 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
   };
 
-  const handleOpenLink = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (tab.url) {
-      if (onOpen) {
-        onOpen(tab.url, tab.id, { inNewTab: true, event: e });
-      } else {
-        window.open(tab.url, '_blank', 'noopener,noreferrer');
-      }
-    }
-  };
-
   const handleEditInRaindrop = () => {
     if (
       Number.isSafeInteger(raindropCollectionId) &&
@@ -191,8 +180,8 @@ export const TabRow: React.FC<TabRowProps> = ({
 
     const tmpTabMenuItem: ActionDropdownItem = {
       id: 'open-tmp-tab',
-      label: 'Open tmp tab',
-      icon: <ClockIcon size={15} />,
+      label: 'Open in new tab',
+      icon: <ExternalLinkIcon size={15} />,
       ...(hasMultipleVariants
         ? {
             children: validVariants.map((v, idx) => ({
@@ -222,12 +211,6 @@ export const TabRow: React.FC<TabRowProps> = ({
         label: copied ? 'Copied URL!' : 'Copy URL',
         icon: copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />,
         onClick: handleCopyUrl,
-      },
-      {
-        id: 'open-tab',
-        label: 'Open in new tab',
-        icon: <ExternalLinkIcon size={15} />,
-        onClick: handleOpenLink,
       },
       tmpTabMenuItem,
     ];
@@ -289,7 +272,6 @@ export const TabRow: React.FC<TabRowProps> = ({
   }, [
     copied,
     handleCopyUrl,
-    handleOpenLink,
     handleOpenTmpTab,
     handleEditInRaindrop,
     displayTitle,
@@ -382,6 +364,9 @@ export const TabRow: React.FC<TabRowProps> = ({
       onDrop={handleDrop}
       onDragEnd={handleDragEnd}
       onMouseEnter={() => setIsHovered(true)}
+      onMouseMove={() => {
+        if (!isHovered) setIsHovered(true);
+      }}
       onMouseLeave={() => {
         setIsHovered(false);
         setDropIndicator(null);

@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import { refreshHoverUnderCursor } from '../../utils/mouseTracker';
 
 export interface TmpTabsListProps {
   tabs: TmpTab[];
@@ -98,7 +99,18 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
     }
   }
 
-  const mergedTabs = tabs ? mergeTabsByUrl(tabs, currentDeviceId) : [];
+  const mergedTabs = useMemo(() => {
+    return tabs ? mergeTabsByUrl(tabs, currentDeviceId) : [];
+  }, [tabs, currentDeviceId]);
+
+  useEffect(() => {
+    // When the list of tabs changes (e.g. a tab was closed), refresh hover state
+    // for the tab item that is now underneath the stationary cursor.
+    const rafId = requestAnimationFrame(() => {
+      refreshHoverUnderCursor();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [mergedTabs]);
 
   return (
     <div

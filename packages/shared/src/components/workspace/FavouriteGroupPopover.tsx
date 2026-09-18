@@ -6,7 +6,7 @@ import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
 import { TabFavicon } from './TabFavicon';
-import { PlusIcon, EditIcon, ExternalLinkIcon, GridViewIcon } from '../Icons';
+import { PlusIcon, EditIcon, ExternalLinkIcon, GridViewIcon, MinusIcon } from '../Icons';
 import { areUrlsMatching } from '../../utils/format';
 
 export interface FavouriteGroupPopoverProps {
@@ -412,7 +412,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 showDomainFallback={true}
               />
 
-              {/* Close button on hover if associated */}
+              {/* Minus (-) button on hover if associated */}
               {isAssociated && onCloseAssociatedTab && hoveredVariantId === itemKey && (
                 <span
                   role="button"
@@ -420,17 +420,19 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    if (v.id) {
-                      onCloseAssociatedTab(v.id);
+                    const targetId = v.id || itemAssoc?.tabItemId;
+                    if (targetId) {
+                      onCloseAssociatedTab(targetId);
                     }
                   }}
-                  title="Close browser tab"
+                  title="Close associated browser tab"
+                  aria-label="Close associated browser tab"
                   style={{
                     position: 'absolute',
                     top: '-4px',
                     right: '-4px',
-                    width: '15px',
-                    height: '15px',
+                    width: '16px',
+                    height: '16px',
                     borderRadius: '50%',
                     backgroundColor: theme.isDark ? '#334155' : '#e2e8f0',
                     color: theme.isDark ? '#f1f5f9' : '#0f172a',
@@ -438,13 +440,10 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '9px',
-                    lineHeight: 1,
-                    fontWeight: 700,
                     cursor: 'pointer',
                     zIndex: 10,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                    transition: 'transform 0.1s ease, background-color 0.1s ease',
+                    transition: 'transform 0.1s ease, background-color 0.1s ease, color 0.1s ease',
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = 'scale(1.15)';
@@ -457,7 +456,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                     e.currentTarget.style.color = theme.isDark ? '#f1f5f9' : '#0f172a';
                   }}
                 >
-                  ✕
+                  <MinusIcon size={11} strokeWidth={2.8} />
                 </span>
               )}
 

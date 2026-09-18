@@ -5,6 +5,7 @@ export interface IconProps {
   size?: number;
   color?: string;
   style?: React.CSSProperties;
+  strokeWidth?: number | string;
 }
 
 export const ChevronRightIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
@@ -512,14 +513,14 @@ export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 16, color = 'curr
   </svg>
 );
 
-export const MinusIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
+export const MinusIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', strokeWidth = 2.2, className, style }) => (
   <svg
     width={size}
     height={size}
     viewBox="0 0 24 24"
     fill="none"
     stroke={color}
-    strokeWidth="2.2"
+    strokeWidth={strokeWidth}
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
