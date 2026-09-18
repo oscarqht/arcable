@@ -397,6 +397,7 @@ class TabTracker {
 
   private lockPromise: Promise<any> = Promise.resolve();
   private pendingCreations: Map<string, { tabItemId: string; url: string; timestamp: number }> = new Map();
+  private pendingInitialTitles: Map<number, string> = new Map();
   /** Browser tab IDs that are in the process of being closed — excluded from syncWithWorkspace queries */
   private closingTabIds: Set<number> = new Set();
   private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -422,6 +423,45 @@ class TabTracker {
 
   public unregisterPendingCreation(tabItemId: string): void {
     this.pendingCreations.delete(tabItemId);
+  }
+
+  /**
+   * Register an initial title for a newly opened tmp tab without marking it as a permanent customTitle.
+   * Immediately adds or updates the in-memory tmp tab so the UI reflects it instantly while loading.
+   */
+  public registerInitialTmpTab(browserTabId: number, url: string, initialTitle?: string): void {
+    const trimmedTitle = initialTitle?.trim();
+    if (trimmedTitle) {
+      this.pendingInitialTitles.set(browserTabId, trimmedTitle);
+    }
+
+    const currentDevId = this.cachedDeviceId || 'dev';
+    const now = Date.now();
+    const existingIndex = memoryTmpTabs.findIndex((t) => t.browserTabId === browserTabId);
+
+    if (existingIndex >= 0) {
+      if (trimmedTitle) {
+        memoryTmpTabs = memoryTmpTabs.map((t, idx) =>
+          idx === existingIndex ? { ...t, title: trimmedTitle, updatedAt: now } : t
+        );
+        this.notifyTmpTabs(memoryTmpTabs);
+      }
+    } else {
+      const newTmp: TmpTab = {
+        id: `tmp_${currentDevId}_${browserTabId}_${now}`,
+        url,
+        title: trimmedTitle || '',
+        browserTabId,
+        windowId: 0,
+        createdAt: now,
+        updatedAt: now,
+        deviceType: 'Ext',
+        deviceId: this.cachedDeviceId || undefined,
+        deviceName: this.cachedDeviceName || undefined,
+      };
+      memoryTmpTabs = [newTmp, ...memoryTmpTabs];
+      this.notifyTmpTabs(memoryTmpTabs);
+    }
   }
 
   /**
@@ -743,12 +783,35 @@ class TabTracker {
         const createdAt = existingTmp?.createdAt || Date.now();
         const tabUniqueId = existingTmp?.id || `tmp_${currentDevId}_${bt.id}_${createdAt}`;
 
+        const rawBtTitle = bt.title && bt.title.trim() ? bt.title.trim() : '';
+        const pendingTitle = bt.id !== undefined ? this.pendingInitialTitles.get(bt.id) : undefined;
+        let resolvedTitle: string;
+
+        if (pendingTitle) {
+          const hasLoadedRealTitle =
+            Boolean(rawBtTitle) &&
+            !isBlankNewTab &&
+            rawBtTitle !== currentUrl &&
+            rawBtTitle !== 'about:blank';
+
+          if (hasLoadedRealTitle) {
+            resolvedTitle = rawBtTitle;
+            if (bt.id !== undefined) {
+              this.pendingInitialTitles.delete(bt.id);
+            }
+          } else {
+            resolvedTitle = pendingTitle;
+          }
+        } else {
+          resolvedTitle = rawBtTitle || existingTmp?.title || (isBlankNewTab ? 'New Tab' : '');
+        }
+
         return {
           id: tabUniqueId,
           url: currentUrl,
-          title: bt.title || (isBlankNewTab ? 'New Tab' : ''),
+          title: resolvedTitle,
           customTitle: matchedCustomTitle,
-          favIconUrl: bt.favIconUrl,
+          favIconUrl: bt.favIconUrl || existingTmp?.favIconUrl,
           browserTabId: bt.id,
           windowId: bt.windowId || 0,
           badge: extractTabNotificationBadge(bt.title || bt.pendingTitle) || undefined,
@@ -840,6 +903,7 @@ class TabTracker {
     return this.runWithLock(async () => {
       try {
         await browser.tabs.remove(browserTabId).catch(() => {});
+        this.pendingInitialTitles.delete(browserTabId);
         await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
@@ -1112,8 +1176,46 @@ class TabTracker {
     // 2. Tab updated (URL changes / navigation / title load) — debounce and
     //    skip if this tab is actively being closed (avoids resurrection).
     if (tabsApi && tabsApi.onUpdated) {
-      tabsApi.onUpdated.addListener((tabId: number, _changeInfo: any, _tab: any) => {
+      tabsApi.onUpdated.addListener((tabId: number, changeInfo: any, tab: any) => {
         if (this.closingTabIds.has(tabId)) return;
+
+        const rawTitle = (changeInfo?.title ?? tab?.title)?.trim();
+        if (rawTitle && rawTitle !== 'about:blank') {
+          const currentUrl = tab?.url || '';
+          const isBlank =
+            currentUrl.startsWith('chrome://newtab') ||
+            currentUrl.startsWith('about:newtab') ||
+            currentUrl.startsWith('edge://newtab') ||
+            currentUrl === 'about:blank';
+
+          const isMeaningfulTitle = !isBlank && rawTitle !== currentUrl;
+          if (isMeaningfulTitle) {
+            this.pendingInitialTitles.delete(tabId);
+          }
+
+          let updatedInMemory = false;
+          memoryTmpTabs = memoryTmpTabs.map((t) => {
+            if (t.browserTabId === tabId) {
+              const targetTitle = isMeaningfulTitle ? rawTitle : (t.title || rawTitle);
+              if (t.title !== targetTitle) {
+                updatedInMemory = true;
+                return {
+                  ...t,
+                  title: targetTitle,
+                  url: tab?.url || t.url,
+                  favIconUrl: tab?.favIconUrl || t.favIconUrl,
+                  updatedAt: Date.now(),
+                };
+              }
+            }
+            return t;
+          });
+
+          if (updatedInMemory) {
+            this.notifyTmpTabs(memoryTmpTabs);
+          }
+        }
+
         this.scheduleSync(350);
       });
     }
@@ -1122,6 +1224,7 @@ class TabTracker {
     // 3. Tab removed (closed)
     if (tabsApi && tabsApi.onRemoved) {
       tabsApi.onRemoved.addListener(async (tabId: number) => {
+        this.pendingInitialTitles.delete(tabId);
         await this.runWithLock(async () => {
           const associations = await this.getAssociations();
           let changed = false;
