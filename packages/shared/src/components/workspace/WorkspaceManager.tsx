@@ -243,9 +243,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   latestWorkspaceDataRef.current = data;
 
   const isMobile = useIsMobile();
-  const handleToggleFolderExpand = isMobile ? (() => {}) : toggleFolderExpand;
-  const handleExpandAllFolders = isMobile ? (() => {}) : expandAllFolders;
-  const handleCollapseAllFolders = isMobile ? (() => {}) : collapseAllFolders;
+  const handleToggleFolderExpand = toggleFolderExpand;
+  const handleExpandAllFolders = expandAllFolders;
+  const handleCollapseAllFolders = collapseAllFolders;
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
