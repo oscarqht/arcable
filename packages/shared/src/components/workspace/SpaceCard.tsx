@@ -608,7 +608,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         tabAssociations={tabAssociations}
                         audibleTabs={audibleTabs}
                         highlightedTabId={highlightedTabId}
-                        onToggleExpand={isMobile ? (() => {}) : (onToggleFolderExpand || (() => {}))}
+                        onToggleExpand={onToggleFolderExpand || (() => {})}
                         onEditFolder={onEditFolder || (() => {})}
                         onDeleteFolder={onDeleteFolder || (() => {})}
                         onAddSubFolder={onAddFolder || (() => {})}
