@@ -1,4 +1,4 @@
-import { ArcableWorkspaceData, Folder, Space, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
+import { ArcableWorkspaceData, Folder, Space, SpaceScheme, ZenThemeConfig, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { CustomCodeRule, RunCodeRule } from '../types/customCode';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
@@ -50,10 +50,13 @@ export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
 export const LEGACY_ROOT_COLLECTION_NAMES = ['Arcable'];
 export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
 export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
+export const ARCABLE_SPACE_THEME_COLLECTION_NAME = '_space_themes';
 export const ARCABLE_WIDGET_TAG = 'arcable-widget';
+export const ARCABLE_SPACE_THEME_TAG = 'arcable-space-theme';
 export const ARCABLE_WIDGET_LINK_PREFIX = 'https://arcable.app/widget/';
 export const ARCABLE_CUSTOM_CSS_LINK_PREFIX = 'https://arcable.app/custom-css/';
 export const ARCABLE_RUN_CODE_LINK_PREFIX = 'https://arcable.app/run-code/';
+export const ARCABLE_SPACE_THEME_LINK_PREFIX = 'https://arcable.app/space-theme/';
 export const ARCABLE_VARIANT_DELIMITER = ' ||| ';
 /** Legacy canonical non-tree workspace metadata stored directly under the Arcable root. */
 export const ARCABLE_DATA_FILE_NAME = 'data.json.txt';
@@ -63,6 +66,7 @@ export function isSystemCollection(collection: RaindropCollectionItem): boolean 
   return (
     title === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase() ||
     title === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase() ||
+    title === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase() ||
     title.startsWith('_')
   );
 }
@@ -85,6 +89,15 @@ export function isRunCodeItem(item: RaindropBookmarkItem, runCodeCollectionId?: 
   return (
     (runCodeCollectionId !== undefined && item.collectionId === runCodeCollectionId) ||
     link.startsWith(ARCABLE_RUN_CODE_LINK_PREFIX.toLowerCase())
+  );
+}
+
+export function isSpaceThemeItem(item: RaindropBookmarkItem, spaceThemeCollectionId?: number): boolean {
+  const link = (item.link || '').toLowerCase();
+  return (
+    (spaceThemeCollectionId !== undefined && item.collectionId === spaceThemeCollectionId) ||
+    link.startsWith(ARCABLE_SPACE_THEME_LINK_PREFIX.toLowerCase()) ||
+    Boolean(item.tags?.includes(ARCABLE_SPACE_THEME_TAG))
   );
 }
 
@@ -696,6 +709,7 @@ interface ArcableMetadata {
   widgets?: ArcableWorkspaceData['widgets'];
   customCodeRules?: ArcableWorkspaceData['customCodeRules'];
   runCodeInPageRules?: ArcableWorkspaceData['runCodeInPageRules'];
+  spaces?: ArcableWorkspaceData['spaces'];
 }
 
 interface RemoteArcableTree {
@@ -964,7 +978,29 @@ function runCodeToRaindropItemInput(
   };
 }
 
-const INCREMENTAL_OPERATION_TYPES = new Set([
+export function spaceThemeToRaindropItemInput(
+  space: Space,
+  collectionId: number
+): Parameters<typeof createRaindropBookmarks>[1][number] {
+  return {
+    title: `[Theme] ${space.name}`,
+    link: `${ARCABLE_SPACE_THEME_LINK_PREFIX}${space.id}`,
+    excerpt: JSON.stringify({
+      spaceId: space.id,
+      spaceRaindropId: space.raindropId,
+      colors: space.colors,
+      themeNoise: space.themeNoise,
+      themeScheme: space.themeScheme,
+      themeConfig: space.themeConfig,
+    }),
+    tags: [ARCABLE_SPACE_THEME_TAG],
+    collectionId,
+    pleaseParse: { disabled: true },
+  };
+}
+
+export const INCREMENTAL_OPERATION_TYPES = new Set([
+  'SPACE_UPDATE',
   'FOLDER_CREATE',
   'FOLDER_UPDATE',
   'FOLDER_DELETE',
@@ -1038,6 +1074,13 @@ function needsIncrementalIdentityRebase(
   }
 
   for (const operation of pendingOps) {
+    if (operation.type === 'SPACE_UPDATE') {
+      const space = localState.spaces.find((candidate) => candidate.id === operation.entityId);
+      if (!space || !remoteEntityId(space)) return true;
+    }
+  }
+
+  for (const operation of pendingOps) {
     if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE') continue;
     const tab = localState.tabs.find((candidate) => candidate.id === operation.entityId);
     if (!tab) return true;
@@ -1071,7 +1114,8 @@ export async function syncIncrementalOperations(
   const hasMetadataChanges = pendingOps.some((operation) =>
     operation.type.startsWith('WIDGET_') ||
     operation.type.startsWith('CUSTOM_CODE_') ||
-    operation.type.startsWith('RUN_CODE_')
+    operation.type.startsWith('RUN_CODE_') ||
+    operation.type.startsWith('SPACE_')
   );
   if (
     hasMetadataChanges &&
@@ -1088,7 +1132,9 @@ export async function syncIncrementalOperations(
           ? 'custom_code'
           : operation.type.startsWith('RUN_CODE_')
             ? 'run_code'
-            : 'tab';
+            : operation.type.startsWith('SPACE_')
+              ? 'space'
+              : 'tab';
     const key = `${kind}:${operation.entityId}`;
     const entityOps = groups.get(key) || [];
     entityOps.push(operation);
@@ -1097,6 +1143,7 @@ export async function syncIncrementalOperations(
 
   let latestSnapshot: ArcableWorkspaceData = {
     ...localState,
+    spaces: [...localState.spaces],
     folders: [...localState.folders],
     tabs: [...localState.tabs],
     widgets: [...(localState.widgets || [])],
@@ -1673,6 +1720,143 @@ export async function syncIncrementalOperations(
     }
   }
 
+  // Process Space operations
+  const hasSpaceOps = [...groups.keys()].some((k) => k.startsWith('space:'));
+  if (hasSpaceOps) {
+    let spaceThemeCollId = latestSnapshot.raindropSpaceThemeCollectionId;
+    const ensureSpaceThemeColl = async () => {
+      if (spaceThemeCollId) return spaceThemeCollId;
+      const allCollections = await fetchRaindropCollections(token);
+      let spaceThemeColl = allCollections.find(
+        (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase()
+      );
+      if (!spaceThemeColl) {
+        spaceThemeColl = await createRaindropCollection(token, ARCABLE_SPACE_THEME_COLLECTION_NAME, rootId);
+      }
+      spaceThemeCollId = spaceThemeColl._id;
+      latestSnapshot = {
+        ...latestSnapshot,
+        raindropSpaceThemeCollectionId: spaceThemeCollId,
+      };
+      return spaceThemeCollId;
+    };
+
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('space:')) continue;
+      const entityId = operations[0].entityId;
+      const space = latestSnapshot.spaces.find((s) => s.id === entityId);
+      if (!space) continue;
+
+      const hasCollectionChange = operations.some(
+        (op) =>
+          op.payload &&
+          ('name' in op.payload || 'emojiIcon' in op.payload || 'coverUrl' in op.payload || 'order' in op.payload)
+      );
+      const hasThemeChange = operations.some(
+        (op) =>
+          op.payload &&
+          ('colors' in op.payload || 'themeNoise' in op.payload)
+      );
+
+      // If name, icon, cover, or order changed, update Raindrop Space collection
+      if (hasCollectionChange) {
+        const remoteSpaceId = remoteEntityId(space);
+        if (remoteSpaceId) {
+          const targetOrder = calculateSpaceTargetOrder(space, latestSnapshot.spaces);
+          const updated = await updateRaindropCollection(token, remoteSpaceId, {
+            title: encodeRaindropTitle(space.name),
+            cover: space.coverUrl ? [space.coverUrl] : (space.emojiIcon ? [space.emojiIcon] : []),
+            sort: targetOrder,
+            order: targetOrder,
+          });
+          if (!updated) throw new Error(`Failed to update Raindrop space ${remoteSpaceId}.`);
+        }
+      }
+
+      const hasTheme = Boolean(space.colors) || Boolean(space.themeNoise);
+      const shouldUpdateTheme = hasThemeChange || (hasCollectionChange && hasTheme);
+
+      if (shouldUpdateTheme) {
+        let themeUpdated = false;
+
+        if (space.themeRaindropId) {
+          if (hasTheme) {
+            const input = spaceThemeToRaindropItemInput(space, spaceThemeCollId || 0);
+            const res = await updateRaindropItem(token, space.themeRaindropId, {
+              title: input.title,
+              excerpt: input.excerpt,
+              tags: input.tags,
+            });
+            if (res) {
+              themeUpdated = true;
+            }
+          } else {
+            // Theme was cleared
+            await deleteRaindropBookmark(token, space.themeRaindropId);
+            latestSnapshot = {
+              ...latestSnapshot,
+              spaces: latestSnapshot.spaces.map((s) =>
+                s.id === space.id ? { ...s, themeRaindropId: undefined } : s
+              ),
+            };
+            themeUpdated = true;
+          }
+        }
+
+        if (!themeUpdated) {
+          const collId = await ensureSpaceThemeColl();
+          const existingThemeItems = await fetchAllRaindropItems(token, collId);
+          const existing = existingThemeItems.find((item) => {
+            if (item.link === `${ARCABLE_SPACE_THEME_LINK_PREFIX}${space.id}`) return true;
+            try {
+              if (item.excerpt) {
+                const parsed = JSON.parse(item.excerpt);
+                if (parsed.spaceId === space.id) return true;
+                if (space.raindropId && parsed.spaceRaindropId === space.raindropId) return true;
+              }
+            } catch {}
+            return false;
+          });
+
+          if (hasTheme) {
+            const input = spaceThemeToRaindropItemInput(space, collId);
+            if (existing) {
+              await updateRaindropItem(token, existing._id, {
+                title: input.title,
+                excerpt: input.excerpt,
+                tags: input.tags,
+              });
+              latestSnapshot = {
+                ...latestSnapshot,
+                spaces: latestSnapshot.spaces.map((s) =>
+                  s.id === space.id ? { ...s, themeRaindropId: existing._id } : s
+                ),
+              };
+            } else {
+              const created = await createRaindropBookmarks(token, [input]);
+              if (created[0]?._id) {
+                latestSnapshot = {
+                  ...latestSnapshot,
+                  spaces: latestSnapshot.spaces.map((s) =>
+                    s.id === space.id ? { ...s, themeRaindropId: created[0]._id } : s
+                  ),
+                };
+              }
+            }
+          } else if (existing) {
+            await deleteRaindropBookmark(token, existing._id);
+            latestSnapshot = {
+              ...latestSnapshot,
+              spaces: latestSnapshot.spaces.map((s) =>
+                s.id === space.id ? { ...s, themeRaindropId: undefined } : s
+              ),
+            };
+          }
+        }
+      }
+    }
+  }
+
   // Remove previous legacy data.json.txt if it was tracked
   if (latestSnapshot.raindropMetadataItemId) {
     await deleteRaindropBookmarks(token, rootId, [latestSnapshot.raindropMetadataItemId]).catch(() => null);
@@ -1925,6 +2109,46 @@ export function reconstructWorkspace(
   const runCodeCollection = tree.collections.find(
     (c) => c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase() && c.parent?.$id === root._id
   );
+  const spaceThemeCollection = tree.collections.find(
+    (c) => c.title.trim().toLowerCase() === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase() && c.parent?.$id === root._id
+  );
+
+  const spaceThemeItems = spaceThemeCollection
+    ? tree.items.filter((item) => item.collectionId === spaceThemeCollection._id || isSpaceThemeItem(item, spaceThemeCollection._id))
+    : tree.items.filter((item) => isSpaceThemeItem(item));
+
+  const spaceThemesMap = new Map<string, { colors?: string; themeNoise?: number; themeScheme?: SpaceScheme; themeConfig?: ZenThemeConfig; raindropItemId?: number }>();
+  for (const item of spaceThemeItems) {
+    let parsedExcerpt: any = {};
+    try {
+      if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
+    } catch {}
+
+    const colors = typeof parsedExcerpt.colors === 'string' ? parsedExcerpt.colors : undefined;
+    const themeNoise = typeof parsedExcerpt.themeNoise === 'number'
+      ? parsedExcerpt.themeNoise
+      : (typeof parsedExcerpt.noise === 'number' ? parsedExcerpt.noise : undefined);
+    const themeScheme = parsedExcerpt.themeScheme === 'auto' || parsedExcerpt.themeScheme === 'light' || parsedExcerpt.themeScheme === 'dark'
+      ? parsedExcerpt.themeScheme
+      : undefined;
+    const themeConfig = parsedExcerpt.themeConfig && typeof parsedExcerpt.themeConfig === 'object'
+      ? parsedExcerpt.themeConfig
+      : undefined;
+    const themeData = { colors, themeNoise, themeScheme, themeConfig, raindropItemId: item._id };
+
+    if (parsedExcerpt.spaceRaindropId !== undefined) {
+      spaceThemesMap.set(String(parsedExcerpt.spaceRaindropId), themeData);
+    }
+    if (parsedExcerpt.spaceId !== undefined) {
+      spaceThemesMap.set(String(parsedExcerpt.spaceId), themeData);
+    }
+    if (item.link?.startsWith(ARCABLE_SPACE_THEME_LINK_PREFIX)) {
+      const linkId = item.link.slice(ARCABLE_SPACE_THEME_LINK_PREFIX.length);
+      if (linkId) {
+        spaceThemesMap.set(linkId, themeData);
+      }
+    }
+  }
 
   const spaceIds = new Set(
     tree.collections
@@ -1935,16 +2159,27 @@ export function reconstructWorkspace(
   const spaces: Space[] = tree.collections
     .filter((collection) => spaceIds.has(collection._id))
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
-    .map((collection, index) => ({
-      id: arcableCollectionId(collection._id),
-      raindropId: collection._id,
-      name: decodeRaindropTitle(collection.title),
-      emojiIcon: emojiFromCover(collection.cover),
-      coverUrl: collection.cover?.[0],
-      order: (index + 1) * 1000,
-      createdAt: timestamp(collection.created),
-      updatedAt: timestamp(collection.lastUpdate),
-    }));
+    .map((collection, index) => {
+      const theme = spaceThemesMap.get(String(collection._id)) || spaceThemesMap.get(arcableCollectionId(collection._id));
+      const legacySpace = allowLegacyMetadataFallback
+        ? tree.metadata?.spaces?.find((s) => s.id === arcableCollectionId(collection._id) || (s.raindropId && s.raindropId === collection._id))
+        : undefined;
+      return {
+        id: arcableCollectionId(collection._id),
+        raindropId: collection._id,
+        themeRaindropId: theme?.raindropItemId,
+        name: decodeRaindropTitle(collection.title),
+        emojiIcon: emojiFromCover(collection.cover),
+        coverUrl: collection.cover?.[0],
+        colors: theme?.colors ?? legacySpace?.colors,
+        themeNoise: theme?.themeNoise ?? legacySpace?.themeNoise,
+        themeScheme: theme?.themeScheme ?? legacySpace?.themeScheme,
+        themeConfig: theme?.themeConfig ?? legacySpace?.themeConfig,
+        order: (index + 1) * 1000,
+        createdAt: timestamp(collection.created),
+        updatedAt: timestamp(collection.lastUpdate),
+      };
+    });
 
   const rawFolders: Folder[] = tree.collections
     .filter((collection) => !spaceIds.has(collection._id) && !isSystemCollection(collection))
@@ -2134,10 +2369,11 @@ export function reconstructWorkspace(
     ...widgetItems.map((w) => w._id),
     ...customCssItems.map((c) => c._id),
     ...runCodeItems.map((r) => r._id),
+    ...spaceThemeItems.map((s) => s._id),
   ]);
 
   const rawTabItems = tree.items.filter(
-    (item) => !isArcableInternalItem(item) && !nonTabItemIds.has(item._id) && !isWidgetItem(item)
+    (item) => !isArcableInternalItem(item) && !nonTabItemIds.has(item._id) && !isWidgetItem(item) && !isSpaceThemeItem(item)
   );
 
   // Group URL variants by title delimiter: "<name> ||| <variant name>"
@@ -2324,6 +2560,7 @@ export function reconstructWorkspace(
 
   return {
     raindropRootCollectionId: root._id,
+    raindropSpaceThemeCollectionId: spaceThemeCollection?._id,
     raindropMetadataItemId: tree.metadataItemId ?? null,
     version: 1,
     activeSpaceId,
@@ -2695,6 +2932,18 @@ export async function syncWorkspaceWithRaindrop(
       remoteCollections.set(runCodeColl._id, runCodeColl);
     }
 
+    const hasAnySpaceThemes = (localState.spaces || []).some(
+      (s) => !deletedIds.has(s.id) && (Boolean(s.colors) || Boolean(s.themeNoise))
+    );
+    let spaceThemeColl = tree.collections.find(
+      (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase()
+    );
+    if (!spaceThemeColl && hasAnySpaceThemes) {
+      spaceThemeColl = await createRaindropCollection(clean, ARCABLE_SPACE_THEME_COLLECTION_NAME, root._id);
+      tree.collections.push(spaceThemeColl);
+      remoteCollections.set(spaceThemeColl._id, spaceThemeColl);
+    }
+
     // Widgets, custom code rules, and run code rules live outside the space/folder
     // collection tree and their bookmark items don't carry an arcableId in `note`
     // (they encode their local id in `excerpt`/`link` instead), so they can't be
@@ -2995,6 +3244,106 @@ export async function syncWorkspaceWithRaindrop(
       }
     }
 
+    // Sync Space Themes to _space_themes collection
+    if (spaceThemeColl) {
+      const existingThemeItems = tree.items.filter(
+        (item) => item.collectionId === spaceThemeColl._id || isSpaceThemeItem(item, spaceThemeColl._id)
+      );
+      const themeItemBySpaceId = new Map<string, RaindropBookmarkItem>();
+      for (const item of existingThemeItems) {
+        let spaceId: string | undefined;
+        let spaceRaindropId: string | undefined;
+        try {
+          if (item.excerpt) {
+            const parsed = JSON.parse(item.excerpt);
+            if (parsed.spaceId) spaceId = String(parsed.spaceId);
+            if (parsed.spaceRaindropId !== undefined) spaceRaindropId = String(parsed.spaceRaindropId);
+          }
+        } catch {}
+        if (spaceId) {
+          themeItemBySpaceId.set(spaceId, item);
+        }
+        if (spaceRaindropId) {
+          themeItemBySpaceId.set(spaceRaindropId, item);
+        }
+        if (item.link?.startsWith(ARCABLE_SPACE_THEME_LINK_PREFIX)) {
+          const linkId = item.link.slice(ARCABLE_SPACE_THEME_LINK_PREFIX.length);
+          if (linkId) {
+            themeItemBySpaceId.set(linkId, item);
+          }
+        }
+      }
+
+      for (const space of localState.spaces || []) {
+        if (deletedIds.has(space.id)) {
+          const existing = themeItemBySpaceId.get(space.id) || (space.raindropId ? themeItemBySpaceId.get(String(space.raindropId)) : undefined);
+          if (existing) {
+            await deleteRaindropBookmark(clean, existing._id);
+          }
+          continue;
+        }
+
+        const remoteSpaceRaindropId = localCollectionToRemote.get(space.id) || space.raindropId;
+        const spaceWithRemoteId: Space = { ...space, raindropId: remoteSpaceRaindropId };
+        const existing = themeItemBySpaceId.get(space.id) || (remoteSpaceRaindropId ? themeItemBySpaceId.get(String(remoteSpaceRaindropId)) : undefined);
+        const hasTheme = Boolean(space.colors) || Boolean(space.themeNoise);
+
+        if (hasTheme) {
+          const input = spaceThemeToRaindropItemInput(spaceWithRemoteId, spaceThemeColl._id);
+          if (!existing) {
+            bookmarksToCreate.push(input);
+          } else {
+            const existingExcerpt = existing.excerpt;
+            const newExcerpt = input.excerpt;
+            if (existingExcerpt !== newExcerpt || existing.title !== input.title) {
+              await updateRaindropItem(clean, existing._id, {
+                title: input.title,
+                excerpt: input.excerpt,
+                tags: input.tags,
+              });
+            }
+          }
+        } else if (existing) {
+          await deleteRaindropBookmark(clean, existing._id);
+        }
+      }
+
+      // Clean up orphan theme bookmarks whose space no longer exists
+      const activeSpaceIds = new Set((localState.spaces || []).map((s) => s.id));
+      const activeSpaceRemoteIds = new Set(
+        (localState.spaces || [])
+          .map((s) => localCollectionToRemote.get(s.id) || s.raindropId)
+          .filter(Boolean)
+          .map(String)
+      );
+
+      const deletedThemeBookmarkIds = new Set<number>();
+      for (const item of existingThemeItems) {
+        let spaceId: string | undefined;
+        let spaceRaindropId: string | undefined;
+        try {
+          if (item.excerpt) {
+            const parsed = JSON.parse(item.excerpt);
+            if (parsed.spaceId) spaceId = String(parsed.spaceId);
+            if (parsed.spaceRaindropId !== undefined) spaceRaindropId = String(parsed.spaceRaindropId);
+          }
+        } catch {}
+        let linkId: string | undefined;
+        if (item.link?.startsWith(ARCABLE_SPACE_THEME_LINK_PREFIX)) {
+          linkId = item.link.slice(ARCABLE_SPACE_THEME_LINK_PREFIX.length);
+        }
+        const belongsToActiveSpace =
+          Boolean(spaceId && (activeSpaceIds.has(spaceId) || activeSpaceRemoteIds.has(spaceId))) ||
+          Boolean(spaceRaindropId && (activeSpaceIds.has(spaceRaindropId) || activeSpaceRemoteIds.has(spaceRaindropId))) ||
+          Boolean(linkId && (activeSpaceIds.has(linkId) || activeSpaceRemoteIds.has(linkId)));
+
+        if (!belongsToActiveSpace && !deletedThemeBookmarkIds.has(item._id)) {
+          deletedThemeBookmarkIds.add(item._id);
+          await deleteRaindropBookmark(clean, item._id);
+        }
+      }
+    }
+
     // Create all new bookmark items in batches of 100
     for (let start = 0; start < bookmarksToCreate.length; start += 100) {
       const batch = bookmarksToCreate.slice(start, start + 100);
@@ -3034,6 +3383,7 @@ export async function syncWorkspaceWithRaindrop(
       !isWidgetItem(item) &&
       !isCustomCssItem(item) &&
       !isRunCodeItem(item) &&
+      !isSpaceThemeItem(item) &&
       Boolean(item.note && (item.note.includes(ARCABLE_NOTE_MARKER) || item.note.includes('"schema"')))
     );
     for (const item of bookmarksWithLegacyNotes) {

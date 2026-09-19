@@ -399,7 +399,9 @@ export function applyOperation(
 
         if (op.payload) {
           if ('emojiIcon' in op.payload) updated.emojiIcon = op.payload.emojiIcon || undefined;
+          if ('coverUrl' in op.payload) updated.coverUrl = op.payload.coverUrl || undefined;
           if ('colors' in op.payload) updated.colors = op.payload.colors || undefined;
+          if ('themeNoise' in op.payload) updated.themeNoise = op.payload.themeNoise ?? undefined;
         }
 
         cloned.spaces[existingIdx] = updated;
@@ -947,12 +949,19 @@ export function mergeIncrementalSyncSnapshot(
   return {
     ...current,
     raindropRootCollectionId: synced.raindropRootCollectionId ?? current.raindropRootCollectionId,
+    raindropSpaceThemeCollectionId: synced.raindropSpaceThemeCollectionId ?? current.raindropSpaceThemeCollectionId,
     raindropMetadataItemId: synced.raindropMetadataItemId !== undefined
       ? synced.raindropMetadataItemId
       : current.raindropMetadataItemId,
     spaces: current.spaces.map((space) => {
-      const remoteId = syncedSpaces.get(space.id)?.raindropId;
-      return remoteId ? { ...space, raindropId: remoteId } : space;
+      const syncedSpace = syncedSpaces.get(space.id);
+      const remoteId = syncedSpace?.raindropId;
+      const themeRemoteId = syncedSpace !== undefined ? syncedSpace.themeRaindropId : space.themeRaindropId;
+      return {
+        ...space,
+        ...(remoteId ? { raindropId: remoteId } : {}),
+        themeRaindropId: themeRemoteId,
+      };
     }),
     folders: current.folders.map((folder) => {
       const remoteId = syncedFolders.get(folder.id)?.raindropId;

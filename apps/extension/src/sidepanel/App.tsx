@@ -15,6 +15,7 @@ import {
   replayOperations,
   areUrlsMatching,
   getSpaceThemeStyles,
+  getSpaceNoiseOverlayStyle,
   SpaceThemeTokens,
   searchRaindrop,
 } from '@arcable/shared/utils';
@@ -1089,8 +1090,19 @@ export const App: React.FC = () => {
         background: currentSpaceTheme.containerBg,
         color: currentSpaceTheme.textColor,
         transition: 'background 0.35s cubic-bezier(0.25, 1, 0.5, 1), color 0.35s ease',
+        position: 'relative',
       }}
     >
+      {/* Texture & Grain Overlay for sidepanel background */}
+      {Boolean(currentSpaceTheme.themeNoise && currentSpaceTheme.themeNoise > 0) && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...getSpaceNoiseOverlayStyle(currentSpaceTheme.themeNoise, currentSpaceTheme.isDark, currentSpaceTheme.containerBg),
+            transition: 'opacity 0.35s ease',
+          }}
+        />
+      )}
       <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <div
         style={{
@@ -1103,6 +1115,8 @@ export const App: React.FC = () => {
           overflowX: 'hidden',
           overflowY: 'auto',
           overscrollBehavior: 'none',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
         {!isAuthStateLoaded ? (

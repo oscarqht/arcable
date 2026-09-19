@@ -55,15 +55,40 @@ export interface Folder {
   updatedAt?: number;
 }
 
+export type SpaceScheme = 'auto' | 'light' | 'dark';
+
+export interface ZenThemeDot {
+  c: [number, number, number] | string;
+  isPrimary?: boolean;
+  isCustom?: boolean;
+  algorithm?: string;
+  lightness?: number;
+  position?: { x: number; y: number };
+  type?: string;
+}
+
+export interface ZenThemeConfig {
+  type: 'gradient';
+  gradientColors: ZenThemeDot[];
+  opacity: number;
+  texture: number;
+  scheme?: SpaceScheme;
+}
+
 export interface Space {
   id: string;
   /** Remote identity only; `id` stays stable for local UI state. */
   raindropId?: number;
+  /** Remote bookmark ID for space theme under _space_themes collection */
+  themeRaindropId?: number;
   name: string;
   emojiIcon?: string;
   /** The cover selected for the matching Raindrop collection. */
   coverUrl?: string;
   colors?: string;         // Optional theme color or gradient
+  themeNoise?: number;     // Optional noise/grain intensity (0 to 1)
+  themeScheme?: SpaceScheme; // Optional per-space theme scheme ('auto' | 'light' | 'dark')
+  themeConfig?: ZenThemeConfig; // Optional full Zen theme configuration
   order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
@@ -132,6 +157,8 @@ export interface WorkspaceWidget {
 export interface ArcableWorkspaceData {
   /** Raindrop collection ID for the Arcable root; enables direct favourite mutations. */
   raindropRootCollectionId?: number;
+  /** Raindrop collection ID for the _space_themes collection; caches theme collection location. */
+  raindropSpaceThemeCollectionId?: number;
   /** Current non-tree metadata file. Null means a fresh remote read confirmed it does not exist. */
   raindropMetadataItemId?: number | null;
   spaces: Space[];

@@ -15,6 +15,7 @@ export interface SpaceThemeTokens {
   cardBorder: string;
   cardBoxShadow: string;
   shelfBg: string;
+  themeNoise?: number;
 }
 
 export interface PresetThemeItem {
@@ -506,13 +507,37 @@ export function getSpacePrimaryColor(color?: string | null): string {
     return matchedGradient.primary;
   }
 
-  // If gradient string, extract first hex match
+  // If gradient string, extract first hex match or rgb/rgba match
   if (trimmed.includes('gradient')) {
     const hexMatch = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
     if (hexMatch) {
       return hexMatch[0];
     }
+    const rgbMatch = trimmed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (rgbMatch) {
+      const r = parseInt(rgbMatch[1], 10);
+      const g = parseInt(rgbMatch[2], 10);
+      const b = parseInt(rgbMatch[3], 10);
+      const toHex = (n: number) => {
+        const h = Math.max(0, Math.min(255, n)).toString(16);
+        return h.length === 1 ? '0' + h : h;
+      };
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
     return '#3b82f6';
+  }
+
+  // Direct rgb/rgba string
+  const directRgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (directRgbMatch) {
+    const r = parseInt(directRgbMatch[1], 10);
+    const g = parseInt(directRgbMatch[2], 10);
+    const b = parseInt(directRgbMatch[3], 10);
+    const toHex = (n: number) => {
+      const h = Math.max(0, Math.min(255, n)).toString(16);
+      return h.length === 1 ? '0' + h : h;
+    };
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
 
   // Solid preset
@@ -637,10 +662,26 @@ export function dimHexForDarkMode(hex: string): string {
  */
 export function dimColorStringForDarkMode(colorStr: string): string {
   if (!colorStr || typeof colorStr !== 'string') return colorStr;
-  const trimmed = colorStr.trim();
+  let result = colorStr.trim();
 
   // Replace all hex codes inside the string (works for gradients and single hex colors)
-  return trimmed.replace(/#(?:[0-9a-fA-F]{3}){1,2}\b/g, (match) => dimHexForDarkMode(match));
+  result = result.replace(/#(?:[0-9a-fA-F]{3}){1,2}\b/g, (match) => dimHexForDarkMode(match));
+
+  // Also dim rgb/rgba colors inside gradients or direct strings
+  result = result.replace(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/g, (match, r, g, b, a) => {
+    const [h, s, l] = rgbToHsl(parseInt(r, 10), parseInt(g, 10), parseInt(b, 10));
+    const targetL = Math.max(0.11, Math.min(0.22, 0.12 + l * 0.08));
+    const targetS = Math.min(1, Math.max(0.35, s * 1.15));
+    const dimmedHex = hslToHex(h, targetS, targetL);
+    const rgb = parseHexColor(dimmedHex);
+    if (!rgb) return match;
+    if (a !== undefined) {
+      return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+    }
+    return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  });
+
+  return result;
 }
 
 /**
@@ -648,10 +689,15 @@ export function dimColorStringForDarkMode(colorStr: string): string {
  */
 export function getSpaceThemeStyles(
   color?: string | null,
-  isSystemDark: boolean = false
+  isSystemDark: boolean = false,
+  themeNoise?: number,
+  themeScheme?: 'auto' | 'light' | 'dark'
 ): SpaceThemeTokens {
+  const safeNoise = typeof themeNoise === 'number' && themeNoise > 0 ? themeNoise : undefined;
+  const isDarkEffective = themeScheme === 'dark' ? true : themeScheme === 'light' ? false : isSystemDark;
+
   if (!color || typeof color !== 'string' || !color.trim()) {
-    if (isSystemDark) {
+    if (isDarkEffective) {
       return {
         containerBg: '#18181b',
         primaryColor: '#38bdf8',
@@ -667,6 +713,7 @@ export function getSpaceThemeStyles(
         cardBorder: '1px solid rgba(255, 255, 255, 0.1)',
         cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.2)',
         shelfBg: 'rgba(0, 0, 0, 0.25)',
+        themeNoise: safeNoise,
       };
     }
 
@@ -685,6 +732,7 @@ export function getSpaceThemeStyles(
       cardBorder: '1px solid #e2e8f0',
       cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
       shelfBg: '#f8fafc',
+      themeNoise: safeNoise,
     };
   }
 
@@ -755,7 +803,7 @@ export function getSpaceThemeStyles(
   }
 
   // When in dark mode, dim the brightness of the space theme color/gradient
-  if (isSystemDark) {
+  if (isDarkEffective) {
     return {
       ...baseStyles,
       containerBg: dimColorStringForDarkMode(baseStyles.containerBg),
@@ -771,8 +819,76 @@ export function getSpaceThemeStyles(
       cardBorder: 'none',
       cardBoxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)',
       shelfBg: 'rgba(255, 255, 255, 0.12)',
+      themeNoise: safeNoise,
     };
   }
 
-  return baseStyles;
+  return {
+    ...baseStyles,
+    themeNoise: safeNoise,
+  };
 }
+
+export const PRESET_SOLID_COLORS = [
+  '#f29bbb',
+  '#a6729e',
+  '#f25e6c',
+  '#ff8657',
+  '#f8d558',
+  '#33e895',
+  '#6dbad9',
+  '#666789',
+  '#f4efdf',
+  '#3b82f6',
+  '#ef4444',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#06b6d4',
+  '#84cc16',
+  '#6366f1',
+  '#14b8a6',
+  '#f97316',
+];
+
+export const NOISE_SVG_DATA_URI =
+  "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E";
+
+/**
+ * Helper to compute the CSS properties for the texture & grain overlay layer.
+ * Works seamlessly across both light and dark backgrounds:
+ * - On pure white/near-white backgrounds, 'multiply' makes dark grain specks crisp.
+ * - On dark backgrounds, 'screen' makes light grain specks crisp.
+ * - On colorful backgrounds/gradients, 'overlay' preserves richness and saturation.
+ */
+export function getSpaceNoiseOverlayStyle(
+  themeNoise?: number,
+  isDark: boolean = false,
+  containerBg?: string
+): React.CSSProperties | null {
+  if (!themeNoise || themeNoise <= 0) return null;
+
+  const isWhiteBg =
+    containerBg === '#ffffff' ||
+    containerBg === '#f8fafc' ||
+    containerBg === 'rgb(255, 255, 255)';
+
+  const mixBlendMode: React.CSSProperties['mixBlendMode'] = isWhiteBg
+    ? 'multiply'
+    : (isDark ? 'screen' : 'overlay');
+
+  return {
+    position: 'absolute',
+    inset: 0,
+    backgroundImage: `url("${NOISE_SVG_DATA_URI}")`,
+    backgroundRepeat: 'repeat',
+    backgroundSize: '160px 160px',
+    mixBlendMode,
+    opacity: Math.min(Math.max(themeNoise, 0), 1),
+    pointerEvents: 'none',
+    borderRadius: 'inherit',
+    zIndex: 0,
+  };
+}
+

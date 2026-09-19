@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
+import { Space, SpaceScheme, ZenThemeConfig, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -347,7 +347,15 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   // ================= Space CRUD =================
-  const createSpace = useCallback((spaceInput: { name: string; emojiIcon?: string; coverUrl?: string }) => {
+  const createSpace = useCallback((spaceInput: {
+    name: string;
+    emojiIcon?: string;
+    coverUrl?: string;
+    colors?: string;
+    themeNoise?: number;
+    themeScheme?: SpaceScheme;
+    themeConfig?: ZenThemeConfig;
+  }) => {
     const sorted = getSortedSpaces(data.spaces);
     const lastSpace = sorted[sorted.length - 1];
     const highestOrder = lastSpace
@@ -359,6 +367,10 @@ export function useWorkspace() {
       name: spaceInput.name.trim() || 'New Space',
       emojiIcon: spaceInput.emojiIcon || '📁',
       coverUrl: spaceInput.coverUrl,
+      colors: spaceInput.colors,
+      themeNoise: spaceInput.themeNoise,
+      themeScheme: spaceInput.themeScheme,
+      themeConfig: spaceInput.themeConfig,
       order: highestOrder + 1000,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -381,10 +393,14 @@ export function useWorkspace() {
   }, [data.spaces, saveWorkspaceData]);
 
   const updateSpace = useCallback((id: string, updates: Partial<Omit<Space, 'id'>>) => {
-    const normalizedUpdates = { ...updates, ...('colors' in updates ? { colors: undefined } : {}) };
+    const normalizedUpdates = { ...updates };
     const opPayload: Record<string, any> = { ...normalizedUpdates };
     if ('emojiIcon' in updates) opPayload.emojiIcon = updates.emojiIcon ?? null;
-    if ('colors' in normalizedUpdates) opPayload.colors = normalizedUpdates.colors ?? null;
+    if ('coverUrl' in updates) opPayload.coverUrl = updates.coverUrl ?? null;
+    if ('colors' in updates) opPayload.colors = updates.colors ?? null;
+    if ('themeNoise' in updates) opPayload.themeNoise = updates.themeNoise ?? null;
+    if ('themeScheme' in updates) opPayload.themeScheme = updates.themeScheme ?? null;
+    if ('themeConfig' in updates) opPayload.themeConfig = updates.themeConfig ?? null;
 
     savePendingOperation(createWorkspaceOperation('SPACE_UPDATE', id, opPayload));
 

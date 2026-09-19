@@ -12,7 +12,7 @@ import {
   getFaviconUrl,
   isValidHttpUrl,
 } from '../../utils/treeUtils';
-import { getSpaceThemeStyles } from '../../utils/spaceTheme';
+import { getSpaceThemeStyles, getSpaceNoiseOverlayStyle } from '../../utils/spaceTheme';
 import { getSortedSiblings, setLocalFolderExpanded } from '../../hooks/useWorkspace';
 import { isDragAcceptable, getActiveDrag, endDrag } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -413,8 +413,18 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         transition: 'all 0.2s ease',
         boxSizing: 'border-box',
         width: '100%',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {/* Texture & Grain Overlay */}
+      {Boolean(!isSingleColumn && space.themeNoise && space.themeNoise > 0) && (
+        <div
+          aria-hidden="true"
+          style={getSpaceNoiseOverlayStyle(space.themeNoise, themeStyles.isDark, themeStyles.containerBg) || undefined}
+        />
+      )}
+
       {/* Top Header */}
       <div
         style={{

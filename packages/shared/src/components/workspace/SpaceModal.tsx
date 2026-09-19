@@ -1,18 +1,27 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Space } from '../../types/workspace';
+import { Space, SpaceScheme, ZenThemeConfig } from '../../types/workspace';
 import { Button } from '../Button';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
+import { ZenThemePicker } from './ZenThemePicker';
 
-interface SpaceModalProps {
+export interface SpaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   space?: Space | null; // null/undefined for create, Space for edit
   raindropToken?: string;
   onSearchCovers?: (query: string) => Promise<string[]>;
-  onSave: (spaceData: { name: string; emojiIcon?: string; coverUrl?: string; colors?: string }) => void;
+  onSave: (spaceData: {
+    name: string;
+    emojiIcon?: string;
+    coverUrl?: string;
+    colors?: string;
+    themeNoise?: number;
+    themeScheme?: SpaceScheme;
+    themeConfig?: ZenThemeConfig;
+  }) => void;
 }
 
 export const SpaceModal: React.FC<SpaceModalProps> = ({
@@ -24,12 +33,19 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
+  const [activeTab, setActiveTab] = useState<'general' | 'theme'>('general');
   const [name, setName] = useState('');
   const [coverQuery, setCoverQuery] = useState('');
   const [coverUrl, setCoverUrl] = useState<string | undefined>();
   const [coverResults, setCoverResults] = useState<string[]>([]);
   const [isSearchingCovers, setIsSearchingCovers] = useState(false);
   const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
+
+  // Theme states
+  const [colors, setColors] = useState<string>('');
+  const [themeNoise, setThemeNoise] = useState<number>(0);
+  const [themeScheme, setThemeScheme] = useState<SpaceScheme>('auto');
+  const [themeConfig, setThemeConfig] = useState<ZenThemeConfig | undefined>(undefined);
 
   const prevIsOpenRef = React.useRef(false);
   const prevSpaceIdRef = React.useRef<string | null | undefined>(undefined);
@@ -39,14 +55,23 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
     const spaceChanged = isOpen && space?.id !== prevSpaceIdRef.current;
 
     if (isNewlyOpened || spaceChanged) {
+      setActiveTab('general');
       if (space) {
         setName(space.name || '');
         setCoverQuery('');
         setCoverUrl(space.coverUrl);
+        setColors(space.colors || '');
+        setThemeNoise(space.themeNoise ?? 0);
+        setThemeScheme(space.themeScheme || space.themeConfig?.scheme || 'auto');
+        setThemeConfig(space.themeConfig);
       } else {
         setName('');
         setCoverQuery('');
         setCoverUrl(undefined);
+        setColors('');
+        setThemeNoise(0);
+        setThemeScheme('auto');
+        setThemeConfig(undefined);
       }
       setCoverResults([]);
       setCoverSearchError(null);
@@ -95,13 +120,17 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setActiveTab('general');
+      return;
+    }
     onSave({
       name: name.trim(),
       coverUrl,
-      // Clear legacy local color data. Raindrop collection covers and colors
-      // are mutually exclusive, so spaces are now cover-only.
-      colors: undefined,
+      colors: colors || undefined,
+      themeNoise: themeNoise > 0 ? themeNoise : undefined,
+      themeScheme,
+      themeConfig,
     });
     onClose();
   };
@@ -131,6 +160,8 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
           padding: '24px',
           width: '100%',
           maxWidth: '460px',
+          maxHeight: '92vh',
+          overflowY: 'auto',
           boxShadow: isDark
             ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
             : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -139,7 +170,8 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
             {space ? 'Edit Space' : 'New Space'}
           </h2>
@@ -159,80 +191,177 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
           </button>
         </div>
 
+        {/* Tab Switcher: General | Theme */}
+        <div
+          style={{
+            display: 'flex',
+            borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+            marginBottom: '20px',
+            gap: '24px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab('general')}
+            style={{
+              padding: '8px 0',
+              border: 'none',
+              borderBottom: activeTab === 'general' ? '2.5px solid #38bdf8' : '2.5px solid transparent',
+              background: 'transparent',
+              color: activeTab === 'general' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            General
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('theme')}
+            style={{
+              padding: '8px 0',
+              border: 'none',
+              borderBottom: activeTab === 'theme' ? '2.5px solid #38bdf8' : '2.5px solid transparent',
+              background: 'transparent',
+              color: activeTab === 'theme' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            Theme
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Space Name <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Work, Personal, Research"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-              }}
-              style={{
-                width: '100%',
-                padding: '9px 12px',
-                borderRadius: '8px',
-                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-                outline: 'none',
-              }}
-              required
-              autoFocus
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Collection Cover
-            </label>
-            <input
-              type="search"
-              value={coverQuery}
-              onChange={(e) => {
-                setCoverQuery(e.target.value);
-              }}
-              placeholder="Search Raindrop covers, e.g. work or travel"
-              disabled={!raindropToken && !onSearchCovers}
-              style={{
-                width: '100%', padding: '9px 12px', borderRadius: '8px',
-                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a',
-                fontSize: '14px', boxSizing: 'border-box', outline: 'none',
-              }}
-            />
-            {!raindropToken && !onSearchCovers ? (
-              <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search collection covers.</p>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop cover search results">
-                {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
-                {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
-                {!isSearchingCovers && coverResults.map((cover) => (
-                  <button
-                    key={cover}
-                    type="button"
-                    onClick={() => setCoverUrl(cover)}
-                    title="Use this collection cover"
-                    aria-label="Use this collection cover"
-                    style={{
-                      width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer',
-                      border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                      background: isDark ? '#0f172a' : '#ffffff',
-                    }}
-                  >
-                    <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
-                  </button>
-                ))}
+          {/* TAB 1: General (Name & Raindrop Collection Cover) */}
+          {activeTab === 'general' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Space Name */}
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
+                  Space Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Work, Personal, Research"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                  required
+                  autoFocus
+                />
               </div>
-            )}
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+              {/* Collection Cover */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                    Collection Cover
+                  </label>
+                  {coverUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setCoverUrl(undefined)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        fontSize: '11px',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    >
+                      Remove cover
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="search"
+                  value={coverQuery}
+                  onChange={(e) => setCoverQuery(e.target.value)}
+                  placeholder="Search Raindrop covers, e.g. work or travel"
+                  disabled={!raindropToken && !onSearchCovers}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                    color: isDark ? '#f8fafc' : '#0f172a',
+                    fontSize: '14px',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+                {!raindropToken && !onSearchCovers ? (
+                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                    Connect Raindrop to search collection covers.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop cover search results">
+                    {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
+                    {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
+                    {!isSearchingCovers && coverResults.map((cover) => (
+                      <button
+                        key={cover}
+                        type="button"
+                        onClick={() => setCoverUrl(cover)}
+                        title="Use this collection cover"
+                        aria-label="Use this collection cover"
+                        style={{
+                          width: '40px',
+                          height: '40px',
+                          padding: '5px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                          background: isDark ? '#0f172a' : '#ffffff',
+                        }}
+                      >
+                        <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: Theme (Zen Gradient & Texture Generator) */}
+          {activeTab === 'theme' && (
+            <ZenThemePicker
+              colors={colors}
+              themeNoise={themeNoise}
+              themeScheme={themeScheme}
+              themeConfig={themeConfig}
+              spaceName={name || 'Space Preview'}
+              coverUrl={coverUrl}
+              isSystemDark={isDark}
+              onChange={({ colors: newColors, themeNoise: newNoise, themeScheme: newScheme, themeConfig: newCfg }) => {
+                setColors(newColors);
+                setThemeNoise(newNoise);
+                setThemeScheme(newScheme);
+                setThemeConfig(newCfg);
+              }}
+            />
+          )}
+
+          {/* Footer actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
             <Button type="button" variant="secondary" size="md" onClick={onClose}>
               Cancel
             </Button>
