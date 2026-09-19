@@ -303,8 +303,31 @@ async function runTests() {
         updatedAt: Date.now(),
       },
     ],
-    folders: [],
-    tabs: [],
+    folders: [
+      {
+        id: 'folder-1',
+        name: 'Work Folder',
+        parentSpaceId: 'space-gradient',
+        order: 1000,
+      },
+    ],
+    tabs: [
+      {
+        id: 'tab-1',
+        url: 'https://linear.app',
+        customTitle: 'Linear',
+        parentSpaceId: 'space-gradient',
+        order: 1000,
+      },
+      {
+        id: 'tab-2',
+        url: 'https://docs.google.com',
+        customTitle: 'Docs',
+        parentFolderId: 'folder-1',
+        parentSpaceId: 'space-gradient',
+        order: 1000,
+      },
+    ],
   };
 
   const syncRes1 = await syncWorkspaceWithRaindrop('mock-token', {
@@ -372,7 +395,13 @@ async function runTests() {
   const updatedThemePayload = JSON.parse(themeBookmarks[0].excerpt);
   assert.equal(updatedThemePayload.colors, '#f59e0b');
   assert.equal(updatedThemePayload.themeNoise, 0.1);
-  console.log('✓ Updating space theme modifies existing theme bookmark in-place');
+
+  // CRITICAL: Verify changing space color issues ONLY 1 Raindrop API call: PUT /raindrop/:themeBookmarkId
+  // (No full re-sync, no calls to tabs or collections!)
+  assert.equal(calls.length, 1, `Expected exactly 1 Raindrop API call, got ${calls.length}: ${JSON.stringify(calls)}`);
+  assert.equal(calls[0].method, 'PUT');
+  assert(calls[0].url.includes(`/raindrop/${themeBookmarks[0]._id}`), 'Must update that particular raindrop item under _space_themes');
+  console.log('✓ Updating space theme sends ONLY 1 PUT request to the specific _space_themes bookmark');
 
   // 5. Clear space theme (remove color and noise)
   const clearedWorkspace: ArcableWorkspaceData = {
@@ -385,6 +414,7 @@ async function runTests() {
     })),
   };
 
+  calls.length = 0;
   const syncRes3 = await syncWorkspaceWithRaindrop('mock-token', {
     localState: clearedWorkspace,
     pendingOps: [
@@ -399,9 +429,14 @@ async function runTests() {
   });
   assert.equal(syncRes3.success, true);
 
+  // CRITICAL: Verify clearing space theme issues ONLY 1 Raindrop API call: DELETE /raindrop/:themeBookmarkId
+  assert.equal(calls.length, 1, `Expected exactly 1 Raindrop API call for clearing theme, got ${calls.length}: ${JSON.stringify(calls)}`);
+  assert.equal(calls[0].method, 'DELETE');
+  assert(calls[0].url.includes(`/raindrop/${themeBookmarks[0]._id}`));
+
   const remainingThemeBookmarks = mockState.bookmarks.filter(b => b.collection?.$id === themeColl._id);
   assert.equal(remainingThemeBookmarks.length, 0, 'Theme bookmark should be deleted when space color/noise is cleared');
-  console.log('✓ Clearing space theme removes remote theme bookmark');
+  console.log('✓ Clearing space theme removes remote theme bookmark with a single DELETE request');
 
   // 6. Delete space removes orphan theme bookmark
   // First recreate theme
@@ -415,6 +450,8 @@ async function runTests() {
   const deletedWorkspace: ArcableWorkspaceData = {
     ...updatedWorkspace,
     spaces: [],
+    folders: [],
+    tabs: [],
   };
   const syncRes4 = await syncWorkspaceWithRaindrop('mock-token', {
     localState: deletedWorkspace,

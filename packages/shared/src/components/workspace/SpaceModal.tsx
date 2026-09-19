@@ -5,7 +5,7 @@ import { Space } from '../../types/workspace';
 import { Button } from '../Button';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
-import { PRESET_GRADIENTS, PRESET_SOLID_COLORS, NOISE_SVG_DATA_URI } from '../../utils/spaceTheme';
+import { PRESET_GRADIENTS, PRESET_SOLID_COLORS, getSpaceThemeStyles, getSpaceNoiseOverlayStyle } from '../../utils/spaceTheme';
 
 interface SpaceModalProps {
   isOpen: boolean;
@@ -145,6 +145,10 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
     setCustomGrad2(c2);
     setColors(`linear-gradient(135deg, ${c1} 0%, ${c2} 100%)`);
   };
+
+  const previewThemeStyles = useMemo(() => {
+    return getSpaceThemeStyles(colors, isDark, themeNoise);
+  }, [colors, isDark, themeNoise]);
 
   if (!isOpen) return null;
 
@@ -712,10 +716,11 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                 marginTop: '12px',
                 padding: '12px 14px',
                 borderRadius: '10px',
-                background: colors || (isDark ? '#0f172a' : '#f8fafc'),
+                background: previewThemeStyles.containerBg,
                 position: 'relative',
                 overflow: 'hidden',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+                border: previewThemeStyles.cardBorder !== 'none' ? previewThemeStyles.cardBorder : `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: previewThemeStyles.cardBoxShadow,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
@@ -725,16 +730,8 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
               {/* Noise overlay */}
               {themeNoise > 0 && (
                 <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    backgroundImage: `url("${NOISE_SVG_DATA_URI}")`,
-                    backgroundRepeat: 'repeat',
-                    mixBlendMode: 'overlay',
-                    opacity: themeNoise,
-                    pointerEvents: 'none',
-                    borderRadius: 'inherit',
-                  }}
+                  aria-hidden="true"
+                  style={getSpaceNoiseOverlayStyle(themeNoise, previewThemeStyles.isDark, previewThemeStyles.containerBg) || undefined}
                 />
               )}
               {coverUrl ? (
@@ -753,8 +750,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
                 style={{
                   fontSize: '13px',
                   fontWeight: 600,
-                  color: colors ? '#ffffff' : (isDark ? '#f8fafc' : '#0f172a'),
-                  textShadow: colors ? '0 1px 2px rgba(0,0,0,0.4)' : 'none',
+                  color: previewThemeStyles.textColor,
                   zIndex: 1,
                 }}
               >

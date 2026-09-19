@@ -59,6 +59,8 @@ export interface Space {
   id: string;
   /** Remote identity only; `id` stays stable for local UI state. */
   raindropId?: number;
+  /** Remote bookmark ID for space theme under _space_themes collection */
+  themeRaindropId?: number;
   name: string;
   emojiIcon?: string;
   /** The cover selected for the matching Raindrop collection. */
@@ -133,6 +135,8 @@ export interface WorkspaceWidget {
 export interface ArcableWorkspaceData {
   /** Raindrop collection ID for the Arcable root; enables direct favourite mutations. */
   raindropRootCollectionId?: number;
+  /** Raindrop collection ID for the _space_themes collection; caches theme collection location. */
+  raindropSpaceThemeCollectionId?: number;
   /** Current non-tree metadata file. Null means a fresh remote read confirmed it does not exist. */
   raindropMetadataItemId?: number | null;
   spaces: Space[];

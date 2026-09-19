@@ -15,6 +15,7 @@ export interface SpaceThemeTokens {
   cardBorder: string;
   cardBoxShadow: string;
   shelfBg: string;
+  themeNoise?: number;
 }
 
 export interface PresetThemeItem {
@@ -648,8 +649,11 @@ export function dimColorStringForDarkMode(colorStr: string): string {
  */
 export function getSpaceThemeStyles(
   color?: string | null,
-  isSystemDark: boolean = false
+  isSystemDark: boolean = false,
+  themeNoise?: number
 ): SpaceThemeTokens {
+  const safeNoise = typeof themeNoise === 'number' && themeNoise > 0 ? themeNoise : undefined;
+
   if (!color || typeof color !== 'string' || !color.trim()) {
     if (isSystemDark) {
       return {
@@ -667,6 +671,7 @@ export function getSpaceThemeStyles(
         cardBorder: '1px solid rgba(255, 255, 255, 0.1)',
         cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.2)',
         shelfBg: 'rgba(0, 0, 0, 0.25)',
+        themeNoise: safeNoise,
       };
     }
 
@@ -685,6 +690,7 @@ export function getSpaceThemeStyles(
       cardBorder: '1px solid #e2e8f0',
       cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
       shelfBg: '#f8fafc',
+      themeNoise: safeNoise,
     };
   }
 
@@ -771,10 +777,14 @@ export function getSpaceThemeStyles(
       cardBorder: 'none',
       cardBoxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)',
       shelfBg: 'rgba(255, 255, 255, 0.12)',
+      themeNoise: safeNoise,
     };
   }
 
-  return baseStyles;
+  return {
+    ...baseStyles,
+    themeNoise: safeNoise,
+  };
 }
 
 export const PRESET_SOLID_COLORS = [
@@ -801,5 +811,42 @@ export const PRESET_SOLID_COLORS = [
 ];
 
 export const NOISE_SVG_DATA_URI =
-  "data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E";
+
+/**
+ * Helper to compute the CSS properties for the texture & grain overlay layer.
+ * Works seamlessly across both light and dark backgrounds:
+ * - On pure white/near-white backgrounds, 'multiply' makes dark grain specks crisp.
+ * - On dark backgrounds, 'screen' makes light grain specks crisp.
+ * - On colorful backgrounds/gradients, 'overlay' preserves richness and saturation.
+ */
+export function getSpaceNoiseOverlayStyle(
+  themeNoise?: number,
+  isDark: boolean = false,
+  containerBg?: string
+): React.CSSProperties | null {
+  if (!themeNoise || themeNoise <= 0) return null;
+
+  const isWhiteBg =
+    containerBg === '#ffffff' ||
+    containerBg === '#f8fafc' ||
+    containerBg === 'rgb(255, 255, 255)';
+
+  const mixBlendMode: React.CSSProperties['mixBlendMode'] = isWhiteBg
+    ? 'multiply'
+    : (isDark ? 'screen' : 'overlay');
+
+  return {
+    position: 'absolute',
+    inset: 0,
+    backgroundImage: `url("${NOISE_SVG_DATA_URI}")`,
+    backgroundRepeat: 'repeat',
+    backgroundSize: '160px 160px',
+    mixBlendMode,
+    opacity: Math.min(Math.max(themeNoise, 0), 1),
+    pointerEvents: 'none',
+    borderRadius: 'inherit',
+    zIndex: 0,
+  };
+}
 

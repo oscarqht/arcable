@@ -17,7 +17,7 @@ import {
   removeStoredPendingOperations,
   replayOperations,
 } from '../../utils/syncEngine';
-import { syncWorkspaceWithRaindrop } from '../../utils/raindropSync';
+import { syncWorkspaceWithRaindrop, INCREMENTAL_OPERATION_TYPES } from '../../utils/raindropSync';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
@@ -54,11 +54,6 @@ const MIN_AUTO_SYNC_INTERVAL_MS = 30_000;
 // Coalesce a burst of local changes before writing the workspace to Raindrop.
 const SYNC_DEBOUNCE_MS = 2_000;
 const INCREMENTAL_SYNC_DEBOUNCE_MS = 150;
-const INCREMENTAL_SYNC_OPERATION_TYPES = new Set([
-  'FOLDER_CREATE', 'FOLDER_UPDATE', 'FOLDER_DELETE',
-  'TAB_CREATE', 'TAB_UPDATE', 'TAB_DELETE',
-  'WIDGET_CREATE', 'WIDGET_UPDATE', 'WIDGET_DELETE',
-]);
 
 export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
@@ -279,10 +274,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
     if (showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
-      return getSpaceThemeStyles(undefined, isDark);
+      return getSpaceThemeStyles(undefined, isDark, 0);
     }
-    return getSpaceThemeStyles(activeSpace?.colors, isDark);
-  }, [showOpenTabsVirtualSpace, data.activeSpaceId, activeSpace?.colors, isDark]);
+    return getSpaceThemeStyles(activeSpace?.colors, isDark, activeSpace?.themeNoise);
+  }, [showOpenTabsVirtualSpace, data.activeSpaceId, activeSpace?.colors, activeSpace?.themeNoise, isDark]);
 
   useEffect(() => {
     if (showOpenTabsVirtualSpace && data.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) {
@@ -1035,7 +1030,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const pendingOps = getStoredPendingOperations();
         const syncedOpIds = pendingOps.map((op) => op.id);
         const isIncrementalCrud = pendingOps.length > 0 &&
-          pendingOps.every((operation) => INCREMENTAL_SYNC_OPERATION_TYPES.has(operation.type));
+          pendingOps.every((operation) => INCREMENTAL_OPERATION_TYPES.has(operation.type));
 
         const isInitialSync = !latestWorkspaceDataRef.current?.raindropRootCollectionId;
 
@@ -1249,7 +1244,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       if (pendingOperationTimer) clearTimeout(pendingOperationTimer);
       const pendingOperations = getStoredPendingOperations();
       const isIncrementalCrud = pendingOperations.length > 0 &&
-        pendingOperations.every((operation) => INCREMENTAL_SYNC_OPERATION_TYPES.has(operation.type));
+        pendingOperations.every((operation) => INCREMENTAL_OPERATION_TYPES.has(operation.type));
       pendingOperationTimer = setTimeout(() => {
         if (activeSyncPromiseRef.current) {
           queuedAutomaticSyncRef.current = true;
