@@ -1,4 +1,4 @@
-import { ArcableWorkspaceData, Folder, Space, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
+import { ArcableWorkspaceData, Folder, Space, SpaceScheme, ZenThemeConfig, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { CustomCodeRule, RunCodeRule } from '../types/customCode';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
@@ -990,6 +990,8 @@ export function spaceThemeToRaindropItemInput(
       spaceRaindropId: space.raindropId,
       colors: space.colors,
       themeNoise: space.themeNoise,
+      themeScheme: space.themeScheme,
+      themeConfig: space.themeConfig,
     }),
     tags: [ARCABLE_SPACE_THEME_TAG],
     collectionId,
@@ -2115,7 +2117,7 @@ export function reconstructWorkspace(
     ? tree.items.filter((item) => item.collectionId === spaceThemeCollection._id || isSpaceThemeItem(item, spaceThemeCollection._id))
     : tree.items.filter((item) => isSpaceThemeItem(item));
 
-  const spaceThemesMap = new Map<string, { colors?: string; themeNoise?: number; raindropItemId?: number }>();
+  const spaceThemesMap = new Map<string, { colors?: string; themeNoise?: number; themeScheme?: SpaceScheme; themeConfig?: ZenThemeConfig; raindropItemId?: number }>();
   for (const item of spaceThemeItems) {
     let parsedExcerpt: any = {};
     try {
@@ -2126,7 +2128,13 @@ export function reconstructWorkspace(
     const themeNoise = typeof parsedExcerpt.themeNoise === 'number'
       ? parsedExcerpt.themeNoise
       : (typeof parsedExcerpt.noise === 'number' ? parsedExcerpt.noise : undefined);
-    const themeData = { colors, themeNoise, raindropItemId: item._id };
+    const themeScheme = parsedExcerpt.themeScheme === 'auto' || parsedExcerpt.themeScheme === 'light' || parsedExcerpt.themeScheme === 'dark'
+      ? parsedExcerpt.themeScheme
+      : undefined;
+    const themeConfig = parsedExcerpt.themeConfig && typeof parsedExcerpt.themeConfig === 'object'
+      ? parsedExcerpt.themeConfig
+      : undefined;
+    const themeData = { colors, themeNoise, themeScheme, themeConfig, raindropItemId: item._id };
 
     if (parsedExcerpt.spaceRaindropId !== undefined) {
       spaceThemesMap.set(String(parsedExcerpt.spaceRaindropId), themeData);
@@ -2165,6 +2173,8 @@ export function reconstructWorkspace(
         coverUrl: collection.cover?.[0],
         colors: theme?.colors ?? legacySpace?.colors,
         themeNoise: theme?.themeNoise ?? legacySpace?.themeNoise,
+        themeScheme: theme?.themeScheme ?? legacySpace?.themeScheme,
+        themeConfig: theme?.themeConfig ?? legacySpace?.themeConfig,
         order: (index + 1) * 1000,
         createdAt: timestamp(collection.created),
         updatedAt: timestamp(collection.lastUpdate),
