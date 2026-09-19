@@ -8,6 +8,7 @@ import {
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
 import { reconcileTmpTabs } from './tmpTabDiff';
+import { forgetBrowserTab } from '../sidepanel/spaceTabTracker';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
@@ -20,7 +21,11 @@ let memoryTmpTabCustomTitles: TmpTabCustomTitleRecord[] = [];
 
 type ChangeListener = (associations: TabAssociationMap) => void;
 type TmpTabsChangeListener = (tmpTabs: TmpTab[]) => void;
-type TabActivatedListener = (tabItemId: string | null) => void;
+export interface TabActivatedDetails {
+  browserTabId?: number;
+  windowId?: number;
+}
+type TabActivatedListener = (tabItemId: string | null, details?: TabActivatedDetails) => void;
 
 class TabTracker {
   private listeners: Set<ChangeListener> = new Set();
@@ -134,18 +139,22 @@ class TabTracker {
     }
   }
 
-  private notifyActivated(tabItemId: string | null) {
+  private notifyActivated(tabItemId: string | null, details?: TabActivatedDetails) {
     for (const listener of this.tabActivatedListeners) {
       try {
-        listener(tabItemId);
+        listener(tabItemId, details);
       } catch (err) {
         console.warn('[TabTracker] Error in tabActivated listener:', err);
       }
     }
   }
 
-  // Get the active tab item ID (workspace tab ID or tmp tab ID) for the active browser tab
-  public async getActiveTabItemId(): Promise<string | null> {
+  // Get full active tab details (tab item ID, browser tab ID, window ID)
+  public async getActiveTabDetails(): Promise<{
+    tabItemId: string | null;
+    browserTabId?: number;
+    windowId?: number;
+  }> {
     try {
       let activeTab: any = null;
       if (typeof browser !== 'undefined' && browser.tabs) {
@@ -164,24 +173,35 @@ class TabTracker {
         }
       }
 
-      if (!activeTab || activeTab.id === undefined) return null;
+      if (!activeTab || activeTab.id === undefined) return { tabItemId: null };
+
+      const browserTabId = activeTab.id;
+      const windowId = activeTab.windowId;
 
       const associations = await this.getAssociations();
       for (const [tabItemId, info] of Object.entries(associations)) {
-        if (info.browserTabId === activeTab.id) {
-          return tabItemId;
+        if (info.browserTabId === browserTabId) {
+          return { tabItemId, browserTabId, windowId };
         }
       }
 
       const tmpTabs = await this.getTmpTabs();
-      const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeTab.id);
+      const matchingTmp = tmpTabs.find((t) => t.browserTabId === browserTabId);
       if (matchingTmp) {
-        return matchingTmp.id;
+        return { tabItemId: matchingTmp.id, browserTabId, windowId };
       }
+
+      return { tabItemId: null, browserTabId, windowId };
     } catch (err) {
-      console.warn('[TabTracker] Error getting active tab item ID:', err);
+      console.warn('[TabTracker] Error getting active tab details:', err);
+      return { tabItemId: null };
     }
-    return null;
+  }
+
+  // Get the active tab item ID (workspace tab ID or tmp tab ID) for the active browser tab
+  public async getActiveTabItemId(): Promise<string | null> {
+    const details = await this.getActiveTabDetails();
+    return details.tabItemId;
   }
 
   // Load associations from session storage (or local storage fallback)
@@ -1243,6 +1263,7 @@ class TabTracker {
     if (tabsApi && tabsApi.onRemoved) {
       tabsApi.onRemoved.addListener(async (tabId: number) => {
         this.pendingInitialTitles.delete(tabId);
+        void forgetBrowserTab(tabId);
         await this.runWithLock(async () => {
           const associations = await this.getAssociations();
           let changed = false;
@@ -1278,11 +1299,12 @@ class TabTracker {
             return;
           }
         } catch {}
+        const details = { browserTabId: activeInfo.tabId, windowId: activeInfo.windowId };
         const associations = await this.getAssociations();
         let found = false;
         for (const [tabItemId, info] of Object.entries(associations)) {
           if (info.browserTabId === activeInfo.tabId) {
-            this.notifyActivated(tabItemId);
+            this.notifyActivated(tabItemId, details);
             found = true;
             break;
           }
@@ -1291,7 +1313,7 @@ class TabTracker {
           const tmpTabs = await this.getTmpTabs();
           const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeInfo.tabId);
           if (matchingTmp) {
-            this.notifyActivated(matchingTmp.id);
+            this.notifyActivated(matchingTmp.id, details);
             found = true;
           }
         }
@@ -1300,7 +1322,7 @@ class TabTracker {
           const updatedAssociations = await this.syncWithWorkspace(this.currentWorkspaceTabs);
           for (const [tabItemId, info] of Object.entries(updatedAssociations)) {
             if (info.browserTabId === activeInfo.tabId) {
-              this.notifyActivated(tabItemId);
+              this.notifyActivated(tabItemId, details);
               found = true;
               break;
             }
@@ -1309,13 +1331,13 @@ class TabTracker {
             const updatedTmp = await this.getTmpTabs();
             const matchingTmp = updatedTmp.find((t) => t.browserTabId === activeInfo.tabId);
             if (matchingTmp) {
-              this.notifyActivated(matchingTmp.id);
+              this.notifyActivated(matchingTmp.id, details);
               found = true;
             }
           }
         }
         if (!found) {
-          this.notifyActivated(null);
+          this.notifyActivated(null, details);
         }
       });
     }

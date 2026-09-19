@@ -22,6 +22,12 @@ import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } 
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
 import { shouldPersistSidepanelSpaceId, resolveSidepanelActiveSpaceId, VIRTUAL_SYNCED_TABS_SPACE_ID } from './spaceSelection';
+import {
+  rememberActiveTabForSpace,
+  activateRememberedTabForSpace,
+  resolveSpaceIdForTabItem,
+  forgetBrowserTab,
+} from './spaceTabTracker';
 export { resolveSidepanelActiveSpaceId };
 
 export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
@@ -65,6 +71,18 @@ function applySidepanelActiveSpace<T extends { spaces?: Space[]; activeSpaceId?:
 
   setStoredLastSpaceId(activeSpaceId);
   return { ...snapshot, activeSpaceId };
+}
+
+export function getStoredWorkspaceTabs(): Tab[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem('arcable_workspace_data');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.tabs)) return parsed.tabs;
+    }
+  } catch {}
+  return [];
 }
 
 export const App: React.FC = () => {
@@ -129,6 +147,36 @@ export const App: React.FC = () => {
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const initialRaindropHydrationRef = useRef(false);
   const hasAppliedAuthoritativeSnapshotRef = useRef(false);
+  const currentWindowIdRef = useRef<number | null>(null);
+  const workspaceTabsRef = useRef<Tab[]>(getStoredWorkspaceTabs());
+  const previousSpaceIdRef = useRef<string | null>(null);
+  const isInitialSpaceMountRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchWindowId = async () => {
+      try {
+        if (typeof browser !== 'undefined' && browser.windows?.getCurrent) {
+          const win = await browser.windows.getCurrent();
+          if (win?.id !== undefined && isMounted) {
+            currentWindowIdRef.current = win.id;
+          }
+        } else if (typeof chrome !== 'undefined' && chrome.windows?.getCurrent) {
+          chrome.windows.getCurrent((win) => {
+            if (win?.id !== undefined && isMounted) {
+              currentWindowIdRef.current = win.id;
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('[Arcable] Error getting current window ID in sidepanel:', err);
+      }
+    };
+    void fetchWindowId();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // A newly opened side panel shows its cache while fetching the complete
   // Arcable tree. The successful Raindrop response replaces that cache before
@@ -170,6 +218,7 @@ export const App: React.FC = () => {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.tabs && Array.isArray(parsed.tabs)) {
+          workspaceTabsRef.current = parsed.tabs;
           void tabTracker.syncWithWorkspace(parsed.tabs);
         }
       }
@@ -177,6 +226,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleTabsChange = useCallback((tabs: Tab[]) => {
+    workspaceTabsRef.current = tabs;
     void tabTracker.syncWithWorkspace(tabs);
   }, []);
 
@@ -195,19 +245,50 @@ export const App: React.FC = () => {
     const unsubAudible = audioTracker.subscribe(setAudibleTabs);
 
     // Tab activation listener (when user selects a browser tab)
-    const unsubActivated = tabTracker.onTabItemActivated((tabItemId) => {
+    const unsubActivated = tabTracker.onTabItemActivated((tabItemId, details) => {
       setHighlightedTabId(tabItemId);
       if (tabItemId && workspaceRef.current) {
         workspaceRef.current.revealAndHighlightTab(tabItemId);
       }
+      if (tabItemId && details?.browserTabId) {
+        const winId = details.windowId ?? currentWindowIdRef.current;
+        if (winId !== null && winId !== undefined) {
+          const workspaceTabs = workspaceTabsRef.current.length > 0
+            ? workspaceTabsRef.current
+            : getStoredWorkspaceTabs();
+          const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs);
+          if (spaceId) {
+            void rememberActiveTabForSpace(winId, spaceId, details.browserTabId);
+          }
+        }
+      }
     });
 
     // Check currently active tab item on mount (highlight only, do not force space switch)
-    tabTracker.getActiveTabItemId().then((tabItemId) => {
-      if (tabItemId) {
-        setHighlightedTabId(tabItemId);
+    tabTracker.getActiveTabDetails().then((details) => {
+      if (details.tabItemId) {
+        setHighlightedTabId(details.tabItemId);
+        if (details.browserTabId) {
+          const winId = details.windowId ?? currentWindowIdRef.current;
+          if (winId !== null && winId !== undefined) {
+            const workspaceTabs = workspaceTabsRef.current.length > 0
+              ? workspaceTabsRef.current
+              : getStoredWorkspaceTabs();
+            const spaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs);
+            if (spaceId) {
+              void rememberActiveTabForSpace(winId, spaceId, details.browserTabId);
+            }
+          }
+        }
       }
     });
+
+    const handleTabRemoved = (tabId: number) => {
+      void forgetBrowserTab(tabId);
+    };
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
+      chrome.tabs.onRemoved.addListener(handleTabRemoved);
+    }
 
 
     // Check initial Raindrop auth and cached snapshot
@@ -393,6 +474,7 @@ export const App: React.FC = () => {
         unsubActivated();
         window.removeEventListener('focus', handleFocus);
         chrome.tabs.onActivated.removeListener(listener);
+        chrome.tabs.onRemoved?.removeListener(handleTabRemoved);
         browser.storage.onChanged.removeListener(handleStorageChange);
       };
     }
@@ -403,6 +485,9 @@ export const App: React.FC = () => {
       unsubAudible();
       unsubActivated();
       window.removeEventListener('focus', handleFocus);
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onRemoved) {
+        chrome.tabs.onRemoved.removeListener(handleTabRemoved);
+      }
       browser.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
@@ -514,8 +599,32 @@ export const App: React.FC = () => {
   }, [syncTabsWithTracker, hasRaindropAuth, handleSyncRaindrop]);
 
   const handleActiveSpaceChange = useCallback((activeSpace: Space | null) => {
-    if (activeSpace?.id) {
-      setStoredLastSpaceId(activeSpace.id);
+    const nextSpaceId = activeSpace?.id;
+    if (nextSpaceId) {
+      setStoredLastSpaceId(nextSpaceId);
+    }
+
+    if (isInitialSpaceMountRef.current) {
+      isInitialSpaceMountRef.current = false;
+      previousSpaceIdRef.current = nextSpaceId || null;
+      return;
+    }
+
+    if (nextSpaceId && nextSpaceId !== previousSpaceIdRef.current) {
+      previousSpaceIdRef.current = nextSpaceId;
+      const winId = currentWindowIdRef.current;
+      if (winId !== null && winId !== undefined) {
+        void activateRememberedTabForSpace(winId, nextSpaceId);
+      } else {
+        void browser.windows?.getCurrent?.().then((win) => {
+          if (win?.id !== undefined) {
+            currentWindowIdRef.current = win.id;
+            void activateRememberedTabForSpace(win.id, nextSpaceId);
+          }
+        }).catch(() => {});
+      }
+    } else if (!nextSpaceId) {
+      previousSpaceIdRef.current = null;
     }
   }, []);
 
@@ -596,6 +705,16 @@ export const App: React.FC = () => {
       if (tabId && tabAssociations[tabId] && !inNewTab) {
         const assoc = tabAssociations[tabId];
         await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+        const winId = assoc.windowId ?? currentWindowIdRef.current;
+        if (winId !== null && winId !== undefined) {
+          const workspaceTabs = workspaceTabsRef.current.length > 0
+            ? workspaceTabsRef.current
+            : getStoredWorkspaceTabs();
+          const spaceId = resolveSpaceIdForTabItem(tabId, workspaceTabs);
+          if (spaceId) {
+            void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId);
+          }
+        }
         return;
       }
 
