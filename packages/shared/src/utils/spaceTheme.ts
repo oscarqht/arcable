@@ -507,13 +507,37 @@ export function getSpacePrimaryColor(color?: string | null): string {
     return matchedGradient.primary;
   }
 
-  // If gradient string, extract first hex match
+  // If gradient string, extract first hex match or rgb/rgba match
   if (trimmed.includes('gradient')) {
     const hexMatch = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
     if (hexMatch) {
       return hexMatch[0];
     }
+    const rgbMatch = trimmed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (rgbMatch) {
+      const r = parseInt(rgbMatch[1], 10);
+      const g = parseInt(rgbMatch[2], 10);
+      const b = parseInt(rgbMatch[3], 10);
+      const toHex = (n: number) => {
+        const h = Math.max(0, Math.min(255, n)).toString(16);
+        return h.length === 1 ? '0' + h : h;
+      };
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
     return '#3b82f6';
+  }
+
+  // Direct rgb/rgba string
+  const directRgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (directRgbMatch) {
+    const r = parseInt(directRgbMatch[1], 10);
+    const g = parseInt(directRgbMatch[2], 10);
+    const b = parseInt(directRgbMatch[3], 10);
+    const toHex = (n: number) => {
+      const h = Math.max(0, Math.min(255, n)).toString(16);
+      return h.length === 1 ? '0' + h : h;
+    };
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
 
   // Solid preset
@@ -638,10 +662,26 @@ export function dimHexForDarkMode(hex: string): string {
  */
 export function dimColorStringForDarkMode(colorStr: string): string {
   if (!colorStr || typeof colorStr !== 'string') return colorStr;
-  const trimmed = colorStr.trim();
+  let result = colorStr.trim();
 
   // Replace all hex codes inside the string (works for gradients and single hex colors)
-  return trimmed.replace(/#(?:[0-9a-fA-F]{3}){1,2}\b/g, (match) => dimHexForDarkMode(match));
+  result = result.replace(/#(?:[0-9a-fA-F]{3}){1,2}\b/g, (match) => dimHexForDarkMode(match));
+
+  // Also dim rgb/rgba colors inside gradients or direct strings
+  result = result.replace(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/g, (match, r, g, b, a) => {
+    const [h, s, l] = rgbToHsl(parseInt(r, 10), parseInt(g, 10), parseInt(b, 10));
+    const targetL = Math.max(0.11, Math.min(0.22, 0.12 + l * 0.08));
+    const targetS = Math.min(1, Math.max(0.35, s * 1.15));
+    const dimmedHex = hslToHex(h, targetS, targetL);
+    const rgb = parseHexColor(dimmedHex);
+    if (!rgb) return match;
+    if (a !== undefined) {
+      return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+    }
+    return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  });
+
+  return result;
 }
 
 /**
@@ -650,12 +690,14 @@ export function dimColorStringForDarkMode(colorStr: string): string {
 export function getSpaceThemeStyles(
   color?: string | null,
   isSystemDark: boolean = false,
-  themeNoise?: number
+  themeNoise?: number,
+  themeScheme?: 'auto' | 'light' | 'dark'
 ): SpaceThemeTokens {
   const safeNoise = typeof themeNoise === 'number' && themeNoise > 0 ? themeNoise : undefined;
+  const isDarkEffective = themeScheme === 'dark' ? true : themeScheme === 'light' ? false : isSystemDark;
 
   if (!color || typeof color !== 'string' || !color.trim()) {
-    if (isSystemDark) {
+    if (isDarkEffective) {
       return {
         containerBg: '#18181b',
         primaryColor: '#38bdf8',
@@ -761,7 +803,7 @@ export function getSpaceThemeStyles(
   }
 
   // When in dark mode, dim the brightness of the space theme color/gradient
-  if (isSystemDark) {
+  if (isDarkEffective) {
     return {
       ...baseStyles,
       containerBg: dimColorStringForDarkMode(baseStyles.containerBg),

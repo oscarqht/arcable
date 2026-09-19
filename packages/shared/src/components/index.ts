@@ -7,6 +7,7 @@ export * from './RaindropAuthCard';
 
 export * from './Icons';
 export * from './workspace/SpaceModal';
+export * from './workspace/ZenThemePicker';
 export * from './workspace/ConvertSpaceModal';
 export * from './workspace/FolderModal';
 export * from './workspace/TabModal';

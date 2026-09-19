@@ -10,3 +10,4 @@ export * from './weatherService';
 export * from './workspaceBackup';
 export * from './countdown';
 export * from './mouseTracker';
+export * from './zenGradientGenerator';

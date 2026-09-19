@@ -55,6 +55,26 @@ export interface Folder {
   updatedAt?: number;
 }
 
+export type SpaceScheme = 'auto' | 'light' | 'dark';
+
+export interface ZenThemeDot {
+  c: [number, number, number] | string;
+  isPrimary?: boolean;
+  isCustom?: boolean;
+  algorithm?: string;
+  lightness?: number;
+  position?: { x: number; y: number };
+  type?: string;
+}
+
+export interface ZenThemeConfig {
+  type: 'gradient';
+  gradientColors: ZenThemeDot[];
+  opacity: number;
+  texture: number;
+  scheme?: SpaceScheme;
+}
+
 export interface Space {
   id: string;
   /** Remote identity only; `id` stays stable for local UI state. */
@@ -67,6 +87,8 @@ export interface Space {
   coverUrl?: string;
   colors?: string;         // Optional theme color or gradient
   themeNoise?: number;     // Optional noise/grain intensity (0 to 1)
+  themeScheme?: SpaceScheme; // Optional per-space theme scheme ('auto' | 'light' | 'dark')
+  themeConfig?: ZenThemeConfig; // Optional full Zen theme configuration
   order?: number;          // Optional: custom sorting order
   createdAt?: number;
   updatedAt?: number;
