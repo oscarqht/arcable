@@ -44,12 +44,12 @@ import {
   initContextMenuListeners,
   getMatchingCodeRules,
 } from './contextMenus';
+import {
+  requestUpdateCheckSafely,
+  reloadExtensionSafely,
+} from '../utils/browser';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
-
-// Initialize user scripts and context menu listeners
-initRunCodeBackgroundListeners();
-initContextMenuListeners();
 
 // Storage keys
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
@@ -57,6 +57,39 @@ const STORAGE_KEY_TOKEN = 'arcable_token';
 const STORAGE_KEY_CONFIG = 'arcable_config';
 const STORAGE_KEY_DEVICE_ID = 'arcable_device_id';
 const STORAGE_KEY_DEVICE_NAME = 'arcable_device_name';
+export const STORAGE_KEY_UPDATE_AVAILABLE = 'arcable_update_available';
+export const STORAGE_KEY_AUTO_RELOAD = 'arcable_auto_reload_on_update';
+
+function initUpdateListeners() {
+  const onUpdateAvailable =
+    (typeof chrome !== 'undefined' && chrome.runtime?.onUpdateAvailable) ||
+    (typeof browser !== 'undefined' && (browser.runtime as any)?.onUpdateAvailable);
+
+  if (onUpdateAvailable && typeof onUpdateAvailable.addListener === 'function') {
+    onUpdateAvailable.addListener(async (details: any) => {
+      console.log('[Arcable Background] onUpdateAvailable triggered with details:', details);
+      const version = details?.version || 'new';
+      await browser.storage.local.set({
+        [STORAGE_KEY_UPDATE_AVAILABLE]: {
+          version,
+          timestamp: Date.now(),
+        },
+      });
+
+      // Check if auto-reload is enabled
+      const res = await browser.storage.local.get(STORAGE_KEY_AUTO_RELOAD);
+      if (res[STORAGE_KEY_AUTO_RELOAD]) {
+        console.log('[Arcable Background] Auto-reload enabled, reloading extension immediately to apply update...');
+        reloadExtensionSafely();
+      }
+    });
+  }
+}
+
+// Initialize user scripts, context menu listeners, and extension update listeners
+initRunCodeBackgroundListeners();
+initContextMenuListeners();
+initUpdateListeners();
 
 // In-memory cached auth state
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
@@ -696,6 +729,45 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: covers };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to search Raindrop collection covers' };
+        }
+      }
+
+      // Extension update checking
+      case 'CHECK_FOR_UPDATES': {
+        try {
+          const result = await requestUpdateCheckSafely();
+          if (result.status === 'update_available') {
+            await browser.storage.local.set({
+              [STORAGE_KEY_UPDATE_AVAILABLE]: {
+                version: result.version || 'new',
+                timestamp: Date.now(),
+              },
+            });
+
+            // Check if auto-reload is enabled
+            const autoReloadRes = await browser.storage.local.get(STORAGE_KEY_AUTO_RELOAD);
+            if (autoReloadRes[STORAGE_KEY_AUTO_RELOAD]) {
+              console.log('[Arcable Background] Auto-reload enabled, reloading extension after update check...');
+              setTimeout(() => reloadExtensionSafely(), 300);
+            }
+          } else if (result.status === 'no_update') {
+            await browser.storage.local.remove(STORAGE_KEY_UPDATE_AVAILABLE);
+          }
+          return { success: true, data: result };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Update check failed.' };
+        }
+      }
+
+      // Reload extension immediately
+      case 'RELOAD_EXTENSION': {
+        try {
+          setTimeout(() => {
+            reloadExtensionSafely();
+          }, 100);
+          return { success: true };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to reload extension.' };
         }
       }
 

@@ -185,3 +185,91 @@ export async function openWorkspaceSafely(): Promise<void> {
   }
 }
 
+export interface UpdateCheckResult {
+  status: 'throttled' | 'no_update' | 'update_available' | 'error';
+  version?: string;
+  error?: string;
+}
+
+/**
+ * Robust cross-browser update checker.
+ * Uses native WebExtension runtime.requestUpdateCheck API.
+ */
+export async function requestUpdateCheckSafely(): Promise<UpdateCheckResult> {
+  // 1. Try webextension-polyfill browser.runtime.requestUpdateCheck
+  if (typeof browser !== 'undefined' && browser.runtime && typeof (browser.runtime as any).requestUpdateCheck === 'function') {
+    try {
+      const res = await (browser.runtime as any).requestUpdateCheck();
+      if (Array.isArray(res)) {
+        return {
+          status: res[0] as any,
+          version: res[1]?.version,
+        };
+      }
+      if (res && typeof res === 'object') {
+        return {
+          status: res.status || 'no_update',
+          version: res.version,
+        };
+      }
+    } catch (err: any) {
+      // polyfill may reject if Chrome throws or in dev mode
+      console.warn('[Arcable] browser.runtime.requestUpdateCheck threw, checking chrome fallback:', err);
+    }
+  }
+
+  // 2. Try chrome.runtime.requestUpdateCheck callback
+  if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.requestUpdateCheck === 'function') {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.requestUpdateCheck((status, details) => {
+          if (chrome.runtime.lastError) {
+            resolve({
+              status: 'error',
+              error: chrome.runtime.lastError.message || 'Update check failed',
+            });
+          } else {
+            resolve({
+              status: status as any,
+              version: details?.version,
+            });
+          }
+        });
+      } catch (err: any) {
+        resolve({
+          status: 'error',
+          error: err?.message || 'Native update check failed',
+        });
+      }
+    });
+  }
+
+  return {
+    status: 'error',
+    error: 'Update check is not supported in this environment.',
+  };
+}
+
+/**
+ * Safely reloads the extension across Chrome and Firefox.
+ */
+export function reloadExtensionSafely(): void {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.reload === 'function') {
+      chrome.runtime.reload();
+      return;
+    }
+  } catch (e) {
+    console.warn('[Arcable] chrome.runtime.reload threw:', e);
+  }
+
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime && typeof browser.runtime.reload === 'function') {
+      browser.runtime.reload();
+      return;
+    }
+  } catch (e) {
+    console.warn('[Arcable] browser.runtime.reload threw:', e);
+  }
+}
+

@@ -18,7 +18,7 @@ import {
   clearStoredPendingOperations,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
-import { browser, openWorkspaceSafely } from '../utils/browser';
+import { browser, openWorkspaceSafely, UpdateCheckResult } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
 import packageJson from '../../package.json';
@@ -46,6 +46,17 @@ export const App: React.FC = () => {
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Update check and reload state
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<{ version: string; timestamp?: number } | null>(null);
+  const [autoReloadOnUpdate, setAutoReloadOnUpdate] = useState(false);
+  const [lastUpdateCheckAt, setLastUpdateCheckAt] = useState<number | null>(null);
+  const [updateFeedback, setUpdateFeedback] = useState<{
+    type: 'success' | 'info' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
 
   // Toast feedback
   const [toast, setToast] = useState<ToastInfo | null>(null);
@@ -81,12 +92,24 @@ export const App: React.FC = () => {
     // 1. Load Raindrop auth state
     fetchAuthState();
 
-    // 2. Load sync info from storage
+    // 2. Load sync & update info from storage
     browser.storage.local.get([
       'arcable_last_synced_at',
+      'arcable_update_available',
+      'arcable_auto_reload_on_update',
+      'arcable_last_update_check_at',
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
+      }
+      if (res.arcable_update_available) {
+        setAvailableUpdate(res.arcable_update_available);
+      }
+      if (res.arcable_auto_reload_on_update !== undefined) {
+        setAutoReloadOnUpdate(Boolean(res.arcable_auto_reload_on_update));
+      }
+      if (res.arcable_last_update_check_at) {
+        setLastUpdateCheckAt(res.arcable_last_update_check_at);
       }
     });
 
@@ -104,6 +127,15 @@ export const App: React.FC = () => {
         }
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
+        }
+        if (changes.arcable_update_available) {
+          setAvailableUpdate((changes.arcable_update_available.newValue as any) || null);
+        }
+        if (changes.arcable_auto_reload_on_update) {
+          setAutoReloadOnUpdate(Boolean(changes.arcable_auto_reload_on_update.newValue));
+        }
+        if (changes.arcable_last_update_check_at) {
+          setLastUpdateCheckAt(changes.arcable_last_update_check_at.newValue as number);
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           clearStoredPendingOperations();
@@ -314,6 +346,92 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleCheckForUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateFeedback(null);
+    try {
+      const res = (await browser.runtime.sendMessage({
+        type: 'CHECK_FOR_UPDATES',
+      })) as ExtensionResponse<UpdateCheckResult>;
+
+      const now = Date.now();
+      setLastUpdateCheckAt(now);
+      await browser.storage.local.set({ arcable_last_update_check_at: now });
+
+      if (res && res.success && res.data) {
+        const { status, version, error } = res.data;
+        if (status === 'update_available') {
+          const updateInfo = { version: version || 'new', timestamp: now };
+          setAvailableUpdate(updateInfo);
+          setUpdateFeedback({
+            type: 'success',
+            message: `Version ${version || 'new'} is available and downloaded! Reload Arcable to apply.`,
+          });
+          showToast(`Update available: v${version || 'new'}!`, 'success');
+        } else if (status === 'no_update') {
+          setAvailableUpdate(null);
+          setUpdateFeedback({
+            type: 'info',
+            message: `You are up to date! Arcable v${extensionVersion} is the latest version.`,
+          });
+          showToast(`Arcable is up to date (v${extensionVersion})`, 'success');
+        } else if (status === 'throttled') {
+          setUpdateFeedback({
+            type: 'warning',
+            message: 'Update check was throttled by the browser. Please try again in a few minutes.',
+          });
+          showToast('Update check throttled by browser', 'warning');
+        } else if (status === 'error') {
+          setUpdateFeedback({
+            type: 'warning',
+            message: error || 'Browser extension update service is unavailable or extension is running unpacked in developer mode.',
+          });
+          showToast('Update check could not complete', 'warning');
+        }
+      } else {
+        const errMsg = res?.error || 'Unable to check for updates.';
+        setUpdateFeedback({
+          type: 'error',
+          message: errMsg,
+        });
+        showToast(errMsg, 'warning');
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to check for updates.';
+      setUpdateFeedback({
+        type: 'error',
+        message: errMsg,
+      });
+      showToast(errMsg, 'warning');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleReloadExtension = async () => {
+    setIsReloading(true);
+    showToast('Reloading extension to apply update...', 'info');
+    try {
+      await browser.runtime.sendMessage({ type: 'RELOAD_EXTENSION' });
+    } catch (e) {
+      console.warn('Reload extension message failed, trying direct reload:', e);
+      if (typeof chrome !== 'undefined' && chrome.runtime?.reload) {
+        chrome.runtime.reload();
+      }
+    }
+  };
+
+  const handleToggleAutoReload = async (enabled: boolean) => {
+    setAutoReloadOnUpdate(enabled);
+    await browser.storage.local.set({ arcable_auto_reload_on_update: enabled });
+    showToast(
+      enabled
+        ? 'Automatic reload upon update enabled'
+        : 'Automatic reload upon update disabled',
+      'info'
+    );
+  };
+
   return (
     <div
       style={{
@@ -383,7 +501,7 @@ export const App: React.FC = () => {
               }}
             />
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <h1
                   style={{
                     margin: 0,
@@ -396,6 +514,55 @@ export const App: React.FC = () => {
                   Arcable Settings
                 </h1>
                 <Badge variant="info">v{extensionVersion}</Badge>
+
+                {availableUpdate ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('about')}
+                    title="Update ready! Click to view in About tab"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '9999px',
+                      padding: '3px 10px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)',
+                    }}
+                  >
+                    <span>✨</span>
+                    <span>Update v{availableUpdate.version} Ready</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCheckForUpdates}
+                    disabled={isCheckingUpdate}
+                    title="Check for extension updates"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: isDark ? '#1e293b' : '#f1f5f9',
+                      color: isDark ? '#94a3b8' : '#64748b',
+                      border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      padding: '3px 8px',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      cursor: isCheckingUpdate ? 'default' : 'pointer',
+                      opacity: isCheckingUpdate ? 0.7 : 1,
+                    }}
+                  >
+                    <RefreshIcon size={11} />
+                    <span>{isCheckingUpdate ? 'Checking...' : 'Check Updates'}</span>
+                  </button>
+                )}
               </div>
               <p
                 style={{
@@ -595,6 +762,219 @@ export const App: React.FC = () => {
         {/* TAB 5: ABOUT */}
         {activeTab === 'about' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Version & Updates Card */}
+            <Card
+              title="Version & Updates"
+              subtitle="Keep Arcable up to date with the latest features and security improvements."
+              style={{ borderRadius: '16px', padding: '24px' }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                {/* Header row: Current Version, Last Checked, and Check Button */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    padding: '16px 20px',
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
+                    borderRadius: '12px',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: 700, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                        Arcable v{extensionVersion}
+                      </span>
+                      {availableUpdate ? (
+                        <Badge variant="success">Update Ready</Badge>
+                      ) : (
+                        <Badge variant="info">Current</Badge>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                      Last checked:{' '}
+                      {lastUpdateCheckAt ? formatDate(lastUpdateCheckAt) : 'Never checked in this session'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleCheckForUpdates}
+                      isLoading={isCheckingUpdate}
+                      style={{
+                        borderRadius: '8px',
+                        padding: '8px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <RefreshIcon size={14} />
+                      <span>{isCheckingUpdate ? 'Checking...' : 'Check for Updates'}</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Available update banner with Reload button */}
+                {availableUpdate && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      padding: '16px 20px',
+                      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5',
+                      border: isDark ? '1px solid #059669' : '1px solid #a7f3d0',
+                      borderRadius: '12px',
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: '14.5px',
+                          fontWeight: 700,
+                          color: isDark ? '#34d399' : '#065f46',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <span>🎉</span>
+                        <span>Arcable v{availableUpdate.version} is ready to install!</span>
+                      </div>
+                      <p
+                        style={{
+                          margin: '4px 0 0',
+                          fontSize: '13px',
+                          color: isDark ? '#a7f3d0' : '#047857',
+                        }}
+                      >
+                        The update has been downloaded by your browser. Reload Arcable to apply it now.
+                      </p>
+                    </div>
+
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleReloadExtension}
+                      isLoading={isReloading}
+                      style={{
+                        borderRadius: '8px',
+                        padding: '8px 18px',
+                        backgroundColor: '#059669',
+                        borderColor: '#059669',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)',
+                      }}
+                    >
+                      🔄 Reload Extension Now
+                    </Button>
+                  </div>
+                )}
+
+                {/* Status / feedback message */}
+                {updateFeedback && !availableUpdate && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      fontSize: '13px',
+                      lineHeight: 1.5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor:
+                        updateFeedback.type === 'success' || updateFeedback.type === 'info'
+                          ? isDark ? 'rgba(56, 189, 248, 0.12)' : '#f0f9ff'
+                          : updateFeedback.type === 'warning'
+                          ? isDark ? 'rgba(245, 158, 11, 0.12)' : '#fffbeb'
+                          : isDark ? 'rgba(239, 68, 68, 0.12)' : '#fef2f2',
+                      color:
+                        updateFeedback.type === 'success' || updateFeedback.type === 'info'
+                          ? isDark ? '#7dd3fc' : '#0369a1'
+                          : updateFeedback.type === 'warning'
+                          ? isDark ? '#fcd34d' : '#b45309'
+                          : isDark ? '#fca5a5' : '#b91c1c',
+                      border:
+                        updateFeedback.type === 'success' || updateFeedback.type === 'info'
+                          ? isDark ? '1px solid #0284c7' : '1px solid #bae6fd'
+                          : updateFeedback.type === 'warning'
+                          ? isDark ? '1px solid #d97706' : '1px solid #fde68a'
+                          : isDark ? '1px solid #dc2626' : '1px solid #fecaca',
+                    }}
+                  >
+                    <span>
+                      {updateFeedback.type === 'success' || updateFeedback.type === 'info'
+                        ? 'ℹ️'
+                        : updateFeedback.type === 'warning'
+                        ? '⚠️'
+                        : '❌'}
+                    </span>
+                    <span>{updateFeedback.message}</span>
+                  </div>
+                )}
+
+                {/* Auto reload setting toggle */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.5)' : '#f8fafc',
+                    border: isDark ? '1px solid #243247' : '1px solid #f1f5f9',
+                  }}
+                >
+                  <div>
+                    <label
+                      htmlFor="auto-reload-toggle"
+                      style={{
+                        fontSize: '13.5px',
+                        fontWeight: 600,
+                        color: isDark ? '#f8fafc' : '#0f172a',
+                        cursor: 'pointer',
+                        display: 'block',
+                      }}
+                    >
+                      Automatically reload extension when updated
+                    </label>
+                    <div
+                      style={{
+                        fontSize: '12.5px',
+                        color: isDark ? '#94a3b8' : '#64748b',
+                        marginTop: '2px',
+                      }}
+                    >
+                      Immediately reloads Arcable in the background when a new version is installed.
+                    </div>
+                  </div>
+
+                  <input
+                    id="auto-reload-toggle"
+                    type="checkbox"
+                    checked={autoReloadOnUpdate}
+                    onChange={(e) => void handleToggleAutoReload(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer',
+                      accentColor: '#38bdf8',
+                    }}
+                  />
+                </div>
+              </div>
+            </Card>
+
             <Card
               title="About Arcable"
               subtitle="Arc-like workspaces and tab management with Raindrop.io sync."
