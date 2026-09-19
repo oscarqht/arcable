@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant } from '../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import {
@@ -210,7 +210,9 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
     }
 
     const sorted = getSortedSpaces(parsed.spaces || []);
-    const activeSpaceExists = sorted.some((s) => s.id === parsed.activeSpaceId);
+    const activeSpaceExists =
+      parsed.activeSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID ||
+      sorted.some((s) => s.id === parsed.activeSpaceId);
     const resolvedActiveSpaceId = activeSpaceExists
       ? parsed.activeSpaceId
       : (sorted[0]?.id || '');
@@ -2653,7 +2655,9 @@ export function useWorkspace() {
     if (snapshot && Array.isArray(snapshot.spaces)) {
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
-        const activeSpaceStillExists = snapshot.spaces.some((s) => s.id === currentActive);
+        const activeSpaceStillExists =
+          currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID ||
+          snapshot.spaces.some((s) => s.id === currentActive);
         // A null ID is a confirmed absence of the canonical Raindrop metadata
         // file, not an intentional empty metadata payload. Do not erase data
         // which this client can create on its next metadata sync. A present
@@ -2738,7 +2742,9 @@ export function useWorkspace() {
     if (imported && Array.isArray(imported.spaces) && imported.spaces.length > 0) {
       saveWorkspaceData((prev) => {
         const currentActive = prev.activeSpaceId;
-        const activeSpaceStillExists = imported.spaces.some((s) => s.id === currentActive);
+        const activeSpaceStillExists =
+          currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID ||
+          imported.spaces.some((s) => s.id === currentActive);
         const mergedFolders = (imported.folders || []).map((f) => {
           const explicitExpand = f.isExpanded !== undefined ? f.isExpanded : true;
           setLocalFolderExpanded(f.id, explicitExpand);

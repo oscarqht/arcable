@@ -833,6 +833,24 @@ class TabTracker {
     });
   }
 
+  // Get current browser window ID
+  public async getCurrentWindowId(): Promise<number | undefined> {
+    try {
+      if (typeof browser !== 'undefined' && browser.windows && browser.windows.getCurrent) {
+        const win = await browser.windows.getCurrent();
+        return win?.id;
+      }
+    } catch {}
+    try {
+      if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.getCurrent) {
+        return new Promise<number | undefined>((resolve) => {
+          chrome.windows.getCurrent((win) => resolve(win?.id));
+        });
+      }
+    } catch {}
+    return undefined;
+  }
+
   // Activate browser tab and focus its window
   public async activateTab(browserTabId: number, windowId?: number): Promise<void> {
     try {
@@ -1254,6 +1272,12 @@ class TabTracker {
     // 4. Tab activated (user selected browser tab)
     if (tabsApi && tabsApi.onActivated) {
       tabsApi.onActivated.addListener(async (activeInfo: any) => {
+        try {
+          const currentWinId = await this.getCurrentWindowId();
+          if (currentWinId !== undefined && activeInfo?.windowId !== undefined && activeInfo.windowId !== currentWinId) {
+            return;
+          }
+        } catch {}
         const associations = await this.getAssociations();
         let found = false;
         for (const [tabItemId, info] of Object.entries(associations)) {

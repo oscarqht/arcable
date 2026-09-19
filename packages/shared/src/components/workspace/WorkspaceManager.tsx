@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
-import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions, WorkspaceSiblingItem } from '../../types/workspace';
+import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions, WorkspaceSiblingItem, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../../types/workspace';
+export { VIRTUAL_SYNCED_TABS_SPACE_ID };
 import { SyncResult, WorkspaceOperation } from '../../types/sync';
 import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { useWorkspace, getSortedSiblings } from '../../hooks/useWorkspace';
@@ -46,8 +47,6 @@ import {
   EditIcon,
   TrashIcon,
 } from '../Icons';
-
-export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
 
 // Minimum time between automatic (silent) sync attempts, e.g. from side panel
 // reload and window focus. Manual, user-triggered syncs are not throttled.
@@ -1054,7 +1053,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           }
           const currentActive = latestWorkspaceDataRef.current?.activeSpaceId;
           const currentActiveStillExists = Boolean(
-            currentActive && nextSnapshot.spaces.some((s) => s.id === currentActive)
+            currentActive &&
+            (currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID || nextSnapshot.spaces.some((s) => s.id === currentActive))
           );
           if (currentActiveStillExists && nextSnapshot.activeSpaceId !== currentActive) {
             nextSnapshot = {

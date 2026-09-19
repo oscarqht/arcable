@@ -1,4 +1,4 @@
-import { ArcableWorkspaceData, Folder, Space, Tab, TabUrlVariant, WorkspaceWidget } from '../types/workspace';
+import { ArcableWorkspaceData, Folder, Space, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { CustomCodeRule, RunCodeRule } from '../types/customCode';
 import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
@@ -2314,7 +2314,10 @@ export function reconstructWorkspace(
 
   tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  const activeSpaceStillExists = Boolean(targetActiveSpaceId && spaces.some((s) => s.id === targetActiveSpaceId));
+  const activeSpaceStillExists = Boolean(
+    targetActiveSpaceId &&
+    (targetActiveSpaceId === VIRTUAL_SYNCED_TABS_SPACE_ID || spaces.some((s) => s.id === targetActiveSpaceId))
+  );
   const activeSpaceId = activeSpaceStillExists
     ? targetActiveSpaceId!
     : (spaces[0]?.id || '');

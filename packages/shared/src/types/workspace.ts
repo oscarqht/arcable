@@ -2,6 +2,8 @@ import { CustomCodeRule, RunCodeRule } from './customCode';
 import type { DeviceSyncRecord } from './sync';
 export type { CustomCodeRule, RunCodeRule, DeviceSyncRecord };
 
+export const VIRTUAL_SYNCED_TABS_SPACE_ID = '__virtual_synced_tabs__';
+
 export interface TabOpenOptions {
   inNewTab?: boolean;
   asTmpTab?: boolean;

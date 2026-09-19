@@ -21,7 +21,8 @@ import {
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
-import { shouldPersistSidepanelSpaceId } from './spaceSelection';
+import { shouldPersistSidepanelSpaceId, resolveSidepanelActiveSpaceId, VIRTUAL_SYNCED_TABS_SPACE_ID } from './spaceSelection';
+export { resolveSidepanelActiveSpaceId };
 
 export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
 
@@ -50,22 +51,6 @@ export function setStoredLastSpaceId(spaceId: string): void {
   } catch {}
 }
 
-/**
- * Resolves the side panel's locally remembered space against the spaces that
- * are actually available in a snapshot. A removed remembered space always
- * falls back to the first space in the user's configured order.
- */
-export function resolveSidepanelActiveSpaceId(
-  spaces: Space[] | undefined,
-  lastSelectedId?: string | null,
-  snapshotActiveId?: string
-): string | undefined {
-  const sorted = getSortedSpaces(spaces || []);
-  if (lastSelectedId) {
-    return sorted.find((space) => space.id === lastSelectedId)?.id || sorted[0]?.id;
-  }
-  return sorted.find((space) => space.id === snapshotActiveId)?.id || sorted[0]?.id;
-}
 
 function applySidepanelActiveSpace<T extends { spaces?: Space[]; activeSpaceId?: string }>(
   snapshot: T,
@@ -217,13 +202,10 @@ export const App: React.FC = () => {
       }
     });
 
-    // Check currently active tab item on mount
+    // Check currently active tab item on mount (highlight only, do not force space switch)
     tabTracker.getActiveTabItemId().then((tabItemId) => {
       if (tabItemId) {
         setHighlightedTabId(tabItemId);
-        if (workspaceRef.current) {
-          workspaceRef.current.revealAndHighlightTab(tabItemId);
-        }
       }
     });
 
@@ -302,21 +284,24 @@ export const App: React.FC = () => {
         }
         if (changes[SIDEPANEL_LAST_SPACE_KEY]?.newValue) {
           const newId = changes[SIDEPANEL_LAST_SPACE_KEY].newValue;
-          if (typeof window !== 'undefined') {
+          const currentlyActiveId = workspaceRef.current?.getActiveSpace?.()?.id || getStoredLastSpaceId();
+          if (currentlyActiveId !== newId) {
+            if (typeof window !== 'undefined') {
+              try {
+                window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, newId);
+              } catch {}
+            }
             try {
-              window.localStorage.setItem(SIDEPANEL_LAST_SPACE_KEY, newId);
+              const raw = window.localStorage.getItem('arcable_workspace_data');
+              if (raw) {
+                const workspace = JSON.parse(raw);
+                const resolvedId = resolveSidepanelActiveSpaceId(workspace.spaces, newId, workspace.activeSpaceId);
+                if (resolvedId && resolvedId !== currentlyActiveId) {
+                  workspaceRef.current?.setActiveSpace?.(resolvedId);
+                }
+              }
             } catch {}
           }
-          try {
-            const raw = window.localStorage.getItem('arcable_workspace_data');
-            if (raw) {
-              const workspace = JSON.parse(raw);
-              const resolvedId = resolveSidepanelActiveSpaceId(workspace.spaces, newId, workspace.activeSpaceId);
-              if (resolvedId) {
-                workspaceRef.current?.setActiveSpace?.(resolvedId);
-              }
-            }
-          } catch {}
         }
         if (changes.arcable_workspace_snapshot?.newValue && isLegacyDemoWorkspace(changes.arcable_workspace_snapshot.newValue)) {
           void browser.storage.local.remove('arcable_workspace_snapshot');
@@ -336,7 +321,8 @@ export const App: React.FC = () => {
           if (remainingOps.length > 0) {
             snapshot = replayOperations(snapshot, remainingOps);
           }
-          const resolvedSnapshot = applySidepanelActiveSpace(snapshot, getStoredLastSpaceId());
+          const currentViewingSpaceId = workspaceRef.current?.getActiveSpace?.()?.id || getStoredLastSpaceId();
+          const resolvedSnapshot = applySidepanelActiveSpace(snapshot, currentViewingSpaceId);
 
           const merged = {
             ...resolvedSnapshot,
@@ -352,7 +338,6 @@ export const App: React.FC = () => {
           window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
           workspaceRef.current?.applySnapshot?.(merged);
-          if (merged.activeSpaceId) workspaceRef.current?.setActiveSpace?.(merged.activeSpaceId);
           syncTabsWithTracker();
         }
       }
