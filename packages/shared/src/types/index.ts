@@ -46,15 +46,7 @@ export type ExtensionMessageType =
   | 'RAINDROP_LIST_BACKUPS'
   | 'RAINDROP_RESTORE_BACKUP'
   | 'INJECT_CUSTOM_JS'
-  | 'RUN_CODE_IN_PAGE_EXECUTE'
-  | 'CHECK_FOR_UPDATES'
-  | 'RELOAD_EXTENSION';
-
-export interface ExtensionUpdateInfo {
-  status: 'throttled' | 'no_update' | 'update_available';
-  version?: string;
-  timestamp?: number;
-}
+  | 'RUN_CODE_IN_PAGE_EXECUTE';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType | string;
