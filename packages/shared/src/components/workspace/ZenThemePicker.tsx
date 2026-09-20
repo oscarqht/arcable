@@ -18,10 +18,11 @@ import {
   ZenPresetSwatch,
   hexToRgb,
   rgbToHex,
+  rgbToHsl,
   EXPLICIT_BLACKWHITE_TYPE,
   EXPLICIT_LIGHTNESS_TYPE,
 } from '../../utils/zenGradientGenerator';
-import { getSpaceThemeStyles, getSpaceNoiseOverlayStyle, NOISE_SVG_DATA_URI } from '../../utils/spaceTheme';
+import { getSpaceThemeStyles, getSpaceNoiseOverlayStyle, NOISE_SVG_DATA_URI, PRESET_GRADIENTS } from '../../utils/spaceTheme';
 
 export interface ZenThemePickerProps {
   colors?: string;
@@ -39,7 +40,7 @@ export interface ZenThemePickerProps {
   }) => void;
 }
 
-interface CanvasDot {
+export interface CanvasDot {
   id: number;
   x: number;
   y: number;
@@ -49,10 +50,328 @@ interface CanvasDot {
   isPrimary?: boolean;
 }
 
-const CANVAS_SIZE = 340;
+export interface ResolvedZenThemeSettings {
+  dots: CanvasDot[];
+  opacity: number;
+  texture: number;
+  useAlgo: string;
+  currentLightness: number;
+  carouselPage: number;
+}
+
+export const CANVAS_SIZE = 340;
 const RADIUS = CANVAS_SIZE / 2;
 const PRIMARY_DOT_RADIUS = 18;
 const SECONDARY_DOT_RADIUS = 14;
+
+/**
+ * Parses any color format (RGB array, rgba string, rgb string, hex string) into an [r, g, b] tuple.
+ */
+export function parseColorToRgb(
+  color: [number, number, number] | string | undefined | null
+): [number, number, number] | null {
+  if (!color) return null;
+  if (Array.isArray(color) && color.length >= 3) {
+    return [
+      Math.min(255, Math.max(0, Math.round(color[0]))),
+      Math.min(255, Math.max(0, Math.round(color[1]))),
+      Math.min(255, Math.max(0, Math.round(color[2]))),
+    ];
+  }
+  if (typeof color === 'string') {
+    const trimmed = color.trim();
+    const rgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (rgbMatch) {
+      return [
+        Math.min(255, Math.max(0, parseInt(rgbMatch[1], 10))),
+        Math.min(255, Math.max(0, parseInt(rgbMatch[2], 10))),
+        Math.min(255, Math.max(0, parseInt(rgbMatch[3], 10))),
+      ];
+    }
+    const hexMatch = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
+    if (hexMatch) {
+      return hexToRgb(hexMatch[0]);
+    }
+    const matchedPreset = PRESET_GRADIENTS.find((g) => g.id === trimmed || g.value === trimmed);
+    if (matchedPreset) {
+      return hexToRgb(matchedPreset.primary);
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses legacy colors string (Zen compiled gradients, preset values, hex strings) into dots and opacity.
+ */
+export function parseZenGradientColors(
+  colorsStr: string,
+  canvasSize = CANVAS_SIZE
+): { dots: CanvasDot[]; opacity?: number; algo?: string; lightness?: number } | null {
+  if (!colorsStr || typeof colorsStr !== 'string' || !colorsStr.trim()) return null;
+  const trimmed = colorsStr.trim();
+
+  // 1. Look for all rgba or rgb occurrences
+  const rgbaRegex = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/gi;
+  const matches: Array<{ rgb: [number, number, number]; opacity?: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = rgbaRegex.exec(trimmed)) !== null) {
+    const r = parseInt(match[1], 10);
+    const g = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+    const op = match[4] !== undefined ? parseFloat(match[4]) : undefined;
+    matches.push({ rgb: [r, g, b], opacity: op });
+  }
+
+  let extractedOpacity: number | undefined;
+  if (matches.length > 0 && matches[0].opacity !== undefined && !isNaN(matches[0].opacity)) {
+    extractedOpacity = Math.max(MIN_OPACITY, Math.min(MAX_OPACITY, matches[0].opacity));
+  }
+
+  if (matches.length >= 3) {
+    // 3-dot Zen gradient compiled order:
+    // match[0] is dot[2], match[1] is dot[1], match[2] is dot[0]
+    const dot0Rgb = matches[2].rgb;
+    const dot1Rgb = matches[1].rgb;
+    const dot2Rgb = matches[0].rgb;
+    const pos0 = calculateInitialPosition(dot0Rgb, canvasSize);
+    const pos1 = calculateInitialPosition(dot1Rgb, canvasSize);
+    const pos2 = calculateInitialPosition(dot2Rgb, canvasSize);
+    const [, , l0] = rgbToHsl(...dot0Rgb);
+    const [, , l1] = rgbToHsl(...dot1Rgb);
+    const [, , l2] = rgbToHsl(...dot2Rgb);
+
+    return {
+      dots: [
+        { id: 0, x: pos0.x, y: pos0.y, rgb: dot0Rgb, lightness: l0, isPrimary: true },
+        { id: 1, x: pos1.x, y: pos1.y, rgb: dot1Rgb, lightness: l1, isPrimary: false },
+        { id: 2, x: pos2.x, y: pos2.y, rgb: dot2Rgb, lightness: l2, isPrimary: false },
+      ],
+      opacity: extractedOpacity,
+      algo: 'analogous',
+      lightness: l0,
+    };
+  }
+
+  if (matches.length === 2) {
+    // 2-dot Zen gradient compiled order:
+    // match[0] is dot[1], match[1] is dot[0]
+    const dot0Rgb = matches[1].rgb;
+    const dot1Rgb = matches[0].rgb;
+    const pos0 = calculateInitialPosition(dot0Rgb, canvasSize);
+    const pos1 = calculateInitialPosition(dot1Rgb, canvasSize);
+    const [, , l0] = rgbToHsl(...dot0Rgb);
+    const [, , l1] = rgbToHsl(...dot1Rgb);
+
+    return {
+      dots: [
+        { id: 0, x: pos0.x, y: pos0.y, rgb: dot0Rgb, lightness: l0, isPrimary: true },
+        { id: 1, x: pos1.x, y: pos1.y, rgb: dot1Rgb, lightness: l1, isPrimary: false },
+      ],
+      opacity: extractedOpacity,
+      algo: 'complementary',
+      lightness: l0,
+    };
+  }
+
+  if (matches.length === 1) {
+    const dot0Rgb = matches[0].rgb;
+    const pos0 = calculateInitialPosition(dot0Rgb, canvasSize);
+    const [, , l0] = rgbToHsl(...dot0Rgb);
+    return {
+      dots: [{ id: 0, x: pos0.x, y: pos0.y, rgb: dot0Rgb, lightness: l0, isPrimary: true }],
+      opacity: extractedOpacity,
+      algo: 'floating',
+      lightness: l0,
+    };
+  }
+
+  // 2. Check PRESET_GRADIENTS
+  const matchedPreset = PRESET_GRADIENTS.find((g) => g.id === trimmed || g.value === trimmed);
+  if (matchedPreset) {
+    const rgb = hexToRgb(matchedPreset.primary);
+    const pos = calculateInitialPosition(rgb, canvasSize);
+    const [, , l] = rgbToHsl(...rgb);
+    return {
+      dots: [{ id: 0, x: pos.x, y: pos.y, rgb, lightness: l, isPrimary: true }],
+      algo: 'floating',
+      lightness: l,
+    };
+  }
+
+  // 3. Fallback hex match
+  const hexMatch = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
+  if (hexMatch) {
+    const rgb = hexToRgb(hexMatch[0]);
+    const pos = calculateInitialPosition(rgb, canvasSize);
+    const [, , l] = rgbToHsl(...rgb);
+    return {
+      dots: [{ id: 0, x: pos.x, y: pos.y, rgb, lightness: l, isPrimary: true }],
+      algo: 'floating',
+      lightness: l,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Finds the preset swatch carousel page (0 to 4) that matches the current theme settings.
+ */
+export function findMatchingCarouselPage(
+  dots: CanvasDot[],
+  currentLightness: number,
+  isDarkEffective: boolean,
+  canvasSize = CANVAS_SIZE
+): number {
+  if (!dots || dots.length === 0) return 0;
+
+  const isBlackWhite = dots[0]?.type === EXPLICIT_BLACKWHITE_TYPE;
+  if (isBlackWhite) {
+    return 4; // Page 5: Monochrome / grayscale ramp
+  }
+
+  // Search for an exact or near coordinate match in ZEN_PRESET_PAGES
+  const scale = canvasSize / 380;
+  for (let pageIdx = 0; pageIdx < ZEN_PRESET_PAGES.length; pageIdx++) {
+    const page = ZEN_PRESET_PAGES[pageIdx];
+    for (const swatch of page) {
+      if (swatch.numDots !== dots.length) continue;
+      // Do not match blackwhite swatches with non-blackwhite dots
+      if (Boolean(swatch.type === EXPLICIT_BLACKWHITE_TYPE) !== isBlackWhite) continue;
+
+      const [rawX, rawY] = swatch.position.split(',').map((p) => parseFloat(p.trim()));
+      const sx = Math.round(rawX * scale);
+      const sy = Math.round(rawY * scale);
+
+      // Check distance to primary dot
+      const dist = Math.hypot(dots[0].x - sx, dots[0].y - sy);
+      if (dist <= 8) {
+        return pageIdx;
+      }
+    }
+  }
+
+  if (dots.length === 3) {
+    return isDarkEffective || currentLightness <= 45 ? 3 : 1; // Page 4 (dark 3-dot) or Page 2 (light 3-dot)
+  }
+
+  // 1 or 2 dots
+  return isDarkEffective || currentLightness <= 45 ? 2 : 0; // Page 3 (dark 1-dot) or Page 1 (light 1-dot)
+}
+
+/**
+ * Resolves full component theme settings from incoming theme props.
+ */
+export function resolveZenThemeSettings({
+  themeConfig,
+  colors,
+  themeNoise = 0,
+  isSystemDark = false,
+  canvasSize = CANVAS_SIZE,
+}: {
+  themeConfig?: ZenThemeConfig;
+  colors?: string;
+  themeNoise?: number;
+  isSystemDark?: boolean;
+  canvasSize?: number;
+}): ResolvedZenThemeSettings {
+  let resolvedDots: CanvasDot[] = [];
+  let resolvedOpacity: number = DEFAULT_OPACITY;
+  let resolvedTexture: number = 0;
+  let resolvedAlgo: string = 'analogous';
+  let resolvedLightness: number = 50;
+
+  // Texture / Noise (0 to 1 in 16 steps)
+  if (typeof themeConfig?.texture === 'number') {
+    resolvedTexture = Math.round(themeConfig.texture * 16) / 16;
+  } else if (typeof themeNoise === 'number' && themeNoise > 0) {
+    resolvedTexture = Math.round(themeNoise * 16) / 16;
+  }
+
+  // Dots & Opacity mapping
+  if (themeConfig?.gradientColors && themeConfig.gradientColors.length > 0) {
+    resolvedDots = themeConfig.gradientColors.map((dot, index) => {
+      let rgb: [number, number, number] = [56, 189, 248];
+      const parsedRgb = parseColorToRgb(dot.c);
+      if (parsedRgb) {
+        rgb = parsedRgb;
+      }
+
+      let pos = dot.position;
+      // If position missing, invalid, or (0,0), calculate from color
+      if (!pos || (pos.x === 0 && pos.y === 0)) {
+        pos = calculateInitialPosition(rgb, canvasSize);
+      } else if (pos.x > canvasSize || pos.y > canvasSize) {
+        // Was likely saved on 380px Zen reference canvas
+        pos = {
+          x: Math.round((pos.x * canvasSize) / 380),
+          y: Math.round((pos.y * canvasSize) / 380),
+        };
+      }
+
+      return {
+        id: index,
+        x: pos.x,
+        y: pos.y,
+        rgb,
+        lightness: dot.lightness ?? 50,
+        type: dot.type,
+        isPrimary: Boolean(dot.isPrimary || index === 0),
+      };
+    });
+
+    if (typeof themeConfig.opacity === 'number') {
+      resolvedOpacity = Math.max(MIN_OPACITY, Math.min(MAX_OPACITY, themeConfig.opacity));
+    }
+
+    resolvedAlgo =
+      themeConfig.gradientColors[0]?.algorithm ||
+      (resolvedDots.length > 1 ? 'analogous' : 'floating');
+    resolvedLightness = themeConfig.gradientColors[0]?.lightness ?? 50;
+  } else if (colors && colors.trim()) {
+    // Fallback: Parse from legacy colors string
+    const parsed = parseZenGradientColors(colors, canvasSize);
+    if (parsed) {
+      resolvedDots = parsed.dots;
+      if (parsed.opacity !== undefined) resolvedOpacity = parsed.opacity;
+      if (parsed.algo) resolvedAlgo = parsed.algo;
+      if (parsed.lightness !== undefined) resolvedLightness = parsed.lightness;
+    }
+  }
+
+  // Fallback to default primary dot if no dots resolved
+  if (resolvedDots.length === 0) {
+    const defaultRgb: [number, number, number] = [91, 236, 173];
+    const defaultPos = calculateInitialPosition(defaultRgb, canvasSize);
+    resolvedDots = [
+      {
+        id: 0,
+        x: defaultPos.x,
+        y: defaultPos.y,
+        rgb: defaultRgb,
+        lightness: 60,
+        isPrimary: true,
+      },
+    ];
+    resolvedLightness = 60;
+  }
+
+  const carouselPage = findMatchingCarouselPage(
+    resolvedDots,
+    resolvedLightness,
+    isSystemDark,
+    canvasSize
+  );
+
+  return {
+    dots: resolvedDots,
+    opacity: resolvedOpacity,
+    texture: resolvedTexture,
+    useAlgo: resolvedAlgo,
+    currentLightness: resolvedLightness,
+    carouselPage,
+  };
+}
 
 export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
   colors,
@@ -64,102 +383,62 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
   isSystemDark = false,
   onChange,
 }) => {
-  // 1. Theme Scheme (forced to 'auto')
+  // Theme Scheme is always 'auto'
   const scheme: SpaceScheme = 'auto';
 
-  // 2. Opacity
-  const [opacity, setOpacity] = useState<number>(() => {
-    if (typeof themeConfig?.opacity === 'number') {
-      return Math.max(MIN_OPACITY, Math.min(MAX_OPACITY, themeConfig.opacity));
-    }
-    return DEFAULT_OPACITY;
-  });
+  // Initialize theme settings from incoming props
+  const initialResolved = useMemo(() => {
+    return resolveZenThemeSettings({
+      themeConfig,
+      colors,
+      themeNoise,
+      isSystemDark,
+      canvasSize: CANVAS_SIZE,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // 3. Texture / Grain (0 to 1 in 16 steps)
-  const [texture, setTexture] = useState<number>(() => {
-    if (typeof themeConfig?.texture === 'number') {
-      return Math.round(themeConfig.texture * 16) / 16;
-    }
-    if (typeof themeNoise === 'number' && themeNoise > 0) {
-      return Math.round(themeNoise * 16) / 16;
-    }
-    return 0;
-  });
+  const [opacity, setOpacity] = useState<number>(initialResolved.opacity);
+  const [texture, setTexture] = useState<number>(initialResolved.texture);
+  const [useAlgo, setUseAlgo] = useState<string>(initialResolved.useAlgo);
+  const [currentLightness, setCurrentLightness] = useState<number>(initialResolved.currentLightness);
+  const [dots, setDots] = useState<CanvasDot[]>(initialResolved.dots);
+  const [carouselPage, setCarouselPage] = useState<number>(initialResolved.carouselPage);
 
-  // 4. Algorithm
-  const [useAlgo, setUseAlgo] = useState<string>(() => {
-    return themeConfig?.gradientColors?.[0]?.algorithm || 'analogous';
-  });
+  // Track last emitted payload to distinguish internal updates from external prop changes
+  const lastEmittedRef = useRef<{
+    colors?: string;
+    themeNoise?: number;
+    themeConfig?: ZenThemeConfig;
+  } | null>(null);
 
-  // 5. Lightness
-  const [currentLightness, setCurrentLightness] = useState<number>(() => {
-    return themeConfig?.gradientColors?.[0]?.lightness ?? 50;
-  });
-
-  // 6. Dots initialization
-  const [dots, setDots] = useState<CanvasDot[]>(() => {
-    if (themeConfig?.gradientColors && themeConfig.gradientColors.length > 0) {
-      return themeConfig.gradientColors.map((dot, index) => {
-        let rgb: [number, number, number] = [56, 189, 248];
-        if (Array.isArray(dot.c) && dot.c.length === 3) {
-          rgb = [dot.c[0], dot.c[1], dot.c[2]];
-        } else if (typeof dot.c === 'string') {
-          rgb = hexToRgb(dot.c);
-        }
-
-        let pos = dot.position;
-        if (!pos) {
-          pos = calculateInitialPosition(rgb, CANVAS_SIZE);
-        }
-
-        return {
-          id: index,
-          x: pos.x,
-          y: pos.y,
-          rgb,
-          lightness: dot.lightness ?? 50,
-          type: dot.type,
-          isPrimary: index === 0,
-        };
-      });
+  // Synchronize state when incoming props change from the outside
+  useEffect(() => {
+    const last = lastEmittedRef.current;
+    if (
+      last &&
+      last.colors === colors &&
+      last.themeNoise === themeNoise &&
+      last.themeConfig === themeConfig
+    ) {
+      return;
     }
 
-    // Fallback: If legacy colors string exists
-    if (colors && typeof colors === 'string' && colors.trim()) {
-      const hexMatch = colors.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
-      if (hexMatch) {
-        const rgb = hexToRgb(hexMatch[0]);
-        const pos = calculateInitialPosition(rgb, CANVAS_SIZE);
-        return [
-          {
-            id: 0,
-            x: pos.x,
-            y: pos.y,
-            rgb,
-            lightness: 50,
-            isPrimary: true,
-          },
-        ];
-      }
-    }
+    const updated = resolveZenThemeSettings({
+      themeConfig,
+      colors,
+      themeNoise,
+      isSystemDark,
+      canvasSize: CANVAS_SIZE,
+    });
 
-    // Default 1 primary dot
-    const defaultRgb: [number, number, number] = [91, 236, 173];
-    const defaultPos = calculateInitialPosition(defaultRgb, CANVAS_SIZE);
-    return [
-      {
-        id: 0,
-        x: defaultPos.x,
-        y: defaultPos.y,
-        rgb: defaultRgb,
-        lightness: 60,
-        isPrimary: true,
-      },
-    ];
-  });
-
-  // 7. Swatch Carousel Page (0 to 4)
-  const [carouselPage, setCarouselPage] = useState(0);
+    setOpacity(updated.opacity);
+    setTexture(updated.texture);
+    setUseAlgo(updated.useAlgo);
+    setCurrentLightness(updated.currentLightness);
+    setDots(updated.dots);
+    setCarouselPage(updated.carouselPage);
+  }, [themeConfig, colors, themeNoise, isSystemDark]);
 
   // Dragging state
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -212,6 +491,12 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
         opacity: newOpacity,
         texture: newTexture,
         scheme: 'auto',
+      };
+
+      lastEmittedRef.current = {
+        colors: grad,
+        themeNoise: newTexture,
+        themeConfig: cfg,
       };
 
       onChange({

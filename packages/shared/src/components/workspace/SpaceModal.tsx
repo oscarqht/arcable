@@ -24,8 +24,13 @@ export interface SpaceModalProps {
   }) => void;
 }
 
-export const SpaceModal: React.FC<SpaceModalProps> = ({
-  isOpen,
+export const SpaceModal: React.FC<SpaceModalProps> = (props) => {
+  if (!props.isOpen) return null;
+
+  return <SpaceModalContent key={props.space?.id ?? '__new__'} {...props} />;
+};
+
+const SpaceModalContent: React.FC<SpaceModalProps> = ({
   onClose,
   space,
   raindropToken,
@@ -33,54 +38,35 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(space?.name || '');
   const [coverQuery, setCoverQuery] = useState('');
-  const [coverUrl, setCoverUrl] = useState<string | undefined>();
+  const [coverUrl, setCoverUrl] = useState<string | undefined>(space?.coverUrl);
   const [coverResults, setCoverResults] = useState<string[]>([]);
   const [isSearchingCovers, setIsSearchingCovers] = useState(false);
   const [coverSearchError, setCoverSearchError] = useState<string | null>(null);
 
-  // Theme states
-  const [colors, setColors] = useState<string>('');
-  const [themeNoise, setThemeNoise] = useState<number>(0);
+  // Theme states initialized directly from the space being edited
+  const [colors, setColors] = useState<string>(space?.colors || '');
+  const [themeNoise, setThemeNoise] = useState<number>(space?.themeNoise ?? 0);
   const [themeScheme, setThemeScheme] = useState<SpaceScheme>('auto');
-  const [themeConfig, setThemeConfig] = useState<ZenThemeConfig | undefined>(undefined);
+  const [themeConfig, setThemeConfig] = useState<ZenThemeConfig | undefined>(
+    space?.themeConfig ? { ...space.themeConfig, scheme: 'auto' } : undefined
+  );
 
-  const prevIsOpenRef = React.useRef(false);
-  const prevSpaceIdRef = React.useRef<string | null | undefined>(undefined);
-
+  // If the space prop itself updates while the modal is open, sync changes
   useEffect(() => {
-    const isNewlyOpened = isOpen && !prevIsOpenRef.current;
-    const spaceChanged = isOpen && space?.id !== prevSpaceIdRef.current;
-
-    if (isNewlyOpened || spaceChanged) {
-      if (space) {
-        setName(space.name || '');
-        setCoverQuery('');
-        setCoverUrl(space.coverUrl);
-        setColors(space.colors || '');
-        setThemeNoise(space.themeNoise ?? 0);
-        setThemeScheme('auto');
-        setThemeConfig(space.themeConfig ? { ...space.themeConfig, scheme: 'auto' } : undefined);
-      } else {
-        setName('');
-        setCoverQuery('');
-        setCoverUrl(undefined);
-        setColors('');
-        setThemeNoise(0);
-        setThemeScheme('auto');
-        setThemeConfig(undefined);
-      }
-      setCoverResults([]);
-      setCoverSearchError(null);
+    if (space) {
+      setName(space.name || '');
+      setCoverUrl(space.coverUrl);
+      setColors(space.colors || '');
+      setThemeNoise(space.themeNoise ?? 0);
+      setThemeScheme('auto');
+      setThemeConfig(space.themeConfig ? { ...space.themeConfig, scheme: 'auto' } : undefined);
     }
-
-    prevIsOpenRef.current = isOpen;
-    prevSpaceIdRef.current = space?.id;
-  }, [isOpen, space]);
+  }, [space]);
 
   useEffect(() => {
-    if (!isOpen || (!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
+    if ((!raindropToken && !onSearchCovers) || coverQuery.trim().length < 2) {
       setCoverResults([]);
       setIsSearchingCovers(false);
       setCoverSearchError(null);
@@ -112,9 +98,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isOpen, raindropToken, onSearchCovers, coverQuery]);
-
-  if (!isOpen) return null;
+  }, [raindropToken, onSearchCovers, coverQuery]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
