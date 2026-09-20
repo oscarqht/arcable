@@ -72,8 +72,7 @@ const nativeSnapshot = {
   runCodeInPageRules: [],
 };
 
-const remoteMetadataMissing =
-  nativeSnapshot.raindropMetadataItemId === null && !nativeSnapshot.raindropRootCollectionId;
+const remoteMetadataMissing = !nativeSnapshot.raindropRootCollectionId;
 
 assert(
   remoteMetadataMissing === false,

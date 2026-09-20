@@ -71,19 +71,30 @@ async function main(): Promise<void> {
   assert(calls.every((call) => call.method === 'GET'), 'initial hydration must not delete legacy Raindrop files');
 
   calls.length = 0;
-  rootItems = [{
-    _id: 100,
-    title: 'data.json.txt',
-    collection: { $id: 1 },
-    file: { name: 'data.json.txt' },
-  }];
-  metadataContent = JSON.stringify({
-    widgets: [{ id: 'widget-1', style: 'combo', size: 'small' }],
-  });
+  rootItems = [
+    {
+      _id: 100,
+      title: 'data.json.txt',
+      collection: { $id: 1 },
+      file: { name: 'data.json.txt' },
+    },
+    {
+      _id: 101,
+      title: '[Widget] combo',
+      link: 'https://arcable.app/widget/widget-1',
+      tags: ['arcable-widget'],
+      excerpt: JSON.stringify({ style: 'combo', size: 'small', config: {} }),
+      collection: { $id: 1 },
+    },
+  ];
 
-  const fileEndpointWorkspace = await fetchRaindropWorkspace('token');
-  assert.deepEqual(fileEndpointWorkspace.data?.widgets, [{ id: 'widget-1', style: 'combo', size: 'small' }],
-    'metadata widgets must load from Raindrop\'s file endpoint when the list response has no file URL');
+  const nativeWorkspace = await fetchRaindropWorkspace('token');
+  assert.equal(nativeWorkspace.data?.tabs.length, 0, 'data.json.txt and widget items must not be parsed as browser tabs');
+  assert.deepEqual(
+    nativeWorkspace.data?.widgets?.map((w) => ({ id: w.id, style: w.style, size: w.size })),
+    [{ id: 'widget-1', style: 'combo', size: 'small' }],
+    'native widgets must be hydrated from raindrop bookmark items'
+  );
 
   console.log('Raindrop initial hydration tests passed.');
 }

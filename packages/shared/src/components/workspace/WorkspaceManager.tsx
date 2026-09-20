@@ -1336,7 +1336,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
       applySnapshot: (snapshot: ArcableWorkspaceData) => {
-        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null && !snapshot.raindropRootCollectionId;
+        const remoteMetadataMissing = !snapshot.raindropRootCollectionId;
         const hydratedSnapshot = remoteMetadataMissing
           ? {
               ...snapshot,

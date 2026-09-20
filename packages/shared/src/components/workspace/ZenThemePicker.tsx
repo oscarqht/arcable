@@ -64,8 +64,8 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
   isSystemDark = false,
   onChange,
 }) => {
-  // 1. Theme Scheme ('auto' | 'light' | 'dark')
-  const [scheme, setScheme] = useState<SpaceScheme>(themeScheme || themeConfig?.scheme || 'auto');
+  // 1. Theme Scheme (forced to 'auto')
+  const scheme: SpaceScheme = 'auto';
 
   // 2. Opacity
   const [opacity, setOpacity] = useState<number>(() => {
@@ -170,8 +170,8 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
   const dialRef = useRef<HTMLDivElement>(null);
   const isDraggingDialRef = useRef(false);
 
-  // Calculate effective dark appearance for preview
-  const isDarkEffective = scheme === 'dark' ? true : scheme === 'light' ? false : isSystemDark;
+  // Effective appearance follows system theme (scheme is always 'auto')
+  const isDarkEffective = isSystemDark;
 
   // Compile gradient
   const compiledGradient = useMemo(() => {
@@ -186,13 +186,13 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
     return compileZenGradient(zenDots, opacity, isDarkEffective);
   }, [dots, opacity, isDarkEffective, useAlgo]);
 
-  // Emit updates whenever dots, opacity, texture, or scheme change
+  // Emit updates whenever dots, opacity, or texture change
   const notifyChange = useCallback(
     (
       newDots: CanvasDot[],
       newOpacity: number,
       newTexture: number,
-      newScheme: SpaceScheme,
+      _newScheme: SpaceScheme,
       newAlgo: string
     ) => {
       const zenDots: ZenThemeDot[] = newDots.map((d) => ({
@@ -204,24 +204,20 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
         type: d.type,
       }));
 
-      const grad = compileZenGradient(
-        zenDots,
-        newOpacity,
-        newScheme === 'dark' ? true : newScheme === 'light' ? false : isSystemDark
-      );
+      const grad = compileZenGradient(zenDots, newOpacity, isSystemDark);
 
       const cfg: ZenThemeConfig = {
         type: 'gradient',
         gradientColors: zenDots,
         opacity: newOpacity,
         texture: newTexture,
-        scheme: newScheme,
+        scheme: 'auto',
       };
 
       onChange({
         colors: grad,
         themeNoise: newTexture,
-        themeScheme: newScheme,
+        themeScheme: 'auto',
         themeConfig: cfg,
       });
     },
@@ -580,111 +576,6 @@ export const ZenThemePicker: React.FC<ZenThemePickerProps> = ({
         userSelect: 'none',
       }}
     >
-      {/* 1. Header / Scheme Selector (Auto, Light, Dark) */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          backgroundColor: isDarkEffective ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
-          padding: '4px',
-          borderRadius: '12px',
-          gap: '4px',
-          width: 'fit-content',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            setScheme('auto');
-            notifyChange(dots, opacity, texture, 'auto', useAlgo);
-          }}
-          title="Auto (follows system appearance)"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 14px',
-            borderRadius: '9px',
-            border: 'none',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            backgroundColor: scheme === 'auto' ? (isDarkEffective ? '#27272a' : '#ffffff') : 'transparent',
-            color: scheme === 'auto' ? (isDarkEffective ? '#ffffff' : '#09090b') : isDarkEffective ? '#a1a1aa' : '#71717a',
-            boxShadow: scheme === 'auto' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          }}
-        >
-          {/* Sparkles SVG */}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-            <path d="M5 3v4M3 5h4M19 17v4M17 19h4"/>
-          </svg>
-          <span>Auto</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setScheme('light');
-            notifyChange(dots, opacity, texture, 'light', useAlgo);
-          }}
-          title="Light appearance"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 14px',
-            borderRadius: '9px',
-            border: 'none',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            backgroundColor: scheme === 'light' ? (isDarkEffective ? '#27272a' : '#ffffff') : 'transparent',
-            color: scheme === 'light' ? (isDarkEffective ? '#ffffff' : '#09090b') : isDarkEffective ? '#a1a1aa' : '#71717a',
-            boxShadow: scheme === 'light' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          }}
-        >
-          {/* Sun SVG */}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
-          </svg>
-          <span>Light</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setScheme('dark');
-            notifyChange(dots, opacity, texture, 'dark', useAlgo);
-          }}
-          title="Dark appearance"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '6px 14px',
-            borderRadius: '9px',
-            border: 'none',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            backgroundColor: scheme === 'dark' ? (isDarkEffective ? '#27272a' : '#ffffff') : 'transparent',
-            color: scheme === 'dark' ? (isDarkEffective ? '#ffffff' : '#09090b') : isDarkEffective ? '#a1a1aa' : '#71717a',
-            boxShadow: scheme === 'dark' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          }}
-        >
-          {/* Moon SVG */}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
-          </svg>
-          <span>Dark</span>
-        </button>
-      </div>
-
       {/* 2. Interactive Dot Matrix Canvas */}
       <div
         ref={canvasRef}

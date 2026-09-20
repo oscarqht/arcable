@@ -48,7 +48,6 @@
 - **True Native Collection & Bookmark Sync**: Spaces and folders map directly to native Raindrop collections; tabs map to native bookmarks.
 - **Clean Raindrop Footprint**: Completely eliminates JSON metadata dumping into bookmark excerpts and notes, decommissioning legacy `data.json.txt` files.
 - **Arcable v2 Root Isolation**: Uses an isolated `Arcable v2` root collection to safeguard data from older client versions.
-- **Automatic Migration Engine**: Automatically detects legacy `Arcable` roots, migrates child spaces and bookmarks to `Arcable v2`, and safely cleans up old roots.
 - **Native Manual Sorting Order**: Respects Raindrop's native manual bookmark order (`sort=-sort`) and guarantees items are grouped before folders in sibling sorting.
 - **Integrated Raindrop Search**: The workspace search bar seamlessly queries both local workspace items and your entire Raindrop bookmark library.
 - **Raindrop Cover Search**: Search and select collection covers powered directly by Raindrop's collection cover search API.

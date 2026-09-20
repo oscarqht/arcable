@@ -169,7 +169,6 @@ async function runTests(): Promise<void> {
 
   assert.equal(result.success, true, 'Sync should succeed');
   assert.equal(result.collectionId, 500, 'Root collection ID should match remote Arcable root');
-  assert.equal(result.dataItemId, 701, 'Metadata item ID should match remote metadata file');
 
   // Verify write operations were NOT issued
   const writeCalls = calls.filter(c => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(c.method));

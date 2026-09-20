@@ -233,29 +233,13 @@ async function runTests(): Promise<void> {
   assert.equal(sortedSiblings[3].id, 'f1', 'Fourth sibling should be folder with higher order');
   console.log('✓ Sibling sorting: tabs precede folders');
 
-  // 2. Full baseline sync with widgets, code rules, variants, and legacy cleanup
+  // 2. Full baseline sync with widgets, code rules, and variants
   calls.length = 0;
   mockState = {
     collections: [
       { _id: 1, title: 'Arcable v2', sort: 0 },
     ],
-    bookmarks: [
-      // Legacy data.json.txt
-      {
-        _id: 99,
-        title: 'data.json.txt',
-        collection: { $id: 1 },
-        file: { name: 'data.json.txt' },
-      },
-      // Bookmark with legacy note
-      {
-        _id: 101,
-        title: 'Legacy Bookmark',
-        link: 'https://legacy.com',
-        collection: { $id: 1 },
-        note: JSON.stringify({ schema: 'arcable-bookmark-v1', arcableId: 'leg-1', pinned: true }),
-      },
-    ],
+    bookmarks: [],
   };
 
   const localState: ArcableWorkspaceData = {
@@ -327,19 +311,9 @@ async function runTests(): Promise<void> {
 
   assert.equal(syncResult.success, true, 'Sync should succeed');
 
-  // Verify data.json.txt was deleted and NOT uploaded
+  // Verify data.json.txt was NOT uploaded
   assert(calls.every(c => !c.url.endsWith('/raindrop/file')), 'data.json.txt must NOT be uploaded');
-  const deletedLegacyDataCall = calls.find(c =>
-    c.method === 'DELETE' && (c.url.includes('/raindrop/99') || c.body?.ids?.includes(99))
-  );
-  assert(deletedLegacyDataCall, 'data.json.txt must be deleted from Raindrop');
-  console.log('✓ data.json.txt deleted and not uploaded');
-
-  // Verify legacy bookmark note was wiped clean
-  const cleanNoteCall = calls.find(c => c.method === 'PUT' && c.url.endsWith('/raindrop/101'));
-  assert(cleanNoteCall, 'Legacy bookmark should be updated');
-  assert.equal(cleanNoteCall.body.note, '', 'Legacy note metadata must be wiped clean');
-  console.log('✓ Legacy bookmark note wiped clean');
+  console.log('✓ data.json.txt not uploaded');
 
   // Verify created collections: _custom_css and _run_code exist
   const customCssColl = mockState.collections.find(c => c.title === ARCABLE_CUSTOM_CSS_COLLECTION_NAME);
@@ -472,7 +446,7 @@ async function runTests(): Promise<void> {
 
   console.log('✓ Modifying existing tab to add URL variants preserved across sync');
 
-  // 4. Migration from legacy root collection "Arcable" to "Arcable v2"
+  // 4. Legacy root collection "Arcable" is ignored (no automatic migration)
   calls.length = 0;
   mockState = {
     collections: [
@@ -504,39 +478,24 @@ async function runTests(): Promise<void> {
     ],
   };
 
-  const migrationWorkspace = await fetchRaindropWorkspace('mock-token');
-  assert.equal(migrationWorkspace.success, true, 'Migration workspace fetch should succeed');
+  const ignoredWorkspace = await fetchRaindropWorkspace('mock-token');
+  assert.equal(ignoredWorkspace.success, true, 'Workspace fetch should succeed');
 
-  // Verify "Arcable v2" root was created
+  // Verify legacy root was untouched (not deleted or renamed)
+  const legacyRoot = mockState.collections.find(c => c._id === 10);
+  assert(legacyRoot, 'Legacy "Arcable" root collection must remain untouched');
+
+  // Verify "Arcable v2" root was NOT created during read-only fetch
   const v2Root = mockState.collections.find(c => c.title === ARCABLE_COLLECTION_NAME);
-  assert(v2Root, 'Arcable v2 root collection must be created');
+  assert(!v2Root, 'Arcable v2 root collection must not be created during fetch');
 
-  // Verify old root was deleted
-  const oldRoot = mockState.collections.find(c => c._id === 10);
-  assert(!oldRoot, 'Legacy "Arcable" root collection must be deleted from Raindrop');
+  // Verify workspace is treated as uninitialized
+  const ignoredData = ignoredWorkspace.data!;
+  assert.equal(ignoredData.raindropRootCollectionId, undefined, 'Uninitialized workspace must not have raindropRootCollectionId');
+  assert.equal(ignoredData.spaces.length, 0, 'Uninitialized workspace should have 0 spaces');
+  assert.equal(ignoredData.tabs.length, 0, 'Uninitialized workspace should have 0 tabs');
 
-  // Verify child space was reparented to new v2Root
-  const workSpace = mockState.collections.find(c => c._id === 20);
-  assert.equal(workSpace?.parent?.$id, v2Root._id, 'Child space must be reparented to Arcable v2 root');
-
-  // Verify nested folder preserved its parent
-  const projFolder = mockState.collections.find(c => c._id === 30);
-  assert.equal(projFolder?.parent?.$id, 20, 'Nested folder must remain child of its space');
-
-  // Verify favourite tab and widget moved to v2Root
-  const favTab = mockState.bookmarks.find(b => b._id === 100);
-  const widgetBookmark = mockState.bookmarks.find(b => b._id === 101);
-  assert.equal(favTab?.collection?.$id, v2Root._id, 'Favourite tab must be moved to Arcable v2 root');
-  assert.equal(widgetBookmark?.collection?.$id, v2Root._id, 'Widget item must be moved to Arcable v2 root');
-
-  // Verify workspace data was reconstructed properly under v2
-  const migratedData = migrationWorkspace.data!;
-  assert.equal(migratedData.spaces.length, 1, 'Reconstructed workspace should have 1 space');
-  assert.equal(migratedData.folders.length, 1, 'Reconstructed workspace should have 1 folder');
-  assert.equal(migratedData.widgets?.length, 1, 'Reconstructed workspace should have 1 widget');
-  assert.equal(migratedData.tabs.filter(t => !t.parentSpaceId).length, 1, 'Reconstructed workspace should have 1 favourite tab');
-
-  console.log('✓ Automatic migration from legacy "Arcable" root to "Arcable v2" and deletion of old root verified');
+  console.log('✓ Legacy "Arcable" root is ignored without legacy migration side effects');
 
   // 5. Verify tabs sorting order strictly matches Raindrop's top-to-bottom manual sequence
   calls.length = 0;

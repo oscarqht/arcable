@@ -11,7 +11,6 @@ import {
   deleteRaindropBookmark,
   deleteRaindropBookmarks,
   deleteRaindropCollection,
-  moveRaindropBookmarks,
   uploadRaindropFile,
   fetchRaindropFileContent,
   updateRaindropItem,
@@ -32,7 +31,6 @@ import {
   getStoredPendingOperations,
   clearStoredPendingOperations,
   compactSyncFile,
-  createInitialSyncFile,
   isPlaceholderSnapshot,
   recomputeSyncFileOnDeviceRemoval,
   recomputeSyncFileOnDeleteOtherDevices,
@@ -47,7 +45,6 @@ import {
 } from './customCodeUtils';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
-export const LEGACY_ROOT_COLLECTION_NAMES = ['Arcable'];
 export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
 export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
 export const ARCABLE_SPACE_THEME_COLLECTION_NAME = '_space_themes';
@@ -102,190 +99,7 @@ export function isSpaceThemeItem(item: RaindropBookmarkItem, spaceThemeCollectio
 }
 
 /**
- * Checks if a Raindrop item corresponds to the current Arcable sync file (sync.json.txt).
- */
-export function isSyncJsonItem(item: RaindropBookmarkItem): boolean {
-  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item)) {
-    return false;
-  }
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  return (
-    title === 'sync.json.txt' ||
-    title === 'sync.json' ||
-    fileName === 'sync.json.txt' ||
-    fileName === 'sync.json' ||
-    title.includes('sync.json') ||
-    fileName.includes('sync.json') ||
-    link.includes('sync.json')
-  );
-}
-
-/**
- * Checks if a Raindrop item corresponds to the previous Arcable v5 sync file.
- */
-export function isSyncV5JsonItem(item: RaindropBookmarkItem): boolean {
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  return (
-    title.includes('sync-v5.json') ||
-    title.includes('sync-v5.txt') ||
-    fileName.includes('sync-v5.json') ||
-    fileName.includes('sync-v5.txt') ||
-    link.includes('sync-v5.json') ||
-    link.includes('sync-v5.txt')
-  );
-}
-
-/** Checks if a Raindrop item is the previous v4 sync file. */
-export function isSyncV4JsonItem(item: RaindropBookmarkItem): boolean {
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  return (
-    title.includes('sync-v4.json') ||
-    title.includes('sync-v4.txt') ||
-    fileName.includes('sync-v4.json') ||
-    fileName.includes('sync-v4.txt') ||
-    link.includes('sync-v4.json') ||
-    link.includes('sync-v4.txt')
-  );
-}
-
-/**
- * Checks if a Raindrop item corresponds to the previous Arcable v3 data json file.
- */
-export function isDataV3JsonItem(item: RaindropBookmarkItem): boolean {
-  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item)) {
-    return false;
-  }
-
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  return (
-    title.includes('data-v3.json') ||
-    title.includes('data-v3.txt') ||
-    fileName.includes('data-v3.json') ||
-    fileName.includes('data-v3.txt') ||
-    link.includes('data-v3.json') ||
-    link.includes('data-v3.txt')
-  );
-}
-
-/**
- * Checks if a Raindrop item corresponds to the previous Arcable v2 data json file.
- */
-export function isDataV2JsonItem(item: RaindropBookmarkItem): boolean {
-  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item) || isDataV3JsonItem(item)) {
-    return false;
-  }
-
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  return (
-    title.includes('data-v2.json') ||
-    title.includes('data-v2.txt') ||
-    fileName.includes('data-v2.json') ||
-    fileName.includes('data-v2.txt') ||
-    link.includes('data-v2.json') ||
-    link.includes('data-v2.txt')
-  );
-}
-
-/**
- * Checks if a Raindrop item corresponds to the legacy Arcable v1 data json file.
- */
-export function isLegacyDataJsonItem(item: RaindropBookmarkItem): boolean {
-  const title = (item.title || '').trim().toLowerCase();
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-
-  if (isSyncV5JsonItem(item) || isSyncV4JsonItem(item) || isDataV3JsonItem(item) || isDataV2JsonItem(item)) {
-    return false;
-  }
-
-  return (
-    title.includes('data.json') ||
-    title.includes('data.txt') ||
-    fileName.includes('data.json') ||
-    fileName.includes('data.txt') ||
-    link.includes('data.json') ||
-    link.includes('data.txt')
-  );
-}
-
-/**
- * Checks if a Raindrop item corresponds to any Arcable data json file.
- */
-export function isDataJsonItem(item: RaindropBookmarkItem): boolean {
-  return (
-    isSyncJsonItem(item) ||
-    isSyncV5JsonItem(item) ||
-    isSyncV4JsonItem(item) ||
-    isDataV3JsonItem(item) ||
-    isDataV2JsonItem(item) ||
-    isLegacyDataJsonItem(item)
-  );
-}
-
-/**
- * Finds all existing "sync.json.txt" raindrop items under the specified collection,
- * sorted so that the most recently updated item is always first.
- */
-export async function findAllRaindropSyncJsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'sync.json',
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of searchRes.items) {
-      if (isSyncJsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for sync.json file failed, falling back to full list:', err);
-  }
-
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, {
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of listRes.items) {
-      if (isSyncJsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.error('[RaindropSync] Error listing items in collection:', err);
-  }
-
-  return items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : a.created ? new Date(a.created).getTime() : 0;
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : b.created ? new Date(b.created).getTime() : 0;
-    return timeB - timeA;
-  });
-}
-
-/**
  * Finds the root collection named ARCABLE_COLLECTION_NAME ("Arcable v2"), or creates one if it does not exist.
- * If a legacy root collection (e.g. "Arcable") is found, triggers migration so the new root is initialized.
  */
 export async function getOrCreateArcableCollection(token: string): Promise<RaindropCollectionItem> {
   const collections = await fetchRaindropCollections(token);
@@ -302,425 +116,16 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
     return matches[0];
   }
 
-  // Check if legacy root collection exists to migrate
-  const legacyMatches = collections.filter(
-    (c) =>
-      (!c.parent || !c.parent.$id) &&
-      LEGACY_ROOT_COLLECTION_NAMES.some((name) => c.title.trim().toLowerCase() === name.toLowerCase())
-  );
-
-  if (legacyMatches.length > 0) {
-    const tree = await fetchRemoteArcableTree(token);
-    if (tree.root) return tree.root;
-  }
-
   // Create new root collection
   const created = await createRaindropCollection(token, ARCABLE_COLLECTION_NAME);
   return created;
-}
-
-/**
- * Finds all existing "sync-v5.json.txt" raindrop items under the specified collection,
- * sorted so that the most recently updated item is always first.
- * Never relies on cached IDs, always queries Raindrop live.
- */
-export async function findAllRaindropSyncV5JsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  // 1. Search by term 'sync-v5' with newest first
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'sync-v5',
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of searchRes.items) {
-      if (isSyncV5JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for sync-v5 file failed, falling back to full list:', err);
-  }
-
-  // 2. Fallback: list items in the collection with newest first
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, {
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of listRes.items) {
-      if (isSyncV5JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.error('[RaindropSync] Error listing items in collection:', err);
-  }
-
-  // Guarantee descending sort by lastUpdate / created timestamp
-  items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
-    return timeB - timeA;
-  });
-
-  return items;
-}
-
-/** Finds the previous sync-v4 file for a one-way migration to sync-v5. */
-export async function findAllRaindropSyncV4JsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  for (const options of [
-    { search: 'sync-v4', perpage: 50, sort: '-lastUpdate' },
-    { perpage: 50, sort: '-lastUpdate' },
-  ]) {
-    try {
-      const result = await fetchRaindropItems(token, collectionId, options);
-      for (const item of result.items) {
-        if (isSyncV4JsonItem(item) && !items.some((x) => x._id === item._id)) {
-          items.push(item);
-        }
-      }
-    } catch (err) {
-      console.warn('[RaindropSync] Failed to find sync-v4 migration file:', err);
-    }
-  }
-
-  items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
-    return timeB - timeA;
-  });
-  return items;
-}
-
-/**
- * Finds all existing previous-generation "data-v3.json.txt" raindrop items under the
- * specified collection (used to migrate forward into the current sync file).
- */
-export async function findAllRaindropDataV3JsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  // 1. Search by term 'data-v3' with newest first
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'data-v3',
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of searchRes.items) {
-      if (isDataV3JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for data-v3 file failed, falling back to full list:', err);
-  }
-
-  // 2. Fallback: list items in the collection with newest first
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, {
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of listRes.items) {
-      if (isDataV3JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.error('[RaindropSync] Error listing items in collection:', err);
-  }
-
-  // Guarantee descending sort by lastUpdate / created timestamp
-  items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
-    return timeB - timeA;
-  });
-
-  return items;
-}
-
-/**
- * Finds all existing previous-generation "data-v2.json.txt" raindrop items under the
- * specified collection (used to migrate forward into data-v3.json.txt).
- */
-export async function findAllRaindropDataV2JsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  // 1. Search by term 'data-v2' with newest first
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'data-v2',
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of searchRes.items) {
-      if (isDataV2JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for data-v2 file failed, falling back to full list:', err);
-  }
-
-  // 2. Fallback: list items in the collection with newest first
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, {
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of listRes.items) {
-      if (isDataV2JsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.error('[RaindropSync] Error listing items in collection:', err);
-  }
-
-  // Guarantee descending sort by lastUpdate / created timestamp
-  items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
-    return timeB - timeA;
-  });
-
-  return items;
-}
-
-/**
- * Finds all existing legacy "data.json" / "data.json.txt" raindrop items under the specified collection.
- */
-export async function findAllRaindropLegacyDataJsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const items: RaindropBookmarkItem[] = [];
-
-  // 1. Search by term 'data' with newest first
-  try {
-    const searchRes = await fetchRaindropItems(token, collectionId, {
-      search: 'data',
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of searchRes.items) {
-      if (isLegacyDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.warn('[RaindropSync] Search for legacy data file failed:', err);
-  }
-
-  // 2. Fallback: list items in the collection
-  try {
-    const listRes = await fetchRaindropItems(token, collectionId, {
-      perpage: 50,
-      sort: '-lastUpdate',
-    });
-    for (const item of listRes.items) {
-      if (isLegacyDataJsonItem(item) && !items.some((x) => x._id === item._id)) {
-        items.push(item);
-      }
-    }
-  } catch (err) {
-    console.error('[RaindropSync] Error listing legacy items in collection:', err);
-  }
-
-  items.sort((a, b) => {
-    const timeA = a.lastUpdate ? new Date(a.lastUpdate).getTime() : (a.created ? new Date(a.created).getTime() : 0);
-    const timeB = b.lastUpdate ? new Date(b.lastUpdate).getTime() : (b.created ? new Date(b.created).getTime() : 0);
-    return timeB - timeA;
-  });
-
-  return items;
-}
-
-/**
- * Finds all existing data json items across all supported versions (prioritizing sync.json.txt).
- */
-export async function findAllRaindropDataJsonItems(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem[]> {
-  const syncItems = await findAllRaindropSyncJsonItems(token, collectionId);
-  if (syncItems.length > 0) return syncItems;
-
-  const v5Items = await findAllRaindropSyncV5JsonItems(token, collectionId);
-  if (v5Items.length > 0) return v5Items;
-
-  const v4Items = await findAllRaindropSyncV4JsonItems(token, collectionId);
-  if (v4Items.length > 0) return v4Items;
-
-  const v3Items = await findAllRaindropDataV3JsonItems(token, collectionId);
-  if (v3Items.length > 0) return v3Items;
-
-  const v2Items = await findAllRaindropDataV2JsonItems(token, collectionId);
-  if (v2Items.length > 0) return v2Items;
-
-  return findAllRaindropLegacyDataJsonItems(token, collectionId);
-}
-
-/**
- * Searches for the latest data json item under the specified collection.
- */
-export async function findRaindropDataJsonItem(
-  token: string,
-  collectionId: number
-): Promise<RaindropBookmarkItem | null> {
-  const all = await findAllRaindropDataJsonItems(token, collectionId);
-  return all.length > 0 ? all[0] : null;
-}
-
-/**
- * Downloads and parses ArcableWorkspaceData from a Raindrop bookmark item.
- * Supports both modern full-JSON snapshots and legacy ArcableSyncFile structures.
- * Tmp tabs are strictly excluded (kept local only).
- */
-export async function downloadAndParseWorkspaceData(
-  token: string,
-  item: RaindropBookmarkItem
-): Promise<ArcableWorkspaceData> {
-  const urlCandidates: string[] = [];
-
-  if (item._id) {
-    try {
-      const fullItem = await fetchRaindropItem(token, item._id);
-      if (fullItem?.file?.path) {
-        urlCandidates.push(fullItem.file.path);
-      }
-      if (fullItem?.link && !urlCandidates.includes(fullItem.link)) {
-        urlCandidates.push(fullItem.link);
-      }
-    } catch {
-      // Non-blocking detail lookup
-    }
-  }
-
-  if (item.file?.path && !urlCandidates.includes(item.file.path)) {
-    urlCandidates.push(item.file.path);
-  }
-  if (item.link && !urlCandidates.includes(item.link)) {
-    urlCandidates.push(item.link);
-  }
-  if (item._id) {
-    urlCandidates.push(`${RAINDROP_API_BASE}/raindrop/${item._id}/file`);
-    urlCandidates.push(`${RAINDROP_API_BASE}/file/${item._id}`);
-  }
-
-  let rawContent = '';
-  for (const url of urlCandidates) {
-    if (url && typeof url === 'string') {
-      try {
-        const content = await fetchRaindropFileContent(token, url);
-        if (content && content.trim() && !content.trim().startsWith('<')) {
-          rawContent = content.trim();
-          break;
-        }
-      } catch {
-        // Try next candidate
-      }
-    }
-  }
-
-  if (!rawContent || !rawContent.trim()) {
-    throw new Error(
-      `Found existing workspace sync file in Raindrop (Item ID ${item._id}), but failed to download its content.`
-    );
-  }
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    throw new Error(
-      `Found existing workspace sync file in Raindrop (Item ID ${item._id}), but content is not valid JSON.`
-    );
-  }
-
-  // Case 1: Legacy ArcableSyncFile format with baselineSnapshot & operations
-  if (parsed && parsed.baselineSnapshot && Array.isArray(parsed.operations)) {
-    let snapshot = parsed.baselineSnapshot as ArcableWorkspaceData;
-    if (parsed.operations.length > 0) {
-      snapshot = replayOperations(snapshot, parsed.operations);
-    }
-    return {
-      version: snapshot.version || 1,
-      activeSpaceId: snapshot.activeSpaceId || snapshot.spaces?.[0]?.id || 'space_personal',
-      spaces: snapshot.spaces || [],
-      folders: snapshot.folders || [],
-      tabs: snapshot.tabs || [],
-      tmpTabs: [], // Tmp tabs are local only
-      widgets: snapshot.widgets || [],
-      customCodeRules: snapshot.customCodeRules || [],
-      runCodeInPageRules: snapshot.runCodeInPageRules || [],
-    };
-  }
-
-  // Case 2: Full ArcableWorkspaceData JSON format
-  if (parsed && Array.isArray(parsed.spaces)) {
-    return {
-      version: parsed.version || 1,
-      activeSpaceId: parsed.activeSpaceId || parsed.spaces?.[0]?.id || 'space_personal',
-      spaces: parsed.spaces || [],
-      folders: parsed.folders || [],
-      tabs: parsed.tabs || [],
-      tmpTabs: [], // Tmp tabs are local only
-      widgets: parsed.widgets || [],
-      customCodeRules: parsed.customCodeRules || [],
-      runCodeInPageRules: parsed.runCodeInPageRules || [],
-    };
-  }
-
-  throw new Error(`Remote sync file structure in Raindrop is unrecognized.`);
-}
-
-/**
- * Downloads and parses an ArcableSyncFile from a Raindrop bookmark item (for backward compatibility).
- */
-export async function downloadAndParseSyncFile(
-  token: string,
-  item: RaindropBookmarkItem,
-  deviceId: string
-): Promise<ArcableSyncFile> {
-  const workspaceData = await downloadAndParseWorkspaceData(token, item);
-  return createInitialSyncFile(workspaceData, deviceId);
-}
-
-interface ArcableMetadata {
-  version: string;
-  widgets?: ArcableWorkspaceData['widgets'];
-  customCodeRules?: ArcableWorkspaceData['customCodeRules'];
-  runCodeInPageRules?: ArcableWorkspaceData['runCodeInPageRules'];
-  spaces?: ArcableWorkspaceData['spaces'];
 }
 
 interface RemoteArcableTree {
   root?: RaindropCollectionItem;
   collections: RaindropCollectionItem[];
   items: RaindropBookmarkItem[];
-  metadata: ArcableMetadata;
-  metadataItemId?: number;
 }
-
-const ARCABLE_NOTE_MARKER = 'arcable-bookmark-v1';
 
 export function numericRaindropId(id: string | undefined): number | undefined {
   if (!id || !/^\d+$/.test(id)) return undefined;
@@ -742,16 +147,6 @@ function emojiFromCover(cover?: string[]): string | undefined {
     return match[1].split('-').map((part) => String.fromCodePoint(parseInt(part, 16))).join('');
   } catch {
     return undefined;
-  }
-}
-
-function parseBookmarkNote(note?: string): Record<string, any> {
-  if (!note) return {};
-  try {
-    const parsed = JSON.parse(note);
-    return parsed?.schema === ARCABLE_NOTE_MARKER ? parsed : {};
-  } catch {
-    return {};
   }
 }
 
@@ -1017,15 +412,6 @@ export const INCREMENTAL_OPERATION_TYPES = new Set([
   'RUN_CODE_UPDATE',
   'RUN_CODE_DELETE',
 ]);
-
-function metadataFromWorkspace(workspace: ArcableWorkspaceData): ArcableMetadata {
-  return {
-    version: ARCABLE_VERSION,
-    widgets: workspace.widgets || [],
-    customCodeRules: workspace.customCodeRules || [],
-    runCodeInPageRules: workspace.runCodeInPageRules || [],
-  };
-}
 
 /**
  * Incremental writes require every affected parent to already have a Raindrop
@@ -1857,12 +1243,6 @@ export async function syncIncrementalOperations(
     }
   }
 
-  // Remove previous legacy data.json.txt if it was tracked
-  if (latestSnapshot.raindropMetadataItemId) {
-    await deleteRaindropBookmarks(token, rootId, [latestSnapshot.raindropMetadataItemId]).catch(() => null);
-    latestSnapshot = { ...latestSnapshot, raindropMetadataItemId: null };
-  }
-
   return {
     success: true,
     collectionId: latestSnapshot.raindropRootCollectionId,
@@ -1887,129 +1267,6 @@ function isArcableInternalItem(item: RaindropBookmarkItem): boolean {
   );
 }
 
-/** Snapshot files belonged to the retired operation-log sync format. */
-function isLegacySnapshotItem(item: RaindropBookmarkItem): boolean {
-  const fileName = (item.file?.name || '').trim().toLowerCase();
-  const title = (item.title || '').trim().toLowerCase();
-  const link = (item.link || '').toLowerCase();
-  // The stable data.json.txt metadata file is current, not a retired snapshot.
-  // Versioned data files are retired on the next explicit write.
-  if (
-    fileName === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
-    title === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
-    /(?:^|\/)data\.json\.txt(?:$|[?#])/.test(link)
-  ) {
-    return true;
-  }
-  const legacyName = /(?:sync(?:-v[45])?|data-(?:v)?\d[\w.-]*|data)\.json(?:\.txt)?/i;
-  return [item.title, item.file?.name, item.link].some((value) => legacyName.test(value || ''));
-}
-
-/** Permanently retires pre-tree snapshots and verifies Raindrop accepted every deletion. */
-async function removeLegacySnapshots(
-  token: string,
-  tree: RemoteArcableTree
-): Promise<RemoteArcableTree> {
-  const legacySnapshots = tree.items.filter(isLegacySnapshotItem);
-  if (legacySnapshots.length === 0) return tree;
-
-  const results = await Promise.all(
-    legacySnapshots.map(async (item) => ({
-      item,
-      deleted: await deleteRaindropBookmark(token, item._id),
-    }))
-  );
-  const failed = results.filter((result) => !result.deleted);
-  if (failed.length > 0) {
-    throw new Error(
-      `Raindrop refused to delete retired Arcable snapshot item(s): ${failed.map(({ item }) => item._id).join(', ')}`
-    );
-  }
-
-  const refreshed = await fetchRemoteArcableTree(token);
-  const remaining = refreshed.items.filter(isLegacySnapshotItem);
-  if (remaining.length > 0) {
-    throw new Error(
-      `Retired Arcable snapshot item(s) still exist after deletion: ${remaining.map((item) => item._id).join(', ')}`
-    );
-  }
-  return refreshed;
-}
-
-async function readMetadata(token: string, rootId: number, item: RaindropBookmarkItem | undefined): Promise<ArcableMetadata> {
-  if (!item) return { version: ARCABLE_VERSION };
-  const full = await fetchRaindropItem(token, item._id).catch(() => null);
-  // Collection listings can omit a file URL even when the metadata item exists.
-  // The API item/file endpoint remains available in that case, particularly for
-  // server-side web hydration where there is no browser-cached file URL.
-  const contentCandidates = [
-    full?.file?.path,
-    item.file?.path,
-    item.link,
-    `${RAINDROP_API_BASE}/raindrop/${item._id}/file`,
-    `${RAINDROP_API_BASE}/file/${item._id}`,
-  ].filter((value, index, values): value is string =>
-    Boolean(value && value.trim()) && values.indexOf(value) === index
-  );
-  let content = '';
-  for (const url of contentCandidates) {
-    content = await fetchRaindropFileContent(token, url).catch(() => '');
-    if (content.trim()) break;
-  }
-  try {
-    const parsed = JSON.parse(content);
-    return parsed && typeof parsed === 'object' ? { version: ARCABLE_VERSION, ...parsed } : { version: ARCABLE_VERSION };
-  } catch {
-    console.warn(`[RaindropSync] Could not parse ${ARCABLE_DATA_FILE_NAME} in collection ${rootId}.`);
-    return { version: ARCABLE_VERSION };
-  }
-}
-
-/**
- * Migrates child collections and bookmark items from a legacy root collection
- * (e.g. "Arcable") to the new root collection ("Arcable v2"), then deletes the legacy root.
- */
-async function migrateLegacyRootCollection(
-  token: string,
-  legacyRoot: RaindropCollectionItem,
-  targetRoot: RaindropCollectionItem,
-  allCollections: RaindropCollectionItem[]
-): Promise<void> {
-  console.log(
-    `[RaindropSync] Migrating legacy root collection "${legacyRoot.title}" (${legacyRoot._id}) to "${targetRoot.title}" (${targetRoot._id})...`
-  );
-
-  // 1. Move all immediate child collections to targetRoot
-  const childCollections = allCollections.filter((c) => c.parent?.$id === legacyRoot._id);
-  for (const child of childCollections) {
-    try {
-      await updateRaindropCollection(token, child._id, { parentId: targetRoot._id });
-      child.parent = { $id: targetRoot._id };
-    } catch (err) {
-      console.warn(`[RaindropSync] Failed to reparent child collection ${child.title} (${child._id}):`, err);
-    }
-  }
-
-  // 2. Move all bookmark items directly under legacyRoot to targetRoot
-  try {
-    const legacyItems = await fetchAllRaindropItems(token, legacyRoot._id);
-    if (legacyItems.length > 0) {
-      const itemIds = legacyItems.map((item) => item._id);
-      await moveRaindropBookmarks(token, legacyRoot._id, targetRoot._id, itemIds);
-    }
-  } catch (err) {
-    console.warn(`[RaindropSync] Failed to move items from legacy root ${legacyRoot._id}:`, err);
-  }
-
-  // 3. Delete the legacy root collection to prevent confusion and conflicts with older clients
-  try {
-    await deleteRaindropCollection(token, legacyRoot._id);
-    console.log(`[RaindropSync] Deleted legacy root collection "${legacyRoot.title}" (${legacyRoot._id}).`);
-  } catch (err) {
-    console.warn(`[RaindropSync] Failed to delete legacy root collection ${legacyRoot._id}:`, err);
-  }
-}
-
 /** Fetches the complete Arcable subtree and only the items below its root. */
 async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree> {
   // Raindrop caches identical list URLs. A reload immediately after a batch
@@ -2017,32 +1274,14 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
   // Reuse one unique key across every page so the read remains a coherent
   // snapshot while still bypassing both Raindrop's and the browser's caches.
   const cacheBust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  let allCollections = await fetchRaindropCollections(token, { cacheBust });
+  const allCollections = await fetchRaindropCollections(token, { cacheBust });
   const roots = allCollections.filter((collection) => !collection.parent?.$id);
   const matchingRoots = roots
     .filter((collection) => collection.title.trim().toLowerCase() === ARCABLE_COLLECTION_NAME.toLowerCase())
     .sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
-  let root = matchingRoots[0];
+  const root = matchingRoots[0];
 
-  // Check if any legacy root collections exist (e.g. "Arcable")
-  const legacyRoots = roots.filter(
-    (collection) =>
-      collection._id !== root?._id &&
-      LEGACY_ROOT_COLLECTION_NAMES.some((name) => collection.title.trim().toLowerCase() === name.toLowerCase())
-  );
-
-  if (legacyRoots.length > 0) {
-    if (!root) {
-      root = await createRaindropCollection(token, ARCABLE_COLLECTION_NAME);
-      allCollections.push(root);
-    }
-    for (const legacyRoot of legacyRoots) {
-      await migrateLegacyRootCollection(token, legacyRoot, root, allCollections);
-      allCollections = allCollections.filter((c) => c._id !== legacyRoot._id);
-    }
-  }
-
-  if (!root) return { collections: [], items: [], metadata: { version: ARCABLE_VERSION } };
+  if (!root) return { collections: [], items: [] };
 
   const byId = new Map(allCollections.map((collection) => [collection._id, collection]));
   const descendantIds = new Set<number>([root._id]);
@@ -2061,12 +1300,7 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
     .map((id) => byId.get(id))
     .filter((collection): collection is RaindropCollectionItem => Boolean(collection));
   const items = await fetchAllRaindropItems(token, root._id, { nested: true, cacheBust });
-  const rootItems = items.filter((item) => item.collectionId === root._id);
-  const metadataItem = rootItems.find((candidate) =>
-    (candidate.file?.name || candidate.title || '').trim().toLowerCase() === ARCABLE_DATA_FILE_NAME.toLowerCase()
-  );
-  const metadata = await readMetadata(token, root._id, metadataItem);
-  return { root, collections, items, metadata, metadataItemId: metadataItem?._id };
+  return { root, collections, items };
 }
 
 function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
@@ -2086,18 +1320,8 @@ function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
 
 export function reconstructWorkspace(
   tree: RemoteArcableTree,
-  targetActiveSpaceId?: string,
-  options?: { allowLegacyMetadataFallback?: boolean }
+  targetActiveSpaceId?: string
 ): ArcableWorkspaceData {
-  // The tree.metadata.widgets/customCodeRules/runCodeInPageRules fallback below exists
-  // only to hydrate a device that has never synced this workspace before (pre-migration
-  // installs that still keep everything inside the legacy data.json.txt blob). Once a
-  // device has already established a root collection for this workspace, an empty list
-  // of live items is a legitimate deletion, not evidence of un-migrated data — the legacy
-  // blob can otherwise resurrect items that were deleted after it was last written (its
-  const nonLegacyItems = tree.items.filter((item) => !isArcableInternalItem(item));
-  const hasNativeTreeStructure = tree.collections.length > 0 || nonLegacyItems.length > 0;
-  const allowLegacyMetadataFallback = options?.allowLegacyMetadataFallback ?? !hasNativeTreeStructure;
   if (!tree.root) return createEmptyRemoteWorkspace();
   const root = tree.root;
   const collectionById = new Map(tree.collections.map((collection) => [collection._id, collection]));
@@ -2161,9 +1385,6 @@ export function reconstructWorkspace(
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
     .map((collection, index) => {
       const theme = spaceThemesMap.get(String(collection._id)) || spaceThemesMap.get(arcableCollectionId(collection._id));
-      const legacySpace = allowLegacyMetadataFallback
-        ? tree.metadata?.spaces?.find((s) => s.id === arcableCollectionId(collection._id) || (s.raindropId && s.raindropId === collection._id))
-        : undefined;
       return {
         id: arcableCollectionId(collection._id),
         raindropId: collection._id,
@@ -2171,10 +1392,10 @@ export function reconstructWorkspace(
         name: decodeRaindropTitle(collection.title),
         emojiIcon: emojiFromCover(collection.cover),
         coverUrl: collection.cover?.[0],
-        colors: theme?.colors ?? legacySpace?.colors,
-        themeNoise: theme?.themeNoise ?? legacySpace?.themeNoise,
-        themeScheme: theme?.themeScheme ?? legacySpace?.themeScheme,
-        themeConfig: theme?.themeConfig ?? legacySpace?.themeConfig,
+        colors: theme?.colors,
+        themeNoise: theme?.themeNoise,
+        themeScheme: theme?.themeScheme,
+        themeConfig: theme?.themeConfig,
         order: (index + 1) * 1000,
         createdAt: timestamp(collection.created),
         updatedAt: timestamp(collection.lastUpdate),
@@ -2257,10 +1478,6 @@ export function reconstructWorkspace(
     };
   }).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-  if (allowLegacyMetadataFallback && widgets.length === 0 && tree.metadata?.widgets?.length) {
-    widgets = tree.metadata.widgets;
-  }
-
   // Reconstruct custom code rules from _custom_css
   const customCssItems = customCssCollection
     ? tree.items.filter((item) => item.collectionId === customCssCollection._id || isCustomCssItem(item, customCssCollection._id))
@@ -2314,9 +1531,6 @@ export function reconstructWorkspace(
     };
   });
 
-  if (allowLegacyMetadataFallback && customCodeRules.length === 0 && tree.metadata?.customCodeRules?.length) {
-    customCodeRules = tree.metadata.customCodeRules;
-  }
   customCodeRules = sortCustomCodeRules(customCodeRules);
 
   // Reconstruct run code rules from _run_code
@@ -2359,9 +1573,6 @@ export function reconstructWorkspace(
     };
   });
 
-  if (allowLegacyMetadataFallback && runCodeInPageRules.length === 0 && tree.metadata?.runCodeInPageRules?.length) {
-    runCodeInPageRules = tree.metadata.runCodeInPageRules;
-  }
   runCodeInPageRules = sortRunCodeRules(runCodeInPageRules);
 
   // Identify placeholder / internal item IDs to exclude from tabs
@@ -2561,7 +1772,7 @@ export function reconstructWorkspace(
   return {
     raindropRootCollectionId: root._id,
     raindropSpaceThemeCollectionId: spaceThemeCollection?._id,
-    raindropMetadataItemId: tree.metadataItemId ?? null,
+    raindropMetadataItemId: null,
     version: 1,
     activeSpaceId,
     spaces,
@@ -2592,47 +1803,6 @@ export async function fetchRaindropWorkspace(
       errorDetails: getRaindropRequestFailureDetails(err),
     };
   }
-}
-
-/**
- * Fetches and parses the ArcableSyncFile from Raindrop file content (backward compatibility helper).
- */
-export async function fetchRaindropSyncFile(
-  token: string,
-  collectionId: number,
-  localFallback: ArcableWorkspaceData,
-  deviceId: string
-): Promise<{ syncFile: ArcableSyncFile; existingItems: RaindropBookmarkItem[] }> {
-  const syncItems = await findAllRaindropSyncJsonItems(token, collectionId);
-  if (syncItems.length > 0) {
-    const syncFile = await downloadAndParseSyncFile(token, syncItems[0], deviceId);
-    return { syncFile, existingItems: syncItems };
-  }
-
-  const existingV5Items = await findAllRaindropSyncV5JsonItems(token, collectionId);
-  if (existingV5Items.length > 0) {
-    const syncFile = await downloadAndParseSyncFile(token, existingV5Items[0], deviceId);
-    return { syncFile, existingItems: existingV5Items };
-  }
-
-  const existingV4Items = await findAllRaindropSyncV4JsonItems(token, collectionId);
-  if (existingV4Items.length > 0) {
-    const migratedSyncFile = await downloadAndParseSyncFile(token, existingV4Items[0], deviceId);
-    return { syncFile: migratedSyncFile, existingItems: [] };
-  }
-
-  const existingV3Items = await findAllRaindropDataV3JsonItems(token, collectionId);
-  if (existingV3Items.length > 0) {
-    try {
-      const migratedSyncFile = await downloadAndParseSyncFile(token, existingV3Items[0], deviceId);
-      return { syncFile: migratedSyncFile, existingItems: [] };
-    } catch {}
-  }
-
-  return {
-    syncFile: createInitialSyncFile(localFallback, deviceId),
-    existingItems: [],
-  };
 }
 
 /**
@@ -2689,10 +1859,7 @@ export async function syncWorkspaceWithRaindrop(
           return {
             success: true,
             collectionId: tree.root._id,
-            dataItemId: tree.metadataItemId,
-            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId, {
-              allowLegacyMetadataFallback: !syncLocalState?.raindropRootCollectionId,
-            }),
+            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId),
             syncedAt: Date.now(),
           };
         }
@@ -2702,9 +1869,7 @@ export async function syncWorkspaceWithRaindrop(
 
     if (needsIncrementalIdentityRebase(syncLocalState, options?.pendingOps, options?.replaceBaseline)) {
       authoritativeTree = await fetchRemoteArcableTree(clean);
-      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree, syncLocalState?.activeSpaceId, {
-        allowLegacyMetadataFallback: !syncLocalState?.raindropRootCollectionId,
-      });
+      const authoritativeSnapshot = reconstructWorkspace(authoritativeTree, syncLocalState?.activeSpaceId);
       if (authoritativeSnapshot && options?.pendingOps) {
         syncLocalState = replayOperations(authoritativeSnapshot, options.pendingOps);
       }
@@ -2724,10 +1889,6 @@ export async function syncWorkspaceWithRaindrop(
     let root = tree.root;
     if (!root) root = await createRaindropCollection(clean, ARCABLE_COLLECTION_NAME);
     if (!root?._id) throw new Error(`Failed to create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
-
-    // No migration is supported: remove retired snapshot files rather than
-    // leaving two competing cloud representations under Arcable.
-    tree = await removeLegacySnapshots(clean, tree);
 
     const localState: ArcableWorkspaceData = syncLocalState || {
       activeSpaceId: 'space_personal',
@@ -2750,7 +1911,7 @@ export async function syncWorkspaceWithRaindrop(
       tree.collections.map((collection) => [String(collection._id), collection._id])
     );
     const remoteItemByArcableId = new Map(
-      tree.items.map((item) => [parseBookmarkNote(item.note).arcableId || String(item._id), item._id])
+      tree.items.map((item) => [String(item._id), item._id])
     );
     const localCollectionToRemote = new Map<string, number>();
     const skippedCollectionIds = new Set<string>();
@@ -3369,34 +2530,12 @@ export async function syncWorkspaceWithRaindrop(
       }
     }
 
-    // Clean up legacy data.json.txt if present (it is retired)
-    const oldMetadata = tree.items.filter((item) =>
-      (item.file?.name || item.title || '').trim().toLowerCase() === ARCABLE_DATA_FILE_NAME.toLowerCase()
-    );
-    for (let start = 0; start < oldMetadata.length; start += 100) {
-      await deleteRaindropBookmarks(clean, root._id, oldMetadata.slice(start, start + 100).map((item) => item._id));
-    }
-
-    // Clean up legacy note metadata on existing bookmarks
-    const bookmarksWithLegacyNotes = tree.items.filter((item) =>
-      !isArcableInternalItem(item) &&
-      !isWidgetItem(item) &&
-      !isCustomCssItem(item) &&
-      !isRunCodeItem(item) &&
-      !isSpaceThemeItem(item) &&
-      Boolean(item.note && (item.note.includes(ARCABLE_NOTE_MARKER) || item.note.includes('"schema"')))
-    );
-    for (const item of bookmarksWithLegacyNotes) {
-      await updateRaindropItem(clean, item._id, { note: '' });
-    }
-
     tree = await fetchRemoteArcableTree(clean);
-    const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId, { allowLegacyMetadataFallback: false });
+    const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId);
 
     return {
       success: true,
       collectionId: root._id,
-      dataItemId: undefined,
       latestSnapshot,
       syncedAt: Date.now(),
     };
@@ -3519,10 +2658,6 @@ export function parseBackupFileName(fileNameOrTitle: string): {
  * Checks if a Raindrop bookmark/file item corresponds to an Arcable backup file.
  */
 export function isBackupFileItem(item: RaindropBookmarkItem): boolean {
-  if (isDataJsonItem(item)) {
-    return false;
-  }
-
   const title = (item.title || '').trim().toLowerCase();
   const fileName = (item.file?.name || '').trim().toLowerCase();
   const link = (item.link || '').toLowerCase();

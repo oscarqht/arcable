@@ -42,19 +42,19 @@ assert.match(workspaceHook, /const hasGlobalWorkspaceData = Boolean\(/,
   'a workspace with only global favourites or widgets must not be discarded for having no spaces');
 assert.match(workspaceHook, /parsed\.spaces\.length === 0 && !hasGlobalWorkspaceData/,
   'only an entirely empty workspace may be reset when it has no spaces');
-assert.match(workspaceHook, /const remoteMetadataMissing = snapshot\.raindropMetadataItemId === null/,
-  'hydration must distinguish an absent metadata file from an explicit empty metadata payload');
+assert.match(workspaceHook, /const remoteMetadataMissing = !snapshot\.raindropRootCollectionId;/,
+  'hydration must distinguish an absent remote root collection from an initialized workspace');
 assert.match(workspaceHook, /widgets:\s*remoteMetadataMissing \? \(prev\.widgets \|\| \[\]\) : \(snapshot\.widgets \|\| \[\]\)/,
-  'hydration must retain widgets when Raindrop has no canonical metadata file');
+  'hydration must retain widgets when Raindrop has no root collection');
 assert.match(workspaceHook, /customCodeRules:\s*remoteMetadataMissing \? \(prev\.customCodeRules \|\| \[\]\) : \(snapshot\.customCodeRules \|\| \[\]\)/,
-  'hydration must retain Custom JS/CSS when Raindrop has no canonical metadata file');
+  'hydration must retain Custom JS/CSS when Raindrop has no root collection');
 assert.match(workspaceHook, /runCodeInPageRules:\s*remoteMetadataMissing \? \(prev\.runCodeInPageRules \|\| \[\]\) : \(snapshot\.runCodeInPageRules \|\| \[\]\)/,
-  'hydration must retain Run Code when Raindrop has no canonical metadata file');
+  'hydration must retain Run Code when Raindrop has no root collection');
 
 assert.match(
   workspaceManager,
-  /applySnapshot:\s*\(snapshot: ArcableWorkspaceData\)\s*=>\s*\{[\s\S]*?snapshot\.raindropMetadataItemId === null[\s\S]*?latestWorkspaceDataRef\.current = hydratedSnapshot;[\s\S]*?applyLatestSnapshot\(hydratedSnapshot\);/,
-  'a metadata-less hydration must retain local metadata in the manager\'s synchronous workspace reference'
+  /applySnapshot:\s*\(snapshot: ArcableWorkspaceData\)\s*=>\s*\{[\s\S]*?!snapshot\.raindropRootCollectionId[\s\S]*?latestWorkspaceDataRef\.current = hydratedSnapshot;[\s\S]*?applyLatestSnapshot\(hydratedSnapshot\);/,
+  'an uninitialized remote workspace hydration must retain local metadata in the manager\'s synchronous workspace reference'
 );
 
 console.log('Web Raindrop sync parity tests passed.');

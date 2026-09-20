@@ -2674,12 +2674,10 @@ export function useWorkspace() {
         const activeSpaceStillExists =
           currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID ||
           snapshot.spaces.some((s) => s.id === currentActive);
-        // A null ID is a confirmed absence of the canonical Raindrop metadata
-        // file, not an intentional empty metadata payload. Do not erase data
-        // which this client can create on its next metadata sync. A present
-        // metadata file (including one containing empty arrays) remains
-        // authoritative.
-        const remoteMetadataMissing = snapshot.raindropMetadataItemId === null && !snapshot.raindropRootCollectionId;
+        // A missing root collection ID indicates the workspace has not been
+        // initialized in Raindrop. Do not erase data which this client can
+        // create on its next sync.
+        const remoteMetadataMissing = !snapshot.raindropRootCollectionId;
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();
