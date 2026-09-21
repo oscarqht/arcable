@@ -35,6 +35,7 @@ import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
+import { computeTabUrlReplacement, getActiveBrowserTabInfo } from '../../utils/tabUtils';
 import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
@@ -105,6 +106,7 @@ export interface WorkspaceManagerProps {
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
+  onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onTabsChange?: (tabs: Tab[]) => void;
   onSearchChange?: (query: string) => void;
   onSyncStateChange?: (isSyncing: boolean) => void;
@@ -159,6 +161,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       highlightedTabId,
       onCloseAssociatedTab,
       onResetDivertedUrl,
+      onReplaceTabUrl: customOnReplaceTabUrl,
       onTabsChange,
       onSearchChange,
       onSyncStateChange,
@@ -1309,6 +1312,22 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     }
   };
 
+  // Replace saved tab URL with active browser tab URL
+  const handleReplaceWithCurrentUrl = useCallback(
+    async (tab: Tab, targetVariantId?: string) => {
+      if (customOnReplaceTabUrl) {
+        await customOnReplaceTabUrl(tab, targetVariantId);
+        return;
+      }
+      const activeInfo = await getActiveBrowserTabInfo(onCaptureCurrentTab);
+      if (!activeInfo?.url) return;
+
+      const updates = computeTabUrlReplacement(tab, activeInfo.url, targetVariantId, activeInfo.favIconUrl);
+      updateTab(tab.id, updates);
+    },
+    [customOnReplaceTabUrl, onCaptureCurrentTab, updateTab]
+  );
+
   // Expose imperative handle for external control (e.g. Header buttons)
   useImperativeHandle(
     ref,
@@ -1795,6 +1814,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
         onReorderGroupVariants={reorderGroupVariants}
+        onReplaceTabUrl={handleReplaceWithCurrentUrl}
         raindropRootCollectionId={data.raindropRootCollectionId}
       />
 
@@ -2289,6 +2309,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onDropTmpTab={handleDropTmpTabIntoFolder}
                   onReorderPinnedTabs={reorderPinnedTabs}
                   onMoveSpace={moveSpace}
+                  onReplaceTabUrl={handleReplaceWithCurrentUrl}
                 />
               </div>
             ))}
@@ -2430,6 +2451,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
+                      onReplaceTabUrl={handleReplaceWithCurrentUrl}
                     />
                   </div>
                 ))}
@@ -2602,6 +2624,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onDropTmpTab={handleDropTmpTabIntoFolder}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
+                      onReplaceTabUrl={handleReplaceWithCurrentUrl}
                     />
                   )}
                 </div>

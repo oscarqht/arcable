@@ -48,6 +48,7 @@ export interface FolderItemProps {
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
+  onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
@@ -96,6 +97,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onOpenVariant,
   onCloseAssociatedTab,
   onResetDivertedUrl,
+  onReplaceTabUrl,
   onMediaControl,
   onEditTab,
   onDuplicateTab,
@@ -1128,6 +1130,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onDropTmpTab={onDropTmpTab}
                   onDuplicateTab={onDuplicateTab}
                   onOpenVariant={onOpenVariant}
+                  onReplaceTabUrl={onReplaceTabUrl}
                   themeStyles={themeStyles}
                 />
               );
@@ -1158,6 +1161,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 onOpen={onOpenTab}
                 onOpenTmpTab={onOpenTmpTab}
                 onOpenVariant={onOpenVariant}
+                onReplaceWithCurrentUrl={onReplaceTabUrl}
                 onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                 onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                 onMediaControl={

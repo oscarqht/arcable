@@ -79,6 +79,7 @@ export interface SpaceCardProps {
   }) => void;
   onReorderPinnedTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   onMoveSpace?: (spaceId: string, direction: 'left' | 'right') => void;
+  onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onDropTmpTab?: (
     tmpTab: TmpTab,
     folderId: string | undefined,
@@ -127,6 +128,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onReorderSiblingItem,
   onReorderPinnedTabs,
   onMoveSpace,
+  onReplaceTabUrl,
   onDropTmpTab,
 }) => {
 
@@ -544,6 +546,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onOpen={onOpenTab}
                         onOpenTmpTab={onOpenTmpTab}
                         onOpenVariant={onOpenVariant}
+                        onReplaceWithCurrentUrl={onReplaceTabUrl}
                         onCloseAssociatedTab={() => onCloseAssociatedTab?.(t.id)}
                         onResetDivertedUrl={() => onResetDivertedUrl?.(t.id)}
                         onMediaControl={
@@ -648,6 +651,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onMoveSiblingItem={onMoveSiblingItem}
                         onReorderSiblingItem={onReorderSiblingItem}
                         onDropTmpTab={onDropTmpTab}
+                        onReplaceTabUrl={onReplaceTabUrl}
                         themeStyles={themeStyles}
                       />
                     );
@@ -678,6 +682,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       onOpen={onOpenTab}
                       onOpenTmpTab={onOpenTmpTab}
                       onOpenVariant={onOpenVariant}
+                      onReplaceWithCurrentUrl={onReplaceTabUrl}
                       onCloseAssociatedTab={() => onCloseAssociatedTab?.(item.id)}
                       onResetDivertedUrl={() => onResetDivertedUrl?.(item.id)}
                       onMediaControl={

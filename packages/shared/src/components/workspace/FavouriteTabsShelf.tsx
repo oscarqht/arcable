@@ -17,6 +17,7 @@ import {
 } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
+import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
@@ -72,6 +73,7 @@ export interface FavouriteTabsShelfProps {
   onMergeFavouriteTabs?: (sourceTabId: string, targetTabId: string) => void;
   onUngroupTab?: (tabId: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
+  onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => void;
   onUpdateWidget?: (id: string, updates: Partial<WorkspaceWidget>) => void;
   onRemoveWidget?: (id: string) => void;
@@ -140,6 +142,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onMergeFavouriteTabs,
   onUngroupTab,
   onOpenVariant,
+  onReplaceTabUrl,
   onAddWidget,
   onUpdateWidget,
   onRemoveWidget,
@@ -615,8 +618,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                           }, 1500);
                         }
                       },
-                      dividerAfter: true,
                     },
+                    buildReplaceWithCurrentUrlMenuItem({
+                      tab,
+                      onReplaceWithCurrentUrl: (variantId) => onReplaceTabUrl?.(tab, variantId),
+                      iconSize: 14,
+                      childIconSize: 13,
+                      dividerAfter: true,
+                    }),
                   ]
                 : []),
               {

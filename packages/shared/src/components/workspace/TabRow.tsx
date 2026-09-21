@@ -32,6 +32,7 @@ import {
 } from '../Icons';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
 import { copyToClipboard } from '../../utils/format';
+import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 
 export interface TabRowProps {
   tab: Tab;
@@ -53,6 +54,7 @@ export interface TabRowProps {
   onOpen?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
+  onReplaceWithCurrentUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onCloseAssociatedTab?: () => void;
   onResetDivertedUrl?: () => void;
   onMediaControl?: (action: MediaControlAction) => void;
@@ -88,6 +90,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onOpen,
   onOpenTmpTab,
   onOpenVariant,
+  onReplaceWithCurrentUrl,
   onCloseAssociatedTab,
   onResetDivertedUrl,
   onMediaControl,
@@ -120,6 +123,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
+  const actionDropdownContainerRef = React.useRef<HTMLDivElement>(null);
 
   const domain = getDomain(resolvedUrl);
   const displayTitle = tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
@@ -182,6 +186,15 @@ export const TabRow: React.FC<TabRowProps> = ({
     [onOpenTmpTab, onOpen]
   );
 
+  const handleReplaceWithCurrentUrl = useCallback(
+    async (variantId?: string) => {
+      if (onReplaceWithCurrentUrl) {
+        await onReplaceWithCurrentUrl(tab, variantId);
+      }
+    },
+    [onReplaceWithCurrentUrl, tab]
+  );
+
   const tabMenuItems: ActionDropdownItem[] = useMemo(() => {
     const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
     const hasMultipleVariants = validVariants.length > 1;
@@ -210,8 +223,15 @@ export const TabRow: React.FC<TabRowProps> = ({
               }
             },
           }),
-      dividerAfter: Boolean(onToggleFavourite || onEdit || onDuplicate || onDelete),
     };
+
+    const replaceWithCurrentUrlMenuItem = buildReplaceWithCurrentUrlMenuItem({
+      tab,
+      onReplaceWithCurrentUrl: handleReplaceWithCurrentUrl,
+      iconSize: 15,
+      childIconSize: 14,
+      dividerAfter: Boolean(onToggleFavourite || onEdit || onDuplicate || onDelete),
+    });
 
     const items: ActionDropdownItem[] = [
       {
@@ -221,6 +241,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         onClick: handleCopyUrl,
       },
       tmpTabMenuItem,
+      replaceWithCurrentUrlMenuItem,
     ];
 
     if (onToggleFavourite) {
@@ -281,6 +302,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     copied,
     handleCopyUrl,
     handleOpenTmpTab,
+    handleReplaceWithCurrentUrl,
     handleEditInRaindrop,
     displayTitle,
     raindropCollectionId,
@@ -380,6 +402,14 @@ export const TabRow: React.FC<TabRowProps> = ({
         setDropIndicator(null);
       }}
       onClick={handleClick}
+      onContextMenu={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button, input, a, [role="button"]')) {
+          return;
+        }
+        e.preventDefault();
+        actionDropdownContainerRef.current?.querySelector('button')?.click();
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -583,14 +613,16 @@ export const TabRow: React.FC<TabRowProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Action Dropdown (...) button on hover */}
-        <ActionDropdown
-          items={tabMenuItems}
-          isDarkTheme={effectiveDark}
-          visible={showActions}
-          hoverBg={activeIconHoverBg}
-          buttonTitle="Tab options"
-          size="sm"
-        />
+        <div ref={actionDropdownContainerRef} style={{ display: 'inline-flex' }}>
+          <ActionDropdown
+            items={tabMenuItems}
+            isDarkTheme={effectiveDark}
+            visible={showActions}
+            hoverBg={activeIconHoverBg}
+            buttonTitle="Tab options"
+            size="sm"
+          />
+        </div>
 
         {/* Copy Link icon button: between ... and - button */}
         {(showActions || copied) && (

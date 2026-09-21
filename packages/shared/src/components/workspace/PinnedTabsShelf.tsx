@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Tab, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
+import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
@@ -34,6 +35,7 @@ export interface PinnedTabsShelfProps {
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
+  onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onAddPinnedTab: () => void;
   onReorderPinnedTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
 }
@@ -50,6 +52,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
+  onReplaceTabUrl,
   onAddPinnedTab,
   onReorderPinnedTabs,
 }) => {
@@ -314,9 +317,15 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                               }
                             },
                           }),
-                      dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
                     };
                   })(),
+                  buildReplaceWithCurrentUrlMenuItem({
+                    tab,
+                    onReplaceWithCurrentUrl: (variantId) => onReplaceTabUrl?.(tab, variantId),
+                    iconSize: 14,
+                    childIconSize: 13,
+                    dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
+                  }),
                   ...(onToggleFavouriteTab
                     ? [
                         {
