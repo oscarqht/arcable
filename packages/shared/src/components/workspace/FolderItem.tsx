@@ -781,7 +781,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                       flex: hasVariants ? '0 1 auto' : 1,
-                      minWidth: hasVariants ? '40px' : 0,
+                      minWidth: 0,
                       lineHeight: '16px',
                     }}
                   >

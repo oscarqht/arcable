@@ -509,7 +509,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             flex: hasVariants ? '0 1 auto' : 1,
-            minWidth: hasVariants ? '40px' : 0,
+            minWidth: 0,
           }}
           title={displayTitle}
         >
