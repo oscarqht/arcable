@@ -102,4 +102,37 @@ export function areUrlsMatching(urlA?: string, urlB?: string): boolean {
   }
 }
 
+/**
+ * Copies text to clipboard with modern navigator.clipboard API and fallback support.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fallback below
+    }
+  }
+  if (typeof document !== 'undefined') {
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      const res = document.execCommand('copy');
+      document.body.removeChild(el);
+      return res;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+
 

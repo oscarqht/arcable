@@ -11,9 +11,11 @@ import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { CopyLinkButton } from './CopyLinkButton';
 import {
   CopyIcon,
   CheckIcon,
+  LinkIcon,
   ExternalLinkIcon,
   StarIcon,
   EditIcon,
@@ -29,6 +31,7 @@ import {
   GlobeIcon,
 } from '../Icons';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
+import { copyToClipboard } from '../../utils/format';
 
 export interface TabRowProps {
   tab: Tab;
@@ -142,8 +145,10 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   const handleCopyUrl = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (tab.url) {
-      navigator.clipboard.writeText(tab.url);
+    e.preventDefault();
+    const urlToCopy = currentUrl || tab.url;
+    if (urlToCopy) {
+      void copyToClipboard(urlToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     }
@@ -211,8 +216,8 @@ export const TabRow: React.FC<TabRowProps> = ({
     const items: ActionDropdownItem[] = [
       {
         id: 'copy-url',
-        label: copied ? 'Copied URL!' : 'Copy URL',
-        icon: copied ? <CheckIcon size={15} color="#10b981" /> : <CopyIcon size={15} />,
+        label: copied ? 'Copied link!' : 'Copy link',
+        icon: copied ? <CheckIcon size={15} color="#10b981" /> : <LinkIcon size={15} />,
         onClick: handleCopyUrl,
       },
       tmpTabMenuItem,
@@ -355,7 +360,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     : (effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)');
   const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
-  const showActions = isMobile || alwaysShowActions || isHovered;
+  const showActions = isMobile || alwaysShowActions || isHovered || copied;
 
 
   return (
@@ -584,6 +589,19 @@ export const TabRow: React.FC<TabRowProps> = ({
           buttonTitle="Tab options"
           size="sm"
         />
+
+        {/* Copy Link icon button: between ... and - button */}
+        {(showActions || copied) && (
+          <CopyLinkButton
+            url={currentUrl || tab.url}
+            isDarkTheme={effectiveDark}
+            textColor={textColor}
+            hoverBg={activeIconHoverBg}
+            iconSize={14}
+            copied={copied}
+            onCopiedChange={setCopied}
+          />
+        )}
 
         {/* "-" button: Always visible when associated */}
         {isAssociated && (

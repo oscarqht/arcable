@@ -13,6 +13,7 @@ import {
   REFRESH_HOVER_EVENT,
 } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
+import { CopyLinkButton } from './CopyLinkButton';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import {
@@ -85,6 +86,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -207,7 +209,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const associatedBg = effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)';
   const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.08)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
-  const showActions = isMobile || alwaysShowActions || isHovered || isEditing;
+  const showActions = isMobile || alwaysShowActions || isHovered || isEditing || copied;
 
   return (
     <div
@@ -535,6 +537,17 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
                       </button>
                     </>
                   )}
+                  {/* Copy Link Button */}
+                  <CopyLinkButton
+                    url={tab.url}
+                    isDarkTheme={effectiveDark}
+                    textColor={textColor}
+                    hoverBg={effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe'}
+                    hoverColor={effectiveDark ? '#7dd3fc' : '#0284c7'}
+                    iconSize={13}
+                    copied={copied}
+                    onCopiedChange={setCopied}
+                  />
 
                   {/* "x" Button: Close browser tab */}
                   <button
