@@ -74,7 +74,7 @@ export interface FavouriteTabsShelfProps {
   onUngroupTab?: (tabId: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
-  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => void;
+  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => WorkspaceWidget | void;
   onUpdateWidget?: (id: string, updates: Partial<WorkspaceWidget>) => void;
   onRemoveWidget?: (id: string) => void;
   onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
@@ -185,6 +185,53 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     id: string;
     anchorRect: DOMRect;
   } | null>(null);
+
+  // Auto-open popover for newly created note widget
+  const [pendingAutoOpenWidgetId, setPendingAutoOpenWidgetId] = useState<string | null>(null);
+  const pendingAutoOpenNoteRef = useRef(false);
+
+  useEffect(() => {
+    let targetId = pendingAutoOpenWidgetId;
+    if (!targetId && pendingAutoOpenNoteRef.current) {
+      const newestNote = [...widgets]
+        .filter((w) => w.style === 'note')
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+      if (newestNote) {
+        targetId = newestNote.id;
+      }
+    }
+
+    if (targetId) {
+      const openPopover = () => {
+        const el = document.getElementById(`shelf-widget-${targetId}`);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          setActiveWidgetPopover({
+            id: targetId!,
+            anchorRect: rect,
+          });
+          setPendingAutoOpenWidgetId(null);
+          pendingAutoOpenNoteRef.current = false;
+          return true;
+        }
+        return false;
+      };
+
+      if (!openPopover()) {
+        const raf = requestAnimationFrame(() => {
+          if (!openPopover() && addButtonRef.current) {
+            setActiveWidgetPopover({
+              id: targetId!,
+              anchorRect: addButtonRef.current.getBoundingClientRect(),
+            });
+            setPendingAutoOpenWidgetId(null);
+            pendingAutoOpenNoteRef.current = false;
+          }
+        });
+        return () => cancelAnimationFrame(raf);
+      }
+    }
+  }, [widgets, pendingAutoOpenWidgetId]);
 
   // Add Button Popover State
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -426,7 +473,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   const handleSelectAddWidget = (style: WidgetStyle, initialConfig?: Record<string, any>) => {
     setIsAddMenuOpen(false);
-    onAddWidget?.({ style, size: 'small', config: initialConfig });
+    const createdWidget = onAddWidget?.({ style, size: 'small', config: initialConfig });
+    if (style === 'note') {
+      if (createdWidget && (createdWidget as WorkspaceWidget).id) {
+        setPendingAutoOpenWidgetId((createdWidget as WorkspaceWidget).id);
+      } else {
+        pendingAutoOpenNoteRef.current = true;
+      }
+    }
   };
 
   return (
@@ -1093,6 +1147,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           return (
             <div
               key={widget.id}
+              id={`shelf-widget-${widget.id}`}
               draggable
               onDragStart={(e) => handleDragStart(e, widget.id)}
               onDragOver={(e) => handleDragOver(e, widget.id)}
@@ -1586,8 +1641,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               {widget.style === 'note' && (() => {
                 const noteConfig = (widget.config as NoteConfig) || {};
                 const text = noteConfig.text || '';
+                const trimmedText = text.trim();
                 const lines = text.split('\n').filter((l) => l.trim().length > 0);
                 const firstLine = lines[0] || '';
+                const remainingLines = lines.slice(1);
+                const remainingText = remainingLines.join('\n');
 
                 return (
                   <div
@@ -1595,42 +1653,51 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'flex-start',
-                      justifyContent: text ? 'flex-start' : 'center',
+                      justifyContent: trimmedText ? 'flex-start' : 'center',
                       height: '100%',
                       width: '100%',
                       userSelect: 'none',
-                      padding: '6px 5px',
+                      padding: '4px 6px',
                       boxSizing: 'border-box',
+                      overflow: 'hidden',
+                      gap: '1px',
                     }}
                   >
-                    {text ? (
+                    {trimmedText ? (
                       <>
                         <div
                           style={{
-                            fontSize: '9px',
+                            fontSize: '8.5px',
                             fontWeight: 700,
-                            lineHeight: 1.25,
-                            maxHeight: '34px',
+                            lineHeight: 1.18,
                             overflow: 'hidden',
                             wordBreak: 'break-word',
+                            display: '-webkit-box',
+                            WebkitBoxOrient: 'vertical',
+                            WebkitLineClamp: remainingText ? 2 : 4,
                             color: shelfTheme.isDark ? '#f1f5f9' : '#1e293b',
+                            width: '100%',
                           }}
                         >
                           {firstLine}
                         </div>
-                        {lines[1] && (
+                        {remainingText && (
                           <div
                             style={{
                               fontSize: '8px',
-                              opacity: 0.7,
-                              lineHeight: 1.2,
-                              maxHeight: '12px',
+                              opacity: 0.75,
+                              lineHeight: 1.18,
                               overflow: 'hidden',
                               wordBreak: 'break-word',
+                              whiteSpace: 'pre-wrap',
+                              display: '-webkit-box',
+                              WebkitBoxOrient: 'vertical',
+                              WebkitLineClamp: 3,
                               color: shelfTheme.isDark ? '#cbd5e1' : '#475569',
+                              width: '100%',
                             }}
                           >
-                            {lines[1]}
+                            {remainingText}
                           </div>
                         )}
                       </>

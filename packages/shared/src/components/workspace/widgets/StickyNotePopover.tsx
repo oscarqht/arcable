@@ -46,7 +46,13 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
   // Focus textarea on open
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          const len = textareaRef.current.value.length;
+          textareaRef.current.setSelectionRange(len, len);
+        }
+      }, 50);
     }
   }, [isOpen]);
 
@@ -54,7 +60,7 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handlePointerDown = (e: MouseEvent) => {
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
       const popoverEl = document.getElementById(`stickynote-popover-${widget.id}`);
       if (popoverEl && !popoverEl.contains(e.target as Node)) {
         onClose();
@@ -66,9 +72,11 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
     };
 
     window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('touchstart', handlePointerDown);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('touchstart', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose, widget.id]);
