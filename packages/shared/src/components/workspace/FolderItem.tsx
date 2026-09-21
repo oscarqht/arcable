@@ -9,6 +9,7 @@ import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
+import { SpaceThemeTokens } from '../../utils/spaceTheme';
 import { TabFavicon } from './TabFavicon';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import {
@@ -28,6 +29,7 @@ export interface FolderItemProps {
   allFolders: Folder[];
   allTabs: Tab[];
   depth?: number;
+  themeStyles?: SpaceThemeTokens;
   isDarkTheme?: boolean;
   compact?: boolean;
   /** Use single-letter variant labels when the containing space is narrow. */
@@ -76,6 +78,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   allFolders,
   allTabs,
   depth = 0,
+  themeStyles,
   isDarkTheme,
   compact = false,
   compactVariantLabels = false,
@@ -1125,6 +1128,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onDropTmpTab={onDropTmpTab}
                   onDuplicateTab={onDuplicateTab}
                   onOpenVariant={onOpenVariant}
+                  themeStyles={themeStyles}
                 />
               );
             }
@@ -1138,6 +1142,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               <TabRow
                 key={item.id}
                 tab={item.data}
+                themeStyles={themeStyles}
                 raindropCollectionId={folder.raindropId}
                 isDarkTheme={effectiveDark}
                 compact={compact}

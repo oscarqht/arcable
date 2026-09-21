@@ -273,6 +273,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
                   <TmpTabRow
                     key={tab.id}
                     tab={tab}
+                    themeStyles={themeStyles}
                     currentDeviceId={currentDeviceId}
                     isDarkTheme={themeStyles.isDark}
                     compact={isSingleColumn}
@@ -309,6 +310,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
                 <TmpTabRow
                   key={tab.id}
                   tab={tab}
+                  themeStyles={themeStyles}
                   currentDeviceId={currentDeviceId}
                   isDarkTheme={themeStyles.isDark}
                   compact={isSingleColumn}

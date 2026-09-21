@@ -25,9 +25,11 @@ import {
   PlayIcon,
   PauseIcon,
 } from '../Icons';
+import { SpaceThemeTokens } from '../../utils/spaceTheme';
 
 export interface TmpTabRowProps {
   tab: TmpTab;
+  themeStyles?: SpaceThemeTokens;
   currentDeviceId?: string;
   isDarkTheme?: boolean;
   compact?: boolean;
@@ -49,6 +51,7 @@ export interface TmpTabRowProps {
 
 export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   tab,
+  themeStyles,
   currentDeviceId,
   isDarkTheme,
   compact = false,
@@ -227,9 +230,15 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         padding: '0 8px',
         borderRadius: '10px',
         backgroundColor: isEditing ? (effectiveDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)') : isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
-        outline: isHighlighted ? '2px solid #38bdf8' : isEditing ? '1.5px solid #38bdf8' : 'none',
+        outline: isHighlighted
+          ? themeStyles?.activeIndicatorOutline || (effectiveDark ? '2px solid rgba(255, 255, 255, 0.9)' : '2px solid rgba(15, 23, 42, 0.85)')
+          : isEditing
+          ? (effectiveDark ? '1.5px solid rgba(255, 255, 255, 0.75)' : '1.5px solid rgba(15, 23, 42, 0.75)')
+          : 'none',
         outlineOffset: (isHighlighted || isEditing) ? '-2px' : undefined,
-        boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.35)' : 'none',
+        boxShadow: isHighlighted
+          ? themeStyles?.activeIndicatorGlow || (effectiveDark ? '0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 255, 255, 0.35)' : '0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 8px rgba(0, 0, 0, 0.16)')
+          : 'none',
         color: textColor,
         cursor: isEditing ? 'default' : isDragging ? 'grabbing' : 'pointer',
         opacity: isDragging ? 0.45 : 1,

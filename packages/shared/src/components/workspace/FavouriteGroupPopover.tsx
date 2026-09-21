@@ -471,8 +471,10 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                     width: isItemHighlighted ? '16px' : '12px',
                     height: '2.5px',
                     borderRadius: '9999px',
-                    backgroundColor: theme.primaryColor,
-                    boxShadow: isItemHighlighted ? `0 0 6px ${theme.primaryColor}` : 'none',
+                    backgroundColor: isItemHighlighted
+                      ? theme.activeIndicatorColor
+                      : (theme.isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)'),
+                    boxShadow: isItemHighlighted ? theme.activeIndicatorGlow : 'none',
                     transition: 'all 0.15s ease',
                   }}
                 />

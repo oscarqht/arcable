@@ -16,6 +16,9 @@ export interface SpaceThemeTokens {
   cardBoxShadow: string;
   shelfBg: string;
   themeNoise?: number;
+  activeIndicatorColor: string;
+  activeIndicatorGlow: string;
+  activeIndicatorOutline: string;
 }
 
 export interface PresetThemeItem {
@@ -24,7 +27,7 @@ export interface PresetThemeItem {
   value: string;
   primary: string;
   isDark: boolean;
-  tokens: Omit<SpaceThemeTokens, 'containerBg' | 'primaryColor'>;
+  tokens: Omit<SpaceThemeTokens, 'containerBg' | 'primaryColor' | 'activeIndicatorColor' | 'activeIndicatorGlow' | 'activeIndicatorOutline'>;
 }
 
 export const PRESET_GRADIENTS: PresetThemeItem[] = [
@@ -199,7 +202,7 @@ export const PRESET_GRADIENTS: PresetThemeItem[] = [
 ];
 
 // Mapping of known solid presets to refined theme tokens
-const SOLID_PALETTE_MAP: Record<string, { primary: string; isDark: boolean; tokens: Omit<SpaceThemeTokens, 'containerBg' | 'primaryColor'> }> = {
+const SOLID_PALETTE_MAP: Record<string, { primary: string; isDark: boolean; tokens: Omit<SpaceThemeTokens, 'containerBg' | 'primaryColor' | 'activeIndicatorColor' | 'activeIndicatorGlow' | 'activeIndicatorOutline'> }> = {
   '#f29bbb': {
     primary: '#f29bbb',
     isDark: false,
@@ -684,6 +687,18 @@ export function dimColorStringForDarkMode(colorStr: string): string {
   return result;
 }
 
+function getActiveIndicatorTokens(isDark: boolean) {
+  return {
+    activeIndicatorColor: isDark ? '#ffffff' : '#0f172a',
+    activeIndicatorOutline: isDark
+      ? '2px solid rgba(255, 255, 255, 0.9)'
+      : '2px solid rgba(15, 23, 42, 0.85)',
+    activeIndicatorGlow: isDark
+      ? '0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 255, 255, 0.35)'
+      : '0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 8px rgba(0, 0, 0, 0.16)',
+  };
+}
+
 /**
  * Generates comprehensive theme tokens for space rendering (supporting soft smooth gradients and solid colors)
  */
@@ -697,6 +712,7 @@ export function getSpaceThemeStyles(
   const isDarkEffective = themeScheme === 'dark' ? true : themeScheme === 'light' ? false : isSystemDark;
 
   if (!color || typeof color !== 'string' || !color.trim()) {
+    const indicators = getActiveIndicatorTokens(isDarkEffective);
     if (isDarkEffective) {
       return {
         containerBg: '#18181b',
@@ -714,6 +730,7 @@ export function getSpaceThemeStyles(
         cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.2)',
         shelfBg: 'rgba(0, 0, 0, 0.25)',
         themeNoise: safeNoise,
+        ...indicators,
       };
     }
 
@@ -733,11 +750,12 @@ export function getSpaceThemeStyles(
       cardBoxShadow: '0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 20px rgba(0, 0, 0, 0.03)',
       shelfBg: '#f8fafc',
       themeNoise: safeNoise,
+      ...indicators,
     };
   }
 
   const trimmed = color.trim();
-  let baseStyles: SpaceThemeTokens;
+  let baseStyles: Omit<SpaceThemeTokens, 'activeIndicatorColor' | 'activeIndicatorGlow' | 'activeIndicatorOutline'>;
 
   // 1. Check exact preset gradient
   const matchedGradient = PRESET_GRADIENTS.find((g) => g.value === trimmed || g.id === trimmed);
@@ -804,6 +822,7 @@ export function getSpaceThemeStyles(
 
   // When in dark mode, dim the brightness of the space theme color/gradient
   if (isDarkEffective) {
+    const indicators = getActiveIndicatorTokens(true);
     return {
       ...baseStyles,
       containerBg: dimColorStringForDarkMode(baseStyles.containerBg),
@@ -820,12 +839,15 @@ export function getSpaceThemeStyles(
       cardBoxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 20px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.15)',
       shelfBg: 'rgba(255, 255, 255, 0.12)',
       themeNoise: safeNoise,
+      ...indicators,
     };
   }
 
+  const indicators = getActiveIndicatorTokens(Boolean(baseStyles.isDark));
   return {
     ...baseStyles,
     themeNoise: safeNoise,
+    ...indicators,
   };
 }
 
