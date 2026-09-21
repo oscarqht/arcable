@@ -24,6 +24,8 @@ import {
   exchangeRaindropOAuthCode,
   fetchRaindropWorkspace,
   syncWorkspaceWithRaindrop,
+  syncDeviceTmpTabs,
+  fetchDevicesWithTmpTabs,
   fetchRaindropDevices,
   renameRaindropDevice,
   deleteRaindropDevice,
@@ -649,10 +651,29 @@ browser.runtime.onMessage.addListener(
         const payload = message.payload as { currentDeviceId?: string } | undefined;
         try {
           const effectiveCurrentDeviceId = payload?.currentDeviceId || await getOrCreateExtensionDeviceId();
-          const result = await fetchRaindropDevices(auth.accessToken, effectiveCurrentDeviceId);
+          const effectiveCurrentDeviceName = await getExtensionDeviceName();
+          const result = await fetchDevicesWithTmpTabs(auth.accessToken, effectiveCurrentDeviceName || effectiveCurrentDeviceId);
           return { success: result.success, data: result.devices, error: result.error };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to fetch devices' };
+        }
+      }
+
+      // Raindrop: Sync Device Tmp Tabs immediately
+      case 'RAINDROP_SYNC_DEVICE_TMP_TABS': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+
+        try {
+          await executeDeviceTmpSync();
+          const deviceId = await getOrCreateExtensionDeviceId();
+          const deviceName = await getExtensionDeviceName();
+          const result = await fetchDevicesWithTmpTabs(auth.accessToken, deviceName || deviceId);
+          return { success: result.success, data: result.devices, error: result.error };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to sync device tmp tabs' };
         }
       }
 
@@ -1010,8 +1031,162 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (hasPendingOps) {
       triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, true);
     }
+
+    if (changes.arcable_tmp_tabs || changes.arcable_device_name || changes.arcable_tab_associations) {
+      scheduleThrottledDeviceTmpSync();
+    }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Background Device Tmp Tabs Tracking & Sync (Throttled, 1 minute)
+// ---------------------------------------------------------------------------
+
+const DEVICE_TMP_SYNC_THROTTLE_MS = 60_000;
+let deviceTmpSyncTimeout: any = null;
+let lastDeviceTmpSyncTime = 0;
+let isDeviceTmpSyncInFlight = false;
+let pendingDeviceTmpSync = false;
+
+async function getCurrentDeviceTmpTabs(): Promise<TmpTab[]> {
+  try {
+    const [stored, tabs] = await Promise.all([
+      browser.storage.local.get(['arcable_tmp_tabs', 'arcable_workspace_snapshot', 'arcable_tab_associations']),
+      browser.tabs.query({}),
+    ]);
+
+    const storedAssociations = (stored.arcable_tab_associations || {}) as Record<string, { browserTabId: number }>;
+    const associatedBrowserTabIds = new Set<number>();
+    for (const info of Object.values(storedAssociations)) {
+      if (info?.browserTabId !== undefined) associatedBrowserTabIds.add(info.browserTabId);
+    }
+
+    const deviceId = await getOrCreateExtensionDeviceId();
+    const deviceName = await getExtensionDeviceName();
+
+    const validTabs: TmpTab[] = [];
+    for (const tab of tabs) {
+      if (!tab.url || tab.id === undefined) continue;
+      // Skip internal schemes
+      if (/^(?:chrome|edge|about|brave|chrome-extension|moz-extension):/i.test(tab.url)) continue;
+      // Skip associated workspace tabs
+      if (associatedBrowserTabIds.has(tab.id)) continue;
+
+      validTabs.push({
+        id: `tmp_${deviceId}_${tab.id}`,
+        url: tab.url,
+        title: tab.title || tab.url,
+        favIconUrl: tab.favIconUrl,
+        browserTabId: tab.id,
+        windowId: tab.windowId,
+        deviceId,
+        deviceName,
+        deviceType: 'Ext',
+      });
+    }
+
+    return validTabs;
+  } catch (err) {
+    console.warn('[Arcable Background] Failed to query open tabs for tmp tab sync:', err);
+    const stored = await browser.storage.local.get('arcable_tmp_tabs');
+    return (stored.arcable_tmp_tabs as TmpTab[]) || [];
+  }
+}
+
+async function executeDeviceTmpSync(): Promise<void> {
+  if (isDeviceTmpSyncInFlight) {
+    pendingDeviceTmpSync = true;
+    return;
+  }
+
+  const auth = await getStoredAuthState();
+  if (!auth.isAuthenticated || !auth.accessToken) return;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  isDeviceTmpSyncInFlight = true;
+  lastDeviceTmpSyncTime = Date.now();
+
+  try {
+    const deviceId = await getOrCreateExtensionDeviceId();
+    const deviceName = await getExtensionDeviceName();
+    const tmpTabs = await getCurrentDeviceTmpTabs();
+
+    await syncDeviceTmpTabs(auth.accessToken, deviceId, deviceName, tmpTabs);
+    console.log(`[Arcable Background] Synced ${tmpTabs.length} tmp tabs for device "${deviceName}".`);
+  } catch (err) {
+    console.warn('[Arcable Background] Device tmp tabs sync error:', err);
+  } finally {
+    isDeviceTmpSyncInFlight = false;
+    if (pendingDeviceTmpSync) {
+      pendingDeviceTmpSync = false;
+      scheduleThrottledDeviceTmpSync();
+    }
+  }
+}
+
+function scheduleThrottledDeviceTmpSync(): void {
+  const now = Date.now();
+  const timeSinceLast = now - lastDeviceTmpSyncTime;
+
+  if (timeSinceLast >= DEVICE_TMP_SYNC_THROTTLE_MS) {
+    if (deviceTmpSyncTimeout) {
+      clearTimeout(deviceTmpSyncTimeout);
+      deviceTmpSyncTimeout = null;
+    }
+    void executeDeviceTmpSync();
+  } else {
+    const waitTime = DEVICE_TMP_SYNC_THROTTLE_MS - timeSinceLast;
+    if (!deviceTmpSyncTimeout) {
+      deviceTmpSyncTimeout = setTimeout(() => {
+        deviceTmpSyncTimeout = null;
+        void executeDeviceTmpSync();
+      }, waitTime);
+    }
+  }
+}
+
+// Listen to browser tab open/navigation/close events
+if (typeof browser !== 'undefined' && browser.tabs) {
+  if (browser.tabs.onCreated) {
+    browser.tabs.onCreated.addListener(() => {
+      scheduleThrottledDeviceTmpSync();
+    });
+  }
+
+  if (browser.tabs.onUpdated) {
+    browser.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+      if (changeInfo.url || changeInfo.title || changeInfo.status === 'complete') {
+        scheduleThrottledDeviceTmpSync();
+      }
+    });
+  }
+
+  if (browser.tabs.onRemoved) {
+    browser.tabs.onRemoved.addListener(() => {
+      scheduleThrottledDeviceTmpSync();
+    });
+  }
+
+  if (browser.tabs.onReplaced) {
+    browser.tabs.onReplaced.addListener(() => {
+      scheduleThrottledDeviceTmpSync();
+    });
+  }
+}
+
+// Periodic alarm for device tmp sync (every 1 minute)
+const DEVICE_TMP_SYNC_ALARM_NAME = 'arcable_device_tmp_sync_alarm';
+if (typeof chrome !== 'undefined' && chrome.alarms) {
+  chrome.alarms.create(DEVICE_TMP_SYNC_ALARM_NAME, { periodInMinutes: 1 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === DEVICE_TMP_SYNC_ALARM_NAME) {
+      scheduleThrottledDeviceTmpSync();
+    }
+  });
+}
+
+// Initial sync schedule on service worker startup
+scheduleThrottledDeviceTmpSync();
 
 // Helper to open or focus the side panel workspace tab (fallback for environments without native sidebar)
 async function openSidepanelTab(): Promise<void> {

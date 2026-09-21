@@ -3,6 +3,7 @@ import {
   WorkspaceManager,
   WorkspaceManagerHandle,
   BackupRestoreModal,
+  DeviceModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
 import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
@@ -143,9 +144,11 @@ export const App: React.FC = () => {
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+  const [currentDeviceName, setCurrentDeviceName] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const initialRaindropHydrationRef = useRef(false);
   const hasAppliedAuthoritativeSnapshotRef = useRef(false);
   const currentWindowIdRef = useRef<number | null>(null);
@@ -293,13 +296,21 @@ export const App: React.FC = () => {
 
 
     // Check initial Raindrop auth and cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', 'arcable_device_name', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
         const devId = getOrCreateDeviceId();
         setCurrentDeviceId(devId);
         void browser.storage.local.set({ arcable_device_id: devId });
+      }
+
+      if (res.arcable_device_name) {
+        setCurrentDeviceName(res.arcable_device_name);
+      } else {
+        const devName = getStoredDeviceName(undefined, 'Ext');
+        setCurrentDeviceName(devName);
+        void browser.storage.local.set({ arcable_device_name: devName });
       }
 
       const auth = res.arcable_raindrop_auth;
@@ -363,6 +374,9 @@ export const App: React.FC = () => {
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
+        }
+        if (changes.arcable_device_name?.newValue) {
+          setCurrentDeviceName(changes.arcable_device_name.newValue);
         }
         if (changes[SIDEPANEL_LAST_SPACE_KEY]?.newValue) {
           const newId = changes[SIDEPANEL_LAST_SPACE_KEY].newValue;
@@ -1042,6 +1056,12 @@ export const App: React.FC = () => {
       dividerAfter: true,
     },
     {
+      id: 'devices-sync',
+      label: 'Devices & Synced Tabs',
+      icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>💻</span>,
+      onClick: () => setIsDeviceModalOpen(true),
+    },
+    {
       id: 'backup-restore',
       label: 'Backup & Restore',
       icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>💾</span>,
@@ -1185,6 +1205,7 @@ export const App: React.FC = () => {
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
           currentDeviceId={currentDeviceId}
+          onOpenDeviceModal={() => setIsDeviceModalOpen(true)}
           onCloseTmpTab={handleCloseTmpTab}
           onRenameTmpTab={handleRenameTmpTab}
           onTabPromoted={handleTabPromoted}
@@ -1218,6 +1239,59 @@ export const App: React.FC = () => {
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
         onRestoreComplete={handleRestoreComplete}
+      />
+
+      <DeviceModal
+        isOpen={isDeviceModalOpen}
+        onClose={() => setIsDeviceModalOpen(false)}
+        raindropToken={raindropToken || undefined}
+        currentDeviceId={currentDeviceId}
+        currentDeviceName={currentDeviceName}
+        onOpenTmpTab={async (url, title, activate) => {
+          const newTab = await browser.tabs.create({ url, active: activate ?? true });
+          if (newTab.id) {
+            tabTracker.registerInitialTmpTab(newTab.id, url, title);
+          }
+        }}
+        onOpenAllTmpTabs={async (tabsToOpen) => {
+          for (const t of tabsToOpen) {
+            const newTab = await browser.tabs.create({ url: t.url, active: false });
+            if (newTab.id) {
+              tabTracker.registerInitialTmpTab(newTab.id, t.url, t.title);
+            }
+          }
+        }}
+        onFetchDevices={async () => {
+          const res = (await browser.runtime.sendMessage({
+            type: 'RAINDROP_GET_DEVICES',
+            payload: { currentDeviceId },
+          })) as any;
+          if (res?.success && Array.isArray(res.data)) {
+            return res.data;
+          }
+          throw new Error(res?.error || 'Failed to fetch devices');
+        }}
+        onRenameDevice={async (deviceId, newName) => {
+          const res = (await browser.runtime.sendMessage({
+            type: 'RAINDROP_RENAME_DEVICE',
+            payload: { deviceId, newName },
+          })) as any;
+          if (res?.success && Array.isArray(res.data)) {
+            setCurrentDeviceName(newName);
+            return res.data;
+          }
+          throw new Error(res?.error || 'Failed to rename device');
+        }}
+        onDeleteDevice={async (deviceId) => {
+          const res = (await browser.runtime.sendMessage({
+            type: 'RAINDROP_DELETE_DEVICE',
+            payload: { deviceId },
+          })) as any;
+          if (res?.success && Array.isArray(res.data)) {
+            return res.data;
+          }
+          throw new Error(res?.error || 'Failed to delete device');
+        }}
       />
     </div>
   );

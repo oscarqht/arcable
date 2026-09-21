@@ -1,6 +1,6 @@
-import { ArcableWorkspaceData, Folder, Space, SpaceScheme, ZenThemeConfig, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
+import { ArcableWorkspaceData, Folder, Space, SpaceScheme, ZenThemeConfig, Tab, TabUrlVariant, WorkspaceWidget, VIRTUAL_SYNCED_TABS_SPACE_ID, TmpTab } from '../types/workspace';
 import { CustomCodeRule, RunCodeRule } from '../types/customCode';
-import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord } from '../types/sync';
+import { ArcableSyncFile, SyncResult, WorkspaceOperation, DeviceSyncRecord, DeviceRecordWithTabs } from '../types/sync';
 import { RaindropCollectionItem, RaindropBookmarkItem, RaindropBackupRecord, RaindropRequestFailureDetails } from '../types/raindrop';
 import {
   fetchRaindropCollections,
@@ -48,6 +48,7 @@ export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
 export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
 export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
 export const ARCABLE_SPACE_THEME_COLLECTION_NAME = '_space_themes';
+export const ARCABLE_DEVICES_COLLECTION_NAME = '_devices';
 export const ARCABLE_WIDGET_TAG = 'arcable-widget';
 export const ARCABLE_SPACE_THEME_TAG = 'arcable-space-theme';
 export const ARCABLE_WIDGET_LINK_PREFIX = 'https://arcable.app/widget/';
@@ -1450,8 +1451,21 @@ export function reconstructWorkspace(
       };
     });
 
+  const devicesCollection = tree.collections.find(
+    (c) => c.title.trim().toLowerCase() === ARCABLE_DEVICES_COLLECTION_NAME.toLowerCase() && c.parent?.$id === root._id
+  );
+  const deviceCollectionIds = new Set<number>();
+  if (devicesCollection) {
+    deviceCollectionIds.add(devicesCollection._id);
+    for (const c of tree.collections) {
+      if (c.parent?.$id === devicesCollection._id) {
+        deviceCollectionIds.add(c._id);
+      }
+    }
+  }
+
   const rawFolders: Folder[] = tree.collections
-    .filter((collection) => !spaceIds.has(collection._id) && !isSystemCollection(collection))
+    .filter((collection) => !spaceIds.has(collection._id) && !isSystemCollection(collection) && !deviceCollectionIds.has(collection._id))
     .map((collection) => {
       let cursor: RaindropCollectionItem | undefined = collection;
       while (cursor?.parent?.$id && !spaceIds.has(cursor.parent.$id)) cursor = collectionById.get(cursor.parent.$id);
@@ -1632,7 +1646,12 @@ export function reconstructWorkspace(
   ]);
 
   const rawTabItems = tree.items.filter(
-    (item) => !isArcableInternalItem(item) && !nonTabItemIds.has(item._id) && !isWidgetItem(item) && !isSpaceThemeItem(item)
+    (item) =>
+      !isArcableInternalItem(item) &&
+      !nonTabItemIds.has(item._id) &&
+      !isWidgetItem(item) &&
+      !isSpaceThemeItem(item) &&
+      !(item.collectionId && deviceCollectionIds.has(item.collectionId))
   );
 
   // Group URL variants by title delimiter: "<name> ||| <variant name>"
@@ -2677,38 +2696,312 @@ export async function syncWorkspaceWithRaindrop(
 }
 
 /**
- * Devices management has been removed. Retained as stubs for backward compatibility.
+ * Gets or creates the system `_devices` collection directly under the Arcable root.
+ */
+export async function getOrCreateDevicesRootCollection(token: string, rootId: number): Promise<RaindropCollectionItem> {
+  const allCollections = await fetchRaindropCollections(token);
+  const existing = allCollections.find(
+    (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_DEVICES_COLLECTION_NAME.toLowerCase()
+  );
+  if (existing) return existing;
+  return await createRaindropCollection(token, ARCABLE_DEVICES_COLLECTION_NAME, rootId);
+}
+
+/**
+ * Gets or creates a child collection for a specific device under `_devices`.
+ */
+export async function getOrCreateDeviceCollection(
+  token: string,
+  devicesRootId: number,
+  deviceId: string,
+  deviceName: string
+): Promise<RaindropCollectionItem> {
+  const allCollections = await fetchRaindropCollections(token);
+  let match = allCollections.find(
+    (c) => c.parent?.$id === devicesRootId && (String(c._id) === deviceId || c.title.trim().toLowerCase() === deviceName.trim().toLowerCase())
+  );
+
+  if (match) {
+    if (match.title !== deviceName) {
+      try {
+        const updated = await updateRaindropCollection(token, match._id, {
+          title: deviceName,
+        });
+        return updated || match;
+      } catch {
+        return match;
+      }
+    }
+    return match;
+  }
+
+  return await createRaindropCollection(token, deviceName, devicesRootId);
+}
+
+/**
+ * Synchronizes the local device's open tmp tabs to its dedicated collection under `_devices`.
+ */
+export async function syncDeviceTmpTabs(
+  token: string,
+  deviceId: string,
+  deviceName: string,
+  tmpTabs: TmpTab[]
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return { success: false, error: 'Invalid Raindrop token' };
+
+  try {
+    const root = await getOrCreateArcableCollection(clean);
+    if (!root?._id) throw new Error('Failed to find or create root "Arcable v2" collection.');
+
+    const devicesRoot = await getOrCreateDevicesRootCollection(clean, root._id);
+    if (!devicesRoot?._id) throw new Error('Failed to find or create "_devices" collection.');
+
+    const deviceColl = await getOrCreateDeviceCollection(clean, devicesRoot._id, deviceId, deviceName);
+    if (!deviceColl?._id) throw new Error(`Failed to find or create collection for device "${deviceName}".`);
+
+    // Fetch existing bookmarks in device collection
+    const existingItems = await fetchAllRaindropItems(clean, deviceColl._id);
+
+    // Filter valid tmp tabs (ignore browser internal schemes)
+    const validTabs = (tmpTabs || []).filter(
+      (t) => t.url && !/^(?:chrome|edge|about|brave|chrome-extension|moz-extension):/i.test(t.url)
+    );
+
+    const remainingExisting = [...existingItems];
+    const toCreate: Array<{ title: string; link: string; collectionId: number; order?: number; cover?: string }> = [];
+    const toUpdate: Array<{ id: number; title: string }> = [];
+
+    for (let i = 0; i < validTabs.length; i++) {
+      const tab = validTabs[i];
+      const title = tab.customTitle || tab.title || tab.url;
+      const matchIdx = remainingExisting.findIndex(
+        (item) => item.link.trim().toLowerCase() === tab.url.trim().toLowerCase()
+      );
+      if (matchIdx !== -1) {
+        const existing = remainingExisting[matchIdx];
+        remainingExisting.splice(matchIdx, 1);
+        if (existing.title !== title) {
+          toUpdate.push({ id: existing._id, title });
+        }
+      } else {
+        toCreate.push({
+          title,
+          link: tab.url,
+          collectionId: deviceColl._id,
+          order: i,
+          cover: tab.favIconUrl,
+        });
+      }
+    }
+
+    const toDeleteIds = remainingExisting.map((item) => item._id);
+
+    // 1. Delete closed tabs
+    if (toDeleteIds.length > 0) {
+      if (toDeleteIds.length === 1) {
+        await deleteRaindropBookmark(clean, toDeleteIds[0]).catch((e) => console.warn('Failed to delete bookmark:', e));
+      } else {
+        await deleteRaindropBookmarks(clean, deviceColl._id, toDeleteIds).catch((e) => console.warn('Failed to batch delete bookmarks:', e));
+      }
+    }
+
+    // 2. Create new tabs in batches
+    if (toCreate.length > 0) {
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+        const batch = toCreate.slice(i, i + BATCH_SIZE);
+        await createRaindropBookmarks(
+          clean,
+          batch.map((b) => ({
+            title: b.title,
+            link: b.link,
+            collectionId: b.collectionId,
+            order: b.order,
+            cover: b.cover,
+          }))
+        );
+      }
+    }
+
+    // 3. Update changed titles
+    for (const u of toUpdate) {
+      await updateRaindropItem(clean, u.id, { title: u.title }).catch((e) => console.warn('Failed to update bookmark title:', e));
+    }
+
+    return { success: true, count: validTabs.length };
+  } catch (err: any) {
+    console.error('[RaindropSync] syncDeviceTmpTabs error:', err);
+    return { success: false, error: err?.message || 'Failed to sync device tmp tabs.' };
+  }
+}
+
+/**
+ * Fetches all registered devices and their current tmp tabs from `_devices`.
+ */
+export async function fetchDevicesWithTmpTabs(
+  token: string,
+  currentDeviceId?: string
+): Promise<{ success: boolean; devices: DeviceRecordWithTabs[]; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return { success: false, devices: [], error: 'Invalid Raindrop token' };
+
+  try {
+    const allCollections = await fetchRaindropCollections(clean);
+    const root = allCollections.find(
+      (c) => !c.parent?.$id && c.title.trim().toLowerCase() === ARCABLE_COLLECTION_NAME.toLowerCase()
+    );
+    if (!root) return { success: true, devices: [] };
+
+    const devicesRoot = allCollections.find(
+      (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_DEVICES_COLLECTION_NAME.toLowerCase()
+    );
+    if (!devicesRoot) return { success: true, devices: [] };
+
+    const deviceCollections = allCollections.filter((c) => c.parent?.$id === devicesRoot._id);
+
+    const devices: DeviceRecordWithTabs[] = [];
+
+    for (const coll of deviceCollections) {
+      const devId = String(coll._id);
+      const lastSyncAt = timestamp(coll.lastUpdate) || Date.now();
+
+      // Fetch items for this device
+      const items = await fetchAllRaindropItems(clean, coll._id);
+
+      const tabs: TmpTab[] = items.map((item) => ({
+        id: `remote_tmp_${item._id}`,
+        url: item.link,
+        title: item.title,
+        customTitle: item.title,
+        favIconUrl: item.cover,
+        deviceId: devId,
+        deviceName: coll.title,
+        deviceType: 'Ext',
+        createdAt: timestamp(item.created),
+        updatedAt: timestamp(item.lastUpdate),
+      }));
+
+      const isCurrent = Boolean(
+        currentDeviceId && (devId === currentDeviceId || coll.title.trim().toLowerCase() === currentDeviceId.trim().toLowerCase())
+      );
+
+      devices.push({
+        deviceId: devId,
+        deviceName: coll.title,
+        collectionId: coll._id,
+        lastSyncAt,
+        isCurrent,
+        tabs,
+      });
+    }
+
+    // Sort: current device first, others by lastSyncAt descending
+    devices.sort((a, b) => {
+      if (a.isCurrent) return -1;
+      if (b.isCurrent) return 1;
+      return (b.lastSyncAt || 0) - (a.lastSyncAt || 0);
+    });
+
+    return { success: true, devices };
+  } catch (err: any) {
+    console.error('[RaindropSync] fetchDevicesWithTmpTabs error:', err);
+    return { success: false, devices: [], error: err?.message || 'Failed to fetch devices.' };
+  }
+}
+
+/**
+ * Fetches all registered devices from Raindrop `_devices` collection.
  */
 export async function fetchRaindropDevices(
-  _token: string,
-  _currentDeviceId?: string
-): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
-  return { success: true, devices: [] };
+  token: string,
+  currentDeviceId?: string
+): Promise<{ success: boolean; devices: DeviceRecordWithTabs[]; error?: string }> {
+  return fetchDevicesWithTmpTabs(token, currentDeviceId);
 }
 
+/**
+ * Renames a device's collection under `_devices`.
+ */
 export async function renameRaindropDevice(
-  _token: string,
-  _deviceId: string,
-  _newDeviceName: string,
+  token: string,
+  deviceId: string,
+  newDeviceName: string,
   _localFallback?: ArcableWorkspaceData
-): Promise<{ success: boolean; devices: DeviceSyncRecord[]; error?: string }> {
-  return { success: true, devices: [] };
+): Promise<{ success: boolean; devices: DeviceRecordWithTabs[]; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return { success: false, devices: [], error: 'Invalid Raindrop token' };
+
+  try {
+    const allCollections = await fetchRaindropCollections(clean);
+    const match = allCollections.find(
+      (c) => String(c._id) === deviceId || c.title.trim().toLowerCase() === deviceId.trim().toLowerCase()
+    );
+
+    if (match) {
+      await updateRaindropCollection(clean, match._id, {
+        title: newDeviceName,
+      });
+    }
+
+    const refresh = await fetchDevicesWithTmpTabs(clean, String(match?._id || newDeviceName));
+    return { success: true, devices: refresh.devices };
+  } catch (err: any) {
+    return { success: false, devices: [], error: err?.message || 'Failed to rename device.' };
+  }
 }
 
+/**
+ * Deletes a device's collection under `_devices`.
+ */
 export async function deleteRaindropDevice(
-  _token: string,
-  _deviceId: string,
-  _localFallback?: ArcableWorkspaceData
-): Promise<{ success: boolean; devices: DeviceSyncRecord[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
-  return { success: true, devices: [] };
+  token: string,
+  deviceId: string,
+  localFallback?: ArcableWorkspaceData
+): Promise<{ success: boolean; devices: DeviceRecordWithTabs[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return { success: false, devices: [], latestSnapshot: localFallback, error: 'Invalid Raindrop token' };
+
+  try {
+    const allCollections = await fetchRaindropCollections(clean);
+    const match = allCollections.find(
+      (c) => String(c._id) === deviceId || c.title.trim().toLowerCase() === deviceId.trim().toLowerCase()
+    );
+
+    if (match) {
+      await deleteRaindropCollection(clean, match._id);
+    }
+
+    const refresh = await fetchDevicesWithTmpTabs(clean);
+    return { success: true, devices: refresh.devices, latestSnapshot: localFallback };
+  } catch (err: any) {
+    return { success: false, devices: [], latestSnapshot: localFallback, error: err?.message || 'Failed to delete device.' };
+  }
 }
 
+/**
+ * Deletes all other device collections under `_devices`, keeping only the current one.
+ */
 export async function deleteAllOtherRaindropDevices(
-  _token: string,
-  _keepDeviceId: string,
-  _localFallback?: ArcableWorkspaceData
-): Promise<{ success: boolean; devices: DeviceSyncRecord[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
-  return { success: true, devices: [] };
+  token: string,
+  keepDeviceId: string,
+  localFallback?: ArcableWorkspaceData
+): Promise<{ success: boolean; devices: DeviceRecordWithTabs[]; latestSnapshot?: ArcableWorkspaceData; error?: string }> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return { success: false, devices: [], latestSnapshot: localFallback, error: 'Invalid Raindrop token' };
+
+  try {
+    const listRes = await fetchDevicesWithTmpTabs(clean, keepDeviceId);
+    for (const dev of listRes.devices) {
+      if (dev.deviceId !== keepDeviceId && dev.collectionId) {
+        await deleteRaindropCollection(clean, dev.collectionId);
+      }
+    }
+    const refresh = await fetchDevicesWithTmpTabs(clean, keepDeviceId);
+    return { success: true, devices: refresh.devices, latestSnapshot: localFallback };
+  } catch (err: any) {
+    return { success: false, devices: [], latestSnapshot: localFallback, error: err?.message || 'Failed to delete other devices.' };
+  }
 }
 
 /**

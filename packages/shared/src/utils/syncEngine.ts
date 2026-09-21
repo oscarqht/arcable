@@ -192,14 +192,13 @@ export function detectOsName(): string {
 }
 
 /**
- * Generates the default device name in the format: `type + browser name + os name`
- * e.g., 'Web App / Chrome / macOS' or 'Ext / Zen / Windows'
+ * Generates the default device name in the format: `os name / browser name`
+ * e.g., 'macOS / Chrome' or 'Windows / Zen'
  */
-export function getDefaultDeviceName(type?: 'Web App' | 'Ext' | string): string {
-  const resolvedType = (type === 'Web App' || type === 'Ext') ? type : detectDeviceType();
-  const browser = detectBrowserName();
+export function getDefaultDeviceName(_type?: 'Web App' | 'Ext' | string): string {
   const os = detectOsName();
-  return `${resolvedType} / ${browser} / ${os}`;
+  const browser = detectBrowserName();
+  return `${os} / ${browser}`;
 }
 
 /**

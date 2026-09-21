@@ -47,6 +47,7 @@ import {
   DropletIcon,
   EditIcon,
   TrashIcon,
+  LaptopIcon,
 } from '../Icons';
 
 // Minimum time between automatic (silent) sync attempts, e.g. from side panel
@@ -130,6 +131,7 @@ export interface WorkspaceManagerProps {
     deviceId: string;
     pendingOps: WorkspaceOperation[];
   }) => Promise<SyncResult | void | any>;
+  onOpenDeviceModal?: () => void;
 }
 
 
@@ -138,6 +140,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     {
       onOpenTab,
       onOpenTmpTab,
+      onOpenDeviceModal,
       onOpenVariant,
       onCaptureCurrentTab,
       compact = false,
@@ -2810,12 +2813,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
           {(bottomBarMenuItems?.length || true) && (
             <div
-              role={bottomBarSyncItem ? 'group' : undefined}
-              aria-label={bottomBarSyncItem ? 'Raindrop sync and more options' : undefined}
+              role={bottomBarSyncItem || onOpenDeviceModal ? 'group' : undefined}
+              aria-label={bottomBarSyncItem || onOpenDeviceModal ? 'Raindrop sync, devices, and more options' : undefined}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                border: bottomBarSyncItem ? (isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)') : 'none',
+                border: (bottomBarSyncItem || onOpenDeviceModal) ? (isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)') : 'none',
                 borderRadius: '9999px',
                 overflow: 'hidden',
               }}
@@ -2854,6 +2857,29 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   </span>
                 </button>
               )}
+              {onOpenDeviceModal && (
+                <button
+                  type="button"
+                  onClick={onOpenDeviceModal}
+                  title="Devices & Synced Tmp Tabs"
+                  aria-label="Devices & Synced Tmp Tabs"
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    border: 'none',
+                    borderRight: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)',
+                    padding: 0,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    color: isDark ? '#cbd5e1' : '#475569',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <LaptopIcon size={15} color={isDark ? '#cbd5e1' : '#475569'} />
+                </button>
+              )}
               <ActionDropdown
                 items={bottomBarMoreItems}
                 isDarkTheme={isDark}
@@ -2862,7 +2888,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 buttonStyle={{
                   width: '32px',
                   height: '32px',
-                  borderRadius: bottomBarSyncItem ? 0 : '9999px',
+                  borderRadius: bottomBarSyncItem || onOpenDeviceModal ? 0 : '9999px',
                   padding: 0,
                   display: 'flex',
                   alignItems: 'center',

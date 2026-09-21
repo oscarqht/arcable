@@ -40,6 +40,12 @@ export interface DeviceSyncRecord {
   lastSyncAt: number;      // Timestamp of device's last successful sync
 }
 
+export interface DeviceRecordWithTabs extends DeviceSyncRecord {
+  collectionId?: number;
+  tabs: import('./workspace').TmpTab[];
+  isCurrent?: boolean;
+}
+
 export interface ArcableSyncFile {
   version: number;
   devices: Record<string, DeviceSyncRecord>; // deviceId -> DeviceSyncRecord
