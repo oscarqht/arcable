@@ -183,8 +183,8 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
   // Color and custom theme determination
   const themeStyles = useMemo(() => {
-    return getSpaceThemeStyles(space.colors, isSystemDark);
-  }, [space.colors, isSystemDark]);
+    return getSpaceThemeStyles(space.colors, isSystemDark, space.themeNoise);
+  }, [space.colors, isSystemDark, space.themeNoise]);
 
   // Copy all tab URLs in this space
   const handleCopyAllUrls = (e: React.MouseEvent) => {

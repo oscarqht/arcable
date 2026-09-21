@@ -653,9 +653,21 @@ export function dimHexForDarkMode(hex: string): string {
   if (!rgb) return hex;
   const [h, s, l] = rgbToHsl(...rgb);
 
-  // Map lightness to comfortable dark mode background range (12% to 20%) and preserve saturation
-  const targetL = Math.max(0.11, Math.min(0.22, 0.12 + l * 0.08));
-  const targetS = Math.min(1, Math.max(0.35, s * 1.15));
+  // Target lightness: dark charcoal base (13% to 16.5%)
+  // Subtle modulation based on original lightness so lighter colors have a very gentle lift
+  const targetL = Math.max(0.125, Math.min(0.165, 0.125 + l * 0.04));
+
+  // Target saturation: muted charcoal infused with a subtle tint (10% to 25% max)
+  // Low-saturation neutrals remain very subtle (~6% - 10%)
+  // Vibrant colors are scaled to a calm ~16% - 24% tint so the theme never feels overly saturated/strong in dark mode
+  let targetS: number;
+  if (s < 0.15) {
+    targetS = Math.max(0.04, s * 0.6);
+  } else if (s > 0.65) {
+    targetS = Math.min(0.24, 0.14 + (s - 0.65) * 0.28);
+  } else {
+    targetS = Math.min(0.20, 0.08 + s * 0.22);
+  }
 
   return hslToHex(h, targetS, targetL);
 }
@@ -672,10 +684,7 @@ export function dimColorStringForDarkMode(colorStr: string): string {
 
   // Also dim rgb/rgba colors inside gradients or direct strings
   result = result.replace(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/g, (match, r, g, b, a) => {
-    const [h, s, l] = rgbToHsl(parseInt(r, 10), parseInt(g, 10), parseInt(b, 10));
-    const targetL = Math.max(0.11, Math.min(0.22, 0.12 + l * 0.08));
-    const targetS = Math.min(1, Math.max(0.35, s * 1.15));
-    const dimmedHex = hslToHex(h, targetS, targetL);
+    const dimmedHex = dimHexForDarkMode(hslToHex(...rgbToHsl(parseInt(r, 10), parseInt(g, 10), parseInt(b, 10))));
     const rgb = parseHexColor(dimmedHex);
     if (!rgb) return match;
     if (a !== undefined) {
@@ -896,9 +905,16 @@ export function getSpaceNoiseOverlayStyle(
     containerBg === '#f8fafc' ||
     containerBg === 'rgb(255, 255, 255)';
 
+  // On white backgrounds, 'multiply' makes dark grain specks crisp.
+  // On light colored backgrounds, 'overlay' preserves richness and saturation.
+  // In dark mode, 'screen' makes texture distinctly perceptible on dark charcoal surfaces,
+  // balanced at 0.60x opacity (sweet spot) so it is clearly visible without harsh white static.
   const mixBlendMode: React.CSSProperties['mixBlendMode'] = isWhiteBg
     ? 'multiply'
     : (isDark ? 'screen' : 'overlay');
+
+  // In dark mode, balance noise intensity to ~60% of its set value
+  const effectiveNoise = isDark ? themeNoise * 0.60 : themeNoise;
 
   return {
     position: 'absolute',
@@ -907,7 +923,7 @@ export function getSpaceNoiseOverlayStyle(
     backgroundRepeat: 'repeat',
     backgroundSize: '160px 160px',
     mixBlendMode,
-    opacity: Math.min(Math.max(themeNoise, 0), 1),
+    opacity: Math.min(Math.max(effectiveNoise, 0), 1),
     pointerEvents: 'none',
     borderRadius: 'inherit',
     zIndex: 0,

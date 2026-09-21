@@ -116,7 +116,7 @@ export const App: React.FC = () => {
             }
             const space = sorted.find((s: any) => s.id === activeId) || sorted[0];
             if (space) {
-              return getSpaceThemeStyles(space.colors, isDark);
+              return getSpaceThemeStyles(space.colors, isDark, space.themeNoise);
             }
           }
         }
