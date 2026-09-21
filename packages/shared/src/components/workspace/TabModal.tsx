@@ -261,6 +261,11 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (targetIndex === -1) return prev;
       if (position === 'after') targetIndex += 1;
       next.splice(targetIndex, 0, dragged);
+      if (initialIsGroup || (tab?.favourite && tab?.isGroup)) {
+        if (next[0]?.id) {
+          setDefaultVariantId(next[0].id);
+        }
+      }
       return next;
     });
   };
@@ -280,10 +285,10 @@ export const TabModal: React.FC<TabModalProps> = ({
 
     if (showVariants && variants.length > 0) {
       const validVariants = variants.filter((v) => v.name.trim() || v.url.trim());
-      let defVariant = validVariants.find((v) => v.id === defaultVariantId);
-      if (!defVariant && validVariants.length > 0) {
-        defVariant = validVariants[0];
-      }
+      const isFavGroup = Boolean(favourite && (initialIsGroup || (tab?.favourite && tab?.isGroup)));
+      let defVariant = isFavGroup
+        ? validVariants[0]
+        : validVariants.find((v) => v.id === defaultVariantId) || validVariants[0];
       const finalDefaultUrl = defVariant ? defVariant.url.trim() : url.trim();
       if (!finalDefaultUrl) return;
       if (!favourite && !parentSpaceId) return;
@@ -299,12 +304,12 @@ export const TabModal: React.FC<TabModalProps> = ({
               }))
             : undefined,
         defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
-        isGroup: Boolean(favourite && (initialIsGroup || (tab?.favourite && tab?.isGroup))),
+        isGroup: isFavGroup,
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: customTitle.trim() || undefined,
         customEmojiIcon: undefined,
-        favIconUrl: coverUrl,
+        favIconUrl: defVariant?.favIconUrl || coverUrl,
         pinned: false,
         favourite,
       });

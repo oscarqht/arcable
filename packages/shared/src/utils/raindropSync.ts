@@ -55,6 +55,50 @@ export const ARCABLE_CUSTOM_CSS_LINK_PREFIX = 'https://arcable.app/custom-css/';
 export const ARCABLE_RUN_CODE_LINK_PREFIX = 'https://arcable.app/run-code/';
 export const ARCABLE_SPACE_THEME_LINK_PREFIX = 'https://arcable.app/space-theme/';
 export const ARCABLE_VARIANT_DELIMITER = ' ||| ';
+export const ARCABLE_GROUP_META_START = '<!--arcable-group:';
+export const ARCABLE_GROUP_META_END = '-->';
+
+export interface GroupVariantMeta {
+  variants?: Array<{ id?: string; url?: string; name?: string }>;
+  defaultVariantId?: string;
+  firstName?: string;
+}
+
+export function serializeGroupMeta(tab: Tab): string {
+  if (!tab.urlVariants || tab.urlVariants.length <= 1) return '';
+  const defaultVar =
+    (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
+    tab.urlVariants[0];
+  const meta: GroupVariantMeta = {
+    variants: tab.urlVariants.map((v) => ({ id: v.id, url: v.url, name: v.name })),
+    defaultVariantId: tab.defaultVariantId || tab.urlVariants[0]?.id,
+    firstName: defaultVar?.name || tab.urlVariants[0]?.name,
+  };
+  return `${ARCABLE_GROUP_META_START}${JSON.stringify(meta)}${ARCABLE_GROUP_META_END}`;
+}
+
+export function parseGroupMeta(note?: string): GroupVariantMeta | null {
+  if (!note) return null;
+  const start = note.indexOf(ARCABLE_GROUP_META_START);
+  if (start === -1) return null;
+  const contentStart = start + ARCABLE_GROUP_META_START.length;
+  const end = note.indexOf(ARCABLE_GROUP_META_END, contentStart);
+  if (end === -1) return null;
+  try {
+    return JSON.parse(note.slice(contentStart, end)) as GroupVariantMeta;
+  } catch {
+    return null;
+  }
+}
+
+export function attachGroupMetaToNote(existingNote: string | undefined, tab: Tab): string {
+  const metaStr = serializeGroupMeta(tab);
+  if (!existingNote) return metaStr;
+  const cleaned = existingNote.replace(/<!--arcable-group:[\s\S]*?-->/g, '').trim();
+  if (!metaStr) return cleaned;
+  return cleaned ? `${cleaned}\n${metaStr}` : metaStr;
+}
+
 /** Legacy canonical non-tree workspace metadata stored directly under the Arcable root. */
 export const ARCABLE_DATA_FILE_NAME = 'data.json.txt';
 
@@ -636,14 +680,18 @@ export async function syncIncrementalOperations(
       }
     }
 
+    const defaultVar =
+      (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
+      tab.urlVariants?.[0];
     const isCreate = operations.some((operation) => operation.type === 'TAB_CREATE');
     const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
     const rawTitle = tab.customTitle || tab.url;
+    const tabNote = attachGroupMetaToNote(tab.note, tab);
     const payload = {
       title: encodeRaindropTitle(rawTitle),
-      link: tab.url,
-      cover: tab.favIconUrl,
-      note: '',
+      link: defaultVar ? defaultVar.url : tab.url,
+      cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
+      note: tabNote,
       collection: { $id: parentId },
       order: targetOrder,
       sort: targetOrder,
@@ -656,7 +704,7 @@ export async function syncIncrementalOperations(
           title: payload.title,
           link: payload.link,
           cover: payload.cover,
-          note: '',
+          note: tabNote,
           collectionId: parentId,
           order: targetOrder,
           sort: targetOrder,
@@ -1629,32 +1677,83 @@ export function reconstructWorkspace(
     let urlVariants: TabUrlVariant[] | undefined;
     let defaultVariantId: string | undefined;
 
+    const groupMeta = parseGroupMeta(item.note);
+
     if (variantItems && variantItems.length > 0) {
       processedVariantGroupKeys.add(groupKey);
       const defaultId = String(item._id);
-      variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
-      urlVariants = [
-        { id: defaultId, name: decodedTitle || 'Default', url: item.link, favIconUrl: item.cover },
+      const findMetaName = (id: string, url: string, fallback: string) => {
+        if (!groupMeta?.variants) return fallback;
+        const match = groupMeta.variants.find((mv) => (mv.id && mv.id === id) || (mv.url && mv.url.trim().toLowerCase() === url.trim().toLowerCase()));
+        return match?.name || fallback;
+      };
+
+      const rawAllVariants: TabUrlVariant[] = [
+        {
+          id: defaultId,
+          name: findMetaName(defaultId, item.link, groupMeta?.firstName || decodedTitle || 'Default'),
+          url: item.link,
+          favIconUrl: item.cover,
+        },
         ...variantItems.map((v) => {
           const vTitle = decodeRaindropTitle(v.title || '');
           const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
           const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
-          return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
+          return {
+            id: String(v._id),
+            name: findMetaName(String(v._id), v.link, variantName),
+            url: v.link,
+            favIconUrl: v.cover,
+          };
         }),
       ];
-      defaultVariantId = defaultId;
+
+      if (groupMeta?.variants && groupMeta.variants.length > 0) {
+        const getRank = (v: TabUrlVariant) => {
+          const idxById = groupMeta.variants!.findIndex((mv) => mv.id && mv.id === v.id);
+          if (idxById !== -1) return idxById;
+          const idxByUrl = groupMeta.variants!.findIndex((mv) => mv.url && mv.url.trim().toLowerCase() === v.url.trim().toLowerCase());
+          if (idxByUrl !== -1) return idxByUrl;
+          const idxByName = groupMeta.variants!.findIndex((mv) => mv.name && mv.name.trim().toLowerCase() === v.name.trim().toLowerCase());
+          if (idxByName !== -1) return idxByName;
+          return 9999;
+        };
+        rawAllVariants.sort((a, b) => getRank(a) - getRank(b));
+      } else {
+        const [baseVar, ...secVars] = rawAllVariants;
+        secVars.sort((a, b) => {
+          const itemA = variantItems.find((vi) => String(vi._id) === a.id);
+          const itemB = variantItems.find((vi) => String(vi._id) === b.id);
+          const sortA = itemA ? (itemA.sort ?? itemA.order) : undefined;
+          const sortB = itemB ? (itemB.sort ?? itemB.order) : undefined;
+          if (sortA !== undefined && sortB !== undefined && sortA !== sortB) {
+            return sortA - sortB;
+          }
+          const orderA = itemOrderMap.get(Number(a.id)) ?? 0;
+          const orderB = itemOrderMap.get(Number(b.id)) ?? 0;
+          return orderA - orderB || Number(a.id) - Number(b.id);
+        });
+        rawAllVariants.splice(1, rawAllVariants.length - 1, ...secVars);
+      }
+
+      urlVariants = rawAllVariants;
+      defaultVariantId = groupMeta?.defaultVariantId || rawAllVariants[0]?.id || defaultId;
     }
+
+    const effectiveUrl = (urlVariants && urlVariants[0]?.url) || item.link;
+    const effectiveCover = (urlVariants && urlVariants[0]?.favIconUrl) || item.cover;
 
     tabs.push({
       id: String(item._id),
       raindropId: item._id,
-      url: item.link,
+      url: effectiveUrl,
       urlVariants,
       defaultVariantId,
       pinned: false,
       favourite: favourite || undefined,
       customTitle: decodedTitle,
-      favIconUrl: item.cover,
+      favIconUrl: effectiveCover,
+      note: item.note || undefined,
       parentFolderId,
       parentSpaceId,
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
@@ -1682,7 +1781,11 @@ export function reconstructWorkspace(
       }
     }
     const baseTitle = groupKey.split(':::')[1] || decodeRaindropTitle(first.title);
-    variantItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a._id - b._id);
+    variantItems.sort((a, b) => {
+      const orderA = itemOrderMap.get(a._id) ?? (a.sort ?? a.order ?? 0);
+      const orderB = itemOrderMap.get(b._id) ?? (b.sort ?? b.order ?? 0);
+      return orderA - orderB || a._id - b._id;
+    });
 
     // Deduplicate orphan variant items by URL
     const seenVariantUrls = new Set<string>();
@@ -2161,18 +2264,29 @@ export async function syncWorkspaceWithRaindrop(
     // Sync tabs
     for (const tab of localState.tabs || []) {
       if (deletedIds.has(tab.id)) continue;
-      const remoteId = remoteEntityId(tab);
+      let remoteId = remoteEntityId(tab);
+      const defaultVar =
+        (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
+        tab.urlVariants?.[0];
+      const defaultVarRemoteId = defaultVar ? numericRaindropId(defaultVar.id) : undefined;
+      const origRemoteId = remoteId;
+
+      if (defaultVarRemoteId && defaultVarRemoteId !== remoteId && remoteItems.has(defaultVarRemoteId)) {
+        remoteId = defaultVarRemoteId;
+      }
+
       const existing = remoteId ? remoteItems.get(remoteId) : undefined;
       if (remoteId && !existing && !changedIds.has(tab.id)) continue;
       const parentId = tab.favourite ? root._id : localCollectionToRemote.get(tab.parentFolderId || tab.parentSpaceId || '');
       if (!parentId) continue;
       const targetOrder = calculateTabTargetOrder(tab, localState.tabs || [], localState.widgets || []);
       const rawTitle = tab.customTitle || tab.url;
+      const tabNote = attachGroupMetaToNote(existing?.note || tab.note, tab);
       const payload = {
         title: encodeRaindropTitle(rawTitle),
-        link: tab.url,
-        cover: tab.favIconUrl,
-        note: '',
+        link: defaultVar ? defaultVar.url : tab.url,
+        cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
+        note: tabNote,
         collection: { $id: parentId },
         order: targetOrder,
         sort: targetOrder,
@@ -2180,7 +2294,8 @@ export async function syncWorkspaceWithRaindrop(
       const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
       const titleChanged = existing !== undefined && existing.title !== payload.title;
       const linkChanged = existing !== undefined && existing.link !== payload.link;
-      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+      const noteChanged = existing !== undefined && (existing.note || '') !== payload.note;
+      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || noteChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
 
       const secondaryVariants = getTabSecondaryVariants(tab);
 
@@ -2189,7 +2304,7 @@ export async function syncWorkspaceWithRaindrop(
           title: payload.title,
           link: payload.link,
           cover: payload.cover,
-          note: '',
+          note: tabNote,
           collectionId: parentId,
           order: targetOrder,
           sort: targetOrder,
@@ -2197,7 +2312,10 @@ export async function syncWorkspaceWithRaindrop(
         // Extra URL variants
         secondaryVariants.forEach((variant, vIdx) => {
           const variantOrder = targetOrder + 1 + vIdx;
-          const varRemoteId = numericRaindropId(variant.id);
+          let varRemoteId = numericRaindropId(variant.id);
+          if (varRemoteId === remoteId) {
+            varRemoteId = origRemoteId;
+          }
           const varExisting = varRemoteId ? remoteItems.get(varRemoteId) : undefined;
           const varTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
           if (varExisting) {
@@ -2230,7 +2348,10 @@ export async function syncWorkspaceWithRaindrop(
         const orphanVariants = tree.items.filter((item) => {
           if (item.collectionId !== parentId) return false;
           if (!item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`)) return false;
-          return !secondaryVariants.some((v) => String(item._id) === v.id);
+          return !secondaryVariants.some((v) => {
+            const vNum = numericRaindropId(v.id);
+            return item._id === vNum || (vNum === remoteId && item._id === origRemoteId);
+          });
         });
         for (const ov of orphanVariants) {
           extraVariantsToDelete.push(ov);
@@ -2245,7 +2366,10 @@ export async function syncWorkspaceWithRaindrop(
           if (item._id === existing._id) return false;
           const matchesCollection = item.collectionId === existing.collectionId || item.collectionId === parentId;
           if (!matchesCollection) return false;
-          const hasVariantId = secondaryVariants.some((v) => String(item._id) === v.id);
+          const hasVariantId = secondaryVariants.some((v) => {
+            const vNum = numericRaindropId(v.id);
+            return item._id === vNum || (vNum === remoteId && item._id === origRemoteId);
+          });
           const hasOldTitlePrefix = existing.title ? item.title?.startsWith(`${existing.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
           const hasNewTitlePrefix = payload.title ? item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
           return hasVariantId || hasOldTitlePrefix || hasNewTitlePrefix;
@@ -2254,7 +2378,10 @@ export async function syncWorkspaceWithRaindrop(
         secondaryVariants.forEach((variant, vIdx) => {
           const variantOrder = targetOrder + 1 + vIdx;
           const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
+          const varNumId = numericRaindropId(variant.id);
+          const effectiveVarId = varNumId === remoteId ? origRemoteId : varNumId;
           const matchIdx = existingRemoteVariants.findIndex((rv) => {
+            if (effectiveVarId && rv._id === effectiveVarId) return true;
             if (String(rv._id) === variant.id) return true;
             const delimIdx = (rv.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
             const rvName = delimIdx !== -1 ? decodeRaindropTitle(rv.title.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim()) : '';

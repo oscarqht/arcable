@@ -215,6 +215,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     reorderPinnedTabs,
     reorderFavouriteTabs,
     reorderFavouriteItem,
+    reorderGroupVariants,
     mergeTabsIntoGroup,
     ungroupTab,
     resetToDefault,
@@ -1793,6 +1794,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onUngroupTab={ungroupTab}
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
+        onReorderGroupVariants={reorderGroupVariants}
         raindropRootCollectionId={data.raindropRootCollectionId}
       />
 

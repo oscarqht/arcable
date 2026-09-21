@@ -22,6 +22,7 @@ export interface FavouriteGroupPopoverProps {
   tabAssociations?: TabAssociationMap;
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
+  onReorderVariant?: (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => void;
   theme: SpaceThemeTokens;
 }
 
@@ -38,10 +39,68 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   tabAssociations,
   highlightedTabId,
   onCloseAssociatedTab,
+  onReorderVariant,
   theme,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [hoveredVariantId, setHoveredVariantId] = useState<string | null>(null);
+  const [draggedVariantId, setDraggedVariantId] = useState<string | null>(null);
+  const [dragOverVariantId, setDragOverVariantId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after'>('after');
+
+  const handleDragStart = (e: React.DragEvent, variantId: string) => {
+    e.stopPropagation();
+    setDraggedVariantId(variantId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', variantId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, variantId: string) => {
+    if (!draggedVariantId || draggedVariantId === variantId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = e.clientX - rect.left;
+    const pos = relX < rect.width / 2 ? 'before' : 'after';
+
+    if (dragOverVariantId !== variantId || dropPosition !== pos) {
+      setDragOverVariantId(variantId);
+      setDropPosition(pos);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (
+      e.clientX < rect.left ||
+      e.clientX >= rect.right ||
+      e.clientY < rect.top ||
+      e.clientY >= rect.bottom
+    ) {
+      setDragOverVariantId(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetVariantId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceId = draggedVariantId;
+    const pos = dropPosition;
+    setDraggedVariantId(null);
+    setDragOverVariantId(null);
+
+    if (sourceId && sourceId !== targetVariantId && onReorderVariant) {
+      onReorderVariant(groupTab.id, sourceId, targetVariantId, pos);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedVariantId(null);
+    setDragOverVariantId(null);
+  };
 
   // Click outside and Escape key to close
   useEffect(() => {
@@ -307,6 +366,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
               }
             }
           }
+          const isDragged = draggedVariantId === v.id;
+          const isDragOver = dragOverVariantId === v.id;
           const isAssociated = Boolean(itemAssoc);
           const isItemHighlighted = Boolean(
             highlightedTabId && (
@@ -322,6 +383,12 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
             <button
               key={itemKey}
               type="button"
+              draggable={Boolean(onReorderVariant)}
+              onDragStart={(e) => handleDragStart(e, v.id)}
+              onDragOver={(e) => handleDragOver(e, v.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, v.id)}
+              onDragEnd={handleDragEnd}
               onClick={(e) => {
                 e.stopPropagation();
                 const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
@@ -338,6 +405,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 width: '46px',
                 height: '46px',
                 borderRadius: '10px',
+                opacity: isDragged ? 0.35 : 1,
                 border: isItemHighlighted
                   ? `1.5px solid ${theme.primaryColor}`
                   : `1px solid ${
@@ -363,7 +431,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 boxShadow: isItemHighlighted
                   ? `0 0 8px ${theme.primaryColor}55`
                   : 'none',
-                cursor: 'pointer',
+                cursor: onReorderVariant ? 'grab' : 'pointer',
                 position: 'relative',
                 padding: 0,
                 transition: 'transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease',
@@ -411,6 +479,25 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                 globeIconColor={theme.subtextColor}
                 showDomainFallback={true}
               />
+
+              {/* Drop indicator bar */}
+              {isDragOver && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    bottom: '3px',
+                    left: dropPosition === 'before' ? '-4px' : 'auto',
+                    right: dropPosition === 'after' ? '-4px' : 'auto',
+                    width: '3px',
+                    backgroundColor: theme.primaryColor,
+                    borderRadius: '2px',
+                    boxShadow: `0 0 4px ${theme.primaryColor}`,
+                    zIndex: 20,
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
 
               {/* Minus (-) button on hover if associated */}
               {isAssociated && onCloseAssociatedTab && hoveredVariantId === itemKey && (

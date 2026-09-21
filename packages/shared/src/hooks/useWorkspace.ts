@@ -2216,6 +2216,47 @@ export function useWorkspace() {
     [reorderFavouriteItem]
   );
 
+  const reorderGroupVariants = useCallback(
+    (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => {
+      saveWorkspaceData((prev) => {
+        const tab = prev.tabs.find((t) => t.id === groupTabId);
+        if (!tab || !tab.urlVariants || tab.urlVariants.length <= 1 || sourceVariantId === targetVariantId) return prev;
+        const variants = [...tab.urlVariants];
+        const sourceIndex = variants.findIndex((v) => v.id === sourceVariantId);
+        if (sourceIndex === -1) return prev;
+        const [dragged] = variants.splice(sourceIndex, 1);
+        let targetIndex = variants.findIndex((v) => v.id === targetVariantId);
+        if (targetIndex === -1) return prev;
+        if (position === 'after') targetIndex += 1;
+        variants.splice(targetIndex, 0, dragged);
+
+        const nextDefaultVariantId = variants[0]?.id;
+        const nextUrl = variants[0]?.url || tab.url;
+        const updatedTab: Tab = {
+          ...tab,
+          urlVariants: variants,
+          defaultVariantId: nextDefaultVariantId,
+          url: nextUrl,
+          updatedAt: Date.now(),
+        };
+
+        const opPayload: Record<string, any> = {
+          urlVariants: variants,
+          defaultVariantId: nextDefaultVariantId,
+          url: nextUrl,
+          updatedAt: updatedTab.updatedAt,
+        };
+        savePendingOperation(createWorkspaceOperation('TAB_UPDATE', groupTabId, opPayload));
+
+        return {
+          ...prev,
+          tabs: prev.tabs.map((t) => (t.id === groupTabId ? updatedTab : t)),
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
   const mergeTabsIntoGroup = useCallback(
     (sourceTabId: string, targetTabId: string) => {
       saveWorkspaceData((prev) => {
@@ -2887,6 +2928,7 @@ export function useWorkspace() {
     reorderPinnedTabs,
     reorderFavouriteTabs,
     reorderFavouriteItem,
+    reorderGroupVariants,
     mergeTabsIntoGroup,
     ungroupTab,
     // Bulk/utility

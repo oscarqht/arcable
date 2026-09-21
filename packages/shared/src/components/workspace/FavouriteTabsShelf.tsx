@@ -77,6 +77,7 @@ export interface FavouriteTabsShelfProps {
   onRemoveWidget?: (id: string) => void;
   onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
+  onReorderGroupVariants?: (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => void;
   /** Raindrop collection that contains global favourites. */
   raindropRootCollectionId?: number;
   themeStyles?: SpaceThemeTokens;
@@ -144,6 +145,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onRemoveWidget,
   onReorderFavouriteItem,
   onReorderFavouriteTabs,
+  onReorderGroupVariants,
   raindropRootCollectionId,
   themeStyles,
 }) => {
@@ -2329,6 +2331,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           tabAssociations={tabAssociations}
           highlightedTabId={highlightedTabId}
           onCloseAssociatedTab={onCloseAssociatedTab}
+          onReorderVariant={onReorderGroupVariants}
           onUngroup={onUngroupTab}
           theme={shelfTheme}
         />

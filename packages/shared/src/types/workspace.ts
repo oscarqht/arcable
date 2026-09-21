@@ -31,6 +31,7 @@ export interface Tab {
   customTitle?: string;
   customEmojiIcon?: string;
   favIconUrl?: string;
+  note?: string;           // Optional: bookmark note
   parentFolderId?: string; // Optional: if undefined/null, tab belongs to the root of the space (not applicable if favourite)
   parentSpaceId?: string;  // Optional: required when tab is not a favourite, undefined when favourite
   order?: number;          // Optional: custom sorting order
