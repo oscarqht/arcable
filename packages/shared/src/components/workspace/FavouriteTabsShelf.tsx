@@ -739,7 +739,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               : (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.07)' : '1px solid rgba(0, 0, 0, 0.06)');
 
             const cardShadow = isHighlighted
-              ? `inset 0 0 0 1px ${shelfTheme.primaryColor}99, 0 0 10px ${shelfTheme.primaryColor}55`
+              ? shelfTheme.activeIndicatorGlow
               : isHovered
               ? (isAssociated
                   ? (shelfTheme.isDark ? '0 3px 10px rgba(0, 0, 0, 0.35)' : '0 3px 10px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06)')
@@ -795,7 +795,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   borderRight: isDragTarget && dropPosition === 'after'
                     ? `3px solid ${shelfTheme.primaryColor}`
                     : undefined,
-                  outline: isHighlighted ? `2px solid ${shelfTheme.primaryColor}` : 'none',
+                  outline: isHighlighted ? shelfTheme.activeIndicatorOutline : 'none',
                   outlineOffset: isHighlighted ? '-1.5px' : undefined,
                   borderRadius: '14px',
                   cursor: 'grab',
@@ -881,11 +881,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       height: '3px',
                       borderRadius: '9999px',
                       backgroundColor: isHighlighted
-                        ? shelfTheme.primaryColor
+                        ? shelfTheme.activeIndicatorColor
                         : isHovered
                         ? (shelfTheme.isDark ? '#ffffff' : 'rgba(0, 0, 0, 0.85)')
                         : (shelfTheme.isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.6)'),
-                      boxShadow: isHighlighted ? `0 0 6px ${shelfTheme.primaryColor}` : 'none',
+                      boxShadow: isHighlighted ? shelfTheme.activeIndicatorGlow : 'none',
                       transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       pointerEvents: 'none',
                     }}
@@ -1043,16 +1043,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             : isWidgetHovered
             ? shelfTheme.actionHoverBg
             : shelfTheme.isDark
-            ? 'rgba(255, 255, 255, 0.04)'
-            : 'rgba(0, 0, 0, 0.035)';
+            ? 'rgba(0, 0, 0, 0.22)'
+            : 'rgba(255, 255, 255, 0.48)';
 
           const widgetBorder = noteColorConfig
             ? (shelfTheme.isDark ? `1px solid ${noteColorConfig.borderDark}` : `1px solid ${noteColorConfig.borderLight}`)
             : isWidgetHovered
-            ? `1px solid ${shelfTheme.primaryColor}`
+            ? (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.35)' : '1px solid rgba(0, 0, 0, 0.25)')
             : shelfTheme.isDark
-            ? '1px solid rgba(255, 255, 255, 0.07)'
-            : '1px solid rgba(0, 0, 0, 0.06)';
+            ? '1px solid rgba(255, 255, 255, 0.10)'
+            : '1px solid rgba(0, 0, 0, 0.08)';
 
           const widgetShadow = isWidgetHovered ? '0 2px 8px rgba(0, 0, 0, 0.12)' : 'none';
 
@@ -1117,6 +1117,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   : undefined,
                 borderRadius: '14px',
                 cursor: isInteractiveWidget ? 'pointer' : 'grab',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
                 transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
                 position: 'relative',
                 userSelect: 'none',
@@ -1274,8 +1276,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     style={{
                       fontSize: '9px',
                       fontWeight: 700,
-                      color: shelfTheme.primaryColor,
-                      letterSpacing: '0.03em',
+                      color: shelfTheme.subtextColor || shelfTheme.textColor,
+                      letterSpacing: '0.04em',
                       marginTop: '3px',
                       lineHeight: 1,
                       textTransform: 'uppercase',
@@ -1307,18 +1309,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       minWidth: '38px',
                       minHeight: '38px',
                       borderRadius: '999px',
-                      background: shelfTheme.isDark ? 'rgba(255, 255, 255, 0.08)' : '#ffffff',
-                      border: `1.5px solid ${shelfTheme.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.15)'}`,
-                      boxShadow: shelfTheme.isDark ? 'inset 0 1px 2px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.08)',
+                      background: shelfTheme.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.75)',
+                      border: `1.5px solid ${shelfTheme.borderColor}`,
                       position: 'relative',
-                      boxSizing: 'border-box',
                     }}
                   >
-                    <div style={{ position: 'absolute', top: '3px', left: '50%', width: '1.5px', height: '3px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateX(-50%)' }} />
-                    <div style={{ position: 'absolute', bottom: '3px', left: '50%', width: '1.5px', height: '3px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateX(-50%)' }} />
-                    <div style={{ position: 'absolute', left: '3px', top: '50%', width: '3px', height: '1.5px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateY(-50%)' }} />
-                    <div style={{ position: 'absolute', right: '3px', top: '50%', width: '3px', height: '1.5px', background: shelfTheme.textColor, opacity: 0.45, transform: 'translateY(-50%)' }} />
-
                     {/* Hour Hand */}
                     <div
                       style={{
@@ -1342,7 +1337,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                         top: '50%',
                         width: '1.5px',
                         height: '14px',
-                        background: shelfTheme.primaryColor || shelfTheme.textColor,
+                        background: shelfTheme.textColor,
                         borderRadius: '1px',
                         transformOrigin: 'bottom center',
                         transform: `translate(-50%, -100%) rotate(${clockInfo.minuteAngle}deg)`,
@@ -1386,7 +1381,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     style={{
                       fontSize: '8.5px',
                       fontWeight: 800,
-                      color: shelfTheme.primaryColor,
+                      color: shelfTheme.subtextColor || shelfTheme.textColor,
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                       lineHeight: 1.1,
@@ -1399,7 +1394,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     style={{
                       fontSize: '8.5px',
                       fontWeight: 800,
-                      color: shelfTheme.primaryColor,
+                      color: shelfTheme.subtextColor || shelfTheme.textColor,
                       letterSpacing: '0.04em',
                       textTransform: 'uppercase',
                       lineHeight: 1.1,
@@ -1538,7 +1533,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       style={{
                         fontSize: '8px',
                         fontWeight: 700,
-                        color: shelfTheme.primaryColor,
+                        color: shelfTheme.subtextColor || shelfTheme.textColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.04em',
                         maxWidth: '48px',
@@ -1758,7 +1753,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                       style={{
                         fontSize: '7.5px',
                         fontWeight: 600,
-                        color: shelfTheme.primaryColor,
+                        color: shelfTheme.subtextColor || shelfTheme.textColor,
                         textTransform: 'uppercase',
                         letterSpacing: '0.04em',
                         lineHeight: 1,

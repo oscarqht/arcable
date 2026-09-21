@@ -528,6 +528,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       )}
                       <TabRow
                         tab={t}
+                        themeStyles={themeStyles}
                         raindropCollectionId={space.raindropId}
                         isDarkTheme={themeStyles.isDark}
                         compact={isSingleColumn}
@@ -647,6 +648,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onMoveSiblingItem={onMoveSiblingItem}
                         onReorderSiblingItem={onReorderSiblingItem}
                         onDropTmpTab={onDropTmpTab}
+                        themeStyles={themeStyles}
                       />
                     );
                   }
@@ -660,6 +662,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     <TabRow
                       key={item.id}
                       tab={item.data}
+                      themeStyles={themeStyles}
                       raindropCollectionId={space.raindropId}
                       isDarkTheme={themeStyles.isDark}
                       compact={isSingleColumn}

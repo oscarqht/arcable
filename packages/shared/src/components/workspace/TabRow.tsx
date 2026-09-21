@@ -28,9 +28,11 @@ import {
   ClockIcon,
   GlobeIcon,
 } from '../Icons';
+import { SpaceThemeTokens } from '../../utils/spaceTheme';
 
 export interface TabRowProps {
   tab: Tab;
+  themeStyles?: SpaceThemeTokens;
   isDarkTheme?: boolean;
   compact?: boolean;
   alwaysShowActions?: boolean;
@@ -67,6 +69,7 @@ export interface TabRowProps {
 
 export const TabRow: React.FC<TabRowProps> = ({
   tab,
+  themeStyles,
   isDarkTheme,
   compact = false,
   alwaysShowActions = false,
@@ -383,9 +386,13 @@ export const TabRow: React.FC<TabRowProps> = ({
         backgroundColor: isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
-        outline: isHighlighted ? '2px solid #38bdf8' : 'none',
+        outline: isHighlighted
+          ? themeStyles?.activeIndicatorOutline || (effectiveDark ? '2px solid rgba(255, 255, 255, 0.9)' : '2px solid rgba(15, 23, 42, 0.85)')
+          : 'none',
         outlineOffset: isHighlighted ? '-2px' : undefined,
-        boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(56, 189, 248, 0.6), 0 0 8px rgba(56, 189, 248, 0.35)' : 'none',
+        boxShadow: isHighlighted
+          ? themeStyles?.activeIndicatorGlow || (effectiveDark ? '0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 255, 255, 0.35)' : '0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 8px rgba(0, 0, 0, 0.16)')
+          : 'none',
         color: textColor,
         cursor: 'pointer',
         gap: '6px',

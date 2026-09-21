@@ -105,15 +105,15 @@ function WidgetFace({
           }}
         >
           {info.timeMain}{' '}
-          <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.6 }}>{info.timeAmpm}</span>
+          <span style={{ fontSize: '12px', fontWeight: 600, opacity: 0.75 }}>{info.timeAmpm}</span>
         </div>
         {isLarge && (
-          <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, opacity: 0.65, marginTop: '6px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, opacity: 0.8, marginTop: '6px' }}>
             {info.weekdayShort}, {info.monthShort} {info.day}
           </div>
         )}
         {isMedium && (
-          <div style={{ fontSize: '11.5px', fontWeight: 600, color: textColor, opacity: 0.6, marginTop: '3px' }}>
+          <div style={{ fontSize: '11.5px', fontWeight: 600, color: textColor, opacity: 0.8, marginTop: '3px' }}>
             {info.weekdayShort}, {info.monthShort} {info.day}
           </div>
         )}
@@ -210,31 +210,31 @@ function WidgetFace({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       {isLarge && (
-        <div style={{ fontSize: '12.5px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        <div style={{ fontSize: '12.5px', fontWeight: 700, color: textColor, opacity: 0.82, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
           {info.weekdayLong}
         </div>
       )}
       {isMedium && (
-        <div style={{ fontSize: '11.5px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        <div style={{ fontSize: '11.5px', fontWeight: 700, color: textColor, opacity: 0.82, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
           {info.weekdayShort} · {info.monthShort} {info.day}
         </div>
       )}
       {isSmall && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.82, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
             {info.weekdayShort}
           </div>
-          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.02em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: '9px', fontWeight: 700, color: textColor, opacity: 0.82, textTransform: 'uppercase', letterSpacing: '0.02em', lineHeight: 1.1, whiteSpace: 'nowrap' }}>
             {info.monthShort} {info.day}
           </div>
         </div>
       )}
       <div style={{ fontSize: `${timeFontSize}px`, fontWeight: 700, color: textColor, letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
         {info.timeMain}
-        <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.6, marginLeft: '3px' }}>{info.timeAmpm}</span>
+        <span style={{ fontSize: '11px', fontWeight: 600, opacity: 0.75, marginLeft: '3px' }}>{info.timeAmpm}</span>
       </div>
       {isLarge && (
-        <div style={{ fontSize: '12px', fontWeight: 600, color: textColor, opacity: 0.6, marginTop: '2px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: textColor, opacity: 0.8, marginTop: '2px' }}>
           {info.monthShort} {info.day}
         </div>
       )}
@@ -363,8 +363,8 @@ export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
     clockBorder: theme.borderColor,
   };
 
-  const tileBg = theme.isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(255, 255, 255, 0.34)';
-  const tileBorder = theme.isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.55)';
+  const tileBg = theme.isDark ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.52)';
+  const tileBorder = theme.isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.65)';
   const tileShadow = theme.isDark
     ? 'inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 6px 16px rgba(0, 0, 0, 0.22)'
     : 'inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 6px 16px rgba(0, 0, 0, 0.10)';

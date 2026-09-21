@@ -2614,6 +2614,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         <div style={{ marginTop: '4px', width: '100%' }}>
           <TmpTabsList
             tabs={filteredTmpTabs}
+            themeStyles={activeSpaceTheme}
             currentDeviceId={currentDeviceId}
             compact={compact}
             showEmptyState={!compact}

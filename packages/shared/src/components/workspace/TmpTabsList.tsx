@@ -4,11 +4,13 @@ import React, { useEffect, useMemo } from 'react';
 import { TmpTab, TabOpenOptions } from '../../types/workspace';
 import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
+import { SpaceThemeTokens } from '../../utils/spaceTheme';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { refreshHoverUnderCursor } from '../../utils/mouseTracker';
 
 export interface TmpTabsListProps {
   tabs: TmpTab[];
+  themeStyles?: SpaceThemeTokens;
   currentDeviceId?: string;
   isDarkTheme?: boolean;
   compact?: boolean;
@@ -75,6 +77,7 @@ function mergeTabsByUrl(tabs: TmpTab[], currentDeviceId?: string): MergedTmpTab[
 
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   tabs,
+  themeStyles,
   currentDeviceId,
   isDarkTheme,
   compact = false,
@@ -266,6 +269,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
             <TmpTabRow
               key={tab.id}
               tab={tab}
+              themeStyles={themeStyles}
               currentDeviceId={currentDeviceId}
               isDarkTheme={effectiveDark}
               compact={compact}

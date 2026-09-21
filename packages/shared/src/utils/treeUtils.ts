@@ -102,8 +102,27 @@ export function isDarkColor(colorStr?: string | null): boolean {
   let hex = trimmed;
   if (trimmed.includes('gradient')) {
     const match = trimmed.match(/#(?:[0-9a-fA-F]{3}){1,2}\b/);
-    if (!match) return false;
-    hex = match[0];
+    if (match) {
+      hex = match[0];
+    } else {
+      const rgbMatch = trimmed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+      if (rgbMatch) {
+        const r = parseInt(rgbMatch[1], 10) || 0;
+        const g = parseInt(rgbMatch[2], 10) || 0;
+        const b = parseInt(rgbMatch[3], 10) || 0;
+        const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+        return yiq < 140;
+      }
+      return false;
+    }
+  }
+  const directRgbMatch = hex.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (directRgbMatch) {
+    const r = parseInt(directRgbMatch[1], 10) || 0;
+    const g = parseInt(directRgbMatch[2], 10) || 0;
+    const b = parseInt(directRgbMatch[3], 10) || 0;
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq < 140;
   }
   if (!hex.startsWith('#')) return false;
   const rawHex = hex.replace('#', '');
