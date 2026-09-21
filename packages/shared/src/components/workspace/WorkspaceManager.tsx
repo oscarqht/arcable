@@ -2491,9 +2491,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         sortedSpaces.length > 0 && (
           <div
             style={{
-              width: 'calc(100% + 8px)',
-              margin: '-2px -4px -4px -4px',
-              padding: '2px 4px 8px 4px',
+              width: 'calc(100% + 12px)',
+              margin: '-2px -6px -4px -6px',
+              padding: '2px 6px 8px 6px',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',

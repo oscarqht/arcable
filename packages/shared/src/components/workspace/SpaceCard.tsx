@@ -406,7 +406,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         borderRadius: '24px',
         border: isSingleColumn ? 'none' : themeStyles.cardBorder,
         boxShadow: isSingleColumn ? 'none' : themeStyles.cardBoxShadow,
-        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '8px 0' : '22px 14px'),
+        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '8px 4px' : '22px 14px'),
         display: 'flex',
         flexDirection: 'column',
         gap: isCollapsed ? '0' : (isSingleColumn ? '12px' : '16px'),
@@ -414,7 +414,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         boxSizing: 'border-box',
         width: '100%',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: isSingleColumn ? 'visible' : 'hidden',
       }}
     >
       {/* Texture & Grain Overlay */}

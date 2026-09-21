@@ -391,6 +391,8 @@ export const TabRow: React.FC<TabRowProps> = ({
         backgroundColor: isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
+        borderLeft: '2px solid transparent',
+        borderRight: '2px solid transparent',
         outline: isHighlighted
           ? themeStyles?.activeIndicatorOutline || (effectiveDark ? '2px solid rgba(255, 255, 255, 0.9)' : '2px solid rgba(15, 23, 42, 0.85)')
           : 'none',

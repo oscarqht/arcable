@@ -232,6 +232,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         padding: '0 8px',
         borderRadius: '10px',
         backgroundColor: isEditing ? (effectiveDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)') : isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
+        border: '2px solid transparent',
         outline: isHighlighted
           ? themeStyles?.activeIndicatorOutline || (effectiveDark ? '2px solid rgba(255, 255, 255, 0.9)' : '2px solid rgba(15, 23, 42, 0.85)')
           : isEditing

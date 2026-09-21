@@ -57,6 +57,46 @@ const STORAGE_KEY_TOKEN = 'arcable_token';
 const STORAGE_KEY_CONFIG = 'arcable_config';
 const STORAGE_KEY_DEVICE_ID = 'arcable_device_id';
 const STORAGE_KEY_DEVICE_NAME = 'arcable_device_name';
+const STORAGE_KEY_OS_THEME = 'arcable_os_theme';
+
+/**
+ * Detect and synchronize the OS / browser theme across extension contexts.
+ * In Gecko (Firefox / Zen Browser), the background script runs as a top-level page
+ * where window.matchMedia('(prefers-color-scheme: dark)') accurately reflects the
+ * host operating system's color scheme, completely decoupled from sidebar containers.
+ */
+function initBackgroundThemeSync(): void {
+  const syncTheme = async (isDark: boolean) => {
+    try {
+      await browser.storage.local.set({
+        [STORAGE_KEY_OS_THEME]: isDark ? 'dark' : 'light',
+      });
+    } catch {}
+  };
+
+  // Check window.matchMedia for host OS theme (Firefox / Gecko background page)
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    try {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      void syncTheme(mediaQuery.matches);
+
+      const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+        void syncTheme(e.matches);
+      };
+
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleChange);
+      } else if (typeof (mediaQuery as any).addListener === 'function') {
+        (mediaQuery as any).addListener(handleChange);
+      }
+    } catch (e) {
+      console.warn('[Arcable Background] Failed to init matchMedia theme sync:', e);
+    }
+  }
+}
+
+// Initial theme sync on background initialization
+initBackgroundThemeSync();
 
 // In-memory cached auth state
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
@@ -225,6 +265,17 @@ browser.runtime.onMessage.addListener(
     }
 
     switch (message.type) {
+      case 'GET_OS_THEME': {
+        let isDark = false;
+        if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+          isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        } else {
+          const stored = await browser.storage.local.get(STORAGE_KEY_OS_THEME);
+          isDark = stored[STORAGE_KEY_OS_THEME] === 'dark';
+        }
+        return { success: true, data: { isDark, theme: isDark ? 'dark' : 'light' } };
+      }
+
       case 'RUN_CODE_IN_PAGE_EXECUTE': {
         const payload = message.payload as { ruleId?: string; tabId?: number } | undefined;
         try {

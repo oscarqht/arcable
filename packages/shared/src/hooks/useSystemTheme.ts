@@ -37,12 +37,25 @@ function syncDOMClasses(isDark: boolean) {
 }
 
 function getSystemDarkPreference(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return false;
-  try {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  } catch {
-    return false;
+  if (typeof window === 'undefined') return false;
+
+  // 1. Primary check: window.matchMedia
+  if (window.matchMedia) {
+    try {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return true;
+      }
+    } catch {}
   }
+
+  // 2. Secondary check: cached OS theme in localStorage (synced by background script / previous session)
+  try {
+    const cachedOsTheme = localStorage.getItem('arcable_os_theme');
+    if (cachedOsTheme === 'dark') return true;
+    if (cachedOsTheme === 'light') return false;
+  } catch {}
+
+  return false;
 }
 
 function getUserThemePreference(): 'system' | 'light' | 'dark' {
@@ -116,13 +129,13 @@ function initGlobalListeners() {
   // 2. Storage event listener for cross-window / localStorage changes
   try {
     window.addEventListener('storage', (e) => {
-      if (e.key === 'arcable_config' || e.key === 'arcable_theme') {
+      if (e.key === 'arcable_config' || e.key === 'arcable_theme' || e.key === 'arcable_os_theme') {
         notifySubscribers();
       }
     });
   } catch {}
 
-  // 3. WebExtension storage change listener (if in extension environment)
+  // 3. WebExtension storage change listener and initial fetch (if in extension environment)
   try {
     const extChrome = typeof window !== 'undefined' && typeof (window as any).chrome !== 'undefined' ? (window as any).chrome : undefined;
     const extBrowser = typeof window !== 'undefined' && typeof (window as any).browser !== 'undefined' ? (window as any).browser : undefined;
@@ -130,15 +143,47 @@ function initGlobalListeners() {
 
     if (storageApi && storageApi.onChanged) {
       storageApi.onChanged.addListener((changes: Record<string, any>, area: string) => {
-        if (area === 'local' && (changes.arcable_config || changes.arcable_theme)) {
-          if (changes.arcable_config?.newValue?.theme) {
+        if (area === 'local') {
+          let shouldNotify = false;
+          if (changes.arcable_os_theme) {
             try {
-              localStorage.setItem('arcable_theme', changes.arcable_config.newValue.theme);
+              if (changes.arcable_os_theme.newValue) {
+                localStorage.setItem('arcable_os_theme', String(changes.arcable_os_theme.newValue));
+              } else {
+                localStorage.removeItem('arcable_os_theme');
+              }
             } catch {}
+            shouldNotify = true;
           }
-          notifySubscribers();
+          if (changes.arcable_config || changes.arcable_theme) {
+            if (changes.arcable_config?.newValue?.theme) {
+              try {
+                localStorage.setItem('arcable_theme', changes.arcable_config.newValue.theme);
+              } catch {}
+            }
+            shouldNotify = true;
+          }
+          if (shouldNotify) {
+            notifySubscribers();
+          }
         }
       });
+    }
+
+    if (storageApi && typeof storageApi.get === 'function') {
+      try {
+        const getRes = storageApi.get(['arcable_os_theme', 'arcable_theme']);
+        if (getRes && typeof getRes.then === 'function') {
+          getRes.then((res: any) => {
+            if (res && res.arcable_os_theme) {
+              try {
+                localStorage.setItem('arcable_os_theme', String(res.arcable_os_theme));
+              } catch {}
+              notifySubscribers();
+            }
+          }).catch(() => {});
+        }
+      } catch {}
     }
   } catch {}
 }

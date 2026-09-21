@@ -158,7 +158,7 @@ export const VirtualSyncedSpaceCard: React.FC<VirtualSyncedSpaceCardProps> = ({
         borderRadius: '24px',
         border: isSingleColumn ? 'none' : themeStyles.cardBorder,
         boxShadow: isSingleColumn ? 'none' : themeStyles.cardBoxShadow,
-        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '8px 0' : '22px 14px'),
+        padding: isCollapsed ? '14px 18px' : (isSingleColumn ? '8px 4px' : '22px 14px'),
         display: 'flex',
         flexDirection: 'column',
         gap: isCollapsed ? '0' : (isSingleColumn ? '12px' : '16px'),
