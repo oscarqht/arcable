@@ -6,8 +6,9 @@ import {
   RaindropAuthCard,
   ExternalLinkIcon,
   RefreshIcon,
+  ArchiveIcon,
 } from '@arcable/shared/components';
-import { RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
+import { RaindropAuthState, ExtensionResponse, SyncResult, ArcableWorkspaceData } from '@arcable/shared/types';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
   formatDate,
@@ -18,7 +19,7 @@ import {
   clearStoredPendingOperations,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
-import { browser, openWorkspaceSafely } from '../utils/browser';
+import { browser, openWorkspaceSafely, isZenBrowser } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
 import packageJson from '../../package.json';
@@ -53,6 +54,13 @@ export const App: React.FC = () => {
   // Custom code prefill pattern (from popup/sidepanel quick trigger)
   const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
 
+  // Zen Browser state
+  const [isZen, setIsZen] = useState(false);
+  const [hasCopiedZenCommand, setHasCopiedZenCommand] = useState(false);
+  const [showManualZenCss, setShowManualZenCss] = useState(false);
+
+  const zenScriptCommand = 'curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash';
+
   const showToast = useCallback((message: string, type: 'info' | 'success' | 'warning' = 'success') => {
     setToast({ message, type });
     setTimeout(() => {
@@ -60,7 +68,24 @@ export const App: React.FC = () => {
     }, 3500);
   }, []);
 
+  const handleCopyZenCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(zenScriptCommand);
+      setHasCopiedZenCommand(true);
+      showToast('Command copied to clipboard!', 'success');
+      setTimeout(() => {
+        setHasCopiedZenCommand(false);
+      }, 2500);
+    } catch {
+      showToast('Failed to copy command to clipboard', 'warning');
+    }
+  }, [zenScriptCommand, showToast]);
+
   useEffect(() => {
+    void isZenBrowser().then((val) => {
+      setIsZen(val);
+    });
+
     // Check for prefill URL (e.g. from "Customize this site" action)
     browser.storage.local.get('customCodePrefillUrl').then((res: any) => {
       if (res.customCodePrefillUrl) {
@@ -234,6 +259,18 @@ export const App: React.FC = () => {
       showToast(`Sync failed: ${err.message}`, 'warning');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleOpenRaindropArchive = async () => {
+    try {
+      const stored = await browser.storage.local.get('arcable_workspace_snapshot');
+      const snapshot = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+      const archiveId = snapshot?.raindropArchiveCollectionId;
+      const url = archiveId ? `https://app.raindrop.io/my/${archiveId}` : 'https://app.raindrop.io';
+      window.open(url, '_blank');
+    } catch {
+      window.open('https://app.raindrop.io', '_blank');
     }
   };
 
@@ -508,6 +545,47 @@ export const App: React.FC = () => {
 
       {/* Main Content Sections */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {isZen && activeTab !== 'about' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px',
+              padding: '12px 18px',
+              borderRadius: '12px',
+              backgroundColor: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(56, 189, 248, 0.08)',
+              border: `1px solid ${isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.3)'}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '18px' }}>🧘</span>
+              <div>
+                <div style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#38bdf8' : '#0284c7' }}>
+                  Zen Browser Detected
+                </div>
+                <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                  Want to hide the native white extension sidebar header? Run our one-line setup command.
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setActiveTab('about')}
+              style={{
+                borderRadius: '8px',
+                borderColor: isDark ? 'rgba(56, 189, 248, 0.4)' : '#38bdf8',
+                color: isDark ? '#38bdf8' : '#0284c7',
+                fontWeight: 600,
+              }}
+            >
+              Configure Sidebar Header →
+            </Button>
+          </div>
+        )}
+
         {/* TAB 1: SYNC & RAINDROP */}
         {activeTab === 'sync' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -569,6 +647,47 @@ export const App: React.FC = () => {
                     <span>Sync Now</span>
                   </Button>
                 </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    padding: '14px 18px',
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
+                    borderRadius: '12px',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    marginTop: '12px',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                      Raindrop Archive
+                    </div>
+                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                      Archived spaces, folders, and tabs are moved to &quot;Arcable v2 / Archive&quot; in Raindrop
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenRaindropArchive}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <ArchiveIcon size={14} />
+                    <span>Open Raindrop Archive</span>
+                  </Button>
+                </div>
               </Card>
             )}
           </div>
@@ -595,6 +714,120 @@ export const App: React.FC = () => {
         {/* TAB 5: ABOUT */}
         {activeTab === 'about' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Zen Browser Sidebar Optimization Card */}
+            <Card
+              title="Zen Browser Sidebar Setup"
+              extra={isZen ? <Badge variant="info">Zen Detected</Badge> : undefined}
+              subtitle="Hide the native white extension sidebar header across all your Zen profiles for a seamless, Arc-like experience."
+              style={{ borderRadius: '16px', padding: '24px' }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <p style={{ fontSize: '13.5px', lineHeight: 1.6, color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
+                  By default, Zen Browser displays a browser chrome header above extension side panels. You can remove it across all your Zen profiles by copying and running this one-line command in your terminal:
+                </p>
+
+                {/* Command Box */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    backgroundColor: isDark ? '#0b1120' : '#1e293b',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    overflowX: 'auto',
+                  }}
+                >
+                  <code
+                    style={{
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                      fontSize: '12.5px',
+                      color: '#38bdf8',
+                      whiteSpace: 'nowrap',
+                      userSelect: 'all',
+                    }}
+                  >
+                    {zenScriptCommand}
+                  </code>
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleCopyZenCommand}
+                    style={{
+                      flexShrink: 0,
+                      borderRadius: '8px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: hasCopiedZenCommand ? '#10b981' : undefined,
+                      borderColor: hasCopiedZenCommand ? '#10b981' : undefined,
+                    }}
+                  >
+                    {hasCopiedZenCommand ? '✓ Copied' : '📋 Copy Command'}
+                  </Button>
+                </div>
+
+                <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                  <strong>Steps:</strong>
+                  <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
+                    <li>Open <strong>Terminal</strong> (Terminal.app on macOS, or your terminal on Linux / WSL).</li>
+                    <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
+                    <li>Restart Zen Browser to apply the changes.</li>
+                  </ol>
+                </div>
+
+                {/* Manual toggle */}
+                <div style={{ paddingTop: '8px', borderTop: isDark ? '1px solid #243247' : '1px solid #f1f5f9' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualZenCss((prev) => !prev)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      color: isDark ? '#38bdf8' : '#0284c7',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>{showManualZenCss ? '▼ Hide manual CSS snippet' : '▶ Prefer manual setup? View userChrome.css instructions'}</span>
+                  </button>
+
+                  {showManualZenCss && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <p style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b', margin: 0 }}>
+                        1. In Zen Browser, navigate to <code>about:config</code> and ensure <code>toolkit.legacyUserProfileCustomizations.stylesheets</code> is set to <strong>true</strong>.<br />
+                        2. Navigate to <code>about:support</code>, open your <strong>Profile Folder</strong>, and create or append to <code>chrome/userChrome.css</code>:
+                      </p>
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: '10px 14px',
+                          backgroundColor: isDark ? '#0b1120' : '#f8fafc',
+                          borderRadius: '8px',
+                          border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
+                          fontSize: '12px',
+                          color: isDark ? '#e2e8f0' : '#1e293b',
+                          fontFamily: 'ui-monospace, monospace',
+                          overflowX: 'auto',
+                        }}
+                      >{`#zen-sidebar-web-header,
+#sidebar-header {
+  display: none !important;
+}`}</pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+
             <Card
               title="About Arcable"
               subtitle="Arc-like workspaces and tab management with Raindrop.io sync."
@@ -622,7 +855,9 @@ export const App: React.FC = () => {
                   </div>
                   <div>
                     <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Platform</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>WebExtension (Manifest V3)</div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>
+                      {isZen ? 'Zen Browser' : 'WebExtension'} (Manifest V3)
+                    </div>
                   </div>
                   <div>
                     <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Cloud Provider</div>

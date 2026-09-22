@@ -1027,6 +1027,20 @@ export const App: React.FC = () => {
       },
       disabled: isSyncing,
     },
+    ...(hasRaindropAuth
+      ? [
+          {
+            id: 'open-archive',
+            label: 'Open Raindrop Archive',
+            icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>📦</span>,
+            onClick: () => {
+              const archiveId = workspaceRef.current?.getArchiveCollectionId?.();
+              const url = archiveId ? `https://app.raindrop.io/my/${archiveId}` : 'https://app.raindrop.io';
+              void browser.tabs.create({ url });
+            },
+          },
+        ]
+      : []),
     {
       id: 'capture-tab',
       label: isCapturing ? 'Adding Tab...' : 'Add Current Tab',

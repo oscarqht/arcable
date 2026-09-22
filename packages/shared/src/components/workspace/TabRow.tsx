@@ -21,6 +21,7 @@ import {
   EditIcon,
   DuplicateIcon,
   TrashIcon,
+  ArchiveIcon,
   MinusIcon,
   SlashIcon,
   PrevTrackIcon,
@@ -60,6 +61,7 @@ export interface TabRowProps {
   onMediaControl?: (action: MediaControlAction) => void;
   onEdit: (tab: Tab) => void;
   onDuplicate?: (tab: Tab) => void;
+  onArchive?: (id: string) => void;
   onDelete: (id: string) => void;
   onTogglePin?: (id: string) => void;
   onToggleFavourite?: (id: string) => void;
@@ -96,6 +98,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onMediaControl,
   onEdit,
   onDuplicate,
+  onArchive,
   onDelete,
   onTogglePin,
   onToggleFavourite,
@@ -287,6 +290,15 @@ export const TabRow: React.FC<TabRowProps> = ({
       });
     }
 
+    if (onArchive) {
+      items.push({
+        id: 'archive-tab',
+        label: 'Archive tab',
+        icon: <ArchiveIcon size={14} />,
+        onClick: () => onArchive(tab.id),
+      });
+    }
+
     if (onDelete) {
       items.push({
         id: 'delete-tab',
@@ -310,6 +322,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     onToggleFavourite,
     onEdit,
     onDuplicate,
+    onArchive,
     onDelete,
   ]);
 

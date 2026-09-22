@@ -185,3 +185,29 @@ export async function openWorkspaceSafely(): Promise<void> {
   }
 }
 
+/**
+ * Detects whether the extension is running inside Zen Browser.
+ * Checks navigator.userAgent as well as the Gecko browser.runtime.getBrowserInfo API.
+ */
+export async function isZenBrowser(): Promise<boolean> {
+  if (typeof navigator !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    if (/Zen\/|zen/i.test(ua)) {
+      return true;
+    }
+  }
+
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime && (browser.runtime as any).getBrowserInfo) {
+      const info = await (browser.runtime as any).getBrowserInfo();
+      if (info && (/zen/i.test(info.name) || /zen/i.test(info.vendor))) {
+        return true;
+      }
+    }
+  } catch {
+    // getBrowserInfo is Gecko-only, catch gracefully in Chromium
+  }
+
+  return false;
+}
+

@@ -465,6 +465,65 @@ export function useWorkspace() {
     });
   }, [data.spaces, saveWorkspaceData]);
 
+  const archiveSpace = useCallback((id: string) => {
+    const spaceToArchive = data.spaces.find((s) => s.id === id);
+    savePendingOperation(
+      createWorkspaceOperation('SPACE_ARCHIVE', id, {
+        raindropId: spaceToArchive?.raindropId,
+        themeRaindropId: spaceToArchive?.themeRaindropId,
+      })
+    );
+
+    const remainingSpaces = data.spaces.filter((s) => s.id !== id);
+    let fallbackSpace: Space | null = null;
+    if (remainingSpaces.length === 0) {
+      fallbackSpace = {
+        id: generateId('space'),
+        name: 'General',
+        emojiIcon: '🌐',
+        colors: '#919bb5',
+        order: 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      savePendingOperation(createWorkspaceOperation('SPACE_CREATE', fallbackSpace.id, fallbackSpace));
+    }
+
+    saveWorkspaceData((prev) => {
+      const remaining = prev.spaces.filter((s) => s.id !== id);
+      if (remaining.length === 0) {
+        const fb = fallbackSpace || {
+          id: 'space_default',
+          name: 'General',
+          emojiIcon: '🌐',
+          colors: '#919bb5',
+          order: 1000,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        return {
+          ...prev,
+          spaces: [fb],
+          folders: prev.folders.filter((f) => f.parentSpaceId !== id),
+          tabs: prev.tabs.filter((t) => t.parentSpaceId !== id),
+          activeSpaceId: fb.id,
+        };
+      }
+
+      const sortedRemaining = getSortedSpaces(remaining);
+      const nextActiveSpaceId =
+        prev.activeSpaceId === id ? sortedRemaining[0].id : prev.activeSpaceId;
+
+      return {
+        ...prev,
+        spaces: remaining,
+        folders: prev.folders.filter((f) => f.parentSpaceId !== id),
+        tabs: prev.tabs.filter((t) => t.parentSpaceId !== id),
+        activeSpaceId: nextActiveSpaceId,
+      };
+    });
+  }, [data.spaces, saveWorkspaceData]);
+
   const convertSpaceToFolder = useCallback(
     (sourceSpaceId: string, targetSpaceId: string, targetParentFolderId?: string) => {
       if (sourceSpaceId === targetSpaceId) return;
@@ -821,6 +880,29 @@ export function useWorkspace() {
     });
   }, [saveWorkspaceData]);
 
+  const archiveFolder = useCallback((id: string) => {
+    saveWorkspaceData((prev) => {
+      const descendantIds = getDescendantFolderIds(id, prev.folders);
+      const folderIdsToDelete = new Set<string>([id, ...descendantIds]);
+      const archivedFolder = prev.folders.find((f) => f.id === id);
+      const numericFolderId = /^\d+$/.test(id) ? Number(id) : undefined;
+
+      folderIdsToDelete.forEach((fId) => {
+        removeLocalFolderExpanded(fId);
+      });
+
+      savePendingOperation(createWorkspaceOperation('FOLDER_ARCHIVE', id, {
+        raindropId: archivedFolder?.raindropId || numericFolderId,
+      }));
+
+      return {
+        ...prev,
+        folders: prev.folders.filter((f) => !folderIdsToDelete.has(f.id)),
+        tabs: prev.tabs.filter((t) => !t.parentFolderId || !folderIdsToDelete.has(t.parentFolderId)),
+      };
+    });
+  }, [saveWorkspaceData]);
+
   // ================= Tab CRUD =================
   const createTab = useCallback((tabInput: {
     url: string;
@@ -1063,6 +1145,31 @@ export function useWorkspace() {
         raindropId: deletedTab?.raindropId || numericTabId,
         variantRaindropIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
         collectionId: deletedTab?.favourite
+          ? prev.raindropRootCollectionId
+          : parent?.raindropId || numericParentId,
+      }));
+      return {
+        ...prev,
+        tabs: prev.tabs.filter((t) => t.id !== id),
+      };
+    });
+  }, [saveWorkspaceData]);
+
+  const archiveTab = useCallback((id: string) => {
+    saveWorkspaceData((prev) => {
+      const archivedTab = prev.tabs.find((tab) => tab.id === id);
+      const numericTabId = /^\d+$/.test(id) ? Number(id) : undefined;
+      const parent = archivedTab?.parentFolderId
+        ? prev.folders.find((folder) => folder.id === archivedTab.parentFolderId)
+        : prev.spaces.find((space) => space.id === archivedTab?.parentSpaceId);
+      const numericParentId = parent && /^\d+$/.test(parent.id) ? Number(parent.id) : undefined;
+      const secondaryVariantIds = (archivedTab?.urlVariants || [])
+        .map((v) => numericRaindropId(v.id))
+        .filter((vid): vid is number => Boolean(vid) && vid !== (archivedTab?.raindropId || numericTabId));
+      savePendingOperation(createWorkspaceOperation('TAB_ARCHIVE', id, {
+        raindropId: archivedTab?.raindropId || numericTabId,
+        variantRaindropIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
+        collectionId: archivedTab?.favourite
           ? prev.raindropRootCollectionId
           : parent?.raindropId || numericParentId,
       }));
@@ -2892,6 +2999,7 @@ export function useWorkspace() {
     createSpace,
     updateSpace,
     deleteSpace,
+    archiveSpace,
     convertSpaceToFolder,
     reorderSpaces,
     moveSpace,
@@ -2899,6 +3007,7 @@ export function useWorkspace() {
     createFolder,
     updateFolder,
     deleteFolder,
+    archiveFolder,
     toggleFolderExpand,
     setAllFoldersExpanded,
     expandAllFolders,
@@ -2907,6 +3016,7 @@ export function useWorkspace() {
     createTab,
     updateTab,
     deleteTab,
+    archiveTab,
     duplicateTab,
     togglePinTab,
     toggleFavouriteTab,

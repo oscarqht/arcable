@@ -211,6 +211,13 @@ npm install
 3. Select `apps/extension/dist/firefox/manifest.json` (or any file within `dist/firefox`).
 4. Open the Firefox sidebar to view Arcable.
 
+> [!TIP]
+> **Zen Browser Users**: To hide the native white extension sidebar header for a seamless workspace, run this one-line command in your terminal:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash
+> ```
+> Then restart Zen Browser.
+
 ---
 
 ## 💧 Raindrop.io Integration

@@ -158,6 +158,8 @@ export interface WorkspaceWidget {
 export interface ArcableWorkspaceData {
   /** Raindrop collection ID for the Arcable root; enables direct favourite mutations. */
   raindropRootCollectionId?: number;
+  /** Raindrop collection ID for the Arcable archive root; caches archive collection location. */
+  raindropArchiveCollectionId?: number;
   /** Raindrop collection ID for the _space_themes collection; caches theme collection location. */
   raindropSpaceThemeCollectionId?: number;
   /** Current non-tree metadata file. Null means a fresh remote read confirmed it does not exist. */

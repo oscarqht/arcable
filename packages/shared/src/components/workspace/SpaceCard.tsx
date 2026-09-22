@@ -28,6 +28,7 @@ import {
   PlusIcon,
   EditIcon,
   TrashIcon,
+  ArchiveIcon,
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
@@ -56,16 +57,19 @@ export interface SpaceCardProps {
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditSpace?: (space: Space) => void;
   onDeleteSpace?: (spaceId: string) => void;
+  onArchiveSpace?: (spaceId: string) => void;
   onConvertSpace?: (space: Space) => void;
   onAddTab?: (folderId?: string, pinned?: boolean) => void;
   onAddFolder?: (parentFolderId?: string) => void;
   onEditFolder?: (folder: Folder) => void;
   onDeleteFolder?: (folderId: string) => void;
+  onArchiveFolder?: (folderId: string) => void;
   onToggleFolderExpand?: (folderId: string) => void;
   onExpandAllFolders?: (spaceId: string) => void;
   onCollapseAllFolders?: (spaceId: string) => void;
   onEditTab?: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onArchiveTab?: (tabId: string) => void;
   onDeleteTab?: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -111,16 +115,19 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onMediaControl,
   onEditSpace,
   onDeleteSpace,
+  onArchiveSpace,
   onConvertSpace,
   onAddTab,
   onAddFolder,
   onEditFolder,
   onDeleteFolder,
+  onArchiveFolder,
   onToggleFolderExpand,
   onExpandAllFolders,
   onCollapseAllFolders,
   onEditTab,
   onDuplicateTab,
+  onArchiveTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -368,6 +375,15 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
       });
     }
 
+    if (onArchiveSpace && allSpaces.length > 1) {
+      items.push({
+        id: 'archive-space',
+        label: 'Archive space',
+        icon: <ArchiveIcon size={16} />,
+        onClick: () => onArchiveSpace(space.id),
+      });
+    }
+
     if (onDeleteSpace && allSpaces.length > 1) {
       items.push({
         id: 'delete-space',
@@ -393,6 +409,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
     allSpaces.length,
     space,
     onEditSpace,
+    onArchiveSpace,
     onDeleteSpace,
   ]);
 
@@ -625,6 +642,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onToggleExpand={onToggleFolderExpand || (() => {})}
                         onEditFolder={onEditFolder || (() => {})}
                         onDeleteFolder={onDeleteFolder || (() => {})}
+                        onArchiveFolder={onArchiveFolder}
                         onAddSubFolder={onAddFolder || (() => {})}
                         onAddTabInFolder={(pId) => onAddTab?.(pId, false)}
                         onOpenTab={onOpenTab}
@@ -635,6 +653,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         onMediaControl={onMediaControl}
                         onEditTab={onEditTab || (() => {})}
                         onDuplicateTab={onDuplicateTab}
+                        onArchiveTab={onArchiveTab}
                         onDeleteTab={onDeleteTab || (() => {})}
                         onTogglePinTab={onTogglePinTab || (() => {})}
                         onToggleFavouriteTab={onToggleFavouriteTab}
@@ -692,6 +711,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                       }
                       onEdit={onEditTab || (() => {})}
                       onDuplicate={onDuplicateTab}
+                      onArchive={onArchiveTab}
                       onDelete={onDeleteTab || (() => {})}
                       onTogglePin={onTogglePinTab}
                       onToggleFavourite={onToggleFavouriteTab}

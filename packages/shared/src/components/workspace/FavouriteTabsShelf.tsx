@@ -33,6 +33,7 @@ import {
   EditIcon,
   DuplicateIcon,
   TrashIcon,
+  ArchiveIcon,
   CopyIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -66,6 +67,7 @@ export interface FavouriteTabsShelfProps {
   onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
   onAddFavouriteTab: () => void;
@@ -135,6 +137,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onToggleTabMute,
   onEditTab,
   onDuplicateTab,
+  onArchiveTab,
   onDeleteTab,
   onToggleFavouriteTab,
   onAddFavouriteTab,
@@ -722,6 +725,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     },
                   ]
                 : []),
+              ...(onArchiveTab
+                ? [
+                    {
+                      id: 'archive-tab',
+                      label: 'Archive tab',
+                      icon: <ArchiveIcon size={14} />,
+                      onClick: () => onArchiveTab(tab.id),
+                    },
+                  ]
+                : []),
               {
                 id: 'delete-tab',
                 label: 'Delete tab',
@@ -766,8 +779,18 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 label: 'Remove from favourites',
                 icon: <StarIcon size={14} filled={true} color="#eab308" />,
                 onClick: () => onToggleFavouriteTab(tab.id),
-                dividerAfter: Boolean(onDeleteTab),
+                dividerAfter: Boolean(onArchiveTab || onDeleteTab),
               },
+              ...(onArchiveTab
+                ? [
+                    {
+                      id: 'archive-group',
+                      label: 'Archive group',
+                      icon: <ArchiveIcon size={14} />,
+                      onClick: () => onArchiveTab(tab.id),
+                    },
+                  ]
+                : []),
               ...(onDeleteTab
                 ? [
                     {

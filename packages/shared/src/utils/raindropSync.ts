@@ -45,6 +45,7 @@ import {
 } from './customCodeUtils';
 
 export const ARCABLE_COLLECTION_NAME = 'Arcable v2';
+export const ARCABLE_ARCHIVE_COLLECTION_NAME = 'Arcable v2 / Archive';
 export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
 export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
 export const ARCABLE_SPACE_THEME_COLLECTION_NAME = '_space_themes';
@@ -165,8 +166,31 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
   return created;
 }
 
+/**
+ * Finds the root collection named ARCABLE_ARCHIVE_COLLECTION_NAME ("Arcable v2 / Archive"), or creates one if it does not exist.
+ */
+export async function getOrCreateArchiveCollection(token: string): Promise<RaindropCollectionItem> {
+  const collections = await fetchRaindropCollections(token);
+
+  const matches = collections.filter(
+    (c) =>
+      c.title.trim().toLowerCase() === ARCABLE_ARCHIVE_COLLECTION_NAME.toLowerCase() &&
+      (!c.parent || !c.parent.$id)
+  );
+
+  if (matches.length > 0) {
+    matches.sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
+    return matches[0];
+  }
+
+  // Create new root collection
+  const created = await createRaindropCollection(token, ARCABLE_ARCHIVE_COLLECTION_NAME);
+  return created;
+}
+
 interface RemoteArcableTree {
   root?: RaindropCollectionItem;
+  archiveRootId?: number;
   collections: RaindropCollectionItem[];
   items: RaindropBookmarkItem[];
 }
@@ -440,12 +464,15 @@ export function spaceThemeToRaindropItemInput(
 
 export const INCREMENTAL_OPERATION_TYPES = new Set([
   'SPACE_UPDATE',
+  'SPACE_ARCHIVE',
   'FOLDER_CREATE',
   'FOLDER_UPDATE',
   'FOLDER_DELETE',
+  'FOLDER_ARCHIVE',
   'TAB_CREATE',
   'TAB_UPDATE',
   'TAB_DELETE',
+  'TAB_ARCHIVE',
   'WIDGET_CREATE',
   'WIDGET_UPDATE',
   'WIDGET_DELETE',
@@ -481,7 +508,7 @@ function needsIncrementalIdentityRebase(
 
   const folderGroups = new Map<string, WorkspaceOperation[]>();
   for (const operation of pendingOps) {
-    if (!operation.type.startsWith('FOLDER_') || operation.type === 'FOLDER_DELETE') continue;
+    if (!operation.type.startsWith('FOLDER_') || operation.type === 'FOLDER_DELETE' || operation.type === 'FOLDER_ARCHIVE') continue;
     const operations = folderGroups.get(operation.entityId) || [];
     operations.push(operation);
     folderGroups.set(operation.entityId, operations);
@@ -511,7 +538,7 @@ function needsIncrementalIdentityRebase(
   }
 
   for (const operation of pendingOps) {
-    if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE') continue;
+    if (!operation.type.startsWith('TAB_') || operation.type === 'TAB_DELETE' || operation.type === 'TAB_ARCHIVE') continue;
     const tab = localState.tabs.find((candidate) => candidate.id === operation.entityId);
     if (!tab) return true;
     if (operation.type === 'TAB_UPDATE' && !remoteEntityId(tab)) {
@@ -587,7 +614,7 @@ export async function syncIncrementalOperations(
   }
 
   const folderUpserts = [...groups.entries()].filter(([key, operations]) =>
-    key.startsWith('folder:') && !operations.some((operation) => operation.type === 'FOLDER_DELETE')
+    key.startsWith('folder:') && !operations.some((operation) => operation.type === 'FOLDER_DELETE' || operation.type === 'FOLDER_ARCHIVE')
   );
   const unresolvedFolderUpserts = new Map(folderUpserts);
   while (unresolvedFolderUpserts.size > 0) {
@@ -653,7 +680,7 @@ export async function syncIncrementalOperations(
   }> = [];
 
   for (const [key, operations] of groups) {
-    if (!key.startsWith('tab:') || operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
+    if (!key.startsWith('tab:') || operations.some((operation) => operation.type === 'TAB_DELETE' || operation.type === 'TAB_ARCHIVE')) continue;
     const entityId = operations[0].entityId;
     const tab = latestSnapshot.tabs.find((candidate) => candidate.id === entityId);
     if (!tab) throw new Error(`Cannot incrementally sync missing bookmark ${entityId}.`);
@@ -858,7 +885,7 @@ export async function syncIncrementalOperations(
 
   for (const [key, operations] of groups) {
     if (!key.startsWith('tab:') || !operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
-    if (operations.some((operation) => operation.type === 'TAB_CREATE')) continue;
+    if (operations.some((operation) => operation.type === 'TAB_CREATE' || operation.type === 'TAB_ARCHIVE')) continue;
     const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'TAB_DELETE')!;
     const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
     if (!remoteId && (!Array.isArray(deleteOperation.payload?.variantRaindropIds) || deleteOperation.payload.variantRaindropIds.length === 0)) {
@@ -902,12 +929,77 @@ export async function syncIncrementalOperations(
 
   for (const [key, operations] of groups) {
     if (!key.startsWith('folder:') || !operations.some((operation) => operation.type === 'FOLDER_DELETE')) continue;
-    if (operations.some((operation) => operation.type === 'FOLDER_CREATE')) continue;
+    if (operations.some((operation) => operation.type === 'FOLDER_CREATE' || operation.type === 'FOLDER_ARCHIVE')) continue;
     const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'FOLDER_DELETE')!;
     const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
     if (!remoteId) throw new Error(`Folder ${deleteOperation.entityId} has no Raindrop ID for incremental delete.`);
     const deleted = await deleteRaindropCollection(token, remoteId);
     if (!deleted) throw new Error(`Failed to delete Raindrop folder ${remoteId}.`);
+  }
+
+  // Process Archive Operations
+  const hasArchiveOperations = pendingOps.some(
+    (op) => op.type === 'SPACE_ARCHIVE' || op.type === 'FOLDER_ARCHIVE' || op.type === 'TAB_ARCHIVE'
+  );
+  if (hasArchiveOperations) {
+    let archiveCollId = latestSnapshot.raindropArchiveCollectionId;
+    const ensureArchiveColl = async (): Promise<number> => {
+      if (archiveCollId) return archiveCollId;
+      const coll = await getOrCreateArchiveCollection(token);
+      archiveCollId = coll._id;
+      latestSnapshot = {
+        ...latestSnapshot,
+        raindropArchiveCollectionId: archiveCollId,
+      };
+      return archiveCollId;
+    };
+
+    // Tab archives
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('tab:') || !operations.some((op) => op.type === 'TAB_ARCHIVE')) continue;
+      const archiveOp = [...operations].reverse().find((op) => op.type === 'TAB_ARCHIVE')!;
+      const remoteId = Number(archiveOp.payload?.raindropId) || numericRaindropId(archiveOp.entityId);
+      const targetArchiveId = await ensureArchiveColl();
+      if (remoteId) {
+        await updateRaindropItem(token, remoteId, { collection: { $id: targetArchiveId } });
+      }
+      if (Array.isArray(archiveOp.payload?.variantRaindropIds)) {
+        for (const vid of archiveOp.payload.variantRaindropIds) {
+          const numId = numericRaindropId(vid);
+          if (numId) {
+            await updateRaindropItem(token, numId, { collection: { $id: targetArchiveId } });
+          }
+        }
+      }
+    }
+
+    // Folder archives
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('folder:') || !operations.some((op) => op.type === 'FOLDER_ARCHIVE')) continue;
+      const archiveOp = [...operations].reverse().find((op) => op.type === 'FOLDER_ARCHIVE')!;
+      const remoteId = Number(archiveOp.payload?.raindropId) || numericRaindropId(archiveOp.entityId);
+      if (!remoteId) throw new Error(`Folder ${archiveOp.entityId} has no Raindrop ID for incremental archive.`);
+      const targetArchiveId = await ensureArchiveColl();
+      const updated = await updateRaindropCollection(token, remoteId, { parentId: targetArchiveId });
+      if (!updated) throw new Error(`Failed to archive Raindrop folder ${remoteId}.`);
+    }
+
+    // Space archives
+    for (const [key, operations] of groups) {
+      if (!key.startsWith('space:') || !operations.some((op) => op.type === 'SPACE_ARCHIVE')) continue;
+      const archiveOp = [...operations].reverse().find((op) => op.type === 'SPACE_ARCHIVE')!;
+      const remoteId = Number(archiveOp.payload?.raindropId) || numericRaindropId(archiveOp.entityId);
+      if (!remoteId) throw new Error(`Space ${archiveOp.entityId} has no Raindrop ID for incremental archive.`);
+      const targetArchiveId = await ensureArchiveColl();
+      const updated = await updateRaindropCollection(token, remoteId, { parentId: targetArchiveId });
+      if (!updated) throw new Error(`Failed to archive Raindrop space ${remoteId}.`);
+      if (archiveOp.payload?.themeRaindropId) {
+        const themeId = Number(archiveOp.payload.themeRaindropId);
+        if (themeId) {
+          await deleteRaindropBookmark(token, themeId);
+        }
+      }
+    }
   }
 
   // Process Widget operations
@@ -1176,7 +1268,7 @@ export async function syncIncrementalOperations(
     };
 
     for (const [key, operations] of groups) {
-      if (!key.startsWith('space:')) continue;
+      if (!key.startsWith('space:') || operations.some((operation) => operation.type === 'SPACE_ARCHIVE')) continue;
       const entityId = operations[0].entityId;
       const space = latestSnapshot.spaces.find((s) => s.id === entityId);
       if (!space) continue;
@@ -1329,7 +1421,11 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
     .sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
   const root = matchingRoots[0];
 
-  if (!root) return { collections: [], items: [] };
+  const archiveRoot = roots.find(
+    (collection) => collection.title.trim().toLowerCase() === ARCABLE_ARCHIVE_COLLECTION_NAME.toLowerCase()
+  );
+
+  if (!root) return { collections: [], items: [], archiveRootId: archiveRoot?._id };
 
   const byId = new Map(allCollections.map((collection) => [collection._id, collection]));
   const descendantIds = new Set<number>([root._id]);
@@ -1348,7 +1444,7 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
     .map((id) => byId.get(id))
     .filter((collection): collection is RaindropCollectionItem => Boolean(collection));
   const items = await fetchAllRaindropItems(token, root._id, { nested: true, cacheBust });
-  return { root, collections, items };
+  return { root, archiveRootId: archiveRoot?._id, collections, items };
 }
 
 function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
@@ -1875,6 +1971,7 @@ export function reconstructWorkspace(
   return {
     raindropRootCollectionId: root._id,
     raindropSpaceThemeCollectionId: spaceThemeCollection?._id,
+    raindropArchiveCollectionId: tree.archiveRootId,
     raindropMetadataItemId: null,
     version: 1,
     activeSpaceId,
@@ -2175,6 +2272,55 @@ export async function syncWorkspaceWithRaindrop(
     for (const id of deletedIds) {
       const remoteId = numericRaindropId(id) || remoteCollectionByArcableId.get(id);
       if (remoteId && remoteCollections.has(remoteId)) await deleteRaindropCollection(clean, remoteId);
+    }
+
+    // Process archive operations from pending operations
+    const archiveOps = pendingOps.filter((op) =>
+      op.type === 'SPACE_ARCHIVE' || op.type === 'FOLDER_ARCHIVE' || op.type === 'TAB_ARCHIVE'
+    );
+    if (archiveOps.length > 0) {
+      const archiveColl = await getOrCreateArchiveCollection(clean);
+      const archiveId = archiveColl._id;
+
+      for (const op of archiveOps) {
+        if (op.type === 'TAB_ARCHIVE') {
+          const payloadRemoteId = Number(op.payload?.raindropId) || numericRaindropId(op.payload?.raindropId);
+          const entityRemoteId = numericRaindropId(op.entityId) || remoteItemByArcableId.get(op.entityId);
+          const targetRemoteId = payloadRemoteId || entityRemoteId;
+          if (targetRemoteId) {
+            await updateRaindropItem(clean, targetRemoteId, { collection: { $id: archiveId } });
+            // Also move any secondary variants belonging to this archived tab
+            const item = remoteItems.get(targetRemoteId);
+            if (item?.title) {
+              const prefix = `${item.title}${ARCABLE_VARIANT_DELIMITER}`;
+              for (const candidate of tree.items) {
+                if (candidate.title?.startsWith(prefix)) {
+                  await updateRaindropItem(clean, candidate._id, { collection: { $id: archiveId } });
+                }
+              }
+            }
+          }
+          if (Array.isArray(op.payload?.variantRaindropIds)) {
+            for (const vid of op.payload.variantRaindropIds) {
+              const numId = numericRaindropId(vid);
+              if (numId) {
+                await updateRaindropItem(clean, numId, { collection: { $id: archiveId } });
+              }
+            }
+          }
+        } else if (op.type === 'FOLDER_ARCHIVE' || op.type === 'SPACE_ARCHIVE') {
+          const remoteId = Number(op.payload?.raindropId) || numericRaindropId(op.entityId) || remoteCollectionByArcableId.get(op.entityId);
+          if (remoteId && remoteCollections.has(remoteId)) {
+            await updateRaindropCollection(clean, remoteId, { parentId: archiveId });
+          }
+          if (op.type === 'SPACE_ARCHIVE' && op.payload?.themeRaindropId) {
+            const themeId = Number(op.payload.themeRaindropId);
+            if (themeId) {
+              await deleteRaindropBookmark(clean, themeId);
+            }
+          }
+        }
+      }
     }
 
     // Find or create special collections for Custom CSS and Run Code

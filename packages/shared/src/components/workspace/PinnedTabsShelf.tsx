@@ -18,6 +18,7 @@ import {
   EditIcon,
   DuplicateIcon,
   TrashIcon,
+  ArchiveIcon,
   CopyIcon,
   ExternalLinkIcon,
   GlobeIcon,
@@ -32,6 +33,7 @@ export interface PinnedTabsShelfProps {
   onOpenTmpTab?: (url: string, title?: string) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -49,6 +51,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onOpenTmpTab,
   onEditTab,
   onDuplicateTab,
+  onArchiveTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -362,6 +365,16 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                           label: 'Duplicate',
                           icon: <DuplicateIcon size={14} />,
                           onClick: () => onDuplicateTab(tab),
+                        },
+                      ]
+                    : []),
+                  ...(onArchiveTab
+                    ? [
+                        {
+                          id: 'archive-tab',
+                          label: 'Archive tab',
+                          icon: <ArchiveIcon size={14} />,
+                          onClick: () => onArchiveTab(tab.id),
                         },
                       ]
                     : []),

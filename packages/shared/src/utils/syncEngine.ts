@@ -409,20 +409,36 @@ export function applyOperation(
       break;
     }
 
-    case 'SPACE_DELETE': {
+    case 'SPACE_DELETE':
+    case 'SPACE_ARCHIVE': {
       cloned.spaces = cloned.spaces.filter((s) => s.id !== op.entityId);
-      // Fallback active space if deleted
+      // Fallback active space if deleted or archived
       if (cloned.activeSpaceId === op.entityId) {
         cloned.activeSpaceId = cloned.spaces[0]?.id || 'space_fallback';
       }
-      // Reparent or remove orphaned folders & tabs
-      const fallbackSpaceId = cloned.spaces[0]?.id || 'space_fallback';
-      cloned.folders = cloned.folders.map((f) =>
-        f.parentSpaceId === op.entityId ? { ...f, parentSpaceId: fallbackSpaceId } : f
-      );
-      cloned.tabs = cloned.tabs.map((t) =>
-        t.parentSpaceId === op.entityId ? { ...t, parentSpaceId: fallbackSpaceId } : t
-      );
+      if (op.type === 'SPACE_ARCHIVE') {
+        const spaceFolderIds = new Set(
+          cloned.folders.filter((f) => f.parentSpaceId === op.entityId).map((f) => f.id)
+        );
+        for (const f of cloned.folders) {
+          if (f.parentFolderId && spaceFolderIds.has(f.parentFolderId)) {
+            spaceFolderIds.add(f.id);
+          }
+        }
+        cloned.folders = cloned.folders.filter((f) => !spaceFolderIds.has(f.id) && f.parentSpaceId !== op.entityId);
+        cloned.tabs = cloned.tabs.filter(
+          (t) => t.parentSpaceId !== op.entityId && (!t.parentFolderId || !spaceFolderIds.has(t.parentFolderId))
+        );
+      } else {
+        // Reparent or remove orphaned folders & tabs
+        const fallbackSpaceId = cloned.spaces[0]?.id || 'space_fallback';
+        cloned.folders = cloned.folders.map((f) =>
+          f.parentSpaceId === op.entityId ? { ...f, parentSpaceId: fallbackSpaceId } : f
+        );
+        cloned.tabs = cloned.tabs.map((t) =>
+          t.parentSpaceId === op.entityId ? { ...t, parentSpaceId: fallbackSpaceId } : t
+        );
+      }
       break;
     }
 
@@ -487,7 +503,8 @@ export function applyOperation(
       break;
     }
 
-    case 'FOLDER_DELETE': {
+    case 'FOLDER_DELETE':
+    case 'FOLDER_ARCHIVE': {
       const descendantFolderIds = getDescendantFolderIds(op.entityId, cloned.folders);
       const folderIdsToDelete = new Set<string>([op.entityId, ...descendantFolderIds]);
 
@@ -585,7 +602,8 @@ export function applyOperation(
       break;
     }
 
-    case 'TAB_DELETE': {
+    case 'TAB_DELETE':
+    case 'TAB_ARCHIVE': {
       cloned.tabs = cloned.tabs.filter((t) => t.id !== op.entityId);
       break;
     }

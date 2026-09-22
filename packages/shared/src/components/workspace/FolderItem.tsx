@@ -21,6 +21,7 @@ import {
   FolderOpenIcon,
   FolderPlusIcon,
   EditIcon,
+  ArchiveIcon,
   TrashIcon,
 } from '../Icons';
 
@@ -40,7 +41,8 @@ export interface FolderItemProps {
   highlightedTabId?: string | null;
   onToggleExpand: (folderId: string) => void;
   onEditFolder: (folder: Folder) => void;
-  onDeleteFolder: (folderId: string) => void;
+  onDeleteFolder?: (folderId: string) => void;
+  onArchiveFolder?: (folderId: string) => void;
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
@@ -52,6 +54,7 @@ export interface FolderItemProps {
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
   onToggleFavouriteTab?: (tabId: string) => void;
@@ -90,6 +93,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onToggleExpand,
   onEditFolder,
   onDeleteFolder,
+  onArchiveFolder,
   onAddSubFolder,
   onAddTabInFolder,
   onOpenTab,
@@ -101,6 +105,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onMediaControl,
   onEditTab,
   onDuplicateTab,
+  onArchiveTab,
   onDeleteTab,
   onTogglePinTab,
   onToggleFavouriteTab,
@@ -131,8 +136,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
   const headerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isActionMenuHoveredRef = useRef(false);
+  const isActionMenuOpenRef = useRef(false);
 
   const siblings = getSortedSiblings(allFolders, allTabs, folder.parentSpaceId, folder.id);
   const isExpanded = folder.isExpanded !== false;
@@ -233,20 +241,80 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
   }, []);
 
-  const handleMouseEnterHeader = () => {
+  const handleActionMenuOpenChange = useCallback((isOpen: boolean) => {
+    isActionMenuOpenRef.current = isOpen;
+    if (isOpen) {
+      clearHoverTimer();
+      clearCloseTimer();
+      setShowHoverPopup(false);
+    }
+  }, [clearHoverTimer, clearCloseTimer]);
+
+  const handleActionMenuMouseEnter = useCallback(() => {
+    isActionMenuHoveredRef.current = true;
+    clearHoverTimer();
+    clearCloseTimer();
+    setShowHoverPopup(false);
+  }, [clearHoverTimer, clearCloseTimer]);
+
+  const handleActionMenuMouseLeave = useCallback((e: React.MouseEvent) => {
+    isActionMenuHoveredRef.current = false;
+    if (
+      headerRef.current &&
+      e.relatedTarget &&
+      headerRef.current.contains(e.relatedTarget as Node) &&
+      !isActionMenuOpenRef.current &&
+      !isExpanded &&
+      siblings.length > 0 &&
+      !isMobile
+    ) {
+      clearHoverTimer();
+      hoverTimerRef.current = setTimeout(() => {
+        if (isActionMenuHoveredRef.current || isActionMenuOpenRef.current) return;
+        updatePopupPosition();
+        setShowHoverPopup(true);
+      }, 1000);
+    }
+  }, [isExpanded, siblings.length, isMobile, clearHoverTimer, updatePopupPosition]);
+
+  const handleMouseEnterHeader = (e: React.MouseEvent) => {
     if (isMobile) return;
     setIsHovered(true);
     clearCloseTimer();
-    if (!isExpanded && siblings.length > 0) {
+
+    if (actionMenuRef.current && e.target && actionMenuRef.current.contains(e.target as Node)) {
+      isActionMenuHoveredRef.current = true;
+      clearHoverTimer();
+      setShowHoverPopup(false);
+      return;
+    }
+
+    if (!isExpanded && siblings.length > 0 && !isActionMenuHoveredRef.current && !isActionMenuOpenRef.current) {
       clearHoverTimer();
       hoverTimerRef.current = setTimeout(() => {
+        if (isActionMenuHoveredRef.current || isActionMenuOpenRef.current) return;
         updatePopupPosition();
         setShowHoverPopup(true);
       }, 1000);
     }
   };
 
+  const handleMouseMoveHeader = (e: React.MouseEvent) => {
+    if (isMobile) return;
+    if (actionMenuRef.current && e.target && actionMenuRef.current.contains(e.target as Node)) {
+      if (!isActionMenuHoveredRef.current || showHoverPopup || hoverTimerRef.current) {
+        isActionMenuHoveredRef.current = true;
+        clearHoverTimer();
+        clearCloseTimer();
+        if (showHoverPopup) {
+          setShowHoverPopup(false);
+        }
+      }
+    }
+  };
+
   const handleMouseLeaveHeader = () => {
+    isActionMenuHoveredRef.current = false;
     setIsHovered(false);
     clearHoverTimer();
     setDropIndicator(null);
@@ -414,7 +482,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         label: 'Edit in Raindrop',
         icon: <ExternalLinkIcon size={14} />,
         onClick: handleEditInRaindrop,
-        dividerAfter: Boolean(onDeleteFolder),
+        dividerAfter: Boolean(onArchiveFolder || onDeleteFolder),
+      });
+    }
+
+    if (onArchiveFolder) {
+      items.push({
+        id: 'archive-folder',
+        label: 'Archive folder',
+        icon: <ArchiveIcon size={14} />,
+        onClick: () => onArchiveFolder(folder.id),
       });
     }
 
@@ -438,9 +515,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     folder,
     folder.raindropId,
     handleEditInRaindrop,
+    onArchiveFolder,
+    onDeleteFolder,
     onAddSubFolder,
     onEditFolder,
-    onDeleteFolder,
   ]);
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -907,6 +985,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
         onMouseEnter={handleMouseEnterHeader}
+        onMouseMove={handleMouseMoveHeader}
         onMouseLeave={handleMouseLeaveHeader}
         onClick={() => {
           clearHoverTimer();
@@ -1037,14 +1116,22 @@ export const FolderItem: React.FC<FolderItemProps> = ({
             </div>
           )}
 
-          <ActionDropdown
-            items={folderMenuItems}
-            isDarkTheme={effectiveDark}
-            visible={isMobile || alwaysShowActions || isHovered}
-            hoverBg={activeIconHoverBg}
-            buttonTitle="Folder options"
-            size="sm"
-          />
+          <div
+            ref={actionMenuRef}
+            onMouseEnter={handleActionMenuMouseEnter}
+            onMouseLeave={handleActionMenuMouseLeave}
+            style={{ display: 'inline-flex', alignItems: 'center' }}
+          >
+            <ActionDropdown
+              items={folderMenuItems}
+              isDarkTheme={effectiveDark}
+              visible={isMobile || alwaysShowActions || isHovered}
+              hoverBg={activeIconHoverBg}
+              buttonTitle="Folder options"
+              size="sm"
+              onOpenChange={handleActionMenuOpenChange}
+            />
+          </div>
         </div>
       </div>
 
@@ -1104,6 +1191,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onToggleExpand={onToggleExpand}
                   onEditFolder={onEditFolder}
                   onDeleteFolder={onDeleteFolder}
+                  onArchiveFolder={onArchiveFolder}
                   onAddSubFolder={onAddSubFolder}
                   onAddTabInFolder={onAddTabInFolder}
                   onOpenTab={onOpenTab}
@@ -1113,6 +1201,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onMediaControl={onMediaControl}
                   onEditTab={onEditTab}
                   onDeleteTab={onDeleteTab}
+                  onArchiveTab={onArchiveTab}
                   onTogglePinTab={onTogglePinTab}
                   onToggleFavouriteTab={onToggleFavouriteTab}
                   onMoveUp={
@@ -1171,6 +1260,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 }
                 onEdit={onEditTab}
                 onDuplicate={onDuplicateTab}
+                onArchive={onArchiveTab}
                 onDelete={onDeleteTab}
                 onTogglePin={onTogglePinTab}
                 onToggleFavourite={onToggleFavouriteTab}
