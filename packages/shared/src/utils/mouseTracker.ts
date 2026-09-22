@@ -6,6 +6,15 @@
 let lastMousePos = { x: -1, y: -1 };
 
 export const REFRESH_HOVER_EVENT = 'arcable:refresh-hover';
+export const CLEAR_HOVER_EVENT = 'arcable:clear-hover';
+
+export function clearMousePos(): void {
+  lastMousePos.x = -1;
+  lastMousePos.y = -1;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(CLEAR_HOVER_EVENT));
+  }
+}
 
 if (typeof window !== 'undefined') {
   const updatePos = (e: MouseEvent | PointerEvent) => {
@@ -19,15 +28,28 @@ if (typeof window !== 'undefined') {
   window.addEventListener('mouseup', updatePos, { passive: true });
   window.addEventListener('click', updatePos, { passive: true });
 
-  window.addEventListener('mouseleave', () => {
-    lastMousePos.x = -1;
-    lastMousePos.y = -1;
-  });
+  window.addEventListener('blur', clearMousePos);
 
-  window.addEventListener('blur', () => {
-    lastMousePos.x = -1;
-    lastMousePos.y = -1;
-  });
+  if (typeof document !== 'undefined') {
+    document.addEventListener('mouseleave', clearMousePos);
+    document.addEventListener('pointerleave', clearMousePos);
+    document.addEventListener('mouseout', (e) => {
+      // If relatedTarget is null, the pointer has left the document window
+      if (!e.relatedTarget) {
+        clearMousePos();
+      }
+    });
+    document.addEventListener('pointerout', (e) => {
+      if (!e.relatedTarget) {
+        clearMousePos();
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clearMousePos();
+      }
+    });
+  }
 }
 
 export function getLastMousePos(): { x: number; y: number } {
@@ -47,6 +69,9 @@ export function isElementUnderCursor(el: HTMLElement | null): boolean {
   if (!el || typeof document === 'undefined') return false;
   const { x, y } = lastMousePos;
   if (x < 0 || y < 0) return false;
+  if (typeof window !== 'undefined') {
+    if (x > window.innerWidth || y > window.innerHeight) return false;
+  }
 
   const target = document.elementFromPoint(x, y);
   if (!target) return false;
@@ -61,7 +86,7 @@ export function isElementUnderCursor(el: HTMLElement | null): boolean {
 export function refreshHoverUnderCursor(): void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   const { x, y } = lastMousePos;
-  if (x < 0 || y < 0) return;
+  if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return;
 
   const target = document.elementFromPoint(x, y);
   if (target) {

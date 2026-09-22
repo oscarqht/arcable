@@ -7,6 +7,7 @@ import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { getLastMousePos, CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -127,6 +128,27 @@ export const TabRow: React.FC<TabRowProps> = ({
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
   const actionDropdownContainerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClear = () => {
+      setIsHovered(false);
+      setDropIndicator(null);
+    };
+
+    window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
+    window.addEventListener('blur', handleClear);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('mouseleave', handleClear);
+    }
+
+    return () => {
+      window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
+      window.removeEventListener('blur', handleClear);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mouseleave', handleClear);
+      }
+    };
+  }, []);
 
   const domain = getDomain(resolvedUrl);
   const displayTitle = tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
@@ -406,9 +428,17 @@ export const TabRow: React.FC<TabRowProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onDragEnd={handleDragEnd}
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={() => {
+        const mousePos = getLastMousePos();
+        if (mousePos.x >= 0 && mousePos.y >= 0) {
+          setIsHovered(true);
+        }
+      }}
       onMouseMove={() => {
-        if (!isHovered) setIsHovered(true);
+        const mousePos = getLastMousePos();
+        if (mousePos.x >= 0 && mousePos.y >= 0 && !isHovered) {
+          setIsHovered(true);
+        }
       }}
       onMouseLeave={() => {
         setIsHovered(false);

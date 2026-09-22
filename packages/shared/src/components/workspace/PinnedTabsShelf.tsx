@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tab, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -63,6 +64,26 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   const isMobile = useIsMobile();
   const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClear = () => {
+      setHoveredTabId(null);
+    };
+
+    window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
+    window.addEventListener('blur', handleClear);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('mouseleave', handleClear);
+    }
+
+    return () => {
+      window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
+      window.removeEventListener('blur', handleClear);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mouseleave', handleClear);
+      }
+    };
+  }, []);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
 

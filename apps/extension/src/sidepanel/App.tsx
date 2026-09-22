@@ -18,6 +18,7 @@ import {
   getSpaceNoiseOverlayStyle,
   SpaceThemeTokens,
   searchRaindrop,
+  clearMousePos,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -247,6 +248,7 @@ export const App: React.FC = () => {
 
     // Tab activation listener (when user selects a browser tab)
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId, details) => {
+      clearMousePos();
       setHighlightedTabId(tabItemId);
       if (tabItemId && workspaceRef.current) {
         workspaceRef.current.revealAndHighlightTab(tabItemId);
@@ -630,6 +632,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleOpenTab = async (url: string, tabId?: string, tmpTabInfo?: TmpTab, options?: TabOpenOptions) => {
+    clearMousePos();
     if (options?.asTmpTab) {
       try {
         const newTab = await browser.tabs.create({ url, active: true });
@@ -739,6 +742,7 @@ export const App: React.FC = () => {
 
   const handleOpenVariant = useCallback(
     async (variantUrl: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => {
+      clearMousePos();
       const inNewTab = Boolean(options?.inNewTab);
       // Only favorite groups open each individual item in a separate browser tab and track them separately.
       // Normal tab items with URL variants must open all variants in the same tab.
@@ -807,6 +811,7 @@ export const App: React.FC = () => {
   );
 
   const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
+    clearMousePos();
     try {
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {

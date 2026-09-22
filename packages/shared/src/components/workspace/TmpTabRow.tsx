@@ -10,7 +10,9 @@ import {
   isElementUnderCursor,
   updateLastMousePos,
   refreshHoverUnderCursor,
+  getLastMousePos,
   REFRESH_HOVER_EVENT,
+  CLEAR_HOVER_EVENT,
 } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { CopyLinkButton } from './CopyLinkButton';
@@ -89,28 +91,30 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   useEffect(() => {
     const checkHover = () => {
       if (!rowRef.current || isEditing || isDragging) return;
-      if (isElementUnderCursor(rowRef.current)) {
-        setIsHovered(true);
-      }
+      const under = isElementUnderCursor(rowRef.current);
+      setIsHovered(under);
     };
 
-    checkHover();
-    const rafId = requestAnimationFrame(checkHover);
-
-    const handleRefresh = () => {
-      checkHover();
+    const handleClear = () => {
+      setIsHovered(false);
     };
-    if (typeof window !== 'undefined') {
-      window.addEventListener(REFRESH_HOVER_EVENT, handleRefresh);
+
+    window.addEventListener(REFRESH_HOVER_EVENT, checkHover);
+    window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
+    window.addEventListener('blur', handleClear);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('mouseleave', handleClear);
     }
 
     return () => {
-      cancelAnimationFrame(rafId);
-      if (typeof window !== 'undefined') {
-        window.removeEventListener(REFRESH_HOVER_EVENT, handleRefresh);
+      window.removeEventListener(REFRESH_HOVER_EVENT, checkHover);
+      window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
+      window.removeEventListener('blur', handleClear);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mouseleave', handleClear);
       }
     };
-  });
+  }, [isEditing, isDragging]);
 
   const [editTitle, setEditTitle] = useState(tab.customTitle || tab.title || '');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -213,9 +217,17 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
       draggable={!isEditing}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={() => {
+        const mousePos = getLastMousePos();
+        if (mousePos.x >= 0 && mousePos.y >= 0) {
+          setIsHovered(true);
+        }
+      }}
       onMouseMove={() => {
-        if (!isHovered) setIsHovered(true);
+        const mousePos = getLastMousePos();
+        if (mousePos.x >= 0 && mousePos.y >= 0 && !isHovered) {
+          setIsHovered(true);
+        }
       }}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}

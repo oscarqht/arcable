@@ -6,7 +6,6 @@ import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
-import { refreshHoverUnderCursor } from '../../utils/mouseTracker';
 
 export interface TmpTabsListProps {
   tabs: TmpTab[];
@@ -57,14 +56,6 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
 
   const tabList = tabs || [];
 
-  useEffect(() => {
-    // When the list of tabs changes (e.g. a tab was closed), refresh hover state
-    // for the tab item that is now underneath the stationary cursor.
-    const rafId = requestAnimationFrame(() => {
-      refreshHoverUnderCursor();
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [tabs]);
 
   return (
     <div

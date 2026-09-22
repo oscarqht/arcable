@@ -22,6 +22,7 @@ import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { TabFavicon } from './TabFavicon';
 import { SpaceThemeTokens, getSpaceThemeStyles } from '../../utils/spaceTheme';
+import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
@@ -171,6 +172,27 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   });
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleClear = () => {
+      setHoveredTabId(null);
+      setHoveredWidgetId(null);
+    };
+
+    window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
+    window.addEventListener('blur', handleClear);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('mouseleave', handleClear);
+    }
+
+    return () => {
+      window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
+      window.removeEventListener('blur', handleClear);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('mouseleave', handleClear);
+      }
+    };
+  }, []);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
   const [openMenuTabId, setOpenMenuTabId] = useState<string | null>(null);
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
