@@ -19,7 +19,7 @@ import {
   clearStoredPendingOperations,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
-import { browser, openWorkspaceSafely, isZenBrowser } from '../utils/browser';
+import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
 import packageJson from '../../package.json';
@@ -58,8 +58,12 @@ export const App: React.FC = () => {
   const [isZen, setIsZen] = useState(false);
   const [hasCopiedZenCommand, setHasCopiedZenCommand] = useState(false);
   const [showManualZenCss, setShowManualZenCss] = useState(false);
+  const [detectedOS, setDetectedOS] = useState<'win' | 'mac' | 'linux' | 'other' | null>(null);
+  const [zenPlatform, setZenPlatform] = useState<'windows' | 'mac'>('mac');
 
-  const zenScriptCommand = 'curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash';
+  const zenScriptMacCommand = 'curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash';
+  const zenScriptWindowsCommand = 'irm https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.ps1 | iex';
+  const activeZenCommand = zenPlatform === 'windows' ? zenScriptWindowsCommand : zenScriptMacCommand;
 
   const showToast = useCallback((message: string, type: 'info' | 'success' | 'warning' = 'success') => {
     setToast({ message, type });
@@ -70,20 +74,29 @@ export const App: React.FC = () => {
 
   const handleCopyZenCommand = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(zenScriptCommand);
+      await navigator.clipboard.writeText(activeZenCommand);
       setHasCopiedZenCommand(true);
-      showToast('Command copied to clipboard!', 'success');
+      showToast(`${zenPlatform === 'windows' ? 'Windows' : 'macOS / Linux'} command copied to clipboard!`, 'success');
       setTimeout(() => {
         setHasCopiedZenCommand(false);
       }, 2500);
     } catch {
       showToast('Failed to copy command to clipboard', 'warning');
     }
-  }, [zenScriptCommand, showToast]);
+  }, [activeZenCommand, zenPlatform, showToast]);
 
   useEffect(() => {
     void isZenBrowser().then((val) => {
       setIsZen(val);
+    });
+
+    void getPlatformOS().then((os) => {
+      setDetectedOS(os);
+      if (os === 'win') {
+        setZenPlatform('windows');
+      } else {
+        setZenPlatform('mac');
+      }
     });
 
     // Check for prefill URL (e.g. from "Customize this site" action)
@@ -723,8 +736,81 @@ export const App: React.FC = () => {
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <p style={{ fontSize: '13.5px', lineHeight: 1.6, color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
-                  By default, Zen Browser displays a browser chrome header above extension side panels. You can remove it across all your Zen profiles by copying and running this one-line command in your terminal:
+                  By default, Zen Browser displays a browser chrome header above extension side panels. You can remove it across all your Zen profiles by copying and running this one-line command:
                 </p>
+
+                {/* Platform Selector */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setZenPlatform('windows')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '12.5px',
+                      fontWeight: zenPlatform === 'windows' ? 600 : 500,
+                      color: zenPlatform === 'windows' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                      backgroundColor: zenPlatform === 'windows' ? (isDark ? '#1e293b' : '#f1f5f9') : 'transparent',
+                      border: zenPlatform === 'windows' ? (isDark ? '1px solid #38bdf8' : '1px solid #0284c7') : (isDark ? '1px solid #334155' : '1px solid #e2e8f0'),
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>🪟 Windows (PowerShell)</span>
+                    {detectedOS === 'win' && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          background: isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe',
+                          color: isDark ? '#38bdf8' : '#0369a1',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Detected
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setZenPlatform('mac')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '12.5px',
+                      fontWeight: zenPlatform === 'mac' ? 600 : 500,
+                      color: zenPlatform === 'mac' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
+                      backgroundColor: zenPlatform === 'mac' ? (isDark ? '#1e293b' : '#f1f5f9') : 'transparent',
+                      border: zenPlatform === 'mac' ? (isDark ? '1px solid #38bdf8' : '1px solid #0284c7') : (isDark ? '1px solid #334155' : '1px solid #e2e8f0'),
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span>🍎 macOS & Linux (Terminal)</span>
+                    {(detectedOS === 'mac' || detectedOS === 'linux') && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          background: isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe',
+                          color: isDark ? '#38bdf8' : '#0369a1',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Detected
+                      </span>
+                    )}
+                  </button>
+                </div>
 
                 {/* Command Box - Clickable & Wrapped */}
                 <div
@@ -757,7 +843,7 @@ export const App: React.FC = () => {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                     <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', fontWeight: 600 }}>
-                      Terminal Command
+                      {zenPlatform === 'windows' ? 'PowerShell Command' : 'Terminal Command'}
                     </span>
                     <span
                       style={{
@@ -784,17 +870,30 @@ export const App: React.FC = () => {
                       overflowWrap: 'anywhere',
                     }}
                   >
-                    {zenScriptCommand}
+                    {activeZenCommand}
                   </code>
                 </div>
 
                 <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
                   <strong>Steps:</strong>
-                  <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
-                    <li>Open <strong>Terminal</strong> (Terminal.app on macOS, or your terminal on Linux / WSL).</li>
-                    <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
-                    <li>Restart Zen Browser to apply the changes.</li>
-                  </ol>
+                  {zenPlatform === 'windows' ? (
+                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
+                      <li>Open <strong>PowerShell</strong> or <strong>Windows Terminal</strong>.</li>
+                      <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
+                      <li>Restart Zen Browser to apply the changes.</li>
+                    </ol>
+                  ) : (
+                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
+                      <li>Open <strong>Terminal</strong> (Terminal.app on macOS, or your terminal on Linux).</li>
+                      <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
+                      <li>Restart Zen Browser to apply the changes.</li>
+                    </ol>
+                  )}
+                  {zenPlatform === 'windows' && (
+                    <p style={{ margin: '6px 0 0', fontSize: '11.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                      💡 Tip: Using Git Bash or WSL on Windows? Switch to the <em>macOS & Linux</em> tab above to run the Bash script.
+                    </p>
+                  )}
                 </div>
 
                 {/* Manual toggle */}

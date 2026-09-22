@@ -212,10 +212,18 @@ npm install
 4. Open the Firefox sidebar to view Arcable.
 
 > [!TIP]
-> **Zen Browser Users**: To hide the native white extension sidebar header for a seamless workspace, run this one-line command in your terminal:
+> **Zen Browser Users**: To hide the native white extension sidebar header for a seamless workspace, run this one-line command:
+>
+> **macOS & Linux (Terminal)**:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash
 > ```
+>
+> **Windows (PowerShell)**:
+> ```powershell
+> irm https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.ps1 | iex
+> ```
+>
 > Then restart Zen Browser.
 
 ---

@@ -112,6 +112,32 @@ export async function isAndroidPlatform(): Promise<boolean> {
 }
 
 /**
+ * Detects the host operating system platform ('mac' | 'win' | 'linux' | 'other').
+ */
+export async function getPlatformOS(): Promise<'mac' | 'win' | 'linux' | 'other'> {
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.getPlatformInfo) {
+      const info = await browser.runtime.getPlatformInfo();
+      if (info.os === 'win') return 'win';
+      if (info.os === 'mac') return 'mac';
+      if (info.os === 'linux') return 'linux';
+    }
+  } catch (error) {
+    console.warn('Could not determine platform via runtime API:', error);
+  }
+
+  if (typeof navigator !== 'undefined') {
+    const platform = ((navigator as any).userAgentData?.platform || navigator.platform || '').toLowerCase();
+    const ua = (navigator.userAgent || '').toLowerCase();
+    if (platform.includes('win') || ua.includes('windows')) return 'win';
+    if (platform.includes('mac') || ua.includes('macintosh')) return 'mac';
+    if (platform.includes('linux') || ua.includes('linux')) return 'linux';
+  }
+
+  return 'other';
+}
+
+/**
  * Robust helper to open the options/settings page.
  * On Firefox for Android, browser.runtime.openOptionsPage can fail or behave erratically;
  * this automatically falls back to opening options/index.html in a tab.

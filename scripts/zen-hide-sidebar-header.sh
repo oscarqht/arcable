@@ -43,9 +43,21 @@ fi
 
 # Windows (Git Bash / MSYS / MINGW / Cygwin)
 if [[ -n "$APPDATA" ]]; then
-  CANDIDATE_ZEN_DIRS+=(
-    "$APPDATA/zen"
-  )
+  if command -v cygpath >/dev/null 2>&1; then
+    CANDIDATE_ZEN_DIRS+=("$(cygpath -u "$APPDATA")/zen")
+  fi
+  CANDIDATE_ZEN_DIRS+=("${APPDATA//\\//}/zen")
+fi
+
+if [[ -n "$USERPROFILE" ]]; then
+  if command -v cygpath >/dev/null 2>&1; then
+    CANDIDATE_ZEN_DIRS+=("$(cygpath -u "$USERPROFILE")/AppData/Roaming/zen")
+  fi
+  CANDIDATE_ZEN_DIRS+=("${USERPROFILE//\\//}/AppData/Roaming/zen")
+fi
+
+if [[ -d "$HOME/AppData/Roaming/zen" ]]; then
+  CANDIDATE_ZEN_DIRS+=("$HOME/AppData/Roaming/zen")
 fi
 
 # WSL (Windows Subsystem for Linux) check for Windows profiles
@@ -87,10 +99,15 @@ for zdir in "${EXISTING_ZEN_DIRS[@]}"; do
         rel_path="${BASH_REMATCH[1]}"
         # Trim carriage returns if on Windows / CRLF
         rel_path="${rel_path%$'\r'}"
+        # Normalize backslashes to forward slashes for Windows paths
+        rel_path="${rel_path//\\//}"
         if [[ "$rel_path" = /* ]] || [[ "$rel_path" =~ ^[A-Za-z]: ]]; then
           candidate_profile="$rel_path"
         else
           candidate_profile="$zdir/$rel_path"
+        fi
+        if command -v cygpath >/dev/null 2>&1 && [[ "$candidate_profile" =~ ^[A-Za-z]: ]]; then
+          candidate_profile="$(cygpath -u "$candidate_profile")"
         fi
         if [[ -d "$candidate_profile" ]]; then
           PROFILE_DIRS+=("$candidate_profile")
