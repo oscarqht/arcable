@@ -34,6 +34,7 @@ class TabTracker {
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
   private recentlyAssociatedIds: Map<string, number> = new Map();
+  private lastActivatedTimestamps: Map<string, number> = new Map();
   private cachedDeviceId: string = '';
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
@@ -140,12 +141,25 @@ class TabTracker {
   }
 
   private notifyActivated(tabItemId: string | null, details?: TabActivatedDetails) {
+    if (tabItemId) {
+      this.lastActivatedTimestamps.set(tabItemId, Date.now());
+    }
     for (const listener of this.tabActivatedListeners) {
       try {
         listener(tabItemId, details);
       } catch (err) {
         console.warn('[TabTracker] Error in tabActivated listener:', err);
       }
+    }
+  }
+
+  public getLastActivatedTime(tabItemId: string): number {
+    return this.lastActivatedTimestamps.get(tabItemId) || 0;
+  }
+
+  public recordTabItemActivated(tabItemId: string): void {
+    if (tabItemId) {
+      this.lastActivatedTimestamps.set(tabItemId, Date.now());
     }
   }
 

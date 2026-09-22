@@ -810,6 +810,75 @@ export const App: React.FC = () => {
     [isMobile, tabAssociations]
   );
 
+  const handleActivateGroup = useCallback(
+    async (groupTab: Tab): Promise<boolean> => {
+      clearMousePos();
+      const variants = (groupTab.urlVariants || []).filter((v) => Boolean(v.url));
+      if (variants.length === 0) {
+        return false;
+      }
+
+      // Filter to variants that are currently open and associated with a browser tab
+      const openVariants = variants.filter((v) => v.id && Boolean(tabAssociations[v.id]));
+      if (openVariants.length === 0) {
+        // No open tabs in this group: do nothing and leave popup open
+        return false;
+      }
+
+      // Check which item is currently active in the browser
+      let currentActiveId = highlightedTabId;
+      if (!currentActiveId) {
+        const details = await tabTracker.getActiveTabDetails().catch(() => ({ tabItemId: null }));
+        currentActiveId = details.tabItemId;
+      }
+
+      const currentActiveIndex = openVariants.findIndex((v) => v.id === currentActiveId);
+
+      let targetVariant: TabUrlVariant;
+      if (currentActiveIndex !== -1 && openVariants.length > 1) {
+        // Cycle to the next open tab in the group if the last active tab is already active
+        targetVariant = openVariants[(currentActiveIndex + 1) % openVariants.length];
+      } else {
+        // Sort open variants by last activated timestamp descending
+        // If timestamps match (e.g. 0), keep existing array order
+        const sorted = [...openVariants].sort((a, b) => {
+          const timeA = a.id ? tabTracker.getLastActivatedTime(a.id) : 0;
+          const timeB = b.id ? tabTracker.getLastActivatedTime(b.id) : 0;
+          return timeB - timeA;
+        });
+        targetVariant = sorted[0];
+      }
+
+      if (!targetVariant?.id) {
+        return false;
+      }
+
+      const assoc = tabAssociations[targetVariant.id];
+      if (!assoc) {
+        return false;
+      }
+
+      setHighlightedTabId(targetVariant.id);
+      tabTracker.recordTabItemActivated(targetVariant.id);
+      await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
+
+      const winId = assoc.windowId ?? currentWindowIdRef.current;
+      if (winId !== null && winId !== undefined) {
+        const workspaceTabs =
+          workspaceTabsRef.current.length > 0
+            ? workspaceTabsRef.current
+            : getStoredWorkspaceTabs();
+        const spaceId = resolveSpaceIdForTabItem(targetVariant.id, workspaceTabs);
+        if (spaceId) {
+          void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId);
+        }
+      }
+
+      return true;
+    },
+    [tabAssociations, highlightedTabId]
+  );
+
   const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
     clearMousePos();
     try {
@@ -1211,6 +1280,7 @@ export const App: React.FC = () => {
           onOpenTab={handleOpenTab}
           onOpenTmpTab={handleOpenAsTmpTab}
           onOpenVariant={handleOpenVariant}
+          onActivateGroup={handleActivateGroup}
           onCloseAssociatedTab={handleCloseAssociatedTab}
           onResetDivertedUrl={handleResetDivertedUrl}
           onTabsChange={handleTabsChange}

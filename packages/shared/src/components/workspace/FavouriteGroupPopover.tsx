@@ -23,6 +23,8 @@ export interface FavouriteGroupPopoverProps {
   highlightedTabId?: string | null;
   onCloseAssociatedTab?: (tabId: string) => void;
   onReorderVariant?: (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   theme: SpaceThemeTokens;
 }
 
@@ -40,6 +42,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   highlightedTabId,
   onCloseAssociatedTab,
   onReorderVariant,
+  onMouseEnter,
+  onMouseLeave,
   theme,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -166,6 +170,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
         boxSizing: 'border-box',
         animation: 'fadeIn 0.12s ease',
       }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}

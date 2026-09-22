@@ -76,6 +76,7 @@ export interface WorkspaceManagerProps {
   onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab, options?: TabOpenOptions) => void;
   onOpenTmpTab?: (url: string, title?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
+  onActivateGroup?: (groupTab: Tab) => boolean | Promise<boolean>;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
 
   compact?: boolean;
@@ -140,6 +141,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onOpenTab,
       onOpenTmpTab,
       onOpenVariant,
+      onActivateGroup,
       onCaptureCurrentTab,
       compact = false,
       showOpenTabsVirtualSpace = true,
@@ -1866,6 +1868,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
         onReorderGroupVariants={reorderGroupVariants}
+        onActivateGroup={onActivateGroup}
         onReplaceTabUrl={handleReplaceWithCurrentUrl}
         raindropRootCollectionId={data.raindropRootCollectionId}
       />
