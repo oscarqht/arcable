@@ -726,48 +726,66 @@ export const App: React.FC = () => {
                   By default, Zen Browser displays a browser chrome header above extension side panels. You can remove it across all your Zen profiles by copying and running this one-line command in your terminal:
                 </p>
 
-                {/* Command Box */}
+                {/* Command Box - Clickable & Wrapped */}
                 <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleCopyZenCommand}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void handleCopyZenCommand();
+                    }
+                  }}
+                  title="Click to copy command"
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    padding: '12px 16px',
+                    position: 'relative',
+                    padding: '14px 16px',
                     backgroundColor: isDark ? '#0b1120' : '#1e293b',
                     borderRadius: '10px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    overflowX: 'auto',
+                    border: hasCopiedZenCommand
+                      ? '1px solid #10b981'
+                      : isDark
+                      ? '1px solid #243247'
+                      : '1px solid #334155',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease, background-color 0.15s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
                   }}
                 >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', fontWeight: 600 }}>
+                      Terminal Command
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        color: hasCopiedZenCommand ? '#34d399' : '#94a3b8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      {hasCopiedZenCommand ? '✓ Copied to clipboard!' : '📋 Click anywhere to copy'}
+                    </span>
+                  </div>
+
                   <code
                     style={{
                       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                      fontSize: '12.5px',
+                      fontSize: '13px',
+                      lineHeight: 1.55,
                       color: '#38bdf8',
-                      whiteSpace: 'nowrap',
-                      userSelect: 'all',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {zenScriptCommand}
                   </code>
-
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleCopyZenCommand}
-                    style={{
-                      flexShrink: 0,
-                      borderRadius: '8px',
-                      padding: '6px 14px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: hasCopiedZenCommand ? '#10b981' : undefined,
-                      borderColor: hasCopiedZenCommand ? '#10b981' : undefined,
-                    }}
-                  >
-                    {hasCopiedZenCommand ? '✓ Copied' : '📋 Copy Command'}
-                  </Button>
                 </div>
 
                 <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
