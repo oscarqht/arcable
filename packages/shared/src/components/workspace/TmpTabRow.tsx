@@ -41,8 +41,6 @@ export interface TmpTabRowProps {
   isMuted?: boolean;
   badge?: string | number | null;
   showDeviceBadge?: boolean;
-  mergedDeviceCount?: number;
-  mergedDeviceNames?: string[];
   onOpen?: (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
@@ -63,8 +61,6 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   isMuted = false,
   badge,
   showDeviceBadge = true,
-  mergedDeviceCount,
-  mergedDeviceNames,
   onOpen,
   onPromote,
   onClose,
@@ -331,56 +327,29 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
           </span>
         )}
 
-        {/* Device indicator badge: a device-count badge when this URL is open on 2+ devices
-            (hover shows the device names), otherwise the single remote device's name. */}
-        {showDeviceBadge && !isEditing && (
-          (mergedDeviceCount ?? 0) >= 2 ? (
-            <span
-              title={`Open on ${mergedDeviceCount} devices: ${(mergedDeviceNames || []).join(', ')}`}
-              style={{
-                fontSize: '10px',
-                fontWeight: 600,
-                padding: '1px 6px',
-                borderRadius: '9px',
-                backgroundColor: effectiveDark ? 'rgba(56, 189, 248, 0.18)' : 'rgba(56, 189, 248, 0.14)',
-                color: effectiveDark ? '#7dd3fc' : '#0284c7',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minWidth: '16px',
-                lineHeight: '14px',
-                userSelect: 'none',
-              }}
-            >
-              {mergedDeviceCount}
-            </span>
-          ) : (
-            !isFromCurrentDevice && (
-              <span
-                title={tab.deviceId ? `Open on ${badgeDeviceName} (${tab.deviceId})` : `Open on ${badgeDeviceName}`}
-                style={{
-                  fontSize: '10px',
-                  fontWeight: 500,
-                  padding: '1px 5px',
-                  borderRadius: '4px',
-                  backgroundColor: effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-                  color: effectiveDark ? '#94a3b8' : '#64748b',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  lineHeight: '14px',
-                  userSelect: 'none',
-                }}
-              >
-                <span style={{ fontSize: '9px' }}>{tab.deviceType === 'Web App' ? '🌐' : '💻'}</span>
-                <span>{badgeDeviceName}</span>
-              </span>
-            )
-          )
+        {/* Device indicator badge: shows remote device name if not from current device */}
+        {showDeviceBadge && !isEditing && !isFromCurrentDevice && (
+          <span
+            title={tab.deviceId ? `Open on ${badgeDeviceName} (${tab.deviceId})` : `Open on ${badgeDeviceName}`}
+            style={{
+              fontSize: '10px',
+              fontWeight: 500,
+              padding: '1px 5px',
+              borderRadius: '4px',
+              backgroundColor: effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              color: effectiveDark ? '#94a3b8' : '#64748b',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '3px',
+              lineHeight: '14px',
+              userSelect: 'none',
+            }}
+          >
+            <span style={{ fontSize: '9px' }}>{tab.deviceType === 'Web App' ? '🌐' : '💻'}</span>
+            <span>{badgeDeviceName}</span>
+          </span>
         )}
       </div>
 

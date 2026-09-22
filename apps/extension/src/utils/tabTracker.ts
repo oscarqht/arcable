@@ -367,13 +367,13 @@ class TabTracker {
 
       if (!trimmed) {
         // Clear / remove custom title for this tab
-        updatedRecords = records.filter(
-          (r) => !(browserTabId !== undefined && r.tabId === browserTabId) && !areUrlsMatching(r.url, url)
+        updatedRecords = records.filter((r) =>
+          browserTabId !== undefined ? r.tabId !== browserTabId : !areUrlsMatching(r.url, url)
         );
       } else {
         // Update existing matching entry or add new record
-        const existingIndex = records.findIndex(
-          (r) => (browserTabId !== undefined && r.tabId === browserTabId) || areUrlsMatching(r.url, url)
+        const existingIndex = records.findIndex((r) =>
+          browserTabId !== undefined ? r.tabId === browserTabId : areUrlsMatching(r.url, url)
         );
         const newRecord: TmpTabCustomTitleRecord = {
           tabId: browserTabId,
@@ -394,7 +394,9 @@ class TabTracker {
       // Update in-memory tmp tabs and notify subscribers immediately
       const currentTmp = await this.getTmpTabs();
       const updatedTmp = currentTmp.map((t) => {
-        if ((browserTabId !== undefined && t.browserTabId === browserTabId) || areUrlsMatching(t.url, url)) {
+        const isTarget =
+          browserTabId !== undefined ? t.browserTabId === browserTabId : areUrlsMatching(t.url, url);
+        if (isTarget) {
           return {
             ...t,
             customTitle: trimmed || undefined,
