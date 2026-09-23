@@ -44,12 +44,48 @@ import {
   initContextMenuListeners,
   getMatchingCodeRules,
 } from './contextMenus';
+import { handleScreenshotCapture } from './screenshot';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
 // Initialize user scripts and context menu listeners
 initRunCodeBackgroundListeners();
 initContextMenuListeners();
+
+// Initialize keyboard shortcut commands (manifest commands)
+if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
+  chrome.commands.onCommand.addListener((command) => {
+    if (command === 'take-screenshot' || command === 'copy-screenshot') {
+      void (async () => {
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          const activeTab = tabs[0];
+          if (activeTab?.id) {
+            await handleScreenshotCapture(activeTab.id, 'viewport');
+          }
+        } catch (err) {
+          console.warn('[screenshot] Command take-screenshot error:', err);
+        }
+      })();
+      return;
+    }
+
+    if (command === 'capture-full-page' || command === 'copy-full-page-screenshot') {
+      void (async () => {
+        try {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          const activeTab = tabs[0];
+          if (activeTab?.id) {
+            await handleScreenshotCapture(activeTab.id, 'fullpage');
+          }
+        } catch (err) {
+          console.warn('[screenshot] Command capture-full-page error:', err);
+        }
+      })();
+      return;
+    }
+  });
+}
 
 // Storage keys
 const STORAGE_KEY_AUTH = 'arcable_raindrop_auth';
@@ -284,6 +320,34 @@ browser.runtime.onMessage.addListener(
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to run code in page.' };
         }
+      }
+
+      case 'TAKE_SCREENSHOT': {
+        const payload = message.payload as { tabId?: number } | undefined;
+        let tabId = payload?.tabId;
+        if (!tabId) {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          tabId = tabs[0]?.id;
+        }
+        if (typeof tabId === 'number') {
+          const ok = await handleScreenshotCapture(tabId, 'viewport');
+          return { success: ok };
+        }
+        return { success: false, error: 'No active tab found' };
+      }
+
+      case 'CAPTURE_FULL_PAGE': {
+        const payload = message.payload as { tabId?: number } | undefined;
+        let tabId = payload?.tabId;
+        if (!tabId) {
+          const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+          tabId = tabs[0]?.id;
+        }
+        if (typeof tabId === 'number') {
+          const ok = await handleScreenshotCapture(tabId, 'fullpage');
+          return { success: ok };
+        }
+        return { success: false, error: 'No active tab found' };
       }
 
       // Raindrop: Get current authentication state

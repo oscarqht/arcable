@@ -2,9 +2,26 @@ import browser from 'webextension-polyfill';
 import { RunCodeRule } from '@arcable/shared/types';
 import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
+import { handleScreenshotCapture } from './screenshot';
+
+export const SCREENSHOT_MENU_IDS = {
+  TAKE_SCREENSHOT: 'arcable_take_screenshot',
+  CAPTURE_FULL_PAGE: 'arcable_capture_full_page',
+} as const;
 
 const MENU_ROOT_ID = 'arcable_run_code_root';
 const MENU_ITEM_PREFIX = 'arcable_run_code_item_';
+
+const CONTEXTS: chrome.contextMenus.ContextType[] = [
+  'page',
+  'frame',
+  'selection',
+  'link',
+  'image',
+  'video',
+  'audio',
+  'editable',
+];
 
 async function getRunCodeRules(): Promise<RunCodeRule[]> {
   try {
@@ -25,7 +42,6 @@ export async function getMatchingCodeRules(url: string): Promise<RunCodeRule[]> 
   const matched = rules.filter((rule) => {
     if (rule.disabled) return false;
     if (!rule.code || !rule.code.trim()) return false;
-    // If no patterns specified, does it run on all pages or none? In Nenya, rules without patterns only run if pattern matches or if empty pattern isn't allowed.
     if (!rule.patterns || rule.patterns.length === 0) return false;
     return matchAnyUrlPattern(rule.patterns, url);
   });
@@ -59,25 +75,35 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
       });
     });
 
-    if (matchingRules.length === 0) {
-      return;
-    }
-
-    // Create root parent menu
+    // 2. Always create top-level screenshot context menu items
     chrome.contextMenus.create({
-      id: MENU_ROOT_ID,
-      title: 'Run Code in Page',
-      contexts: ['page', 'frame', 'selection', 'link', 'editable'],
+      id: SCREENSHOT_MENU_IDS.TAKE_SCREENSHOT,
+      title: '📸 Take Screenshot',
+      contexts: CONTEXTS,
     });
 
-    // Create submenu items for each matching rule
-    for (const rule of matchingRules) {
+    chrome.contextMenus.create({
+      id: SCREENSHOT_MENU_IDS.CAPTURE_FULL_PAGE,
+      title: '📜 Capture Full Page',
+      contexts: CONTEXTS,
+    });
+
+    // 3. Create Run Code items if matching rules exist for this page
+    if (matchingRules.length > 0) {
       chrome.contextMenus.create({
-        id: `${MENU_ITEM_PREFIX}${rule.id}`,
-        parentId: MENU_ROOT_ID,
-        title: rule.title || 'Untitled Snippet',
-        contexts: ['page', 'frame', 'selection', 'link', 'editable'],
+        id: MENU_ROOT_ID,
+        title: 'Run Code in Page',
+        contexts: CONTEXTS,
       });
+
+      for (const rule of matchingRules) {
+        chrome.contextMenus.create({
+          id: `${MENU_ITEM_PREFIX}${rule.id}`,
+          parentId: MENU_ROOT_ID,
+          title: rule.title || 'Untitled Snippet',
+          contexts: CONTEXTS,
+        });
+      }
     }
   } catch (err) {
     console.warn('[contextMenus] Failed to update context menus:', err);
@@ -91,9 +117,24 @@ export function initContextMenuListeners(): void {
 
   // Handle menu item clicks
   chrome.contextMenus.onClicked.addListener((info, tab) => {
+    const tabId = tab?.id;
+
+    if (info.menuItemId === SCREENSHOT_MENU_IDS.TAKE_SCREENSHOT) {
+      if (typeof tabId === 'number') {
+        void handleScreenshotCapture(tabId, 'viewport');
+      }
+      return;
+    }
+
+    if (info.menuItemId === SCREENSHOT_MENU_IDS.CAPTURE_FULL_PAGE) {
+      if (typeof tabId === 'number') {
+        void handleScreenshotCapture(tabId, 'fullpage');
+      }
+      return;
+    }
+
     if (typeof info.menuItemId === 'string' && info.menuItemId.startsWith(MENU_ITEM_PREFIX)) {
       const ruleId = info.menuItemId.replace(MENU_ITEM_PREFIX, '');
-      const tabId = tab?.id;
       if (typeof tabId === 'number') {
         void runCodeInPageRule(ruleId, tabId).catch((err) => {
           console.error('[contextMenus] Execution error:', err);

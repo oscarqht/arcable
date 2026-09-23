@@ -176,11 +176,18 @@ async function buildTarget(browserName) {
     fs.writeFileSync(resolve(outDir, 'sidepanel/index.html'), sidepanelHtml);
   }
 
-  // 4.6. Copy libs directory (Ace editor, workers)
+  // 4.6. Copy libs directory (Ace editor, workers, tldraw)
   const libsSrc = resolve(__dirname, 'src/libs');
   const libsDest = resolve(outDir, 'libs');
   if (fs.existsSync(libsSrc)) {
     fs.cpSync(libsSrc, libsDest, { recursive: true });
+  }
+
+  // 4.7. Copy editor directory
+  const editorSrc = resolve(__dirname, 'src/editor');
+  const editorDest = resolve(outDir, 'editor');
+  if (fs.existsSync(editorSrc)) {
+    fs.cpSync(editorSrc, editorDest, { recursive: true });
   }
 
   // Clean up temporary src directory in dist

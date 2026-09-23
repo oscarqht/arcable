@@ -47,7 +47,9 @@ export type ExtensionMessageType =
   | 'RAINDROP_RESTORE_BACKUP'
   | 'INJECT_CUSTOM_JS'
   | 'RUN_CODE_IN_PAGE_EXECUTE'
-  | 'GET_OS_THEME';
+  | 'GET_OS_THEME'
+  | 'TAKE_SCREENSHOT'
+  | 'CAPTURE_FULL_PAGE';
 
 export interface ExtensionMessage<T = unknown> {
   type: ExtensionMessageType | string;

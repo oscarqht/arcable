@@ -24,7 +24,8 @@
     "identity",
     "alarms",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "clipboardWrite"
   ],
   "optional_permissions": [
     "userScripts"
@@ -103,5 +104,21 @@
       ],
       "run_at": "document_start"
     }
-  ]
+  ],
+  "commands": {
+    "take-screenshot": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "📸 Take Screenshot"
+    },
+    "capture-full-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "📜 Capture Full Page"
+    }
+  }
 }
