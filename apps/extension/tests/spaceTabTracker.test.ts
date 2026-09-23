@@ -3,9 +3,11 @@ import {
   resolveSpaceIdForTabItem,
   rememberActiveTabForSpace,
   getRememberedActiveTabForSpace,
+  getRememberedActiveTabRecordForSpace,
   forgetBrowserTab,
   activateRememberedTabForSpace,
   resetMemorySpaceActiveTabsForTest,
+  SPACE_LAST_ACTIVE_TAB_KEY,
 } from '../src/sidepanel/spaceTabTracker';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -185,6 +187,94 @@ async function runTests() {
   assert(
     (await getRememberedActiveTabForSpace(101, 'space-closed')) === null,
     'Closed tab should be cleaned up from storage'
+  );
+
+  // Test 5: rememberActiveTabForSpace with tabItemId
+  resetMemorySpaceActiveTabsForTest();
+  await rememberActiveTabForSpace(101, 'space-work', 501, 'tab-work-1');
+  const record5 = await getRememberedActiveTabRecordForSpace(101, 'space-work');
+  assert(record5 !== null, 'Record must exist');
+  assert(record5?.browserTabId === 501, 'Record browserTabId must be 501');
+  assert(record5?.tabItemId === 'tab-work-1', 'Record tabItemId must be tab-work-1');
+  assert(typeof record5?.updatedAt === 'number' && record5.updatedAt > 0, 'Record updatedAt must be timestamp');
+
+  // Test 6: Browser restart tab re-identification
+  // Old browserTabId 501 is dead (throws). But 'tab-work-1' is now open as tab 601 in window 101.
+  mockTabsApi.tabs.set(601, { id: 601, windowId: 101, active: false });
+  updatedTabId = null;
+  updatedOptions = null;
+
+  const mockLookup = (tabItemId: string) => {
+    if (tabItemId === 'tab-work-1') {
+      return { browserTabId: 601, windowId: 101 };
+    }
+    return undefined;
+  };
+
+  const activatedRestart = await activateRememberedTabForSpace(
+    101,
+    'space-work',
+    mockTabsApi,
+    mockLookup
+  );
+  assert(activatedRestart === true, 'Should successfully activate re-identified tab after restart');
+  assert(updatedTabId === 601, 'Should have activated new tab ID 601');
+  assert(
+    (await getRememberedActiveTabForSpace(101, 'space-work')) === 601,
+    'Should have updated remembered active tab to 601'
+  );
+
+  // Test 7: Cross-window fallback when a window (e.g. 201) has no record
+  mockTabsApi.tabs.set(701, { id: 701, windowId: 201, active: false });
+  const mockLookupWin201 = (tabItemId: string) => {
+    if (tabItemId === 'tab-work-1') {
+      return { browserTabId: 701, windowId: 201 };
+    }
+    return undefined;
+  };
+
+  const activatedFallback = await activateRememberedTabForSpace(
+    201,
+    'space-work',
+    mockTabsApi,
+    mockLookupWin201
+  );
+  assert(activatedFallback === true, 'Should fall back to space-work history and activate in window 201');
+  assert(
+    (await getRememberedActiveTabForSpace(201, 'space-work')) === 701,
+    'Window 201 must now have its own record for space-work pointing to 701'
+  );
+
+  // Test 8: Local storage persistence simulation across reload
+  const mockLocalStorage: Record<string, any> = {};
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: async (key: string) => ({ [key]: mockLocalStorage[key] }),
+        set: async (items: Record<string, any>) => {
+          Object.assign(mockLocalStorage, items);
+        },
+      },
+    },
+  };
+
+  resetMemorySpaceActiveTabsForTest();
+  await rememberActiveTabForSpace(301, 'space-saved', 801, 'tab-saved-1');
+  assert(
+    mockLocalStorage[SPACE_LAST_ACTIVE_TAB_KEY] !== undefined,
+    'Should have persisted map to chrome.storage.local'
+  );
+
+  // Simulate extension reload: clear in-memory cache, read from local storage
+  resetMemorySpaceActiveTabsForTest();
+  const reloadedRecord = await getRememberedActiveTabRecordForSpace(301, 'space-saved');
+  assert(
+    reloadedRecord?.browserTabId === 801,
+    'Reloaded record must survive extension reload via storage.local'
+  );
+  assert(
+    reloadedRecord?.tabItemId === 'tab-saved-1',
+    'Reloaded record must preserve tabItemId'
   );
 
   console.log('All spaceTabTracker tests passed successfully!');

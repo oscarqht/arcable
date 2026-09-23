@@ -136,6 +136,10 @@ export const App: React.FC = () => {
 
   const [activeTabInfo, setActiveTabInfo] = useState<{ title?: string; url?: string; favIconUrl?: string } | null>(null);
   const [tabAssociations, setTabAssociations] = useState<TabAssociationMap>({});
+  const tabAssociationsRef = useRef<TabAssociationMap>({});
+  useEffect(() => {
+    tabAssociationsRef.current = tabAssociations;
+  }, [tabAssociations]);
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
@@ -261,7 +265,7 @@ export const App: React.FC = () => {
             : getStoredWorkspaceTabs();
           const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs);
           if (spaceId) {
-            void rememberActiveTabForSpace(winId, spaceId, details.browserTabId);
+            void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, tabItemId);
           }
         }
       }
@@ -279,7 +283,7 @@ export const App: React.FC = () => {
               : getStoredWorkspaceTabs();
             const spaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs);
             if (spaceId) {
-              void rememberActiveTabForSpace(winId, spaceId, details.browserTabId);
+              void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, details.tabItemId);
             }
           }
         }
@@ -616,13 +620,14 @@ export const App: React.FC = () => {
     if (nextSpaceId && nextSpaceId !== previousSpaceIdRef.current) {
       previousSpaceIdRef.current = nextSpaceId;
       const winId = currentWindowIdRef.current;
+      const lookupAssoc = (id: string) => tabAssociationsRef.current[id];
       if (winId !== null && winId !== undefined) {
-        void activateRememberedTabForSpace(winId, nextSpaceId);
+        void activateRememberedTabForSpace(winId, nextSpaceId, undefined, lookupAssoc);
       } else {
         void browser.windows?.getCurrent?.().then((win) => {
           if (win?.id !== undefined) {
             currentWindowIdRef.current = win.id;
-            void activateRememberedTabForSpace(win.id, nextSpaceId);
+            void activateRememberedTabForSpace(win.id, nextSpaceId, undefined, lookupAssoc);
           }
         }).catch(() => {});
       }
@@ -716,7 +721,7 @@ export const App: React.FC = () => {
             : getStoredWorkspaceTabs();
           const spaceId = resolveSpaceIdForTabItem(tabId, workspaceTabs);
           if (spaceId) {
-            void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId);
+            void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId, tabId);
           }
         }
         return;
@@ -870,7 +875,7 @@ export const App: React.FC = () => {
             : getStoredWorkspaceTabs();
         const spaceId = resolveSpaceIdForTabItem(targetVariant.id, workspaceTabs);
         if (spaceId) {
-          void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId);
+          void rememberActiveTabForSpace(winId, spaceId, assoc.browserTabId, targetVariant.id);
         }
       }
 
