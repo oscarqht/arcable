@@ -593,9 +593,9 @@ class TabTracker {
       }
 
       const now = Date.now();
-      // Prune expired entries older than 30s
+      // Prune expired entries older than 60s
       for (const [id, ts] of this.recentlyAssociatedIds.entries()) {
-        if (now - ts > 30000) {
+        if (now - ts > 60000) {
           this.recentlyAssociatedIds.delete(id);
         }
       }
@@ -605,27 +605,104 @@ class TabTracker {
         if (found) return found;
         const fromWs = workspaceTabs.find((t) => t.id === id);
         if (fromWs) {
-          this.recentlyAssociatedIds.delete(id);
           return { id: fromWs.id, url: fromWs.url, urlVariants: fromWs.urlVariants };
         }
         const fromCurrent = this.currentWorkspaceTabs.find((t) => t.id === id);
         if (fromCurrent) {
           return { id: fromCurrent.id, url: fromCurrent.url, urlVariants: fromCurrent.urlVariants };
         }
-        const recentTs = this.recentlyAssociatedIds.get(id);
-        if (recentTs && now - recentTs < 15000) {
-          const existingAssoc = currentAssociations[id];
-          if (existingAssoc) {
-            return { id, url: existingAssoc.originalUrl, urlVariants: undefined };
-          }
-        }
         return undefined;
+      };
+
+      // Helper to find a workspace item whose ID may have changed or migrated
+      // (e.g. newly promoted tab received Raindrop bookmark ID, or local ID converted to numeric server ID).
+      const findMigratedWorkspaceItem = (
+        oldTabItemId: string,
+        info: AssociatedTabInfo,
+        browserTab: chrome.tabs.Tab | undefined
+      ): TrackableTabItem | undefined => {
+        const browserUrl = browserTab?.url || browserTab?.pendingUrl || '';
+        const candidatePool: TrackableTabItem[] = [
+          ...trackableItems,
+          ...workspaceTabs
+            .filter((t) => !trackableItems.some((ti) => ti.id === t.id))
+            .map((t) => ({ id: t.id, url: t.url || t.urlVariants?.[0]?.url || '', urlVariants: t.urlVariants })),
+        ];
+
+        // 1. Exact Raindrop ID match if previous tab record had a known raindropId
+        const previousTabRecord =
+          this.currentWorkspaceTabs.find((t) => t.id === oldTabItemId) ||
+          workspaceTabs.find((t) => t.id === oldTabItemId);
+        if (previousTabRecord?.raindropId) {
+          const rIdStr = String(previousTabRecord.raindropId);
+          const rMatch = candidatePool.find(
+            (cand) =>
+              !assignedTabItemIds.has(cand.id) &&
+              (cand.id === rIdStr || workspaceTabs.find((t) => t.id === cand.id)?.raindropId === previousTabRecord.raindropId)
+          );
+          if (rMatch) return rMatch;
+        }
+
+        // 2. Match unassigned candidate by URL (browser tab URL or association originalUrl)
+        return candidatePool.find((cand) => {
+          if (!cand.url && (!cand.urlVariants || cand.urlVariants.length === 0)) return false;
+          if (assignedTabItemIds.has(cand.id)) return false;
+
+          // If this candidate ID already has an active association in currentAssociations,
+          // ensure its browser tab is not alive before claiming it
+          const existingAssoc = currentAssociations[cand.id];
+          if (existingAssoc && allBrowserTabs.some((bt) => bt.id === existingAssoc.browserTabId)) {
+            return false;
+          }
+
+          const currentUrlMatch = browserUrl
+            ? this.urlsMatchForDivergence(browserUrl, cand.url, cand.urlVariants) || areUrlsMatching(browserUrl, cand.url)
+            : false;
+          const originalUrlMatch = info.originalUrl
+            ? this.urlsMatchForDivergence(info.originalUrl, cand.url, cand.urlVariants) ||
+              areUrlsMatching(info.originalUrl, cand.url) ||
+              Boolean(cand.urlVariants?.some((v) => areUrlsMatching(info.originalUrl, v.url)))
+            : false;
+
+          return currentUrlMatch || originalUrlMatch;
+        });
       };
 
       // Step 1: Retain valid non-diverted existing associations (strictly 1-to-1)
       for (const [tabItemId, info] of Object.entries(currentAssociations)) {
-        const matchingWorkspaceItem = findTrackableItem(tabItemId);
         const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
+        let matchingWorkspaceItem = findTrackableItem(tabItemId);
+        let resolvedTabItemId = tabItemId;
+
+        // If not found by exact ID, check if this tab item was migrated/reconciled
+        if (
+          !matchingWorkspaceItem &&
+          matchingBrowserTab &&
+          matchingBrowserTab.id !== undefined &&
+          !assignedBrowserTabIds.has(matchingBrowserTab.id)
+        ) {
+          const migrated = findMigratedWorkspaceItem(tabItemId, info, matchingBrowserTab);
+          if (migrated) {
+            matchingWorkspaceItem = migrated;
+            resolvedTabItemId = migrated.id;
+            const recentTs = this.recentlyAssociatedIds.get(tabItemId);
+            if (recentTs) {
+              this.recentlyAssociatedIds.delete(tabItemId);
+              this.recentlyAssociatedIds.set(resolvedTabItemId, recentTs);
+            }
+          }
+        }
+
+        // Fallback for recently associated tabs during temporary sync lag
+        if (!matchingWorkspaceItem) {
+          const recentTs = this.recentlyAssociatedIds.get(tabItemId);
+          if (recentTs && now - recentTs < 30000) {
+            const existingAssoc = currentAssociations[tabItemId];
+            if (existingAssoc) {
+              matchingWorkspaceItem = { id: tabItemId, url: existingAssoc.originalUrl, urlVariants: undefined };
+            }
+          }
+        }
 
         if (
           matchingWorkspaceItem &&
@@ -636,8 +713,8 @@ class TabTracker {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
           if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url, matchingWorkspaceItem.urlVariants)) {
             const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-            newAssociations[tabItemId] = {
-              tabItemId,
+            newAssociations[resolvedTabItemId] = {
+              tabItemId: resolvedTabItemId,
               browserTabId: matchingBrowserTab.id,
               windowId: matchingBrowserTab.windowId || 0,
               currentUrl: currentUrl || matchingWorkspaceItem.url,
@@ -647,7 +724,7 @@ class TabTracker {
               favIconUrl: matchingBrowserTab.favIconUrl,
             };
             assignedBrowserTabIds.add(matchingBrowserTab.id);
-            assignedTabItemIds.add(tabItemId);
+            assignedTabItemIds.add(resolvedTabItemId);
           }
         }
       }
@@ -698,14 +775,40 @@ class TabTracker {
         if (assignedTabItemIds.has(tabItemId)) continue;
         if (assignedBrowserTabIds.has(info.browserTabId)) continue;
 
-        const matchingWorkspaceItem = findTrackableItem(tabItemId);
         const matchingBrowserTab = allBrowserTabs.find((bt) => bt.id === info.browserTabId);
+        if (!matchingBrowserTab || matchingBrowserTab.id === undefined) continue;
 
-        if (matchingWorkspaceItem && matchingBrowserTab && matchingBrowserTab.id !== undefined) {
+        let matchingWorkspaceItem = findTrackableItem(tabItemId);
+        let resolvedTabItemId = tabItemId;
+
+        if (!matchingWorkspaceItem) {
+          const migrated = findMigratedWorkspaceItem(tabItemId, info, matchingBrowserTab);
+          if (migrated) {
+            matchingWorkspaceItem = migrated;
+            resolvedTabItemId = migrated.id;
+            const recentTs = this.recentlyAssociatedIds.get(tabItemId);
+            if (recentTs) {
+              this.recentlyAssociatedIds.delete(tabItemId);
+              this.recentlyAssociatedIds.set(resolvedTabItemId, recentTs);
+            }
+          }
+        }
+
+        if (!matchingWorkspaceItem) {
+          const recentTs = this.recentlyAssociatedIds.get(tabItemId);
+          if (recentTs && now - recentTs < 30000) {
+            const existingAssoc = currentAssociations[tabItemId];
+            if (existingAssoc) {
+              matchingWorkspaceItem = { id: tabItemId, url: existingAssoc.originalUrl, urlVariants: undefined };
+            }
+          }
+        }
+
+        if (matchingWorkspaceItem) {
           const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
           const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
-          newAssociations[tabItemId] = {
-            tabItemId,
+          newAssociations[resolvedTabItemId] = {
+            tabItemId: resolvedTabItemId,
             browserTabId: matchingBrowserTab.id,
             windowId: matchingBrowserTab.windowId || 0,
             currentUrl,
@@ -715,7 +818,7 @@ class TabTracker {
             favIconUrl: matchingBrowserTab.favIconUrl || info.favIconUrl,
           };
           assignedBrowserTabIds.add(matchingBrowserTab.id);
-          assignedTabItemIds.add(tabItemId);
+          assignedTabItemIds.add(resolvedTabItemId);
         }
       }
 
@@ -727,7 +830,7 @@ class TabTracker {
         if (bt.id === undefined || associatedBrowserTabIds.has(bt.id)) return false;
         // Never convert tabs that belong to recently associated tab items into tmp tabs
         for (const [recentId, recentTs] of this.recentlyAssociatedIds.entries()) {
-          if (now - recentTs < 15000) {
+          if (now - recentTs < 30000) {
             const assoc = currentAssociations[recentId] || newAssociations[recentId];
             if (assoc && assoc.browserTabId === bt.id) {
               return false;
@@ -1131,6 +1234,13 @@ class TabTracker {
 
         // Register in recentlyAssociatedIds with timestamp to guard against race conditions with workspace sync
         this.recentlyAssociatedIds.set(tabItemId, Date.now());
+        if (urlVariants) {
+          for (const v of urlVariants) {
+            if (v.id) {
+              this.recentlyAssociatedIds.set(v.id, Date.now());
+            }
+          }
+        }
 
         // Immediately update currentWorkspaceTabs so any concurrent or scheduled sync sees this tab item
         const existingIdx = this.currentWorkspaceTabs.findIndex((t) => t.id === tabItemId);
