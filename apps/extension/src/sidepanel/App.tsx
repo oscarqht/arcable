@@ -950,6 +950,50 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleClearTmpTabs = async (tabsToClear: TmpTab[], spaceId?: string) => {
+    if (!tabsToClear || tabsToClear.length === 0) return;
+    const tabIdSet = new Set(tabsToClear.map((t) => t.id));
+
+    // Optimistically update tmpTabs in local state
+    setTmpTabs((prev) => prev.filter((t) => !tabIdSet.has(t.id)));
+
+    // Clean up arcable_tmp_tabs in browser.storage.local
+    try {
+      const stored = await browser.storage.local.get('arcable_tmp_tabs');
+      const currentTmpTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+      const updated = currentTmpTabs.filter((t) => !tabIdSet.has(t.id));
+      if (updated.length !== currentTmpTabs.length) {
+        await browser.storage.local.set({ arcable_tmp_tabs: updated });
+      }
+    } catch (err) {
+      console.warn('[Sidepanel] Could not clean up arcable_tmp_tabs on clear:', err);
+    }
+
+    // Close the actual browser tabs if they are local tabs (have browserTabId)
+    const browserTabIds = tabsToClear
+      .map((t) => t.browserTabId)
+      .filter((id): id is number => id !== undefined);
+
+    if (browserTabIds.length > 0) {
+      // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
+      try {
+        const currentWinId = currentWindowIdRef.current;
+        const allWindowTabs = await browser.tabs.query(
+          typeof currentWinId === 'number' ? { windowId: currentWinId } : { currentWindow: true }
+        );
+        const closingSet = new Set(browserTabIds);
+        const remainingTabs = allWindowTabs.filter((bt) => bt.id !== undefined && !closingSet.has(bt.id));
+        if (remainingTabs.length === 0) {
+          await browser.tabs.create(typeof currentWinId === 'number' ? { windowId: currentWinId } : {});
+        }
+      } catch (err) {
+        console.warn('[Sidepanel] Could not verify remaining tabs count:', err);
+      }
+
+      await tabTracker.closeTmpTabs(browserTabIds);
+    }
+  };
+
 
   const handleRenameTmpTab = async (tab: TmpTab, newTitle: string) => {
     await tabTracker.setTmpTabCustomTitle(tab.browserTabId, tab.url, newTitle);
@@ -1321,6 +1365,7 @@ export const App: React.FC = () => {
           tmpTabs={tmpTabs}
           currentDeviceId={currentDeviceId}
           onCloseTmpTab={handleCloseTmpTab}
+          onClearTmpTabs={handleClearTmpTabs}
           onRenameTmpTab={handleRenameTmpTab}
           onMoveTmpTabToSpace={handleMoveTmpTabToSpace}
           onTabPromoted={handleTabPromoted}

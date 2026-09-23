@@ -23,6 +23,7 @@ export interface TmpTabsListProps {
   onOpen?: (url: string, tabId?: string, tab?: TmpTab, options?: TabOpenOptions) => void;
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
+  onClear?: () => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
   onMoveToSpace?: (tab: TmpTab, targetSpaceId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
@@ -44,6 +45,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   onOpen,
   onPromote,
   onClose,
+  onClear,
   onRename,
   onMoveToSpace,
   onMediaControl,
@@ -118,6 +120,41 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
               {tabList.length}
             </span>
           </div>
+
+          {onClear && tabList.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClear();
+              }}
+              title="Close all open tabs in this space"
+              aria-label="Clear all open tabs in this space"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                fontSize: '10.5px',
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+                textTransform: 'none',
+                color: effectiveDark ? '#94a3b8' : '#64748b',
+                cursor: 'pointer',
+                transition: 'color 0.12s ease, background-color 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = effectiveDark ? '#f1f5f9' : '#0f172a';
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : '#64748b';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              Clear
+            </button>
+          )}
         </div>
       ) : (
         <div

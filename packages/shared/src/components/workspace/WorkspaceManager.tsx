@@ -95,6 +95,7 @@ export interface WorkspaceManagerProps {
   tmpTabs?: TmpTab[];
   currentDeviceId?: string;
   onCloseTmpTab?: (tab: TmpTab) => void;
+  onClearTmpTabs?: (tabs: TmpTab[], spaceId?: string) => void;
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
   onMoveTmpTabToSpace?: (tab: TmpTab, targetSpaceId: string) => void | Promise<void>;
@@ -158,6 +159,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       tmpTabs,
       currentDeviceId,
       onCloseTmpTab,
+      onClearTmpTabs,
       onPromoteTmpTab,
       onRenameTmpTab,
       onMoveTmpTabToSpace: onMoveTmpTabToSpaceProp,
@@ -236,6 +238,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateTmpTab,
     moveTmpTabToSpace,
     deleteTmpTab,
+    deleteTmpTabs,
     widgets,
     addWidget,
     updateWidget,
@@ -1622,6 +1625,19 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     // Temporary-tab changes are local-only and never start a Raindrop sync.
   }, [deleteTmpTab, onCloseTmpTab]);
 
+  const handleClearTmpTabs = useCallback((tabsToClear: TmpTab[], targetSpaceId?: string) => {
+    if (!tabsToClear || tabsToClear.length === 0) return;
+    const ids = tabsToClear.map((t) => t.id);
+    deleteTmpTabs(ids);
+    if (onClearTmpTabs) {
+      onClearTmpTabs(tabsToClear, targetSpaceId);
+    } else {
+      for (const tab of tabsToClear) {
+        onCloseTmpTab?.(tab);
+      }
+    }
+  }, [deleteTmpTabs, onClearTmpTabs, onCloseTmpTab]);
+
   const handleRenameTmpTab = useCallback((tab: TmpTab, newTitle: string) => {
     updateTmpTab(tab.id, { customTitle: newTitle });
     onRenameTmpTab?.(tab, newTitle);
@@ -2800,6 +2816,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               onOpen={handleOpenTmpTab}
               onPromote={handlePromoteTmpTab}
               onClose={handleCloseTmpTab}
+              onClear={() => handleClearTmpTabs(currentSpaceTabs, activeSpace?.id)}
               onRename={handleRenameTmpTab}
               onMoveToSpace={handleMoveTmpTabToSpace}
               onMediaControl={onMediaControl}

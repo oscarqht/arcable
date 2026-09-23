@@ -1119,6 +1119,36 @@ class TabTracker {
   }
 
 
+  // Close multiple temporary tabs at once
+  public async closeTmpTabs(browserTabIds: number[]): Promise<void> {
+    if (browserTabIds.length === 0) return;
+    const idSet = new Set(browserTabIds);
+    for (const id of browserTabIds) {
+      this.closingTabIds.add(id);
+    }
+    memoryTmpTabs = memoryTmpTabs.filter((t) => t.browserTabId === undefined || !idSet.has(t.browserTabId));
+    this.notifyTmpTabs(memoryTmpTabs);
+
+    return this.runWithLock(async () => {
+      try {
+        await browser.tabs.remove(browserTabIds).catch(() => {});
+        for (const id of browserTabIds) {
+          this.pendingInitialTitles.delete(id);
+          await this.removeTmpTabCustomTitle(id);
+        }
+        const currentTmpTabs = await this.getTmpTabs();
+        const updated = currentTmpTabs.filter((t) => t.browserTabId === undefined || !idSet.has(t.browserTabId));
+        await this.saveTmpTabs(updated);
+      } catch (err) {
+        console.warn('[TabTracker] Error closing tmp tabs:', err);
+      } finally {
+        for (const id of browserTabIds) {
+          this.closingTabIds.delete(id);
+        }
+      }
+    });
+  }
+
   // Open a new browser tab and associate it with tab item (strictly 1-to-1)
   public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
     try {

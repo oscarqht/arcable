@@ -1604,6 +1604,15 @@ export function useWorkspace() {
     }));
   }, [saveWorkspaceData]);
 
+  const deleteTmpTabs = useCallback((ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    saveWorkspaceData((prev) => ({
+      ...prev,
+      tmpTabs: (prev.tmpTabs || []).filter((t) => !idSet.has(t.id)),
+    }));
+  }, [saveWorkspaceData]);
+
   const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string, order?: number) => {
     const savedTab = createTab({
       url: tmpTab.url,
@@ -3730,6 +3739,7 @@ export function useWorkspace() {
     updateTmpTab,
     moveTmpTabToSpace,
     deleteTmpTab,
+    deleteTmpTabs,
     promoteTmpTab,
     // Widget operations
     widgets,
