@@ -117,3 +117,94 @@ test('favourite group click: extension activates open tab and closes popover, or
   await handleGroupClickExtension({ id: 'grp-1' } as Tab, async () => true);
   assert.equal(groupPopoverTab, null, 'Popover closes immediately upon successful tab activation');
 });
+
+test('favourite group hover state machine: mouse leave side panel page dismisses popover after 150ms', async () => {
+  let groupPopoverTab: { tabId: string } | null = null;
+  let groupLeaveTimer: NodeJS.Timeout | null = null;
+  let isMouseOverGroup: string | null = null;
+  let isMouseOverGroupPopover = false;
+  let isMouseOutsidePage = false;
+
+  const clearGroupLeaveTimer = () => {
+    if (groupLeaveTimer) {
+      clearTimeout(groupLeaveTimer);
+      groupLeaveTimer = null;
+    }
+  };
+
+  const scheduleGroupPopoverClose = (delay = 80) => {
+    clearGroupLeaveTimer();
+    const effectiveDelay = isMouseOutsidePage ? 150 : delay;
+    groupLeaveTimer = setTimeout(() => {
+      if (!isMouseOverGroup && !isMouseOverGroupPopover) {
+        groupPopoverTab = null;
+      }
+    }, effectiveDelay);
+  };
+
+  const onGroupMouseEnter = (tabId: string) => {
+    isMouseOutsidePage = false;
+    clearGroupLeaveTimer();
+    isMouseOverGroup = tabId;
+    groupPopoverTab = { tabId };
+  };
+
+  const onPopoverMouseEnter = () => {
+    isMouseOutsidePage = false;
+    clearGroupLeaveTimer();
+    isMouseOverGroupPopover = true;
+  };
+
+  const onPopoverMouseLeave = () => {
+    isMouseOverGroupPopover = false;
+    scheduleGroupPopoverClose(80);
+  };
+
+  const onMouseLeavePage = () => {
+    isMouseOutsidePage = true;
+    isMouseOverGroup = null;
+    isMouseOverGroupPopover = false;
+    if (groupPopoverTab) {
+      scheduleGroupPopoverClose(150);
+    } else {
+      clearGroupLeaveTimer();
+    }
+  };
+
+  // Case 1: Popover shown, mouse leaves side panel page -> dismisses after 150ms
+  onGroupMouseEnter('grp-1');
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-1' }, 'Popover is shown on group hover');
+
+  onMouseLeavePage();
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-1' }, 'Popover is still open immediately upon mouse leave');
+
+  // After 90ms (past standard 80ms delay), it should still be open because delay is 150ms
+  await new Promise((r) => setTimeout(r, 90));
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-1' }, 'Popover still open at 90ms');
+
+  // Past 150ms total (e.g. +90ms more = 180ms total), it should be dismissed
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(groupPopoverTab, null, 'Popover dismissed after 150ms');
+
+  // Case 2: Popover shown, mouse in popover, leaves side panel page
+  onGroupMouseEnter('grp-2');
+  onPopoverMouseEnter();
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-2' });
+
+  onPopoverMouseLeave();
+  onMouseLeavePage();
+  await new Promise((r) => setTimeout(r, 90));
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-2' }, 'Popover still open at 90ms');
+
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(groupPopoverTab, null, 'Popover dismissed after 150ms');
+
+  // Case 3: Mouse leaves side panel page, but returns and enters group within 150ms
+  onGroupMouseEnter('grp-3');
+  onMouseLeavePage();
+  await new Promise((r) => setTimeout(r, 50));
+  // User moves cursor back to group within 150ms
+  onGroupMouseEnter('grp-3');
+  await new Promise((r) => setTimeout(r, 120));
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-3' }, 'Popover stays open if mouse re-enters within 150ms');
+});

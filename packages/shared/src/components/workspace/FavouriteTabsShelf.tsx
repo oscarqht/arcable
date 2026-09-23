@@ -148,10 +148,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   });
   const [hoveredTabId, setHoveredTabId] = useState<string | null>(null);
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
+  const [groupPopoverTab, setGroupPopoverTab] = useState<{ tab: Tab; anchorRect: DOMRect } | null>(null);
 
   const groupLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMouseOverGroupRef = useRef<string | null>(null);
   const isMouseOverGroupPopoverRef = useRef(false);
+  const isMouseOutsidePageRef = useRef(false);
+  const groupPopoverTabRef = useRef(groupPopoverTab);
+  groupPopoverTabRef.current = groupPopoverTab;
 
   const clearGroupLeaveTimer = () => {
     if (groupLeaveTimerRef.current) {
@@ -162,35 +166,53 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   const scheduleGroupPopoverClose = (delay = 80) => {
     clearGroupLeaveTimer();
+    const effectiveDelay = isMouseOutsidePageRef.current ? 150 : delay;
     groupLeaveTimerRef.current = setTimeout(() => {
       if (!isMouseOverGroupRef.current && !isMouseOverGroupPopoverRef.current) {
         setGroupPopoverTab(null);
       }
-    }, delay);
+    }, effectiveDelay);
   };
 
   useEffect(() => {
-    const handleClear = () => {
+    const handleMouseLeavePage = () => {
+      isMouseOutsidePageRef.current = true;
       setHoveredTabId(null);
       setHoveredWidgetId(null);
-      clearGroupLeaveTimer();
       isMouseOverGroupRef.current = null;
       isMouseOverGroupPopoverRef.current = false;
+      if (groupPopoverTabRef.current) {
+        scheduleGroupPopoverClose(150);
+      } else {
+        clearGroupLeaveTimer();
+      }
     };
 
-    window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
-    window.addEventListener('blur', handleClear);
+    const handleMouseEnterPage = () => {
+      isMouseOutsidePageRef.current = false;
+    };
+
+    window.addEventListener(CLEAR_HOVER_EVENT, handleMouseLeavePage);
+    window.addEventListener('blur', handleMouseLeavePage);
     if (typeof document !== 'undefined') {
-      document.addEventListener('mouseleave', handleClear);
+      document.addEventListener('mouseleave', handleMouseLeavePage);
+      document.addEventListener('pointerleave', handleMouseLeavePage);
+      document.addEventListener('mouseenter', handleMouseEnterPage);
+      document.addEventListener('pointerenter', handleMouseEnterPage);
     }
+    window.addEventListener('mousemove', handleMouseEnterPage, { passive: true });
 
     return () => {
       clearGroupLeaveTimer();
-      window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
-      window.removeEventListener('blur', handleClear);
+      window.removeEventListener(CLEAR_HOVER_EVENT, handleMouseLeavePage);
+      window.removeEventListener('blur', handleMouseLeavePage);
       if (typeof document !== 'undefined') {
-        document.removeEventListener('mouseleave', handleClear);
+        document.removeEventListener('mouseleave', handleMouseLeavePage);
+        document.removeEventListener('pointerleave', handleMouseLeavePage);
+        document.removeEventListener('mouseenter', handleMouseEnterPage);
+        document.removeEventListener('pointerenter', handleMouseEnterPage);
       }
+      window.removeEventListener('mousemove', handleMouseEnterPage);
     };
   }, []);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
@@ -198,7 +220,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside' | null>(null);
-  const [groupPopoverTab, setGroupPopoverTab] = useState<{ tab: Tab; anchorRect: DOMRect } | null>(null);
 
   const activePopoverGroupTab = useMemo(() => {
     if (!groupPopoverTab) return null;
@@ -452,6 +473,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   const handleItemMouseEnter = (tabId: string) => {
+    isMouseOutsidePageRef.current = false;
     setHoveredTabId(tabId);
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
@@ -1943,7 +1965,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           childWidgets={widgets.filter((w) => w.parentGroupId === activePopoverGroupTab.id)}
           anchorRect={groupPopoverTab.anchorRect}
           isOpen={Boolean(groupPopoverTab)}
-          onClose={() => setGroupPopoverTab(null)}
+          onClose={() => {
+            clearGroupLeaveTimer();
+            isMouseOverGroupRef.current = null;
+            isMouseOverGroupPopoverRef.current = false;
+            setGroupPopoverTab(null);
+          }}
           onOpenItem={(variant, options) => {
             if (onOpenTab) {
               onOpenTab(variant.url, variant.id, options);
@@ -1977,6 +2004,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           onReorderVariant={onReorderGroupVariants}
           onUngroup={onUngroupTab}
           onMouseEnter={() => {
+            isMouseOutsidePageRef.current = false;
             clearGroupLeaveTimer();
             isMouseOverGroupPopoverRef.current = true;
           }}
