@@ -1669,7 +1669,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const handleRequestDeleteTab = useCallback((tabId: string) => {
     const tab = data.tabs.find((t) => t.id === tabId);
-    const tabTitle = tab?.customTitle || (tab?.url ? (getDomain(tab.url) || cleanUrl(tab.url)) : '') || 'this tab';
+    const firstVariantName = tab?.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants[0]?.name?.trim() : undefined;
+    const tabTitle = firstVariantName || tab?.customTitle || (tab?.url ? (getDomain(tab.url) || cleanUrl(tab.url)) : '') || 'this tab';
     const isFav = Boolean(tab?.favourite);
 
     setDeleteConfirmation({

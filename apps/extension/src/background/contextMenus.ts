@@ -101,7 +101,7 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
     if (matchingRules.length > 0) {
       chrome.contextMenus.create({
         id: MENU_ROOT_ID,
-        title: 'Run Code in Page',
+        title: '⚡ Run Code in Page',
         contexts: CONTEXTS,
       });
 

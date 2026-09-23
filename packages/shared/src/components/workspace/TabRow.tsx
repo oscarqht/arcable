@@ -151,7 +151,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   }, []);
 
   const domain = getDomain(resolvedUrl);
-  const displayTitle = tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
+  const firstVariantName = tab.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants[0]?.name?.trim() : undefined;
+  const displayTitle = firstVariantName || tab.customTitle || domain || cleanUrl(resolvedUrl) || 'Untitled Tab';
   const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
   const hasVariants = secondaryVariants.length > 0;
 

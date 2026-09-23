@@ -837,6 +837,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
               const isHighlighted = highlightedTabId === tab.id;
               const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
               const hasVariants = secondaryVariants.length > 0;
+              const firstVariantName = tab.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants[0]?.name?.trim() : undefined;
+              const tabDisplayTitle = firstVariantName || tab.customTitle || tab.url;
 
               return (
                 <div
@@ -887,7 +889,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                         : 'rgba(0, 0, 0, 0.08)'
                       : 'transparent';
                   }}
-                  title={tab.customTitle || tab.url}
+                  title={tabDisplayTitle}
                 >
                   <TabFavicon
                     url={tab.url}
@@ -908,7 +910,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                       lineHeight: '16px',
                     }}
                   >
-                    {tab.customTitle || tab.url}
+                    {tabDisplayTitle}
                   </span>
                   {hasVariants && (
                     <div

@@ -6,7 +6,7 @@ import { Button } from '../Button';
 import { StarIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
-import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
+import { getDomain, getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 import { generateId } from '../../utils/format';
 
@@ -138,6 +138,9 @@ export const TabModal: React.FC<TabModalProps> = ({
           }
           setVariants(rawVariants);
           setDefaultVariantId(rawVariants[0]?.id || '');
+          if (rawVariants[0]?.name) {
+            setCustomTitle(rawVariants[0].name);
+          }
         } else {
           setShowVariants(false);
           setVariants([]);
@@ -153,10 +156,12 @@ export const TabModal: React.FC<TabModalProps> = ({
         setParentFolderId(defaultFolderId || '');
         if (initialIsGroup) {
           setShowVariants(true);
-          const v1 = { id: generateId('var'), name: '', url: '' };
+          const firstName = initialTitle || 'Group';
+          const v1 = { id: generateId('var'), name: firstName, url: '' };
           const v2 = { id: generateId('var'), name: '', url: '' };
           setVariants([v1, v2]);
           setDefaultVariantId(v1.id);
+          setCustomTitle(firstName);
         } else {
           setShowVariants(false);
           setVariants([]);
@@ -218,16 +223,20 @@ export const TabModal: React.FC<TabModalProps> = ({
     return getTreeOrderedFolders(foldersInSpace);
   }, [allFolders, parentSpaceId]);
 
+  const isVariantsMode = showVariants && variants.length > 0;
+  const firstVariantName = isVariantsMode ? (variants[0]?.name || '') : '';
+
   if (!isOpen) return null;
 
   const handleEnableVariants = () => {
     const currentUrlVal = url.trim();
     const firstId = 'var_' + Date.now() + '_1';
     const secondId = 'var_' + Date.now() + '_2';
+    const initialFirstName = customTitle.trim() || getDomain(currentUrlVal) || 'Default';
     const initialVariants: TabUrlVariant[] = [
       {
         id: firstId,
-        name: 'Default',
+        name: initialFirstName,
         url: currentUrlVal || '',
       },
       {
@@ -239,6 +248,7 @@ export const TabModal: React.FC<TabModalProps> = ({
     setVariants(initialVariants);
     setDefaultVariantId(firstId);
     setShowVariants(true);
+    setCustomTitle(initialFirstName);
   };
 
   const handleAddVariantRow = () => {
@@ -282,6 +292,9 @@ export const TabModal: React.FC<TabModalProps> = ({
     if (def && def.url) {
       setUrl(def.url);
     }
+    if (def && def.name) {
+      setCustomTitle(def.name);
+    }
     setShowVariants(false);
     setVariants([]);
     setDefaultVariantId('');
@@ -298,6 +311,8 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (!finalDefaultUrl) return;
       if (!favourite && !parentSpaceId) return;
 
+      const firstVarName = (defVariant?.name || variants[0]?.name || '').trim();
+
       onSave({
         url: finalDefaultUrl,
         urlVariants:
@@ -312,7 +327,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         isGroup: isFavGroup,
         parentSpaceId: favourite ? undefined : parentSpaceId,
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
-        customTitle: customTitle.trim() || undefined,
+        customTitle: firstVarName || undefined,
         customEmojiIcon: undefined,
         favIconUrl: defVariant?.favIconUrl || coverUrl,
         pinned: false,
@@ -668,16 +683,23 @@ export const TabModal: React.FC<TabModalProps> = ({
             </label>
             <input
               type="text"
-              placeholder="e.g. Arcable Documentation (leave blank to use URL)"
-              value={customTitle}
+              placeholder={isVariantsMode ? (firstVariantName || 'Set by first variant') : 'e.g. Arcable Documentation (leave blank to use URL)'}
+              value={isVariantsMode ? firstVariantName : customTitle}
+              disabled={isVariantsMode}
               onChange={(e) => setCustomTitle(e.target.value)}
+              title={isVariantsMode ? "Custom Title is set to the first variant's name when URL variants are enabled" : undefined}
               style={{
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
                 border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
-                backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                color: isDark ? '#f8fafc' : '#0f172a',
+                backgroundColor: isVariantsMode
+                  ? (isDark ? '#1e293b' : '#f1f5f9')
+                  : (isDark ? '#0f172a' : '#ffffff'),
+                color: isVariantsMode
+                  ? (isDark ? '#94a3b8' : '#64748b')
+                  : (isDark ? '#f8fafc' : '#0f172a'),
+                cursor: isVariantsMode ? 'not-allowed' : 'text',
                 fontSize: '14px',
                 boxSizing: 'border-box',
                 outline: 'none',
