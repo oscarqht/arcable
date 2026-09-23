@@ -38,23 +38,23 @@ for (const { name, hex } of testColors) {
 
   console.log(`  - ${name.padEnd(16)}: ${hex} -> ${dimmed} | L=${normalizedL.toFixed(2)} S=${(s / 100).toFixed(2)} | Contrast=${contrast.toFixed(1)}:1`);
 
-  // Target lightness must stay within subtle charcoal dark range [0.12, 0.17]
+  // Target lightness must stay within vibrant dark range [0.18, 0.24]
   assert.ok(
-    normalizedL >= 0.12 && normalizedL <= 0.17,
-    `${name}: Lightness ${normalizedL} should be in comfortable dark range [0.12, 0.17]`
+    normalizedL >= 0.18 && normalizedL <= 0.24,
+    `${name}: Lightness ${normalizedL} should be in vibrant dark range [0.18, 0.24]`
   );
 
-  // Target saturation must be muted [0.04, 0.25]
+  // Target saturation should be vibrant [0.30, 0.70] for rich space colors
   const normalizedS = s / 100;
   assert.ok(
-    normalizedS <= 0.25,
-    `${name}: Saturation ${normalizedS} should be muted and not exceed 0.25`
+    normalizedS >= 0.30 && normalizedS <= 0.70,
+    `${name}: Saturation ${normalizedS} should be vibrant and within [0.30, 0.70]`
   );
 
   // Must maintain high contrast with #ffffff text (WCAG AAA requires >= 7:1)
   assert.ok(
-    contrast >= 10.0,
-    `${name}: Contrast ratio ${contrast.toFixed(2)} against white text should exceed 10:1`
+    contrast >= 8.0,
+    `${name}: Contrast ratio ${contrast.toFixed(2)} against white text should exceed 8:1`
   );
 }
 

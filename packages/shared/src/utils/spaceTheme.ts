@@ -646,27 +646,26 @@ function hslToHex(h: number, s: number, l: number): string {
 }
 
 /**
- * Dims a single hex color for dark mode while retaining its distinctive tint/hue
+ * Dims a single hex color for dark mode while retaining its distinctive tint/hue,
+ * keeping it vibrant and saturated while comfortable as a dark mode surface.
  */
 export function dimHexForDarkMode(hex: string): string {
   const rgb = parseHexColor(hex);
   if (!rgb) return hex;
   const [h, s, l] = rgbToHsl(...rgb);
 
-  // Target lightness: dark charcoal base (13% to 16.5%)
-  // Subtle modulation based on original lightness so lighter colors have a very gentle lift
-  const targetL = Math.max(0.125, Math.min(0.165, 0.125 + l * 0.04));
+  // Target lightness: vibrant dark background base (18% to 23%)
+  // Subtle modulation based on original lightness so lighter colors have a gentle lift
+  const targetL = Math.max(0.18, Math.min(0.23, 0.18 + l * 0.05));
 
-  // Target saturation: muted charcoal infused with a subtle tint (10% to 25% max)
-  // Low-saturation neutrals remain very subtle (~6% - 10%)
-  // Vibrant colors are scaled to a calm ~16% - 24% tint so the theme never feels overly saturated/strong in dark mode
+  // Target saturation: vibrant and saturated in dark mode
+  // Low-saturation neutrals remain subtle (~4% - 8%)
+  // Vibrant colors are scaled to a rich ~35% - 65% tint for vibrant, recognizable space identity
   let targetS: number;
-  if (s < 0.15) {
-    targetS = Math.max(0.04, s * 0.6);
-  } else if (s > 0.65) {
-    targetS = Math.min(0.24, 0.14 + (s - 0.65) * 0.28);
+  if (s < 0.12) {
+    targetS = Math.max(0.04, s * 0.7);
   } else {
-    targetS = Math.min(0.20, 0.08 + s * 0.22);
+    targetS = Math.min(0.65, 0.28 + s * 0.42);
   }
 
   return hslToHex(h, targetS, targetL);
