@@ -438,6 +438,11 @@ export function applyOperation(
         cloned.tabs = cloned.tabs.map((t) =>
           t.parentSpaceId === op.entityId ? { ...t, parentSpaceId: fallbackSpaceId } : t
         );
+        if (cloned.tmpTabs) {
+          cloned.tmpTabs = cloned.tmpTabs.map((t) =>
+            t.spaceId === op.entityId ? { ...t, spaceId: fallbackSpaceId } : t
+          );
+        }
       }
       break;
     }
@@ -631,6 +636,7 @@ export function applyOperation(
         deviceId: op.payload?.deviceId || op.deviceId,
         deviceName: op.payload?.deviceName,
         deviceType: op.payload?.deviceType,
+        spaceId: op.payload?.spaceId,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
       };
@@ -919,8 +925,17 @@ export function replayOperations(
     };
   });
 
-  // Chronological sort for tmpTabs (newest first)
+  // Chronological sort and self-heal for tmpTabs (newest first)
   if (state.tmpTabs && state.tmpTabs.length > 0) {
+    const fallbackSpaceId = state.activeSpaceId && spaceIds.has(state.activeSpaceId)
+      ? state.activeSpaceId
+      : (state.spaces[0]?.id || 'space_personal');
+    state.tmpTabs = state.tmpTabs.map((t) => {
+      if (!t.spaceId || !spaceIds.has(t.spaceId)) {
+        return { ...t, spaceId: fallbackSpaceId };
+      }
+      return t;
+    });
     state.tmpTabs.sort(
       (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
     );

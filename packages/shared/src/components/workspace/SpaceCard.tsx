@@ -21,6 +21,7 @@ import { TabRow } from './TabRow';
 import { SpaceIcon } from './SpaceIcon';
 import { FolderItem } from './FolderItem';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { TmpTabsList } from './TmpTabsList';
 import {
   CopyIcon,
   CheckIcon,
@@ -40,6 +41,7 @@ export interface SpaceCardProps {
   allSpaces?: Space[];
   allFolders: Folder[];
   allTabs: Tab[];
+  tmpTabs?: TmpTab[];
   searchQuery?: string;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -55,6 +57,10 @@ export interface SpaceCardProps {
   onCloseAssociatedTab?: (tabId: string) => void;
   onResetDivertedUrl?: (tabId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
+  onCloseTmpTab?: (tab: TmpTab) => void;
+  onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
+  onPromoteTmpTab?: (tab: TmpTab) => void;
+  onMoveTmpTabToSpace?: (tab: TmpTab, targetSpaceId: string) => void;
   onEditSpace?: (space: Space) => void;
   onDeleteSpace?: (spaceId: string) => void;
   onArchiveSpace?: (spaceId: string) => void;
@@ -98,6 +104,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   allSpaces = [],
   allFolders,
   allTabs,
+  tmpTabs,
   searchQuery: externalSearch = '',
   isCollapsed: controlledIsCollapsed,
   onToggleCollapse,
@@ -113,6 +120,10 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onCloseAssociatedTab,
   onResetDivertedUrl,
   onMediaControl,
+  onCloseTmpTab,
+  onRenameTmpTab,
+  onPromoteTmpTab,
+  onMoveTmpTabToSpace,
   onEditSpace,
   onDeleteSpace,
   onArchiveSpace,
@@ -147,6 +158,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   const [isCardHovered, setIsCardHovered] = useState(false);
   const [compactVariantLabels, setCompactVariantLabels] = useState(false);
   const [rootDropActive, setRootDropActive] = useState(false);
+  const [headerDropActive, setHeaderDropActive] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -452,8 +464,41 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           alignItems: 'center',
           cursor: 'pointer',
           userSelect: 'none',
+          padding: '4px',
+          margin: '-4px',
+          borderRadius: '12px',
+          backgroundColor: headerDropActive
+            ? (themeStyles.isDark ? 'rgba(56, 189, 248, 0.25)' : '#bae6fd')
+            : 'transparent',
+          transition: 'background-color 0.15s ease',
         }}
         onClick={toggleCollapse}
+        onDragOver={(e) => {
+          if (isDragAcceptable(e, ['tmpTab'])) {
+            e.preventDefault();
+            e.stopPropagation();
+            setHeaderDropActive(true);
+          }
+        }}
+        onDragLeave={() => {
+          setHeaderDropActive(false);
+        }}
+        onDrop={(e) => {
+          if (!isDragAcceptable(e, ['tmpTab'])) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setHeaderDropActive(false);
+          try {
+            const raw = e.dataTransfer.getData('application/json');
+            const activeDrag = getActiveDrag();
+            const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+            if (!parsed || !parsed.id || parsed.type !== 'tmpTab') return;
+            const tab = (parsed.tmpTab || parsed) as TmpTab;
+            onMoveTmpTabToSpace?.(tab, space.id);
+          } catch {} finally {
+            endDrag();
+          }
+        }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
 
@@ -832,6 +877,57 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Temporary Tabs for this Space */}
+              {tmpTabs && tmpTabs.length > 0 && (
+                <div
+                  style={{
+                    borderTop: `1px solid ${themeStyles.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
+                    paddingTop: '8px',
+                    marginTop: '4px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: themeStyles.subtextColor,
+                    }}
+                  >
+                    <span>Temporary Tabs</span>
+                    <span style={{ fontSize: '10px', opacity: 0.8 }}>{tmpTabs.length}</span>
+                  </div>
+                  <TmpTabsList
+                    tabs={tmpTabs}
+                    allSpaces={allSpaces}
+                    themeStyles={themeStyles}
+                    isDarkTheme={themeStyles.isDark}
+                    compact={isSingleColumn}
+                    alwaysShowActions={alwaysShowActions}
+                    highlightedTabId={highlightedTabId}
+                    audibleTabs={audibleTabs}
+                    onOpen={(url, tabId, tab, options) => {
+                      if (onOpenTab) {
+                        onOpenTab(url, tabId, options);
+                      } else if (onOpenTmpTab) {
+                        onOpenTmpTab(url, tab?.title);
+                      }
+                    }}
+                    onPromote={(tab) => onPromoteTmpTab?.(tab)}
+                    onClose={(tab) => onCloseTmpTab?.(tab)}
+                    onRename={onRenameTmpTab}
+                    onMoveToSpace={onMoveTmpTabToSpace}
+                    onMediaControl={onMediaControl}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

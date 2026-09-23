@@ -12,6 +12,7 @@ const TMP_TAB_CONTENT_KEYS: Array<Exclude<keyof TmpTab, 'updatedAt'>> = [
   'deviceId',
   'deviceName',
   'deviceType',
+  'spaceId',
   'createdAt',
 ];
 

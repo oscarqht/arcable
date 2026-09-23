@@ -1,4 +1,4 @@
-import { Tab } from '@arcable/shared/types';
+import { Tab, TmpTab } from '@arcable/shared/types';
 
 declare const chrome: any;
 declare const browser: any;
@@ -123,8 +123,24 @@ async function saveSpaceActiveTabsMap(map: WindowSpaceActiveTabMap): Promise<voi
  * Only tabs directly belonging to the space (including folder items) qualify.
  * Favorite tabs (global) and tmp tabs (temporary) are excluded.
  */
-export function resolveSpaceIdForTabItem(tabItemId: string, workspaceTabs: Tab[]): string | null {
-  if (!tabItemId || !Array.isArray(workspaceTabs) || tabItemId.startsWith('tmp_')) {
+export function resolveSpaceIdForTabItem(
+  tabItemId: string,
+  workspaceTabs: Tab[],
+  tmpTabs?: TmpTab[]
+): string | null {
+  if (!tabItemId) {
+    return null;
+  }
+  if (tabItemId.startsWith('tmp_') || (Array.isArray(tmpTabs) && tmpTabs.some((t) => t.id === tabItemId))) {
+    if (Array.isArray(tmpTabs)) {
+      const matchingTmp = tmpTabs.find((t) => t.id === tabItemId);
+      if (matchingTmp?.spaceId) {
+        return matchingTmp.spaceId;
+      }
+    }
+    return null;
+  }
+  if (!Array.isArray(workspaceTabs)) {
     return null;
   }
   const tab = workspaceTabs.find(
@@ -249,6 +265,60 @@ export async function forgetBrowserTab(browserTabId: number): Promise<void> {
   }
 }
 
+/**
+ * Forget any remembered active tab reference for a specific space in a window (or all windows),
+ * optionally constrained to a specific tabItemId or browserTabId.
+ */
+export async function forgetActiveTabForSpace(
+  windowId: number | null | undefined,
+  spaceId: string,
+  tabItemId?: string,
+  browserTabId?: number
+): Promise<void> {
+  if (!spaceId) return;
+  const currentMap = await getSpaceActiveTabsMap();
+  let changed = false;
+  const updatedMap: WindowSpaceActiveTabMap = {};
+
+  const targetWinIds =
+    windowId !== null && windowId !== undefined
+      ? [windowId]
+      : Object.keys(currentMap).map(Number);
+
+  for (const [winIdStr, spaceTabs] of Object.entries(currentMap)) {
+    const winId = Number(winIdStr);
+    if (!targetWinIds.includes(winId)) {
+      updatedMap[winId] = spaceTabs;
+      continue;
+    }
+
+    const updatedSpaceTabs: Record<string, SpaceActiveTabEntry> = {};
+    for (const [sId, entry] of Object.entries(spaceTabs)) {
+      if (sId === spaceId) {
+        const rec = normalizeRecord(entry);
+        const matches =
+          (!tabItemId && !browserTabId) ||
+          (Boolean(tabItemId) && rec?.tabItemId === tabItemId) ||
+          (Boolean(browserTabId) && rec?.browserTabId === browserTabId);
+
+        if (matches) {
+          changed = true;
+          continue;
+        }
+      }
+      updatedSpaceTabs[sId] = entry;
+    }
+
+    if (Object.keys(updatedSpaceTabs).length > 0) {
+      updatedMap[winId] = updatedSpaceTabs;
+    }
+  }
+
+  if (changed) {
+    await saveSpaceActiveTabsMap(updatedMap);
+  }
+}
+
 export type TabAssociationLookup = (
   tabItemId: string
 ) =>
@@ -339,6 +409,26 @@ export async function activateRememberedTabForSpace(
         }
         if (assocMap && assocMap[record.tabItemId]?.browserTabId) {
           resolvedBrowserTabId = assocMap[record.tabItemId].browserTabId;
+        }
+      } catch {}
+    }
+
+    // Fallback for tmp tabs: check storage.local 'arcable_tmp_tabs'
+    if (!resolvedBrowserTabId && record.tabItemId.startsWith('tmp_')) {
+      try {
+        let storedTmpTabs: any[] | undefined;
+        if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+          const res = await chrome.storage.local.get('arcable_tmp_tabs');
+          storedTmpTabs = res?.arcable_tmp_tabs;
+        } else if (typeof browser !== 'undefined' && (browser as any).storage?.local) {
+          const res = await (browser as any).storage.local.get('arcable_tmp_tabs');
+          storedTmpTabs = res?.arcable_tmp_tabs;
+        }
+        if (Array.isArray(storedTmpTabs)) {
+          const matchedTmp = storedTmpTabs.find((t) => t.id === record.tabItemId);
+          if (matchedTmp && matchedTmp.browserTabId) {
+            resolvedBrowserTabId = matchedTmp.browserTabId;
+          }
         }
       } catch {}
     }

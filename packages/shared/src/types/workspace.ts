@@ -190,6 +190,7 @@ export interface TmpTab {
   deviceId?: string;
   deviceName?: string;
   deviceType?: 'Web App' | 'Ext';
+  spaceId?: string;
   createdAt?: number;
   updatedAt?: number;
 }

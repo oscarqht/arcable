@@ -1,4 +1,4 @@
-import { Folder, Tab, Space } from '../types/workspace';
+import { Folder, Tab, Space, TmpTab } from '../types/workspace';
 import { TabAssociationMap } from '../types/tabTracker';
 
 /**
@@ -480,51 +480,68 @@ export function getDescendantFolderIds(
 
 /**
  * Calculates the number of currently opened tabs for each space.
- * Excludes global favourites and temporary tabs (tmp tabs).
+ * Includes opened space tabs and temporary tabs (tmp tabs) belonging to each space.
+ * Excludes global favourites.
  */
 export function getSpaceOpenTabCounts(
   spaces: Space[],
   folders: Folder[],
   tabs: Tab[],
   tabAssociations?: TabAssociationMap,
-  highlightedTabId?: string | null
+  highlightedTabId?: string | null,
+  tmpTabs?: TmpTab[]
 ): Record<string, number> {
-  if (!tabAssociations) return {};
-
-  const openTabIds = new Set<string>();
-  for (const id of Object.keys(tabAssociations)) {
-    if (tabAssociations[id]) {
-      openTabIds.add(id);
-    }
-  }
-  if (highlightedTabId) {
-    openTabIds.add(highlightedTabId);
-  }
+  if (!tabAssociations && (!tmpTabs || tmpTabs.length === 0)) return {};
 
   const counts: Record<string, number> = {};
   const defaultSpaceId = spaces[0]?.id;
 
   for (const space of spaces) {
-    const spaceFolderIds = getAllSpaceFolderIds(space.id, folders);
-    let count = 0;
+    counts[space.id] = 0;
+  }
 
-    for (const tab of tabs) {
-      // Don't count favorite items
-      if (tab.favourite) continue;
-      // Tab must be opened
-      if (!openTabIds.has(tab.id)) continue;
-
-      const belongsToSpace =
-        tab.parentSpaceId === space.id ||
-        (Boolean(tab.parentFolderId) && spaceFolderIds.has(tab.parentFolderId!)) ||
-        (!tab.parentSpaceId && !tab.parentFolderId && defaultSpaceId === space.id);
-
-      if (belongsToSpace) {
-        count++;
+  if (tabAssociations) {
+    const openTabIds = new Set<string>();
+    for (const id of Object.keys(tabAssociations)) {
+      if (tabAssociations[id]) {
+        openTabIds.add(id);
       }
     }
+    if (highlightedTabId && !highlightedTabId.startsWith('tmp_')) {
+      openTabIds.add(highlightedTabId);
+    }
 
-    counts[space.id] = count;
+    for (const space of spaces) {
+      const spaceFolderIds = getAllSpaceFolderIds(space.id, folders);
+      let count = 0;
+
+      for (const tab of tabs) {
+        // Don't count favorite items
+        if (tab.favourite) continue;
+        // Tab must be opened
+        if (!openTabIds.has(tab.id)) continue;
+
+        const belongsToSpace =
+          tab.parentSpaceId === space.id ||
+          (Boolean(tab.parentFolderId) && spaceFolderIds.has(tab.parentFolderId!)) ||
+          (!tab.parentSpaceId && !tab.parentFolderId && defaultSpaceId === space.id);
+
+        if (belongsToSpace) {
+          count++;
+        }
+      }
+
+      counts[space.id] = count;
+    }
+  }
+
+  if (Array.isArray(tmpTabs)) {
+    for (const tmp of tmpTabs) {
+      const targetSpaceId = tmp.spaceId || defaultSpaceId;
+      if (targetSpaceId && counts[targetSpaceId] !== undefined) {
+        counts[targetSpaceId]++;
+      }
+    }
   }
 
   return counts;

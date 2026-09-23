@@ -28,6 +28,7 @@ import {
   rememberActiveTabForSpace,
   activateRememberedTabForSpace,
   resolveSpaceIdForTabItem,
+  forgetActiveTabForSpace,
   forgetBrowserTab,
 } from './spaceTabTracker';
 export { resolveSidepanelActiveSpaceId };
@@ -141,6 +142,10 @@ export const App: React.FC = () => {
     tabAssociationsRef.current = tabAssociations;
   }, [tabAssociations]);
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
+  const tmpTabsRef = useRef<TmpTab[]>([]);
+  useEffect(() => {
+    tmpTabsRef.current = tmpTabs;
+  }, [tmpTabs]);
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
@@ -263,7 +268,7 @@ export const App: React.FC = () => {
           const workspaceTabs = workspaceTabsRef.current.length > 0
             ? workspaceTabsRef.current
             : getStoredWorkspaceTabs();
-          const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs);
+          const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, tmpTabsRef.current);
           if (spaceId) {
             void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, tabItemId);
           }
@@ -281,7 +286,7 @@ export const App: React.FC = () => {
             const workspaceTabs = workspaceTabsRef.current.length > 0
               ? workspaceTabsRef.current
               : getStoredWorkspaceTabs();
-            const spaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs);
+            const spaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs, tmpTabsRef.current);
             if (spaceId) {
               void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, details.tabItemId);
             }
@@ -609,6 +614,10 @@ export const App: React.FC = () => {
     const nextSpaceId = activeSpace?.id;
     if (nextSpaceId) {
       setStoredLastSpaceId(nextSpaceId);
+      const winId = currentWindowIdRef.current;
+      if (winId !== null && winId !== undefined) {
+        tabTracker.setActiveSpaceForWindow(winId, nextSpaceId);
+      }
     }
 
     if (isInitialSpaceMountRef.current) {
@@ -620,13 +629,27 @@ export const App: React.FC = () => {
     if (nextSpaceId && nextSpaceId !== previousSpaceIdRef.current) {
       previousSpaceIdRef.current = nextSpaceId;
       const winId = currentWindowIdRef.current;
-      const lookupAssoc = (id: string) => tabAssociationsRef.current[id];
+      const lookupAssoc = (id: string) => {
+        const assoc = tabAssociationsRef.current[id];
+        if (assoc) return assoc;
+        if (id.startsWith('tmp_')) {
+          const matchTmp = tmpTabsRef.current.find((t) => t.id === id);
+          if (matchTmp && matchTmp.browserTabId !== undefined) {
+            return {
+              browserTabId: matchTmp.browserTabId,
+              windowId: matchTmp.windowId ?? (currentWindowIdRef.current || 0),
+            };
+          }
+        }
+        return undefined;
+      };
       if (winId !== null && winId !== undefined) {
         void activateRememberedTabForSpace(winId, nextSpaceId, undefined, lookupAssoc);
       } else {
         void browser.windows?.getCurrent?.().then((win) => {
           if (win?.id !== undefined) {
             currentWindowIdRef.current = win.id;
+            tabTracker.setActiveSpaceForWindow(win.id, nextSpaceId);
             void activateRememberedTabForSpace(win.id, nextSpaceId, undefined, lookupAssoc);
           }
         }).catch(() => {});
@@ -641,8 +664,9 @@ export const App: React.FC = () => {
     if (options?.asTmpTab) {
       try {
         const newTab = await browser.tabs.create({ url, active: true });
-        if (newTab && newTab.id !== undefined && tmpTabInfo?.title) {
-          tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo.title);
+        if (newTab && newTab.id !== undefined) {
+          const assignedSpaceId = tmpTabInfo?.spaceId || previousSpaceIdRef.current || getStoredLastSpaceId() || undefined;
+          tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo?.title, assignedSpaceId);
         }
         return;
       } catch (e) {
@@ -700,11 +724,12 @@ export const App: React.FC = () => {
         const newTab = await browser.tabs.create({ url, active: true });
         const customTitle = tmpTabInfo?.customTitle || localTmp?.customTitle;
         const initialTitle = tmpTabInfo?.title || localTmp?.title;
+        const assignedSpaceId = tmpTabInfo?.spaceId || localTmp?.spaceId || previousSpaceIdRef.current || getStoredLastSpaceId() || undefined;
         if (newTab && newTab.id !== undefined) {
           if (customTitle) {
             await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
           } else if (initialTitle) {
-            tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle);
+            tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle, assignedSpaceId);
           }
         }
         return;
@@ -929,6 +954,23 @@ export const App: React.FC = () => {
   const handleRenameTmpTab = async (tab: TmpTab, newTitle: string) => {
     await tabTracker.setTmpTabCustomTitle(tab.browserTabId, tab.url, newTitle);
   };
+
+  const handleMoveTmpTabToSpace = useCallback(
+    async (tab: TmpTab, targetSpaceId: string) => {
+      if (!tab || !targetSpaceId || tab.spaceId === targetSpaceId) return;
+      const oldSpaceId = tab.spaceId || previousSpaceIdRef.current || getStoredLastSpaceId();
+      const winId = currentWindowIdRef.current;
+
+      // Forget active tab for old space if it pointed to this moved tab
+      if (oldSpaceId) {
+        void forgetActiveTabForSpace(winId, oldSpaceId, tab.id, tab.browserTabId);
+      }
+
+      // Update space in tabTracker
+      await tabTracker.moveTmpTabToSpace(tab.id, targetSpaceId);
+    },
+    []
+  );
 
   const handleTabPromoted = async (newTab: Tab, tmpTab: TmpTab) => {
     setHighlightedTabId(newTab.id);
@@ -1280,6 +1322,7 @@ export const App: React.FC = () => {
           currentDeviceId={currentDeviceId}
           onCloseTmpTab={handleCloseTmpTab}
           onRenameTmpTab={handleRenameTmpTab}
+          onMoveTmpTabToSpace={handleMoveTmpTabToSpace}
           onTabPromoted={handleTabPromoted}
           highlightedTabId={highlightedTabId}
           onOpenTab={handleOpenTab}

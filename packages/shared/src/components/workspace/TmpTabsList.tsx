@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { TmpTab, TabOpenOptions } from '../../types/workspace';
+import { TmpTab, TabOpenOptions, Space } from '../../types/workspace';
 import { AudibleTab, MediaControlAction } from '../../types/tabTracker';
 import { TmpTabRow } from './TmpTabRow';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
@@ -9,6 +9,7 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 
 export interface TmpTabsListProps {
   tabs: TmpTab[];
+  allSpaces?: Space[];
   themeStyles?: SpaceThemeTokens;
   currentDeviceId?: string;
   isDarkTheme?: boolean;
@@ -23,12 +24,14 @@ export interface TmpTabsListProps {
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
+  onMoveToSpace?: (tab: TmpTab, targetSpaceId: string) => void;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onAddTmpTab?: () => void;
 }
 
 export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   tabs,
+  allSpaces,
   themeStyles,
   currentDeviceId,
   isDarkTheme,
@@ -42,6 +45,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
   onPromote,
   onClose,
   onRename,
+  onMoveToSpace,
   onMediaControl,
   onAddTmpTab,
 }) => {
@@ -211,6 +215,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
             <TmpTabRow
               key={tab.id}
               tab={tab}
+              allSpaces={allSpaces}
               themeStyles={themeStyles}
               currentDeviceId={currentDeviceId}
               isDarkTheme={effectiveDark}
@@ -224,6 +229,7 @@ export const TmpTabsList: React.FC<TmpTabsListProps> = ({
               onPromote={onPromote}
               onClose={onClose}
               onRename={onRename}
+              onMoveToSpace={onMoveToSpace}
               onMediaControl={
                 onMediaControl && tab.browserTabId !== undefined
                   ? (action) => onMediaControl(tab.browserTabId!, action)

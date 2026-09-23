@@ -118,4 +118,20 @@ const tabAssociations: TabAssociationMap = {
   assert(counts['space-personal'] === 2, `Expected 2 open tabs in Personal with highlighted, got ${counts['space-personal']}`);
 }
 
+// Test 5: includes tmpTabs belonging to each space
+{
+  const tmpTabs = [
+    { id: 'tmp-1', url: 'https://example.com/1', spaceId: 'space-work' },
+    { id: 'tmp-2', url: 'https://example.com/2', spaceId: 'space-personal' },
+    { id: 'tmp-3', url: 'https://example.com/3', spaceId: 'space-personal' },
+    // Falls back to first space (space-work) if spaceId is missing
+    { id: 'tmp-4', url: 'https://example.com/4' },
+  ];
+  const counts = getSpaceOpenTabCounts(spaces, folders, tabs, tabAssociations, null, tmpTabs as any);
+  // Work: 4 workspace tabs + 1 tmp tab + 1 fallback tmp tab = 6
+  assert(counts['space-work'] === 6, `Expected 6 open tabs in Work with tmpTabs, got ${counts['space-work']}`);
+  // Personal: 1 workspace tab + 2 tmp tabs = 3
+  assert(counts['space-personal'] === 3, `Expected 3 open tabs in Personal with tmpTabs, got ${counts['space-personal']}`);
+}
+
 console.log('getSpaceOpenTabCounts tests passed successfully!');

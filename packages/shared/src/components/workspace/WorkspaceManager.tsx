@@ -97,6 +97,7 @@ export interface WorkspaceManagerProps {
   onCloseTmpTab?: (tab: TmpTab) => void;
   onPromoteTmpTab?: (tab: TmpTab) => void;
   onRenameTmpTab?: (tab: TmpTab, newTitle: string) => void;
+  onMoveTmpTabToSpace?: (tab: TmpTab, targetSpaceId: string) => void | Promise<void>;
   onTabPromoted?: (newTab: Tab, tmpTab: TmpTab) => void;
   onDropTmpTab?: (
     tmpTab: TmpTab,
@@ -159,6 +160,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onCloseTmpTab,
       onPromoteTmpTab,
       onRenameTmpTab,
+      onMoveTmpTabToSpace: onMoveTmpTabToSpaceProp,
       onTabPromoted,
       onDropTmpTab: onDropTmpTabProp,
       highlightedTabId,
@@ -232,6 +234,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     favouriteTabs,
     createTmpTab,
     updateTmpTab,
+    moveTmpTabToSpace,
     deleteTmpTab,
     widgets,
     addWidget,
@@ -272,16 +275,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       : sortedSpaces;
   }, [showOpenTabsVirtualSpace, sortedSpaces, virtualSyncedSpace]);
 
-  // Counts of currently opened tabs per space (excluding favourites and tmp tabs)
+  // Temporary tabs are local-only. Extension callers supply their tracker list;
+  // other callers use the locally persisted workspace list.
+  const effectiveTmpTabs = useMemo(() => {
+    return tmpTabs !== undefined ? tmpTabs : (data.tmpTabs || []);
+  }, [tmpTabs, data.tmpTabs]);
+
+  // Counts of currently opened tabs per space (including opened space tabs and tmp tabs)
   const spaceOpenTabCounts = useMemo(() => {
     return getSpaceOpenTabCounts(
       sortedSpaces,
       data.folders,
       data.tabs,
       tabAssociations,
-      highlightedTabId
+      highlightedTabId,
+      effectiveTmpTabs
     );
-  }, [sortedSpaces, data.folders, data.tabs, tabAssociations, highlightedTabId]);
+  }, [sortedSpaces, data.folders, data.tabs, tabAssociations, highlightedTabId, effectiveTmpTabs]);
 
   // Space theme tokens for the current active space
   const activeSpaceTheme = useMemo(() => {
@@ -424,12 +434,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     [activeSearchQuery, handleUpdateSearch, onOpenTmpTab, onOpenTab, createTmpTab, effectiveCurrentDeviceId]
   );
 
-  // Temporary tabs are local-only. Extension callers supply their tracker list;
-  // other callers use the locally persisted workspace list.
-  const effectiveTmpTabs = useMemo(() => {
-    return tmpTabs !== undefined ? tmpTabs : (data.tmpTabs || []);
-  }, [tmpTabs, data.tmpTabs]);
-
   // Filter tmp tabs when search query is active and sort chronologically
   const filteredTmpTabs = useMemo(() => {
     if (!effectiveTmpTabs || effectiveTmpTabs.length === 0) return [];
@@ -447,6 +451,34 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
     );
   }, [effectiveTmpTabs, activeSearchQuery]);
+
+  // Group filtered tmp tabs per space
+  const spaceTmpTabs = useMemo(() => {
+    const map = new Map<string, TmpTab[]>();
+    const defaultSpaceId = sortedSpaces[0]?.id;
+    for (const t of filteredTmpTabs) {
+      const sId = t.spaceId || defaultSpaceId;
+      if (!sId) continue;
+      let list = map.get(sId);
+      if (!list) {
+        list = [];
+        map.set(sId, list);
+      }
+      list.push(t);
+    }
+    return map;
+  }, [filteredTmpTabs, sortedSpaces]);
+
+  const handleMoveTmpTabToSpace = useCallback(
+    async (tab: TmpTab, targetSpaceId: string) => {
+      if (!tab || !targetSpaceId || tab.spaceId === targetSpaceId) return;
+      moveTmpTabToSpace(tab.id, targetSpaceId);
+      if (onMoveTmpTabToSpaceProp) {
+        await onMoveTmpTabToSpaceProp(tab, targetSpaceId);
+      }
+    },
+    [moveTmpTabToSpace, onMoveTmpTabToSpaceProp]
+  );
 
   // Space collapse map
   const [spaceCollapseMap, setSpaceCollapseMap] = useState<Record<string, boolean>>({});
@@ -1425,6 +1457,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   };
 
   const handleSpaceDragOver = (e: React.DragEvent, spaceId: string) => {
+    if (isDragAcceptable(e, ['tmpTab'])) {
+      if (spaceId === VIRTUAL_SYNCED_TABS_SPACE_ID) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverSpaceId(spaceId);
+      setSpaceDropPos(null);
+      return;
+    }
     if (!isDragAcceptable(e, ['space'])) {
       return;
     }
@@ -1462,6 +1502,27 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   };
 
   const handleSpaceDrop = (e: React.DragEvent, targetSpaceId: string) => {
+    if (isDragAcceptable(e, ['tmpTab'])) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverSpaceId(null);
+      setSpaceDropPos(null);
+      setDraggingSpaceId(null);
+      try {
+        const raw = e.dataTransfer.getData('application/json');
+        const activeDrag = getActiveDrag();
+        const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; tmpTab?: TmpTab }) : null);
+        if (parsed && (parsed.type === 'tmpTab' || parsed.tmpTab)) {
+          const tab = (parsed.tmpTab || parsed) as TmpTab;
+          if (targetSpaceId !== VIRTUAL_SYNCED_TABS_SPACE_ID) {
+            void handleMoveTmpTabToSpace(tab, targetSpaceId);
+          }
+        }
+      } catch {} finally {
+        endDrag();
+      }
+      return;
+    }
     if (!isDragAcceptable(e, ['space'])) {
       endDrag();
       return;
@@ -2323,6 +2384,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   allSpaces={sortedSpaces}
                   allFolders={data.folders}
                   allTabs={data.tabs}
+                  tmpTabs={spaceTmpTabs.get(space.id)}
                   cardIndex={idx}
                   searchQuery={activeSearchQuery}
                   isCollapsed={false}
@@ -2336,6 +2398,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onCloseAssociatedTab={onCloseAssociatedTab}
                   onResetDivertedUrl={onResetDivertedUrl}
                   onMediaControl={onMediaControl}
+                  onCloseTmpTab={handleCloseTmpTab}
+                  onRenameTmpTab={handleRenameTmpTab}
+                  onPromoteTmpTab={handlePromoteTmpTab}
+                  onMoveTmpTabToSpace={handleMoveTmpTabToSpace}
                   onEditSpace={(sp) => {
                     setEditingSpace(sp);
                     setIsSpaceModalOpen(true);
@@ -2468,6 +2534,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       allSpaces={sortedSpaces}
                       allFolders={data.folders}
                       allTabs={data.tabs}
+                      tmpTabs={spaceTmpTabs.get(space.id)}
                       cardIndex={idx}
                       searchQuery={activeSearchQuery}
                       alwaysShowActions={alwaysShowActions}
@@ -2482,6 +2549,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
                       onMediaControl={onMediaControl}
+                      onCloseTmpTab={handleCloseTmpTab}
+                      onRenameTmpTab={handleRenameTmpTab}
+                      onPromoteTmpTab={handlePromoteTmpTab}
+                      onMoveTmpTabToSpace={handleMoveTmpTabToSpace}
                       onEditSpace={(sp) => {
                         setEditingSpace(sp);
                         setIsSpaceModalOpen(true);
@@ -2645,6 +2716,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       allSpaces={sortedSpaces}
                       allFolders={data.folders}
                       allTabs={data.tabs}
+                      tmpTabs={compact ? undefined : spaceTmpTabs.get(space.id)}
                       searchQuery={activeSearchQuery}
                       isSingleColumn={compact}
                       alwaysShowActions={alwaysShowActions}
@@ -2658,6 +2730,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onCloseAssociatedTab={onCloseAssociatedTab}
                       onResetDivertedUrl={onResetDivertedUrl}
                       onMediaControl={onMediaControl}
+                      onCloseTmpTab={handleCloseTmpTab}
+                      onRenameTmpTab={handleRenameTmpTab}
+                      onPromoteTmpTab={handlePromoteTmpTab}
+                      onMoveTmpTabToSpace={handleMoveTmpTabToSpace}
                       onEditSpace={(sp) => {
                         setEditingSpace(sp);
                         setIsSpaceModalOpen(true);
@@ -2704,26 +2780,34 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Tmp Tabs List (Single instance in compact extension view, flows directly below the active card) */}
-      {compact && filteredTmpTabs.length > 0 && (
-        <div style={{ marginTop: '4px', width: '100%' }}>
-          <TmpTabsList
-            tabs={filteredTmpTabs}
-            themeStyles={activeSpaceTheme}
-            currentDeviceId={currentDeviceId}
-            compact={compact}
-            showEmptyState={!compact}
-            alwaysShowActions={alwaysShowActions}
-            highlightedTabId={highlightedTabId}
-            audibleTabs={audibleTabs}
-            onOpen={handleOpenTmpTab}
-            onPromote={handlePromoteTmpTab}
-            onClose={handleCloseTmpTab}
-            onRename={handleRenameTmpTab}
-            onMediaControl={onMediaControl}
-            onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
-          />
-        </div>
-      )}
+      {compact && (() => {
+        const currentSpaceTabs = activeSpace?.id === VIRTUAL_SYNCED_TABS_SPACE_ID
+          ? filteredTmpTabs
+          : spaceTmpTabs.get(activeSpace?.id || sortedSpaces[0]?.id || '') || [];
+        if (currentSpaceTabs.length === 0) return null;
+        return (
+          <div style={{ marginTop: '4px', width: '100%' }}>
+            <TmpTabsList
+              tabs={currentSpaceTabs}
+              allSpaces={sortedSpaces}
+              themeStyles={activeSpaceTheme}
+              currentDeviceId={currentDeviceId}
+              compact={compact}
+              showEmptyState={!compact}
+              alwaysShowActions={alwaysShowActions}
+              highlightedTabId={highlightedTabId}
+              audibleTabs={audibleTabs}
+              onOpen={handleOpenTmpTab}
+              onPromote={handlePromoteTmpTab}
+              onClose={handleCloseTmpTab}
+              onRename={handleRenameTmpTab}
+              onMoveToSpace={handleMoveTmpTabToSpace}
+              onMediaControl={onMediaControl}
+              onAddTmpTab={() => setIsAddTmpTabModalOpen(true)}
+            />
+          </div>
+        );
+      })()}
 
 
       {/* Fixed Audible Tabs Floating Stack (Compact / Sidepanel mode) */}

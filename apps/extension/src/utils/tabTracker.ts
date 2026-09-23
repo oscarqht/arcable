@@ -39,6 +39,8 @@ class TabTracker {
   private cachedDeviceName: string = '';
   private cachedIsAndroid: boolean | null = null;
   private hasCompletedInitialSync = false;
+  private windowActiveSpaces: Map<number, string> = new Map();
+  private lastActiveSpaceId: string | null = null;
 
   constructor() {
     this.setupListeners();
@@ -116,6 +118,39 @@ class TabTracker {
     return () => {
       this.tabActivatedListeners.delete(listener);
     };
+  }
+
+  public setActiveSpaceForWindow(windowId: number | undefined | null, spaceId: string): void {
+    if (windowId !== undefined && windowId !== null && windowId > 0) {
+      this.windowActiveSpaces.set(windowId, spaceId);
+    }
+    this.lastActiveSpaceId = spaceId;
+  }
+
+  public resolveActiveSpaceIdForWindow(windowId?: number): string {
+    if (windowId !== undefined && windowId !== null && windowId > 0 && this.windowActiveSpaces.has(windowId)) {
+      const sp = this.windowActiveSpaces.get(windowId);
+      if (sp) return sp;
+    }
+    if (this.lastActiveSpaceId) {
+      return this.lastActiveSpaceId;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = window.localStorage.getItem('arcable_sidepanel_last_active_space');
+        if (stored) return stored;
+      } catch {}
+    }
+    const firstSpaceId = this.currentWorkspaceTabs.find((t) => t.parentSpaceId && !t.favourite)?.parentSpaceId;
+    return firstSpaceId || 'space_personal';
+  }
+
+  public async moveTmpTabToSpace(tmpTabId: string, targetSpaceId: string): Promise<void> {
+    const currentTmpTabs = await this.getTmpTabs();
+    const updated = currentTmpTabs.map((t) =>
+      t.id === tmpTabId ? { ...t, spaceId: targetSpaceId, updatedAt: Date.now() } : t
+    );
+    await this.saveTmpTabs(updated);
   }
 
   private notify(associations: TabAssociationMap) {
@@ -465,7 +500,7 @@ class TabTracker {
    * Register an initial title for a newly opened tmp tab without marking it as a permanent customTitle.
    * Immediately adds or updates the in-memory tmp tab so the UI reflects it instantly while loading.
    */
-  public registerInitialTmpTab(browserTabId: number, url: string, initialTitle?: string): void {
+  public registerInitialTmpTab(browserTabId: number, url: string, initialTitle?: string, spaceId?: string): void {
     const trimmedTitle = initialTitle?.trim();
     if (trimmedTitle) {
       this.pendingInitialTitles.set(browserTabId, trimmedTitle);
@@ -476,12 +511,19 @@ class TabTracker {
     const existingIndex = memoryTmpTabs.findIndex((t) => t.browserTabId === browserTabId);
 
     if (existingIndex >= 0) {
-      if (trimmedTitle) {
-        memoryTmpTabs = memoryTmpTabs.map((t, idx) =>
-          idx === existingIndex ? { ...t, title: trimmedTitle, updatedAt: now } : t
-        );
-        this.notifyTmpTabs(memoryTmpTabs);
-      }
+      const existing = memoryTmpTabs[existingIndex];
+      const updatedSpaceId = spaceId || existing.spaceId || this.resolveActiveSpaceIdForWindow(existing.windowId);
+      memoryTmpTabs = memoryTmpTabs.map((t, idx) =>
+        idx === existingIndex
+          ? {
+              ...t,
+              title: trimmedTitle || t.title,
+              spaceId: updatedSpaceId,
+              updatedAt: now,
+            }
+          : t
+      );
+      this.notifyTmpTabs(memoryTmpTabs);
     } else {
       const newTmp: TmpTab = {
         id: `tmp_${currentDevId}_${browserTabId}_${now}`,
@@ -489,6 +531,7 @@ class TabTracker {
         title: trimmedTitle || '',
         browserTabId,
         windowId: 0,
+        spaceId: spaceId || this.resolveActiveSpaceIdForWindow(0),
         createdAt: now,
         updatedAt: now,
         deviceType: 'Ext',
@@ -957,6 +1000,7 @@ class TabTracker {
           deviceId: this.cachedDeviceId || undefined,
           deviceName: this.cachedDeviceName || undefined,
           deviceType: 'Ext',
+          spaceId: existingTmp?.spaceId || this.resolveActiveSpaceIdForWindow(bt.windowId),
           createdAt,
           updatedAt: Date.now(),
         };

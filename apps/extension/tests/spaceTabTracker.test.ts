@@ -1,10 +1,11 @@
-import { Tab } from '@arcable/shared/types';
+import { Tab, TmpTab } from '@arcable/shared/types';
 import {
   resolveSpaceIdForTabItem,
   rememberActiveTabForSpace,
   getRememberedActiveTabForSpace,
   getRememberedActiveTabRecordForSpace,
   forgetBrowserTab,
+  forgetActiveTabForSpace,
   activateRememberedTabForSpace,
   resetMemorySpaceActiveTabsForTest,
   SPACE_LAST_ACTIVE_TAB_KEY,
@@ -71,7 +72,19 @@ async function runTests() {
   );
   assert(
     resolveSpaceIdForTabItem('tmp_12345', sampleTabs) === null,
-    'Temporary tab must NOT resolve to a space'
+    'Temporary tab without tmpTabs list must NOT resolve to a space'
+  );
+  const sampleTmpTabs: TmpTab[] = [
+    { id: 'tmp_12345', url: 'https://example.com/tmp', spaceId: 'space-work' },
+    { id: 'tmp_no_space', url: 'https://example.com/no-space' },
+  ];
+  assert(
+    resolveSpaceIdForTabItem('tmp_12345', sampleTabs, sampleTmpTabs) === 'space-work',
+    'Temporary tab with spaceId must resolve to its spaceId'
+  );
+  assert(
+    resolveSpaceIdForTabItem('tmp_no_space', sampleTabs, sampleTmpTabs) === null,
+    'Temporary tab without spaceId must return null'
   );
   assert(
     resolveSpaceIdForTabItem('variant-1', sampleTabs) === 'space-dev',
@@ -275,6 +288,27 @@ async function runTests() {
   assert(
     reloadedRecord?.tabItemId === 'tab-saved-1',
     'Reloaded record must preserve tabItemId'
+  );
+
+  // Test 9: forgetActiveTabForSpace when moving tab away from space
+  resetMemorySpaceActiveTabsForTest();
+  await rememberActiveTabForSpace(401, 'space-A', 901, 'tmp_tab_1');
+  await rememberActiveTabForSpace(401, 'space-B', 902, 'tab_permanent_2');
+
+  assert(
+    (await getRememberedActiveTabForSpace(401, 'space-A')) === 901,
+    'space-A should remember tab 901 initially'
+  );
+
+  // When tmp_tab_1 is moved to space-B, forgetActiveTabForSpace should clear space-A's reference
+  await forgetActiveTabForSpace(401, 'space-A', 'tmp_tab_1', 901);
+  assert(
+    (await getRememberedActiveTabForSpace(401, 'space-A')) === null,
+    'space-A active tab should be cleared after tab is moved'
+  );
+  assert(
+    (await getRememberedActiveTabForSpace(401, 'space-B')) === 902,
+    'space-B active tab should remain untouched'
   );
 
   console.log('All spaceTabTracker tests passed successfully!');

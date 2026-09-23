@@ -1556,6 +1556,7 @@ export function useWorkspace() {
       deviceId: tabInput.deviceId || getOrCreateDeviceId(),
       deviceName: tabInput.deviceName,
       deviceType: tabInput.deviceType,
+      spaceId: tabInput.spaceId || (activeSpace?.id && activeSpace.id !== VIRTUAL_SYNCED_TABS_SPACE_ID ? activeSpace.id : (data.activeSpaceId && data.activeSpaceId !== VIRTUAL_SYNCED_TABS_SPACE_ID ? data.activeSpaceId : (data.spaces[0]?.id || 'space_personal'))),
       createdAt: tabInput.createdAt || Date.now(),
       updatedAt: Date.now(),
     };
@@ -1576,7 +1577,7 @@ export function useWorkspace() {
     });
 
     return newTmpTab;
-  }, [saveWorkspaceData]);
+  }, [activeSpace?.id, data.activeSpaceId, data.spaces, saveWorkspaceData]);
 
   const updateTmpTab = useCallback((id: string, updates: Partial<Omit<TmpTab, 'id'>>) => {
     saveWorkspaceData((prev) => ({
@@ -1591,6 +1592,10 @@ export function useWorkspace() {
       }),
     }));
   }, [saveWorkspaceData]);
+
+  const moveTmpTabToSpace = useCallback((id: string, targetSpaceId: string) => {
+    updateTmpTab(id, { spaceId: targetSpaceId });
+  }, [updateTmpTab]);
 
   const deleteTmpTab = useCallback((id: string) => {
     saveWorkspaceData((prev) => ({
@@ -3723,6 +3728,7 @@ export function useWorkspace() {
     tmpTabs: data.tmpTabs || [],
     createTmpTab,
     updateTmpTab,
+    moveTmpTabToSpace,
     deleteTmpTab,
     promoteTmpTab,
     // Widget operations

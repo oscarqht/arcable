@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { TmpTab, TabOpenOptions } from '../../types/workspace';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { TmpTab, TabOpenOptions, Space } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
@@ -16,6 +16,8 @@ import {
 } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { CopyLinkButton } from './CopyLinkButton';
+import { SpaceIcon } from './SpaceIcon';
+import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import {
@@ -23,6 +25,7 @@ import {
   CloseIcon,
   EditIcon,
   CheckIcon,
+  CopyIcon,
   PrevTrackIcon,
   NextTrackIcon,
   PlayIcon,
@@ -32,6 +35,7 @@ import { SpaceThemeTokens } from '../../utils/spaceTheme';
 
 export interface TmpTabRowProps {
   tab: TmpTab;
+  allSpaces?: Space[];
   themeStyles?: SpaceThemeTokens;
   currentDeviceId?: string;
   isDarkTheme?: boolean;
@@ -47,11 +51,13 @@ export interface TmpTabRowProps {
   onPromote: (tab: TmpTab) => void;
   onClose: (tab: TmpTab) => void;
   onRename?: (tab: TmpTab, newTitle: string) => void;
+  onMoveToSpace?: (tab: TmpTab, targetSpaceId: string) => void;
   onMediaControl?: (action: MediaControlAction) => void;
 }
 
 export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   tab,
+  allSpaces,
   themeStyles,
   currentDeviceId,
   isDarkTheme,
@@ -67,6 +73,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   onPromote,
   onClose,
   onRename,
+  onMoveToSpace,
   onMediaControl,
 }) => {
 
@@ -210,6 +217,83 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.08)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
   const showActions = isMobile || alwaysShowActions || isHovered || isEditing || copied;
+
+  const otherSpaces = useMemo(() => {
+    if (!allSpaces || allSpaces.length === 0) return [];
+    return allSpaces.filter((s) => s.id !== tab.spaceId);
+  }, [allSpaces, tab.spaceId]);
+
+  const menuItems: ActionDropdownItem[] = useMemo(() => {
+    const items: ActionDropdownItem[] = [];
+
+    if (onMoveToSpace && otherSpaces.length > 0) {
+      items.push({
+        id: 'move-to-space',
+        label: 'Move to Space',
+        icon: <SpaceIcon space={otherSpaces[0]} size={14} />,
+        children: otherSpaces.map((s) => ({
+          id: `move-space-${s.id}`,
+          label: s.name,
+          icon: <SpaceIcon space={s} size={14} />,
+          onClick: (e: React.MouseEvent) => {
+            e.stopPropagation();
+            onMoveToSpace(tab, s.id);
+          },
+        })),
+        dividerAfter: true,
+      });
+    }
+
+    if (isHttp) {
+      items.push({
+        id: 'rename-tab',
+        label: 'Rename tab',
+        icon: <EditIcon size={13} />,
+        onClick: (e: React.MouseEvent) => {
+          e.stopPropagation();
+          handleStartRename(e);
+        },
+      });
+
+      items.push({
+        id: 'save-to-workspace',
+        label: 'Save to workspace',
+        icon: <PlusIcon size={14} />,
+        onClick: (e: React.MouseEvent) => {
+          e.stopPropagation();
+          onPromote(tab);
+        },
+      });
+    }
+
+    items.push({
+      id: 'copy-link',
+      label: copied ? 'Copied link!' : 'Copy link',
+      icon: copied ? <CheckIcon size={14} color="#10b981" /> : <CopyIcon size={13} />,
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (tab.url) {
+          navigator.clipboard.writeText(tab.url).catch(() => {});
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      },
+      dividerAfter: true,
+    });
+
+    items.push({
+      id: 'close-tab',
+      label: 'Close tab',
+      danger: true,
+      icon: <CloseIcon size={12} />,
+      onClick: (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onClose(tab);
+      },
+    });
+
+    return items;
+  }, [onMoveToSpace, otherSpaces, tab, isHttp, copied, onPromote, onClose]);
 
   return (
     <div
@@ -530,6 +614,18 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
                     copied={copied}
                     onCopiedChange={setCopied}
                   />
+
+                  {/* More actions dropdown (Move to Space, etc.) */}
+                  {menuItems.length > 0 && (
+                    <ActionDropdown
+                      items={menuItems}
+                      isDarkTheme={effectiveDark}
+                      visible={true}
+                      hoverBg={effectiveDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe'}
+                      buttonTitle="Tab actions"
+                      size="sm"
+                    />
+                  )}
 
                   {/* "x" Button: Close browser tab */}
                   <button

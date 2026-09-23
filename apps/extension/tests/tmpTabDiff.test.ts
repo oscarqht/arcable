@@ -25,4 +25,9 @@ const changed = reconcileTmpTabs(previous, changedCandidate, 1_000);
 assert(changed.changed, 'meaningful temporary-tab changes should be detected');
 assert(changed.tabs[0].updatedAt === 1_000, 'meaningful changes should receive the current timestamp');
 
+const spaceChangedCandidate: TmpTab[] = previous.map((tab) => ({ ...tab, spaceId: 'space-new', updatedAt: 999 }));
+const spaceChanged = reconcileTmpTabs(previous, spaceChangedCandidate, 1_000);
+assert(spaceChanged.changed, 'spaceId change should be detected as meaningful');
+assert(spaceChanged.tabs[0].spaceId === 'space-new', 'updated spaceId should be preserved');
+
 console.log('Temporary-tab diff tests passed.');
