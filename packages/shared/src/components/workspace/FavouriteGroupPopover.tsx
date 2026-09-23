@@ -21,7 +21,6 @@ import {
   MinusIcon,
   TrashIcon,
 } from '../Icons';
-import { areUrlsMatching } from '../../utils/format';
 import { startDrag, endDrag } from '../../utils/dragState';
 import { WidgetTileContent, buildClockInfo, NOTE_COLORS } from './widgets';
 
@@ -645,16 +644,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
 
             if (item.type === 'tab') {
             const v = item.variant;
-            let itemAssoc = v.id && tabAssociations ? tabAssociations[v.id] : undefined;
-            if (!itemAssoc && tabAssociations) {
-              for (const assoc of Object.values(tabAssociations)) {
-                const assocUrl = assoc.currentUrl || assoc.originalUrl;
-                if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
-                  itemAssoc = assoc;
-                  break;
-                }
-              }
-            }
+            const itemAssoc = v.id && tabAssociations ? tabAssociations[v.id] : undefined;
             const isAssociated = Boolean(itemAssoc);
             const isItemHighlighted = Boolean(
               highlightedTabId && (

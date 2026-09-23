@@ -16,7 +16,7 @@ import {
   SearchConfig,
 } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
-import { cleanUrl, areUrlsMatching } from '../../utils/format';
+import { cleanUrl } from '../../utils/format';
 import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
@@ -551,27 +551,21 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const groupWidgets = widgets.filter((w) => w.parentGroupId === tab.id);
             const isGroup = Boolean(tab.isGroup || validVariants.length > 1 || groupWidgets.length > 0);
 
-            // Check if group is associated with any open browser tab
+            // Check if group is associated with any open browser tab (strictly by item ID)
             let isGroupAssociated = false;
             let groupAudibleInfo: AudibleTab | undefined = undefined;
             if (isGroup && tabAssociations) {
+              if (tabAssociations[tab.id]) {
+                isGroupAssociated = true;
+                if (!groupAudibleInfo && audibleTabs) {
+                  groupAudibleInfo = audibleTabs.find((a) => a.id === tabAssociations[tab.id]?.browserTabId);
+                }
+              }
               for (const v of validVariants) {
                 if (v.id && tabAssociations[v.id]) {
                   isGroupAssociated = true;
                   if (!groupAudibleInfo && audibleTabs) {
                     groupAudibleInfo = audibleTabs.find((a) => a.id === tabAssociations[v.id]?.browserTabId);
-                  }
-                }
-                if (!isGroupAssociated) {
-                  for (const assocEntry of Object.values(tabAssociations)) {
-                    const assocUrl = assocEntry.currentUrl || assocEntry.originalUrl;
-                    if (assocUrl && areUrlsMatching(assocUrl, v.url)) {
-                      isGroupAssociated = true;
-                      if (!groupAudibleInfo && audibleTabs) {
-                        groupAudibleInfo = audibleTabs.find((a) => a.id === assocEntry.browserTabId);
-                      }
-                      break;
-                    }
                   }
                 }
                 if (isGroupAssociated && groupAudibleInfo) break;
