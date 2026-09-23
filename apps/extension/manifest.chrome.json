@@ -110,6 +110,21 @@
         "mac": "Command+Shift+F"
       },
       "description": "📜 Capture Full Page"
+    },
+    "copy-url": {
+      "description": "🔗 Copy URL"
+    },
+    "copy-title-dash-url": {
+      "description": "🔤 Copy Title - URL"
+    },
+    "copy-title-url": {
+      "description": "🔤 Copy Title\\nURL"
+    },
+    "copy-markdown-link": {
+      "description": "Ⓜ️ Copy [Title](URL)"
+    },
+    "copy-title": {
+      "description": "🔤 Copy Title"
     }
   }
 }

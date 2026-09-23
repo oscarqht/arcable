@@ -45,6 +45,7 @@ import {
   getMatchingCodeRules,
 } from './contextMenus';
 import { handleScreenshotCapture } from './screenshot';
+import { handleCopyOperation } from './clipboard';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
@@ -55,6 +56,31 @@ initContextMenuListeners();
 // Initialize keyboard shortcut commands (manifest commands)
 if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
   chrome.commands.onCommand.addListener((command) => {
+    if (command === 'copy-url') {
+      void handleCopyOperation('url');
+      return;
+    }
+
+    if (command === 'copy-title-dash-url') {
+      void handleCopyOperation('title-dash-url');
+      return;
+    }
+
+    if (command === 'copy-title-url') {
+      void handleCopyOperation('title-url');
+      return;
+    }
+
+    if (command === 'copy-markdown-link') {
+      void handleCopyOperation('markdown-link');
+      return;
+    }
+
+    if (command === 'copy-title') {
+      void handleCopyOperation('title');
+      return;
+    }
+
     if (command === 'take-screenshot' || command === 'copy-screenshot') {
       void (async () => {
         try {

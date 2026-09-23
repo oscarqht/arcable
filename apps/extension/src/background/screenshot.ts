@@ -13,25 +13,9 @@ const MAX_CANVAS_DIMENSION_PX = 32000;
 const MAX_CANVAS_AREA_PX = 250_000_000;
 const HIDDEN_MARKER_ATTR = 'data-arcable-fph-hidden';
 
-export const EDITOR_SCREENSHOT_STORAGE_KEY = 'editorScreenshot';
+import { setActionBadge } from './badge';
 
-/**
- * Set a transient badge on the extension icon.
- */
-function setActionBadge(text: string, color = '#3b82f6', clearAfterMs = 2500): void {
-  if (typeof chrome === 'undefined' || !chrome.action) return;
-  try {
-    chrome.action.setBadgeBackgroundColor({ color });
-    chrome.action.setBadgeText({ text });
-    if (clearAfterMs > 0) {
-      setTimeout(() => {
-        chrome.action.setBadgeText({ text: '' });
-      }, clearAfterMs);
-    }
-  } catch (err) {
-    console.warn('[screenshot] Failed to set badge:', err);
-  }
-}
+export const EDITOR_SCREENSHOT_STORAGE_KEY = 'editorScreenshot';
 
 /**
  * Capture a screenshot of the visible area of the specified tab.
@@ -43,7 +27,7 @@ export async function captureTabScreenshot(tabId: number): Promise<string | null
 
     if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.captureVisibleTab === 'function') {
       return await new Promise<string | null>((resolve) => {
-        chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
+        chrome.tabs.captureVisibleTab(windowId ?? chrome.windows.WINDOW_ID_CURRENT, { format: 'png' }, (dataUrl) => {
           if (chrome.runtime.lastError || !dataUrl) {
             console.warn('[screenshot] captureVisibleTab failed:', chrome.runtime.lastError?.message);
             resolve(null);

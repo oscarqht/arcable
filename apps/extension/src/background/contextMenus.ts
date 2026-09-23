@@ -3,6 +3,12 @@ import { RunCodeRule } from '@arcable/shared/types';
 import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
 import { handleScreenshotCapture } from './screenshot';
+import {
+  createCopyContextMenuItems,
+  isCopyMenuItem,
+  getCopyFormatType,
+  handleCopyOperation,
+} from './clipboard';
 
 export const SCREENSHOT_MENU_IDS = {
   TAKE_SCREENSHOT: 'arcable_take_screenshot',
@@ -75,6 +81,9 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
       });
     });
 
+    // 1. Create Copy context menu items
+    createCopyContextMenuItems(CONTEXTS);
+
     // 2. Always create top-level screenshot context menu items
     chrome.contextMenus.create({
       id: SCREENSHOT_MENU_IDS.TAKE_SCREENSHOT,
@@ -118,6 +127,14 @@ export function initContextMenuListeners(): void {
   // Handle menu item clicks
   chrome.contextMenus.onClicked.addListener((info, tab) => {
     const tabId = tab?.id;
+
+    if (typeof info.menuItemId === 'string' && isCopyMenuItem(info.menuItemId)) {
+      const formatType = getCopyFormatType(info.menuItemId);
+      if (formatType) {
+        void handleCopyOperation(formatType, tab);
+      }
+      return;
+    }
 
     if (info.menuItemId === SCREENSHOT_MENU_IDS.TAKE_SCREENSHOT) {
       if (typeof tabId === 'number') {
