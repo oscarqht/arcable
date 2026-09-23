@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
+import { StarIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
@@ -127,8 +128,16 @@ export const TabModal: React.FC<TabModalProps> = ({
 
         if (tab.urlVariants && tab.urlVariants.length > 0) {
           setShowVariants(true);
-          setVariants(tab.urlVariants.map((v) => ({ ...v })));
-          setDefaultVariantId(tab.defaultVariantId || tab.urlVariants[0]?.id || '');
+          const rawVariants = tab.urlVariants.map((v) => ({ ...v }));
+          if (tab.defaultVariantId) {
+            const defIdx = rawVariants.findIndex((v) => v.id === tab.defaultVariantId);
+            if (defIdx > 0) {
+              const [def] = rawVariants.splice(defIdx, 1);
+              rawVariants.unshift(def);
+            }
+          }
+          setVariants(rawVariants);
+          setDefaultVariantId(rawVariants[0]?.id || '');
         } else {
           setShowVariants(false);
           setVariants([]);
@@ -243,7 +252,7 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (next.length === 0) {
         setShowVariants(false);
         setDefaultVariantId('');
-      } else if (defaultVariantId === idToRemove) {
+      } else {
         setDefaultVariantId(next[0].id);
       }
       return next;
@@ -261,17 +270,15 @@ export const TabModal: React.FC<TabModalProps> = ({
       if (targetIndex === -1) return prev;
       if (position === 'after') targetIndex += 1;
       next.splice(targetIndex, 0, dragged);
-      if (initialIsGroup || (tab?.favourite && tab?.isGroup)) {
-        if (next[0]?.id) {
-          setDefaultVariantId(next[0].id);
-        }
+      if (next[0]?.id) {
+        setDefaultVariantId(next[0].id);
       }
       return next;
     });
   };
 
   const handleSwitchToSingleUrl = () => {
-    const def = variants.find((v) => v.id === defaultVariantId) || variants[0];
+    const def = variants[0];
     if (def && def.url) {
       setUrl(def.url);
     }
@@ -286,9 +293,7 @@ export const TabModal: React.FC<TabModalProps> = ({
     if (showVariants && variants.length > 0) {
       const validVariants = variants.filter((v) => v.name.trim() || v.url.trim());
       const isFavGroup = Boolean(favourite && (initialIsGroup || (tab?.favourite && tab?.isGroup)));
-      let defVariant = isFavGroup
-        ? validVariants[0]
-        : validVariants.find((v) => v.id === defaultVariantId) || validVariants[0];
+      const defVariant = validVariants[0];
       const finalDefaultUrl = defVariant ? defVariant.url.trim() : url.trim();
       if (!finalDefaultUrl) return;
       if (!favourite && !parentSpaceId) return;
@@ -457,8 +462,8 @@ export const TabModal: React.FC<TabModalProps> = ({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-                {variants.map((v) => {
-                  const isDefault = defaultVariantId === v.id;
+                {variants.map((v, index) => {
+                  const isDefault = index === 0;
                   const isDragging = draggedVariantId === v.id;
                   const showBefore = variantDropIndicator?.id === v.id && variantDropIndicator.position === 'before';
                   const showAfter = variantDropIndicator?.id === v.id && variantDropIndicator.position === 'after';
@@ -519,48 +524,54 @@ export const TabModal: React.FC<TabModalProps> = ({
                           flexShrink: 0,
                           userSelect: 'none',
                         }}
-                        title="Drag to reorder"
+                        title="Drag to reorder (top variant is default)"
                       >
                         ⠿
                       </span>
 
-                      {/* Default selector radio */}
-                      <label
+                      {/* Default indicator (first row is always default) */}
+                      <div
                         style={{
+                          width: '18px',
+                          height: '18px',
                           display: 'flex',
-                          flexDirection: 'column',
                           alignItems: 'center',
-                          cursor: 'pointer',
-                          fontSize: '10px',
-                          color: isDefault ? '#0284c7' : (isDark ? '#94a3b8' : '#64748b'),
-                          fontWeight: isDefault ? 700 : 500,
-                          gap: '2px',
-                          minWidth: '38px',
-                          userSelect: 'none',
+                          justifyContent: 'center',
+                          flexShrink: 0,
                         }}
-                        title="Set as default URL"
                       >
-                        <input
-                          type="radio"
-                          name="defaultVariantRadio"
-                          checked={isDefault}
-                          onChange={() => setDefaultVariantId(v.id)}
-                          style={{ cursor: 'pointer', margin: 0 }}
-                        />
-                        {isDefault ? 'Default' : ' '}
-                      </label>
+                        {isDefault && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '18px',
+                              height: '18px',
+                              borderRadius: '4px',
+                              backgroundColor: isDark ? 'rgba(2, 132, 199, 0.25)' : '#e0f2fe',
+                              color: isDark ? '#38bdf8' : '#0284c7',
+                              userSelect: 'none',
+                            }}
+                            title="Default variant (top variant is always default; drag to top to change)"
+                          >
+                            <StarIcon size={11} filled color="currentColor" />
+                          </span>
+                        )}
+                      </div>
 
                       {/* Name input */}
                       <input
                         type="text"
-                        placeholder="Name (e.g. Prod)"
+                        placeholder="Name"
+                        title="Variant name (e.g. Default, Prod, Dev)"
                         value={v.name}
                         onChange={(e) => {
                           const val = e.target.value;
                           setVariants((prev) => prev.map((item) => (item.id === v.id ? { ...item, name: val } : item)));
                         }}
                         style={{
-                          width: '105px',
+                          width: '75px',
                           flexShrink: 0,
                           padding: '7px 8px',
                           borderRadius: '6px',

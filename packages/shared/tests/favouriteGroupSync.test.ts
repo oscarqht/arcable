@@ -219,7 +219,7 @@ async function testFavouriteGroupSync(): Promise<void> {
   // Check remote items after sync
   assert(remoteItemsStore.length === 3, `Expected exactly 3 remote items, got ${remoteItemsStore.length}`);
   const baseBookmark = remoteItemsStore.find((item) => item._id === 101);
-  assert(baseBookmark?.title === 'Coding', 'Base bookmark title should be Coding');
+  assert(baseBookmark?.title === `Coding${ARCABLE_VARIANT_DELIMITER}Coding`, 'Base bookmark title should be Coding ||| Coding');
 
   const var1 = remoteItemsStore.find((item) => item._id === 102);
   assert(var1?.title === `Coding${ARCABLE_VARIANT_DELIMITER}Google AI Studio`, 'Item 102 should be updated to variant title');

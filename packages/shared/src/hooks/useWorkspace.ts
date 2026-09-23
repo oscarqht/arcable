@@ -230,11 +230,30 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
         };
       }),
       tabs: (parsed.tabs || []).map((t: Tab) => {
-        if (!t.favourite && t.isGroup) {
-          const { isGroup, ...rest } = t;
-          return rest;
+        let tab = t;
+        if (!tab.favourite && tab.isGroup) {
+          const { isGroup, ...rest } = tab;
+          tab = rest as Tab;
         }
-        return t;
+        if (tab.urlVariants && tab.urlVariants.length > 0) {
+          const variants = tab.urlVariants.map((v) => ({ ...v }));
+          if (tab.defaultVariantId && variants.some((v) => v.id === tab.defaultVariantId)) {
+            const defIdx = variants.findIndex((v) => v.id === tab.defaultVariantId);
+            if (defIdx > 0) {
+              const [def] = variants.splice(defIdx, 1);
+              variants.unshift(def);
+            }
+          }
+          const defaultVar = variants[0];
+          tab = {
+            ...tab,
+            urlVariants: variants,
+            defaultVariantId: defaultVar?.id,
+            url: defaultVar?.url || tab.url,
+            favIconUrl: defaultVar?.favIconUrl || tab.favIconUrl,
+          };
+        }
+        return tab;
       }),
       tmpTabs: parsed.tmpTabs || [],
       widgets: parsed.widgets || [],
@@ -938,12 +957,14 @@ export function useWorkspace() {
         customEmojiIcon: v.customEmojiIcon,
       }));
 
-      let defaultVar = selectedDefaultId
-        ? cleanedVariants.find((v) => v.id === selectedDefaultId)
-        : undefined;
-      if (!defaultVar) {
-        defaultVar = cleanedVariants[0];
+      if (selectedDefaultId) {
+        const defIdx = cleanedVariants.findIndex((v) => v.id === selectedDefaultId);
+        if (defIdx > 0) {
+          const [def] = cleanedVariants.splice(defIdx, 1);
+          cleanedVariants.unshift(def);
+        }
       }
+      const defaultVar = cleanedVariants[0];
       if (defaultVar) {
         cleanUrl = defaultVar.url;
         selectedDefaultId = defaultVar.id;
@@ -1021,12 +1042,14 @@ export function useWorkspace() {
             favIconUrl: v.favIconUrl,
             customEmojiIcon: v.customEmojiIcon,
           }));
-          let defaultVar = normalizedUpdates.defaultVariantId
-            ? cleanedVariants.find((v) => v.id === normalizedUpdates.defaultVariantId)
-            : undefined;
-          if (!defaultVar) {
-            defaultVar = cleanedVariants[0];
+          if (normalizedUpdates.defaultVariantId) {
+            const defIdx = cleanedVariants.findIndex((v) => v.id === normalizedUpdates.defaultVariantId);
+            if (defIdx > 0) {
+              const [def] = cleanedVariants.splice(defIdx, 1);
+              cleanedVariants.unshift(def);
+            }
           }
+          const defaultVar = cleanedVariants[0];
           normalizedUpdates.urlVariants = cleanedVariants;
           normalizedUpdates.defaultVariantId = defaultVar?.id;
           if (defaultVar?.url) {

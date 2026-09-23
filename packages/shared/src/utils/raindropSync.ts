@@ -250,18 +250,35 @@ export function getTabSecondaryVariants(tab: Tab): TabUrlVariant[] {
   return tab.urlVariants.filter((v) => v.id !== defaultVar?.id);
 }
 
-export function getTabRaindropBookmarkCount(tab: Tab): number {
-  return 1 + getTabSecondaryVariants(tab).length;
+export function getTabRaindropBookmarkCount(tab: Tab, allWidgets?: WorkspaceWidget[]): number {
+  const variantsCount = tab.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants.length : 1;
+  const childWidgetsCount = tab.favourite && allWidgets
+    ? allWidgets.filter((w) => w.parentGroupId === tab.id).length
+    : 0;
+  return variantsCount + childWidgetsCount;
+}
+
+export function getTabVariantOrder(
+  tab: Tab,
+  variantId: string,
+  variantIndex: number,
+  baseTargetOrder: number
+): number {
+  if (tab.favourite && tab.groupItemOrder && tab.groupItemOrder.length > 0) {
+    const idx = tab.groupItemOrder.findIndex((e) => e.type === 'tab' && e.id === variantId);
+    if (idx >= 0) return baseTargetOrder + idx;
+  }
+  return baseTargetOrder + variantIndex;
 }
 
 export function calculateTabTargetOrder(tab: Tab, allTabs: Tab[], allWidgets?: WorkspaceWidget[]): number {
   if (tab.favourite) {
     const favTabs = allTabs.filter((t) => Boolean(t.favourite));
-    const widgets = allWidgets || [];
+    const topLevelWidgets = (allWidgets || []).filter((w) => !w.parentGroupId);
     type RootItem = { id: string; type: 'tab' | 'widget'; tab?: Tab; order?: number; createdAt?: number };
     const rootItems: RootItem[] = [
       ...favTabs.map((t) => ({ id: t.id, type: 'tab' as const, tab: t, order: t.order, createdAt: t.createdAt })),
-      ...widgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
+      ...topLevelWidgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
     ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
     let slot = 0;
     for (const item of rootItems) {
@@ -269,7 +286,7 @@ export function calculateTabTargetOrder(tab: Tab, allTabs: Tab[], allWidgets?: W
       if (item.type === 'widget') {
         slot += 1;
       } else if (item.tab) {
-        slot += getTabRaindropBookmarkCount(item.tab);
+        slot += getTabRaindropBookmarkCount(item.tab, allWidgets);
       } else {
         slot += 1;
       }
@@ -304,11 +321,27 @@ export function calculateWidgetTargetOrder(
   allTabs: Tab[],
   allWidgets: WorkspaceWidget[]
 ): number {
+  if (widget.parentGroupId) {
+    const parentGroup = allTabs.find((t) => t.id === widget.parentGroupId);
+    if (parentGroup) {
+      const groupBaseOrder = calculateTabTargetOrder(parentGroup, allTabs, allWidgets);
+      if (parentGroup.groupItemOrder && parentGroup.groupItemOrder.length > 0) {
+        const idx = parentGroup.groupItemOrder.findIndex((e) => e.type === 'widget' && e.id === widget.id);
+        if (idx >= 0) return groupBaseOrder + idx;
+      }
+      const variantsCount = parentGroup.urlVariants?.length || 1;
+      const siblingWidgets = allWidgets.filter((w) => w.parentGroupId === widget.parentGroupId);
+      const widgetIdx = siblingWidgets.findIndex((w) => w.id === widget.id);
+      return groupBaseOrder + variantsCount + (widgetIdx >= 0 ? widgetIdx : 0);
+    }
+  }
+
   const favTabs = allTabs.filter((t) => Boolean(t.favourite));
+  const topLevelWidgets = (allWidgets || []).filter((w) => !w.parentGroupId);
   type RootItem = { id: string; type: 'tab' | 'widget'; tab?: Tab; order?: number; createdAt?: number };
   const rootItems: RootItem[] = [
     ...favTabs.map((t) => ({ id: t.id, type: 'tab' as const, tab: t, order: t.order, createdAt: t.createdAt })),
-    ...allWidgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
+    ...topLevelWidgets.map((w) => ({ id: w.id, type: 'widget' as const, order: w.order, createdAt: w.createdAt })),
   ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
   let slot = 0;
   for (const item of rootItems) {
@@ -316,7 +349,7 @@ export function calculateWidgetTargetOrder(
     if (item.type === 'widget') {
       slot += 1;
     } else if (item.tab) {
-      slot += getTabRaindropBookmarkCount(item.tab);
+      slot += getTabRaindropBookmarkCount(item.tab, allWidgets);
     } else {
       slot += 1;
     }
@@ -713,6 +746,10 @@ export async function syncIncrementalOperations(
       }
     }
 
+    const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
+    const isGroup = Boolean(tab.isGroup);
+    const isMultiVariantOrGroup = hasVariants || isGroup;
+
     const defaultVar =
       (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
       tab.urlVariants?.[0];
@@ -720,14 +757,21 @@ export async function syncIncrementalOperations(
     const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
     const rawTitle = tab.customTitle || tab.url;
     const tabNote = attachGroupMetaToNote(tab.note, tab);
+    const encodedTabTitle = encodeRaindropTitle(rawTitle);
+    const mainBookmarkTitle = isMultiVariantOrGroup
+      ? `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(defaultVar?.name || 'Default')}`
+      : encodedTabTitle;
+
+    const defaultVarOrder = getTabVariantOrder(tab, defaultVar ? defaultVar.id : tab.id, 0, targetOrder);
+
     const payload = {
-      title: encodeRaindropTitle(rawTitle),
+      title: mainBookmarkTitle,
       link: defaultVar ? defaultVar.url : tab.url,
       cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
       note: tabNote,
       collection: { $id: parentId },
-      order: targetOrder,
-      sort: targetOrder,
+      order: defaultVarOrder,
+      sort: defaultVarOrder,
     };
     const secondaryVariants = getTabSecondaryVariants(tab);
     if (isCreate) {
@@ -739,17 +783,18 @@ export async function syncIncrementalOperations(
           cover: payload.cover,
           note: tabNote,
           collectionId: parentId,
-          order: targetOrder,
-          sort: targetOrder,
+          order: defaultVarOrder,
+          sort: defaultVarOrder,
         },
       });
       // Extra URL variants
       secondaryVariants.forEach((variant, vIdx) => {
-        const variantOrder = targetOrder + 1 + vIdx;
+        const variantOrder = getTabVariantOrder(tab, variant.id, 1 + vIdx, targetOrder);
+        const varTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name || 'Variant')}`;
         tabCreates.push({
           entityId: `${entityId}:::variant:::${variant.id}`,
           input: {
-            title: `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`,
+            title: varTitle,
             link: variant.url,
             cover: variant.favIconUrl || payload.cover,
             note: '',
@@ -763,9 +808,6 @@ export async function syncIncrementalOperations(
       let mainRemoteId = remoteEntityId(tab);
       if (!mainRemoteId) throw new Error(`Bookmark ${entityId} has no Raindrop ID for incremental update.`);
 
-      const defaultVar =
-        (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
-        tab.urlVariants?.[0];
       const defaultVarRemoteId = defaultVar ? numericRaindropId(defaultVar.id) : undefined;
       const origRemoteId = mainRemoteId;
 
@@ -779,14 +821,14 @@ export async function syncIncrementalOperations(
         };
       }
 
-      tabUpdates.push({ entityId, remoteId: mainRemoteId, payload, targetOrder });
+      tabUpdates.push({ entityId, remoteId: mainRemoteId, payload, targetOrder: defaultVarOrder });
       secondaryVariants.forEach((variant, vIdx) => {
-        const variantOrder = targetOrder + 1 + vIdx;
+        const variantOrder = getTabVariantOrder(tab, variant.id, 1 + vIdx, targetOrder);
         let varRemoteId = numericRaindropId(variant.id);
         if (varRemoteId === mainRemoteId) {
           varRemoteId = origRemoteId;
         }
-        const varTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
+        const varTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name || 'Variant')}`;
         if (varRemoteId) {
           tabUpdates.push({
             entityId: `${entityId}:::variant:::${variant.id}`,
@@ -816,6 +858,26 @@ export async function syncIncrementalOperations(
           });
         }
       });
+    }
+
+    if (tab.favourite) {
+      const childWidgets = (latestSnapshot.widgets || []).filter((w) => w.parentGroupId === tab.id);
+      for (const cw of childWidgets) {
+        const cwRemoteId = cw.raindropId || numericRaindropId(cw.id);
+        if (cwRemoteId) {
+          const cwTargetOrder = calculateWidgetTargetOrder(cw, latestSnapshot.tabs, latestSnapshot.widgets || []);
+          tabUpdates.push({
+            entityId: `widget:::${cw.id}`,
+            remoteId: cwRemoteId,
+            payload: {
+              collection: { $id: parentId },
+              order: cwTargetOrder,
+              sort: cwTargetOrder,
+            },
+            targetOrder: cwTargetOrder,
+          });
+        }
+      }
     }
   }
 
@@ -1915,6 +1977,17 @@ export function reconstructWorkspace(
       }
     }
 
+    if (urlVariants && urlVariants.length > 0) {
+      if (groupMeta?.defaultVariantId) {
+        const defIdx = urlVariants.findIndex((v) => v.id === groupMeta.defaultVariantId);
+        if (defIdx > 0) {
+          const [def] = urlVariants.splice(defIdx, 1);
+          urlVariants.unshift(def);
+        }
+      }
+      defaultVariantId = urlVariants[0]?.id;
+    }
+
     const hasGroupItemOrderWidgets = Boolean(
       groupMeta?.groupItemOrder && groupMeta.groupItemOrder.some((e) => e.type === 'widget')
     );
@@ -2046,28 +2119,86 @@ export function reconstructWorkspace(
       continue;
     }
 
-    const urlVariants: TabUrlVariant[] = finalItems.map((v) => {
+    let groupMeta: GroupVariantMeta | undefined;
+    let groupNote = first.note;
+    for (const it of finalItems) {
+      if (it.note) {
+        const parsed = parseGroupMeta(it.note);
+        if (parsed) {
+          groupMeta = parsed;
+          groupNote = it.note;
+          break;
+        }
+      }
+    }
+
+    let urlVariants: TabUrlVariant[] = finalItems.map((v) => {
       const vTitle = decodeRaindropTitle(v.title || '');
       const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
       const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
       return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
     });
+
+    if (groupMeta?.groupItemOrder && groupMeta.groupItemOrder.length > 0) {
+      const orderMap = new Map<string, number>();
+      groupMeta.groupItemOrder.forEach((entry, idx) => {
+        if (entry.type === 'tab') orderMap.set(entry.id, idx);
+      });
+      if (orderMap.size > 0) {
+        urlVariants.sort((a, b) => {
+          const ordA = orderMap.get(a.id) ?? 9999;
+          const ordB = orderMap.get(b.id) ?? 9999;
+          return ordA - ordB;
+        });
+      }
+    }
+
+    if (groupMeta?.defaultVariantId) {
+      const defIdx = urlVariants.findIndex((v) => v.id === groupMeta.defaultVariantId);
+      if (defIdx > 0) {
+        const [def] = urlVariants.splice(defIdx, 1);
+        urlVariants.unshift(def);
+      }
+    }
+
+    const primaryItem = finalItems.find((it) => String(it._id) === urlVariants[0]?.id) || first;
+
+    const hasGroupItemOrderWidgets = Boolean(
+      groupMeta?.groupItemOrder && groupMeta.groupItemOrder.some((e) => e.type === 'widget')
+    );
+    const hasWidgetChildren = Boolean(
+      favourite && (
+        widgets.some((w) => w.parentGroupId === String(primaryItem._id)) ||
+        hasGroupItemOrderWidgets
+      )
+    );
+    const hasMultipleVariants = Boolean(urlVariants && urlVariants.length > 1);
+    const isGroup = Boolean(
+      favourite && (
+        hasMultipleVariants ||
+        hasWidgetChildren ||
+        (groupMeta?.groupItemOrder && groupMeta.groupItemOrder.length > 1)
+      )
+    ) || undefined;
+
     tabs.push({
-      id: String(first._id),
-      raindropId: first._id,
-      url: first.link,
-      urlVariants,
-      defaultVariantId: String(first._id),
+      id: String(primaryItem._id),
+      raindropId: primaryItem._id,
+      url: urlVariants[0]?.url || primaryItem.link,
+      urlVariants: urlVariants.length > 0 ? urlVariants : undefined,
+      defaultVariantId: urlVariants[0]?.id,
+      groupItemOrder: isGroup ? groupMeta?.groupItemOrder : undefined,
       pinned: false,
       favourite: favourite || undefined,
       customTitle: baseTitle,
-      favIconUrl: first.cover,
+      favIconUrl: urlVariants[0]?.favIconUrl || primaryItem.cover,
+      note: groupNote || undefined,
       parentFolderId,
       parentSpaceId,
-      order: itemOrderMap.get(first._id) ?? (first.order ?? 0),
-      createdAt: timestamp(first.created),
-      updatedAt: timestamp(first.lastUpdate),
-      isGroup: favourite ? true : undefined,
+      order: itemOrderMap.get(primaryItem._id) ?? (primaryItem.order ?? 0),
+      createdAt: timestamp(primaryItem.created),
+      updatedAt: timestamp(primaryItem.lastUpdate),
+      isGroup,
     });
   }
 
@@ -2586,23 +2717,33 @@ export async function syncWorkspaceWithRaindrop(
       if (remoteId && !existing && !changedIds.has(tab.id)) continue;
       const parentId = tab.favourite ? root._id : localCollectionToRemote.get(tab.parentFolderId || tab.parentSpaceId || '');
       if (!parentId) continue;
+      const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
+      const isGroup = Boolean(tab.isGroup);
+      const isMultiVariantOrGroup = hasVariants || isGroup;
       const targetOrder = calculateTabTargetOrder(tab, localState.tabs || [], localState.widgets || []);
       const rawTitle = tab.customTitle || tab.url;
       const tabNote = attachGroupMetaToNote(existing?.note || tab.note, tab);
+      const encodedTabTitle = encodeRaindropTitle(rawTitle);
+      const mainBookmarkTitle = isMultiVariantOrGroup
+        ? `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(defaultVar?.name || 'Default')}`
+        : encodedTabTitle;
+
+      const defaultVarOrder = getTabVariantOrder(tab, defaultVar ? defaultVar.id : tab.id, 0, targetOrder);
       const payload = {
-        title: encodeRaindropTitle(rawTitle),
+        title: mainBookmarkTitle,
         link: defaultVar ? defaultVar.url : tab.url,
         cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
         note: tabNote,
         collection: { $id: parentId },
-        order: targetOrder,
-        sort: targetOrder,
+        order: defaultVarOrder,
+        sort: defaultVarOrder,
       };
-      const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
+      const orderChanged = existing !== undefined && (existing.sort !== defaultVarOrder && existing.order !== defaultVarOrder);
       const titleChanged = existing !== undefined && existing.title !== payload.title;
       const linkChanged = existing !== undefined && existing.link !== payload.link;
       const noteChanged = existing !== undefined && (existing.note || '') !== payload.note;
-      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || noteChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+      const collectionChanged = existing !== undefined && existing.collectionId !== parentId;
+      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || noteChanged || collectionChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
 
       const secondaryVariants = getTabSecondaryVariants(tab);
 
@@ -2613,18 +2754,18 @@ export async function syncWorkspaceWithRaindrop(
           cover: payload.cover,
           note: tabNote,
           collectionId: parentId,
-          order: targetOrder,
-          sort: targetOrder,
+          order: defaultVarOrder,
+          sort: defaultVarOrder,
         });
         // Extra URL variants
         secondaryVariants.forEach((variant, vIdx) => {
-          const variantOrder = targetOrder + 1 + vIdx;
+          const variantOrder = getTabVariantOrder(tab, variant.id, 1 + vIdx, targetOrder);
           let varRemoteId = numericRaindropId(variant.id);
           if (varRemoteId === remoteId) {
             varRemoteId = origRemoteId;
           }
           const varExisting = varRemoteId ? remoteItems.get(varRemoteId) : undefined;
-          const varTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
+          const varTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name || 'Variant')}`;
           if (varExisting) {
             tabUpdatesToPerform.push({
               remoteId: varExisting._id,
@@ -2654,7 +2795,7 @@ export async function syncWorkspaceWithRaindrop(
         // Purge any orphan remote variants in this collection matching the new title prefix
         const orphanVariants = tree.items.filter((item) => {
           if (item.collectionId !== parentId) return false;
-          if (!item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`)) return false;
+          if (!item.title?.startsWith(`${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}`)) return false;
           return !secondaryVariants.some((v) => {
             const vNum = numericRaindropId(v.id);
             return item._id === vNum || (vNum === remoteId && item._id === origRemoteId);
@@ -2665,7 +2806,7 @@ export async function syncWorkspaceWithRaindrop(
         }
       } else {
         if (shouldUpdate) {
-          tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder });
+          tabUpdatesToPerform.push({ remoteId: existing._id, payload, targetOrder: defaultVarOrder });
         }
 
         // Reconcile secondary variants for existing tab
@@ -2677,14 +2818,16 @@ export async function syncWorkspaceWithRaindrop(
             const vNum = numericRaindropId(v.id);
             return item._id === vNum || (vNum === remoteId && item._id === origRemoteId);
           });
-          const hasOldTitlePrefix = existing.title ? item.title?.startsWith(`${existing.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
-          const hasNewTitlePrefix = payload.title ? item.title?.startsWith(`${payload.title}${ARCABLE_VARIANT_DELIMITER}`) : false;
+          const oldDelimIdx = (existing.title || '').indexOf(ARCABLE_VARIANT_DELIMITER);
+          const oldBaseTitle = oldDelimIdx !== -1 ? existing.title.slice(0, oldDelimIdx) : existing.title;
+          const hasOldTitlePrefix = oldBaseTitle ? item.title?.startsWith(`${oldBaseTitle}${ARCABLE_VARIANT_DELIMITER}`) : false;
+          const hasNewTitlePrefix = encodedTabTitle ? item.title?.startsWith(`${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}`) : false;
           return hasVariantId || hasOldTitlePrefix || hasNewTitlePrefix;
         });
 
         secondaryVariants.forEach((variant, vIdx) => {
-          const variantOrder = targetOrder + 1 + vIdx;
-          const expectedTitle = `${payload.title}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name)}`;
+          const variantOrder = getTabVariantOrder(tab, variant.id, 1 + vIdx, targetOrder);
+          const expectedTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name || 'Variant')}`;
           const varNumId = numericRaindropId(variant.id);
           const effectiveVarId = varNumId === remoteId ? origRemoteId : varNumId;
           const matchIdx = existingRemoteVariants.findIndex((rv) => {
