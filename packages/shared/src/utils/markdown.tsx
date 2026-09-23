@@ -572,3 +572,461 @@ export function renderMarkdown(
 
   return <>{elements}</>;
 }
+
+export interface MarkdownSyntaxHighlightOptions {
+  isDark?: boolean;
+  textColor?: string;
+  accentColor?: string;
+  onToggleCheckbox?: (lineIndex: number) => void;
+}
+
+/**
+ * Finds a markdown link [label](url) at the specified character offset.
+ */
+export function findMarkdownLinkAtPosition(
+  content: string,
+  position: number
+): { label: string; url: string } | null {
+  if (!content || position < 0 || position > content.length) return null;
+  const linkRegex = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = linkRegex.exec(content)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (position >= start && position <= end) {
+      return { label: match[1], url: match[2] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses inline tokens for the syntax highlighter, retaining all raw characters
+ * while styling markers with subtle opacity and content with rich styles.
+ */
+function parseInlineHighlightTokens(
+  text: string,
+  options: MarkdownSyntaxHighlightOptions,
+  keyPrefix = ''
+): React.ReactNode[] {
+  if (!text) return [];
+
+  const nodes: React.ReactNode[] = [];
+  let remaining = text;
+  let tokenIndex = 0;
+  const linkColor = options.isDark ? '#60a5fa' : '#2563eb';
+
+  while (remaining.length > 0) {
+    // 1. Inline Code: `code`
+    const codeMatch = remaining.match(/`([^`\n]+)`/);
+    // 2. Link: [label](url)
+    const linkMatch = remaining.match(/\[([^\]\n]+)\]\(([^)\s]+)\)/);
+    // 3. Bold: **text** or __text__
+    const boldMatch = remaining.match(/(?:\*\*([^*\n]+)\*\*|__([^_\n]+)__)/);
+    // 4. Strikethrough: ~~text~~
+    const strikeMatch = remaining.match(/~~([^~\n]+)~~/);
+    // 5. Italic: *text* or _text_
+    const italicMatch = remaining.match(/(?:\*([^*\n]+)\*|_([^_\n]+)_)/);
+
+    const matches = [
+      codeMatch ? { type: 'code', match: codeMatch, index: codeMatch.index ?? -1 } : null,
+      linkMatch ? { type: 'link', match: linkMatch, index: linkMatch.index ?? -1 } : null,
+      boldMatch ? { type: 'bold', match: boldMatch, index: boldMatch.index ?? -1 } : null,
+      strikeMatch ? { type: 'strike', match: strikeMatch, index: strikeMatch.index ?? -1 } : null,
+      italicMatch ? { type: 'italic', match: italicMatch, index: italicMatch.index ?? -1 } : null,
+    ].filter((m): m is NonNullable<typeof m> => m !== null && m.index >= 0);
+
+    if (matches.length === 0) {
+      nodes.push(remaining);
+      break;
+    }
+
+    matches.sort((a, b) => a.index - b.index);
+    const earliest = matches[0];
+
+    if (earliest.index > 0) {
+      nodes.push(remaining.substring(0, earliest.index));
+    }
+
+    const key = `${keyPrefix}-hl-${tokenIndex++}`;
+
+    switch (earliest.type) {
+      case 'code': {
+        const codeText = earliest.match[1];
+        nodes.push(
+          <span key={key}>
+            <span style={{ opacity: 0.38, fontFamily: 'monospace' }}>`</span>
+            <code
+              style={{
+                fontFamily: 'monospace',
+                backgroundColor: options.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.07)',
+                padding: '0 2px',
+                borderRadius: '3px',
+                color: options.isDark ? '#e2e8f0' : '#0f172a',
+              }}
+            >
+              {codeText}
+            </code>
+            <span style={{ opacity: 0.38, fontFamily: 'monospace' }}>`</span>
+          </span>
+        );
+        remaining = remaining.substring(earliest.index + earliest.match[0].length);
+        break;
+      }
+
+      case 'link': {
+        const label = earliest.match[1];
+        const rawUrl = earliest.match[2];
+        nodes.push(
+          <span key={key}>
+            <span style={{ opacity: 0.38 }}>[</span>
+            <span style={{ color: linkColor, textDecoration: 'underline' }}>
+              {parseInlineHighlightTokens(label, options, `${key}-lbl`)}
+            </span>
+            <span style={{ opacity: 0.38 }}>](</span>
+            <span style={{ opacity: 0.5, color: linkColor, textDecoration: 'underline' }}>{rawUrl}</span>
+            <span style={{ opacity: 0.38 }}>)</span>
+          </span>
+        );
+        remaining = remaining.substring(earliest.index + earliest.match[0].length);
+        break;
+      }
+
+      case 'bold': {
+        const full = earliest.match[0];
+        const delim = full.startsWith('**') ? '**' : '__';
+        const boldText = earliest.match[1] || earliest.match[2];
+        nodes.push(
+          <span key={key}>
+            <span style={{ opacity: 0.38, fontWeight: 700 }}>{delim}</span>
+            <strong style={{ fontWeight: 700 }}>
+              {parseInlineHighlightTokens(boldText, options, `${key}-b`)}
+            </strong>
+            <span style={{ opacity: 0.38, fontWeight: 700 }}>{delim}</span>
+          </span>
+        );
+        remaining = remaining.substring(earliest.index + earliest.match[0].length);
+        break;
+      }
+
+      case 'strike': {
+        const strikeText = earliest.match[1];
+        nodes.push(
+          <span key={key}>
+            <span style={{ opacity: 0.38 }}>~~</span>
+            <del style={{ textDecoration: 'line-through', opacity: 0.65 }}>
+              {parseInlineHighlightTokens(strikeText, options, `${key}-s`)}
+            </del>
+            <span style={{ opacity: 0.38 }}>~~</span>
+          </span>
+        );
+        remaining = remaining.substring(earliest.index + earliest.match[0].length);
+        break;
+      }
+
+      case 'italic': {
+        const full = earliest.match[0];
+        const delim = full.startsWith('*') ? '*' : '_';
+        const italicText = earliest.match[1] || earliest.match[2];
+        nodes.push(
+          <span key={key}>
+            <span style={{ opacity: 0.38, fontStyle: 'italic' }}>{delim}</span>
+            <em style={{ fontStyle: 'italic' }}>
+              {parseInlineHighlightTokens(italicText, options, `${key}-i`)}
+            </em>
+            <span style={{ opacity: 0.38, fontStyle: 'italic' }}>{delim}</span>
+          </span>
+        );
+        remaining = remaining.substring(earliest.index + earliest.match[0].length);
+        break;
+      }
+    }
+  }
+
+  return nodes;
+}
+
+/**
+ * Renders syntax-highlighted markdown for live editor overlays.
+ * Preserves 1:1 character alignment with the underlying textarea while
+ * styling markdown markers subtly and formatting text vividly.
+ */
+export function renderMarkdownSyntaxHighlight(
+  content: string,
+  options: MarkdownSyntaxHighlightOptions = {}
+): React.ReactNode {
+  if (!content) return null;
+
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  const textColor = options.textColor || (options.isDark ? '#f8fafc' : '#1e293b');
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+
+    // Fenced Code Block handling (```)
+    if (rawLine.trim().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      elements.push(
+        <div
+          key={`code-fence-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span style={{ opacity: 0.4, fontFamily: 'monospace' }}>{rawLine}</span>
+        </div>
+      );
+      continue;
+    }
+
+    if (inCodeBlock) {
+      elements.push(
+        <div
+          key={`code-line-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'monospace',
+              backgroundColor: options.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.06)',
+              borderRadius: '2px',
+              padding: '0 2px',
+            }}
+          >
+            {rawLine || <br />}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Empty line
+    if (rawLine === '') {
+      elements.push(
+        <div
+          key={`empty-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <br />
+        </div>
+      );
+      continue;
+    }
+
+    // Horizontal Rule: --- or *** or ___
+    if (/^(\s*)([-*_]{3,})(\s*)$/.test(rawLine)) {
+      elements.push(
+        <div
+          key={`hr-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span style={{ opacity: 0.35, letterSpacing: '1px' }}>{rawLine}</span>
+        </div>
+      );
+      continue;
+    }
+
+    // Heading: # H1, ## H2, etc.
+    const headingMatch = rawLine.match(/^(#{1,6})(\s+)(.*)$/);
+    if (headingMatch) {
+      const hashes = headingMatch[1];
+      const spaces = headingMatch[2];
+      const headingText = headingMatch[3];
+      elements.push(
+        <div
+          key={`heading-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span style={{ opacity: 0.38, fontWeight: 700 }}>{hashes}</span>
+          <span>{spaces}</span>
+          <span style={{ fontWeight: 700, color: textColor }}>
+            {parseInlineHighlightTokens(headingText, options, `h-${i}`)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Task List Checkbox: - [ ] or - [x] or * [ ] or 1. [ ]
+    const taskMatch = rawLine.match(/^(\s*(?:[-*]|\d+\.)\s+\[)([ xX])(\]\s*)(.*)$/);
+    if (taskMatch) {
+      const isChecked = taskMatch[2].toLowerCase() === 'x';
+      const prefix = taskMatch[1];
+      const postBracket = taskMatch[3];
+      const itemText = taskMatch[4];
+      const lineIndex = i;
+
+      // Extract leading indent and list marker from prefix
+      const prefixParts = prefix.match(/^(\s*)([-*]|\d+\.)(\s+\[)$/);
+      const indent = prefixParts ? prefixParts[1] : '';
+      const marker = prefixParts ? prefixParts[2] : '-';
+      const spaceBeforeBracket = prefixParts ? prefixParts[3].slice(0, -1) : ' ';
+
+      elements.push(
+        <div
+          key={`task-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span>{indent}</span>
+          <span style={{ opacity: 0.45 }}>{marker}</span>
+          <span>{spaceBeforeBracket}</span>
+          <span
+            role="button"
+            tabIndex={-1}
+            title={isChecked ? 'Mark as incomplete' : 'Mark as complete'}
+            onClick={(e) => {
+              e.stopPropagation();
+              options.onToggleCheckbox?.(lineIndex);
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              options.onToggleCheckbox?.(lineIndex);
+            }}
+            style={{
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+              position: 'relative',
+              zIndex: 2,
+              display: 'inline-block',
+              userSelect: 'none',
+              borderRadius: '3px',
+              padding: '0 1px',
+              backgroundColor: isChecked
+                ? (options.isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.15)')
+                : (options.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
+              color: isChecked ? (options.isDark ? '#60a5fa' : '#2563eb') : 'inherit',
+              fontWeight: isChecked ? 700 : 500,
+            }}
+          >
+            <span style={{ opacity: 0.4 }}>[</span>
+            <span style={{ display: 'inline-block', width: '1ch', textAlign: 'center' }}>
+              {isChecked ? '✓' : ' '}
+            </span>
+            <span style={{ opacity: 0.4 }}>]</span>
+          </span>
+          <span>{postBracket.slice(1)}</span>
+          <span style={{ textDecoration: isChecked ? 'line-through' : 'none', opacity: isChecked ? 0.55 : 1 }}>
+            {parseInlineHighlightTokens(itemText, options, `t-${i}`)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered List: - item or * item
+    const unorderMatch = rawLine.match(/^(\s*)([-*])(\s+)(.*)$/);
+    if (unorderMatch) {
+      elements.push(
+        <div
+          key={`ul-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span>{unorderMatch[1]}</span>
+          <span style={{ opacity: 0.45, fontWeight: 700 }}>{unorderMatch[2]}</span>
+          <span>{unorderMatch[3]}</span>
+          <span>{parseInlineHighlightTokens(unorderMatch[4], options, `ul-${i}`)}</span>
+        </div>
+      );
+      continue;
+    }
+
+    // Ordered List: 1. item
+    const orderMatch = rawLine.match(/^(\s*)(\d+\.)(\s+)(.*)$/);
+    if (orderMatch) {
+      elements.push(
+        <div
+          key={`ol-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span>{orderMatch[1]}</span>
+          <span style={{ opacity: 0.55, fontVariantNumeric: 'tabular-nums' }}>{orderMatch[2]}</span>
+          <span>{orderMatch[3]}</span>
+          <span>{parseInlineHighlightTokens(orderMatch[4], options, `ol-${i}`)}</span>
+        </div>
+      );
+      continue;
+    }
+
+    // Blockquote: > quote
+    const quoteMatch = rawLine.match(/^(\s*>[\s]?)(.*)$/);
+    if (quoteMatch) {
+      elements.push(
+        <div
+          key={`quote-${i}`}
+          style={{
+            minHeight: '1.5em',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <span style={{ opacity: 0.45, fontStyle: 'italic', fontWeight: 600 }}>{quoteMatch[1]}</span>
+          <span style={{ fontStyle: 'italic', opacity: 0.9 }}>
+            {parseInlineHighlightTokens(quoteMatch[2], options, `q-${i}`)}
+          </span>
+        </div>
+      );
+      continue;
+    }
+
+    // Regular line / paragraph
+    elements.push(
+      <div
+        key={`p-${i}`}
+        style={{
+          minHeight: '1.5em',
+          wordBreak: 'break-word',
+          overflowWrap: 'break-word',
+          whiteSpace: 'pre-wrap',
+          color: textColor,
+        }}
+      >
+        {parseInlineHighlightTokens(rawLine, options, `p-${i}`)}
+      </div>
+    );
+  }
+
+  return <>{elements}</>;
+}
+

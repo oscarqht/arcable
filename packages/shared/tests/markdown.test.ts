@@ -1,5 +1,12 @@
 import React from 'react';
-import { isSafeUrl, toggleMarkdownCheckbox, parseInlineMarkdown, renderMarkdown } from '../src/utils/markdown';
+import {
+  isSafeUrl,
+  toggleMarkdownCheckbox,
+  parseInlineMarkdown,
+  renderMarkdown,
+  findMarkdownLinkAtPosition,
+  renderMarkdownSyntaxHighlight,
+} from '../src/utils/markdown';
 
 function assertEqual<T>(actual: T, expected: T, message: string): void {
   if (actual !== expected) {
@@ -110,5 +117,32 @@ console.log("hello");
 
 const renderedCodeQuote = renderMarkdown(codeAndQuoteText, { isDark: true });
 assertEqual(React.isValidElement(renderedCodeQuote), true, 'renderMarkdown handles code blocks and blockquotes');
+
+// 7. findMarkdownLinkAtPosition tests
+const linkSample = 'Visit [Arcable](https://arcable.app) for details and [Google](https://google.com).';
+const foundLink1 = findMarkdownLinkAtPosition(linkSample, 10);
+assertEqual(foundLink1 !== null, true, 'should find link at cursor position 10');
+assertEqual(foundLink1?.label, 'Arcable', 'should extract link label');
+assertEqual(foundLink1?.url, 'https://arcable.app', 'should extract link url');
+
+const foundLink2 = findMarkdownLinkAtPosition(linkSample, 60);
+assertEqual(foundLink2?.label, 'Google', 'should extract second link');
+assertEqual(foundLink2?.url, 'https://google.com', 'should extract second link url');
+
+const noLink = findMarkdownLinkAtPosition(linkSample, 2);
+assertEqual(noLink, null, 'should return null when cursor is outside any link');
+
+// 8. renderMarkdownSyntaxHighlight tests
+let toggledLineIndex = -1;
+const highlighted = renderMarkdownSyntaxHighlight(sampleText, {
+  isDark: true,
+  onToggleCheckbox: (lineIdx) => {
+    toggledLineIndex = lineIdx;
+  },
+});
+assertEqual(React.isValidElement(highlighted), true, 'renderMarkdownSyntaxHighlight returns valid React element');
+
+const highlightedEmpty = renderMarkdownSyntaxHighlight('');
+assertEqual(highlightedEmpty, null, 'empty content returns null');
 
 console.log('All markdown utility tests passed successfully!');

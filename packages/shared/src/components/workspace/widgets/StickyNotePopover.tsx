@@ -5,7 +5,12 @@ import { createPortal } from 'react-dom';
 import { WorkspaceWidget, NoteConfig } from '../../../types/workspace';
 import { SpaceThemeTokens } from '../../../utils/spaceTheme';
 import { StickyNoteIcon, TrashIcon } from '../../Icons';
-import { renderMarkdown, toggleMarkdownCheckbox } from '../../../utils/markdown';
+import {
+  renderMarkdownSyntaxHighlight,
+  toggleMarkdownCheckbox,
+  findMarkdownLinkAtPosition,
+  isSafeUrl,
+} from '../../../utils/markdown';
 
 export interface StickyNotePopoverProps {
   widget: WorkspaceWidget;
@@ -36,12 +41,12 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
   const config = (widget.config as NoteConfig) || {};
   const [text, setText] = useState(config.text || '');
   const [colorTheme, setColorTheme] = useState<NoteConfig['colorTheme']>(config.colorTheme || 'yellow');
-  const [mode, setMode] = useState<'preview' | 'edit'>((config.text || '').trim().length > 0 ? 'preview' : 'edit');
   const [showColorDropdown, setShowColorDropdown] = useState(false);
   const [windowWidth, setWindowWidth] = useState<number>(() =>
     typeof window !== 'undefined' ? window.innerWidth : 360
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const colorDropdownRef = useRef<HTMLDivElement>(null);
 
   // Track window/sidepanel width
@@ -77,27 +82,10 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
     };
   }, [showColorDropdown]);
 
-  // Smart default mode on open: Preview if has content, Edit if empty
+  // Focus textarea when popover opens
   useEffect(() => {
     if (isOpen) {
-      const hasContent = Boolean(config.text && config.text.trim().length > 0);
-      setMode(hasContent ? 'preview' : 'edit');
       setShowColorDropdown(false);
-      if (!hasContent) {
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.focus();
-            const len = textareaRef.current.value.length;
-            textareaRef.current.setSelectionRange(len, len);
-          }
-        }, 50);
-      }
-    }
-  }, [isOpen]);
-
-  // Focus textarea when switching to edit mode
-  useEffect(() => {
-    if (isOpen && mode === 'edit') {
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
@@ -106,7 +94,22 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
         }
       }, 50);
     }
-  }, [isOpen, mode]);
+  }, [isOpen]);
+
+  // Keep scroll synchronized between textarea and backdrop
+  const handleScroll = () => {
+    if (textareaRef.current && backdropRef.current) {
+      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
+      backdropRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  };
+
+  useEffect(() => {
+    if (textareaRef.current && backdropRef.current) {
+      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
+      backdropRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  }, [text]);
 
   // Click outside to close and save
   useEffect(() => {
@@ -177,7 +180,6 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
       text: '',
       colorTheme,
     });
-    setMode('edit');
     setTimeout(() => {
       textareaRef.current?.focus();
     }, 50);
@@ -186,6 +188,38 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
   const handleToggleCheckbox = (lineIndex: number) => {
     const newText = toggleMarkdownCheckbox(text, lineIndex);
     handleTextChange(newText);
+  };
+
+  const handleTextareaClick = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    // 1. Cmd/Ctrl + Click on link to open
+    if (e.metaKey || e.ctrlKey) {
+      const sel = textareaRef.current?.selectionStart ?? -1;
+      if (sel >= 0) {
+        const link = findMarkdownLinkAtPosition(text, sel);
+        if (link && isSafeUrl(link.url)) {
+          window.open(link.url, '_blank', 'noopener,noreferrer');
+          return;
+        }
+      }
+    }
+
+    // 2. Click on task checkbox bracket [ ] or [x] to toggle
+    if (textareaRef.current) {
+      const sel = textareaRef.current.selectionStart;
+      const lineStart = text.lastIndexOf('\n', sel - 1) + 1;
+      const lineEnd = text.indexOf('\n', sel);
+      const lineStr = text.substring(lineStart, lineEnd === -1 ? text.length : lineEnd);
+      const col = sel - lineStart;
+      const cbMatch = lineStr.match(/^(\s*(?:[-*]|\d+\.)\s+\[)([ xX])(\])/);
+      if (cbMatch) {
+        const cbStart = cbMatch[1].length - 1; // index of '['
+        const cbEnd = cbStart + 3; // end index after ']'
+        if (col >= cbStart && col <= cbEnd) {
+          const lineIndex = text.slice(0, sel).split('\n').length - 1;
+          handleToggleCheckbox(lineIndex);
+        }
+      }
+    }
   };
 
   return createPortal(
@@ -213,58 +247,26 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
         backdropFilter: 'blur(16px)',
       }}
     >
-      {/* Top Header: Title, Segmented [Edit | Preview] Toggle, Color Palette, and Clear */}
+      <style>{`
+        #stickynote-popover-${widget.id} textarea::selection {
+          background: rgba(59, 130, 246, 0.35) !important;
+          color: transparent !important;
+        }
+        #stickynote-popover-${widget.id} textarea::-moz-selection {
+          background: rgba(59, 130, 246, 0.35) !important;
+          color: transparent !important;
+        }
+        #stickynote-popover-${widget.id} textarea::placeholder {
+          color: ${theme.isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.42)'} !important;
+          -webkit-text-fill-color: ${theme.isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.42)'} !important;
+        }
+      `}</style>
+
+      {/* Top Header: Title, Color Palette, and Clear */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 700, flexShrink: 0 }}>
           <StickyNoteIcon size={14} />
           <span>Note</span>
-        </div>
-
-        {/* Segmented Mode Control [Edit | Preview] */}
-        <div
-          style={{
-            display: 'inline-flex',
-            backgroundColor: theme.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-            borderRadius: '6px',
-            padding: '1.5px',
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setMode('edit')}
-            style={{
-              padding: '2px 7px',
-              fontSize: '10px',
-              fontWeight: mode === 'edit' ? 700 : 500,
-              backgroundColor: mode === 'edit' ? (theme.isDark ? '#334155' : '#ffffff') : 'transparent',
-              color: mode === 'edit' ? (theme.isDark ? '#f8fafc' : '#0f172a') : (theme.isDark ? '#cbd5e1' : '#64748b'),
-              borderRadius: '4.5px',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: mode === 'edit' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('preview')}
-            style={{
-              padding: '2px 7px',
-              fontSize: '10px',
-              fontWeight: mode === 'preview' ? 700 : 500,
-              backgroundColor: mode === 'preview' ? (theme.isDark ? '#334155' : '#ffffff') : 'transparent',
-              color: mode === 'preview' ? (theme.isDark ? '#f8fafc' : '#0f172a') : (theme.isDark ? '#cbd5e1' : '#64748b'),
-              borderRadius: '4.5px',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: mode === 'preview' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.12s ease',
-            }}
-          >
-            Preview
-          </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
@@ -396,91 +398,77 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
         </div>
       </div>
 
-      {/* Main Content Area: Edit (Textarea) or Preview (Rendered Markdown) */}
+      {/* Main Content Area: Unified Editable Markdown Surface with Live Syntax Preview */}
       <div
         style={{
-          height: '165px',
+          position: 'relative',
+          height: '198px',
           width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
           boxSizing: 'border-box',
+          overflow: 'hidden',
+          borderRadius: '8px',
         }}
       >
-        {mode === 'edit' ? (
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                setMode('preview');
-              }
-            }}
-            placeholder="Write in markdown... (# H1, **bold**, - [ ] task, `code`)"
-            rows={7}
-            style={{
-              width: '100%',
-              height: '100%',
-              resize: 'none',
-              border: 'none',
-              outline: 'none',
-              backgroundColor: 'transparent',
-              color: 'inherit',
-              fontSize: '12px',
-              fontFamily: 'inherit',
-              lineHeight: '1.45',
-              boxSizing: 'border-box',
-              padding: '2px',
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              overflowY: 'auto',
-              fontSize: '12px',
-              lineHeight: '1.45',
-              boxSizing: 'border-box',
-              padding: '2px',
-            }}
-          >
-            {text.trim() ? (
-              renderMarkdown(text, {
-                isDark: theme.isDark,
-                themeTextColor: theme.isDark ? '#f8fafc' : '#1e293b',
-                onToggleCheckbox: handleToggleCheckbox,
-              })
-            ) : (
-              <div
-                onClick={() => setMode('edit')}
-                style={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  opacity: 0.5,
-                  fontSize: '11px',
-                  gap: '4px',
-                }}
-              >
-                <span>No content yet.</span>
-                <span style={{ textDecoration: 'underline' }}>Click to edit</span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+        {/* Backdrop: Live syntax-highlighted / formatted markdown */}
+        <div
+          ref={backdropRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            fontSize: '12px',
+            lineHeight: '1.5',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+            padding: '4px',
+            color: theme.isDark ? '#f8fafc' : '#1e293b',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            scrollbarWidth: 'none',
+          }}
+        >
+          {renderMarkdownSyntaxHighlight(text, {
+            isDark: theme.isDark,
+            textColor: theme.isDark ? '#f8fafc' : '#1e293b',
+            onToggleCheckbox: handleToggleCheckbox,
+          })}
+        </div>
 
-      {/* Footer */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', opacity: 0.6 }}>
-        <span>{text.length} chars</span>
-        <span>
-          {mode === 'edit' ? 'Auto-saved • ⌘⏎ to preview' : 'Interactive Markdown'}
-        </span>
+        {/* Foreground: Editable transparent textarea with visible caret */}
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onScroll={handleScroll}
+          onClick={handleTextareaClick}
+          placeholder="Write in markdown... (# Heading, **bold**, - [ ] task, `code`)"
+          spellCheck={false}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            resize: 'none',
+            border: 'none',
+            outline: 'none',
+            backgroundColor: 'transparent',
+            color: 'transparent',
+            caretColor: theme.isDark ? '#f8fafc' : '#1e293b',
+            fontSize: '12px',
+            fontFamily: 'inherit',
+            lineHeight: '1.5',
+            boxSizing: 'border-box',
+            padding: '4px',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            overflowY: 'auto',
+            zIndex: 1,
+          }}
+        />
       </div>
     </div>,
     document.body
