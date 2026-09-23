@@ -103,8 +103,15 @@ assertEqual(React.isValidElement(rendered), true, 'renderMarkdown should return 
 const compactRendered = renderMarkdown(sampleText, {
   compact: true,
   isDark: false,
-});
+}) as React.ReactElement<{ children: React.ReactElement<{ style?: React.CSSProperties }>[] }>;
 assertEqual(React.isValidElement(compactRendered), true, 'compact renderMarkdown should return valid React element');
+const compactChildren = compactRendered.props.children;
+const headingEl = compactChildren[0];
+assertEqual(headingEl.props.style?.whiteSpace, 'pre-wrap', 'heading should have pre-wrap whiteSpace to allow wrapping');
+assertEqual(headingEl.props.style?.wordBreak, 'break-word', 'heading should have break-word wordBreak');
+const lastParagraphEl = compactChildren[compactChildren.length - 1];
+assertEqual(lastParagraphEl.props.style?.whiteSpace, 'pre-wrap', 'paragraph should have pre-wrap whiteSpace to allow wrapping');
+assertEqual(lastParagraphEl.props.style?.wordBreak, 'break-word', 'paragraph should have break-word wordBreak');
 
 // 6. renderMarkdown with code block and blockquote
 const codeAndQuoteText = `> This is a quote

@@ -957,11 +957,15 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
             <div
               style={{
                 width: '100%',
-                height: '100%',
+                maxHeight: '100%',
                 overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: compact ? '0.5px' : '1px',
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 4,
+                lineClamp: 4,
+                textOverflow: 'ellipsis',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
               }}
             >
               {renderMarkdown(text, {

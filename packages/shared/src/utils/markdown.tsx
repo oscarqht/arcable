@@ -110,6 +110,7 @@ export function parseInlineMarkdown(
               padding: options.compact ? '0.5px 2px' : '1px 3.5px',
               borderRadius: '3px',
               verticalAlign: 'baseline',
+              wordBreak: 'break-word',
             }}
           >
             {codeText}
@@ -234,11 +235,15 @@ export function renderMarkdown(
           <pre
             key={`code-block-${i}`}
             style={{
-              margin: isCompact ? '1px 0' : '4px 0',
+              margin: isCompact ? '0' : '4px 0',
               padding: isCompact ? '2px 4px' : '6px 8px',
               backgroundColor: options.isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.06)',
               borderRadius: isCompact ? '3px' : '6px',
-              overflowX: 'auto',
+              overflowX: isCompact ? 'hidden' : 'auto',
+              whiteSpace: isCompact ? 'pre-wrap' : 'pre',
+              wordBreak: 'break-word',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
               fontSize: isCompact ? '6.5px' : '11px',
               lineHeight: 1.3,
@@ -315,12 +320,13 @@ export function renderMarkdown(
           style={{
             fontSize,
             fontWeight: 800,
-            lineHeight: isCompact ? 1.15 : 1.3,
-            margin: isCompact ? '0.5px 0' : '4px 0 2px 0',
+            lineHeight: isCompact ? 1.2 : 1.3,
+            margin: isCompact ? '0' : '4px 0 2px 0',
             color: textColor,
-            overflow: isCompact ? 'hidden' : undefined,
-            textOverflow: isCompact ? 'ellipsis' : undefined,
-            whiteSpace: isCompact ? 'nowrap' : undefined,
+            width: '100%',
+            boxSizing: 'border-box',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
           }}
         >
           {parseInlineMarkdown(headingText, options, `h-${i}`)}
@@ -339,14 +345,15 @@ export function renderMarkdown(
           style={{
             borderLeft: `2.5px solid ${options.isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)'}`,
             paddingLeft: isCompact ? '3px' : '7px',
-            margin: isCompact ? '1px 0' : '3px 0',
+            margin: isCompact ? '0' : '3px 0',
             fontStyle: 'italic',
             opacity: 0.85,
             fontSize: isCompact ? '7px' : '12px',
-            lineHeight: isCompact ? 1.15 : 1.4,
-            overflow: isCompact ? 'hidden' : undefined,
-            textOverflow: isCompact ? 'ellipsis' : undefined,
-            whiteSpace: isCompact ? 'nowrap' : undefined,
+            lineHeight: isCompact ? 1.2 : 1.4,
+            width: '100%',
+            boxSizing: 'border-box',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
           }}
         >
           {parseInlineMarkdown(quoteText, options, `q-${i}`)}
@@ -369,14 +376,12 @@ export function renderMarkdown(
             key={`task-${i}`}
             style={{
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: '2.5px',
               fontSize: '7.5px',
-              lineHeight: 1.15,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              lineHeight: 1.2,
               width: '100%',
+              boxSizing: 'border-box',
               paddingLeft: `${indentLevel * 4}px`,
             }}
           >
@@ -386,6 +391,7 @@ export function renderMarkdown(
                 flexShrink: 0,
                 opacity: isChecked ? 0.6 : 0.85,
                 fontWeight: 700,
+                lineHeight: 1.2,
               }}
             >
               {isChecked ? '☑' : '☐'}
@@ -394,9 +400,9 @@ export function renderMarkdown(
               style={{
                 textDecoration: isChecked ? 'line-through' : 'none',
                 opacity: isChecked ? 0.6 : 0.9,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                flex: 1,
               }}
             >
               {parseInlineMarkdown(itemText, options, `t-${i}`)}
@@ -462,22 +468,19 @@ export function renderMarkdown(
             display: 'flex',
             alignItems: 'flex-start',
             gap: isCompact ? '2px' : '5px',
-            margin: isCompact ? '0.5px 0' : '2px 0',
+            margin: isCompact ? '0' : '2px 0',
             paddingLeft: isCompact ? `${indentLevel * 4}px` : `${indentLevel * 12}px`,
             fontSize: isCompact ? '7.5px' : '12.5px',
-            lineHeight: isCompact ? 1.15 : 1.4,
-            overflow: isCompact ? 'hidden' : undefined,
-            textOverflow: isCompact ? 'ellipsis' : undefined,
-            whiteSpace: isCompact ? 'nowrap' : undefined,
+            lineHeight: isCompact ? 1.2 : 1.4,
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          <span style={{ opacity: 0.65, flexShrink: 0 }}>•</span>
+          <span style={{ opacity: 0.65, flexShrink: 0, lineHeight: isCompact ? 1.2 : 1.4 }}>•</span>
           <span
             style={{
               flex: 1,
-              overflow: isCompact ? 'hidden' : undefined,
-              textOverflow: isCompact ? 'ellipsis' : undefined,
-              whiteSpace: isCompact ? 'nowrap' : undefined,
+              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}
           >
@@ -502,24 +505,21 @@ export function renderMarkdown(
             display: 'flex',
             alignItems: 'flex-start',
             gap: isCompact ? '2px' : '4px',
-            margin: isCompact ? '0.5px 0' : '2px 0',
+            margin: isCompact ? '0' : '2px 0',
             paddingLeft: isCompact ? `${indentLevel * 4}px` : `${indentLevel * 12}px`,
             fontSize: isCompact ? '7.5px' : '12.5px',
-            lineHeight: isCompact ? 1.15 : 1.4,
-            overflow: isCompact ? 'hidden' : undefined,
-            textOverflow: isCompact ? 'ellipsis' : undefined,
-            whiteSpace: isCompact ? 'nowrap' : undefined,
+            lineHeight: isCompact ? 1.2 : 1.4,
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          <span style={{ opacity: 0.7, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ opacity: 0.7, flexShrink: 0, fontVariantNumeric: 'tabular-nums', lineHeight: isCompact ? 1.2 : 1.4 }}>
             {num}.
           </span>
           <span
             style={{
               flex: 1,
-              overflow: isCompact ? 'hidden' : undefined,
-              textOverflow: isCompact ? 'ellipsis' : undefined,
-              whiteSpace: isCompact ? 'nowrap' : undefined,
+              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}
           >
@@ -535,13 +535,13 @@ export function renderMarkdown(
       <div
         key={`p-${i}`}
         style={{
-          margin: isCompact ? '0.5px 0' : '2px 0',
+          margin: isCompact ? '0' : '2px 0',
           fontSize: isCompact ? '7.5px' : '12.5px',
-          lineHeight: isCompact ? 1.15 : 1.45,
+          lineHeight: isCompact ? 1.2 : 1.45,
           color: textColor,
-          overflow: isCompact ? 'hidden' : undefined,
-          textOverflow: isCompact ? 'ellipsis' : undefined,
-          whiteSpace: isCompact ? 'nowrap' : 'pre-wrap',
+          width: '100%',
+          boxSizing: 'border-box',
+          whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }}
       >
@@ -556,11 +556,15 @@ export function renderMarkdown(
       <pre
         key="code-block-unclosed"
         style={{
-          margin: isCompact ? '1px 0' : '4px 0',
+          margin: isCompact ? '0' : '4px 0',
           padding: isCompact ? '2px 4px' : '6px 8px',
           backgroundColor: options.isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.06)',
           borderRadius: isCompact ? '3px' : '6px',
-          overflowX: 'auto',
+          overflowX: isCompact ? 'hidden' : 'auto',
+          whiteSpace: isCompact ? 'pre-wrap' : 'pre',
+          wordBreak: 'break-word',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
           fontFamily: 'ui-monospace, monospace',
           fontSize: isCompact ? '6.5px' : '11px',
         }}
