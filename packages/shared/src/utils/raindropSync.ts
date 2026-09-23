@@ -63,17 +63,21 @@ export interface GroupVariantMeta {
   variants?: Array<{ id?: string; url?: string; name?: string }>;
   defaultVariantId?: string;
   firstName?: string;
+  groupItemOrder?: Array<{ type: 'tab' | 'widget'; id: string }>;
 }
 
 export function serializeGroupMeta(tab: Tab): string {
-  if (!tab.urlVariants || tab.urlVariants.length <= 1) return '';
+  const hasVariants = Boolean(tab.urlVariants && tab.urlVariants.length > 1);
+  const isGroup = Boolean(tab.isGroup);
+  if (!hasVariants && !isGroup) return '';
   const defaultVar =
-    (tab.defaultVariantId && tab.urlVariants.find((v) => v.id === tab.defaultVariantId)) ||
-    tab.urlVariants[0];
+    (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
+    tab.urlVariants?.[0];
   const meta: GroupVariantMeta = {
-    variants: tab.urlVariants.map((v) => ({ id: v.id, url: v.url, name: v.name })),
-    defaultVariantId: tab.defaultVariantId || tab.urlVariants[0]?.id,
-    firstName: defaultVar?.name || tab.urlVariants[0]?.name,
+    variants: tab.urlVariants?.map((v) => ({ id: v.id, url: v.url, name: v.name })),
+    defaultVariantId: tab.defaultVariantId || tab.urlVariants?.[0]?.id,
+    firstName: defaultVar?.name || tab.urlVariants?.[0]?.name,
+    groupItemOrder: tab.groupItemOrder,
   };
   return `${ARCABLE_GROUP_META_START}${JSON.stringify(meta)}${ARCABLE_GROUP_META_END}`;
 }
@@ -320,7 +324,7 @@ export function calculateWidgetTargetOrder(
   return slot;
 }
 
-function widgetToRaindropItemInput(
+export function widgetToRaindropItemInput(
   widget: WorkspaceWidget,
   rootId: number,
   targetOrder?: number
@@ -334,6 +338,8 @@ function widgetToRaindropItemInput(
       id: widget.id,
       style: widget.style,
       size: widget.size,
+      order: widget.order,
+      parentGroupId: widget.parentGroupId,
       config: widget.config,
     }),
     order,
@@ -1010,13 +1016,36 @@ export async function syncIncrementalOperations(
     const entityId = operations[0].entityId;
     const widget = latestSnapshot.widgets?.find((w) => w.id === entityId);
     if (!widget) continue;
+    // Merge pending operation payloads into the widget snapshot so updates (such as parentGroupId) are reflected
+    const mergedWidget = { ...widget };
+    for (const op of operations) {
+      if (op.type === 'WIDGET_UPDATE' && op.payload) {
+        Object.assign(mergedWidget, op.payload);
+        if ('parentGroupId' in op.payload) {
+          mergedWidget.parentGroupId = op.payload.parentGroupId || undefined;
+        }
+      }
+    }
+
     const isCreate = operations.some((operation) => operation.type === 'WIDGET_CREATE');
-    const targetOrder = calculateWidgetTargetOrder(widget, latestSnapshot.tabs, latestSnapshot.widgets || []);
-    const input = widgetToRaindropItemInput(widget, rootId, targetOrder);
+    const targetOrder = calculateWidgetTargetOrder(mergedWidget, latestSnapshot.tabs, latestSnapshot.widgets || []);
+    const input = widgetToRaindropItemInput(mergedWidget, rootId, targetOrder);
     if (isCreate) {
       widgetCreates.push({ entityId, input });
     } else {
-      const remoteId = widget.raindropId || numericRaindropId(widget.id);
+      let remoteId = mergedWidget.raindropId || numericRaindropId(mergedWidget.id);
+      if (!remoteId) {
+        // Fallback: look up in root collection by link prefix or excerpt id
+        const rootItems = await fetchAllRaindropItems(token, rootId);
+        const match = rootItems.find((item) =>
+          item.link === `${ARCABLE_WIDGET_LINK_PREFIX}${mergedWidget.id}` ||
+          (item.excerpt && item.excerpt.includes(`"id":"${mergedWidget.id}"`))
+        );
+        if (match) {
+          remoteId = match._id;
+          mergedWidget.raindropId = match._id;
+        }
+      }
       if (remoteId) {
         const updated = await updateRaindropItem(token, remoteId, {
           title: input.title,
@@ -1596,6 +1625,21 @@ export function reconstructWorkspace(
     itemOrderMap.set(item._id, nextOrder);
   }
 
+  // Build a map of widgetId -> parentGroupId from group notes in favourite items
+  const widgetToParentGroupMap = new Map<string, string>();
+  for (const item of tree.items) {
+    if (item.collectionId === root._id && item.note) {
+      const meta = parseGroupMeta(item.note);
+      if (meta?.groupItemOrder) {
+        for (const entry of meta.groupItemOrder) {
+          if (entry.type === 'widget' && entry.id) {
+            widgetToParentGroupMap.set(entry.id, String(item._id));
+          }
+        }
+      }
+    }
+  }
+
   // Reconstruct widgets from Arcable root collection
   const widgetItems = tree.items.filter(
     (item) => item.collectionId === root._id && isWidgetItem(item)
@@ -1615,8 +1659,9 @@ export function reconstructWorkspace(
       raindropId: item._id,
       style: parsedExcerpt.style || 'combo',
       size: parsedExcerpt.size || 'small',
-      config: parsedExcerpt.config || {},
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
+      parentGroupId: parsedExcerpt.parentGroupId || widgetToParentGroupMap.get(widgetId) || undefined,
+      config: parsedExcerpt.config || {},
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
     };
@@ -1833,7 +1878,74 @@ export function reconstructWorkspace(
       }
 
       urlVariants = rawAllVariants;
-      defaultVariantId = groupMeta?.defaultVariantId || rawAllVariants[0]?.id || defaultId;
+    } else if (favourite) {
+      const hasGroupItemOrderWidgets = Boolean(
+        groupMeta?.groupItemOrder && groupMeta.groupItemOrder.some((e) => e.type === 'widget')
+      );
+      const hasWidgetChildrenLocal = Boolean(
+        widgets.some((w) => w.parentGroupId === String(item._id)) || hasGroupItemOrderWidgets
+      );
+      const hasExplicitMetaVariants = Boolean(groupMeta?.variants && groupMeta.variants.length > 0);
+      const hasTabInGroupOrder = Boolean(groupMeta?.groupItemOrder && groupMeta.groupItemOrder.some((e) => e.type === 'tab'));
+      const isWidgetGroup = Boolean(hasWidgetChildrenLocal || (groupMeta?.groupItemOrder && groupMeta.groupItemOrder.length > 0));
+
+      if (hasExplicitMetaVariants || hasTabInGroupOrder || (isWidgetGroup && item.link && !item.link.includes('arcable.dev'))) {
+        const defaultId = String(item._id);
+        if (hasExplicitMetaVariants) {
+          urlVariants = groupMeta!.variants!.map((mv, idx) => ({
+            id: mv.id || (idx === 0 ? defaultId : `var-${idx}`),
+            name: mv.name || (idx === 0 ? groupMeta?.firstName || decodedTitle || 'Default' : 'Variant'),
+            url: mv.url || item.link,
+            favIconUrl: idx === 0 ? item.cover : undefined,
+          }));
+        } else {
+          const tabOrderEntry = groupMeta?.groupItemOrder?.find((e) => e.type === 'tab');
+          const varId = tabOrderEntry?.id || defaultId;
+          const varName = groupMeta?.firstName || decodedTitle || 'Default';
+          urlVariants = [
+            {
+              id: varId,
+              name: varName,
+              url: item.link,
+              favIconUrl: item.cover,
+            },
+          ];
+        }
+        defaultVariantId = groupMeta?.defaultVariantId || urlVariants[0]?.id || defaultId;
+      }
+    }
+
+    const hasGroupItemOrderWidgets = Boolean(
+      groupMeta?.groupItemOrder && groupMeta.groupItemOrder.some((e) => e.type === 'widget')
+    );
+    const hasWidgetChildren = Boolean(
+      favourite && (
+        widgets.some((w) => w.parentGroupId === String(item._id)) ||
+        hasGroupItemOrderWidgets
+      )
+    );
+    const hasMultipleVariants = Boolean(urlVariants && urlVariants.length > 1);
+    const hasValidGroupContent = Boolean(
+      (urlVariants && urlVariants.length > 0) || hasWidgetChildren
+    );
+
+    // If an empty placeholder group (arcable.dev) has no remaining bookmarks or child widgets, omit it
+    if (favourite && !hasValidGroupContent && item.link && item.link.includes('arcable.dev')) {
+      continue;
+    }
+
+    const isGroup = Boolean(
+      favourite && (
+        hasMultipleVariants ||
+        hasWidgetChildren ||
+        (groupMeta?.groupItemOrder && groupMeta.groupItemOrder.length > 1)
+      )
+    ) || undefined;
+
+    // If favourite but not a group, normalize away group-specific variant fields
+    if (favourite && !isGroup) {
+      urlVariants = undefined;
+      defaultVariantId = undefined;
     }
 
     const effectiveUrl = (urlVariants && urlVariants[0]?.url) || item.link;
@@ -1845,6 +1957,7 @@ export function reconstructWorkspace(
       url: effectiveUrl,
       urlVariants,
       defaultVariantId,
+      groupItemOrder: isGroup ? groupMeta?.groupItemOrder : undefined,
       pinned: false,
       favourite: favourite || undefined,
       customTitle: decodedTitle,
@@ -1855,7 +1968,7 @@ export function reconstructWorkspace(
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
-      isGroup: Boolean(favourite && urlVariants && urlVariants.length > 1) || undefined,
+      isGroup,
     });
   }
 
@@ -1959,6 +2072,54 @@ export function reconstructWorkspace(
   }
 
   tabs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  // Bidirectional reconciliation between groups and widgets
+  // 1. If a tab has groupItemOrder with widget entries, ensure those widgets have parentGroupId = tab.id
+  for (const tab of tabs) {
+    if (tab.groupItemOrder) {
+      for (const entry of tab.groupItemOrder) {
+        if (entry.type === 'widget') {
+          const w = widgets.find((widget) => widget.id === entry.id);
+          if (w) {
+            w.parentGroupId = tab.id;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. If any widget has parentGroupId matching a tab, ensure the tab is marked as isGroup
+  // and has urlVariants and groupItemOrder properly populated
+  for (const tab of tabs) {
+    const childWidgets = widgets.filter((w) => w.parentGroupId === tab.id);
+    if (childWidgets.length > 0 && tab.favourite) {
+      tab.isGroup = true;
+      if (!tab.urlVariants || tab.urlVariants.length === 0) {
+        tab.urlVariants = [
+          {
+            id: tab.id,
+            name: tab.customTitle || 'Default',
+            url: tab.url,
+            favIconUrl: tab.favIconUrl,
+          },
+        ];
+        tab.defaultVariantId = tab.id;
+      }
+      if (!tab.groupItemOrder || tab.groupItemOrder.length === 0) {
+        tab.groupItemOrder = [
+          ...tab.urlVariants.map((v) => ({ type: 'tab' as const, id: v.id })),
+          ...childWidgets.map((w) => ({ type: 'widget' as const, id: w.id })),
+        ];
+      } else {
+        const existingIds = new Set(tab.groupItemOrder.map((e) => e.id));
+        for (const w of childWidgets) {
+          if (!existingIds.has(w.id)) {
+            tab.groupItemOrder.push({ type: 'widget', id: w.id });
+          }
+        }
+      }
+    }
+  }
 
   const activeSpaceStillExists = Boolean(
     targetActiveSpaceId &&
@@ -2620,15 +2781,27 @@ export async function syncWorkspaceWithRaindrop(
     // Sync Widgets directly to Arcable root collection
     for (const widget of localState.widgets || []) {
       if (deletedIds.has(widget.id)) continue;
-      const remoteId = widget.raindropId || numericRaindropId(widget.id);
-      const existing = remoteId ? remoteItems.get(remoteId) : undefined;
+      let remoteId = widget.raindropId || numericRaindropId(widget.id);
+      let existing = remoteId ? remoteItems.get(remoteId) : undefined;
+      if (!existing) {
+        existing = [...remoteItems.values()].find((item) =>
+          item.link === `${ARCABLE_WIDGET_LINK_PREFIX}${widget.id}` ||
+          (item.excerpt && item.excerpt.includes(`"id":"${widget.id}"`))
+        );
+        if (existing) {
+          widget.raindropId = existing._id;
+          remoteId = existing._id;
+        }
+      }
       const targetOrder = calculateWidgetTargetOrder(widget, localState.tabs || [], localState.widgets || []);
       const input = widgetToRaindropItemInput(widget, root._id, targetOrder);
       if (!existing) {
         bookmarksToCreate.push(input);
       } else {
+        const excerptChanged = existing.excerpt !== input.excerpt;
+        const titleChanged = existing.title !== input.title;
         const orderChanged = existing.sort !== targetOrder && existing.order !== targetOrder;
-        const shouldUpdate = changedIds.has(widget.id) || orderChanged || (widget.updatedAt || 0) > timestamp(existing.lastUpdate);
+        const shouldUpdate = changedIds.has(widget.id) || excerptChanged || titleChanged || orderChanged || (widget.updatedAt || 0) > timestamp(existing.lastUpdate);
         if (shouldUpdate) {
           await updateRaindropItem(clean, existing._id, {
             title: input.title,

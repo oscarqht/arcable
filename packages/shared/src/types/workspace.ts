@@ -26,6 +26,7 @@ export interface Tab {
   urlVariants?: TabUrlVariant[];
   defaultVariantId?: string;
   isGroup?: boolean;        // Optional: if true, tab represents a group containing multiple child items
+  groupItemOrder?: Array<{ type: 'tab' | 'widget'; id: string }>; // Optional: unified custom ordering of variants and child widgets
   pinned: boolean;
   favourite?: boolean;     // Optional: if true, tab is a global favourite and does not belong to any space or folder
   customTitle?: string;
@@ -150,6 +151,7 @@ export interface WorkspaceWidget {
   style: WidgetStyle;
   size: WidgetSize;
   order?: number;          // Optional: custom sorting order
+  parentGroupId?: string;  // Optional: ID of parent favourite group if widget is inside a group
   config?: Record<string, any>;
   createdAt?: number;
   updatedAt?: number;

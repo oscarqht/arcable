@@ -526,6 +526,8 @@ export function applyOperation(
         url: op.payload?.url || 'https://arcable.dev',
         urlVariants: op.payload?.urlVariants?.map((variant: TabUrlVariant) => ({ ...variant })),
         defaultVariantId: op.payload?.defaultVariantId,
+        isGroup: op.payload?.isGroup !== undefined ? Boolean(op.payload.isGroup) : undefined,
+        groupItemOrder: op.payload?.groupItemOrder?.map((entry: any) => ({ ...entry })),
         pinned: isPinned,
         favourite: isFav || undefined,
         customTitle: op.payload?.customTitle,
@@ -567,6 +569,11 @@ export function applyOperation(
           }
           if ('isGroup' in op.payload) {
             updated.isGroup = Boolean(op.payload.isGroup);
+          }
+          if ('groupItemOrder' in op.payload) {
+            updated.groupItemOrder = op.payload.groupItemOrder && op.payload.groupItemOrder.length > 0
+              ? op.payload.groupItemOrder.map((entry: any) => ({ ...entry }))
+              : undefined;
           }
           if ('parentFolderId' in op.payload) {
             updated.parentFolderId = op.payload.parentFolderId || undefined;
@@ -665,6 +672,7 @@ export function applyOperation(
         style: op.payload?.style || 'digital',
         size: op.payload?.size || 'medium',
         order: op.payload?.order !== undefined ? op.payload.order : undefined,
+        parentGroupId: op.payload?.parentGroupId || undefined,
         config: op.payload?.config,
         createdAt: op.payload?.createdAt || op.timestamp,
         updatedAt: op.timestamp,
@@ -685,6 +693,7 @@ export function applyOperation(
         widgets[existingIdx] = {
           ...widgets[existingIdx],
           ...op.payload,
+          parentGroupId: 'parentGroupId' in op.payload ? (op.payload.parentGroupId || undefined) : widgets[existingIdx].parentGroupId,
           updatedAt: op.timestamp,
         };
       }

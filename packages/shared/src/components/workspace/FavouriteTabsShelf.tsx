@@ -27,7 +27,7 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
-import { FavouriteGroupPopover } from './FavouriteGroupPopover';
+import { FavouriteGroupPopover, renderMiniWidgetIcon } from './FavouriteGroupPopover';
 import {
   StarIcon,
   PlusIcon,
@@ -51,6 +51,9 @@ import {
   WeatherPopover,
   QuickSearchPopover,
   NOTE_COLORS,
+  WidgetTileContent,
+  ClockInfo,
+  buildClockInfo,
 } from './widgets';
 import { getWeatherInterpretation } from '../../utils/weatherService';
 import { calculateCountdownStatus, createDefaultCountdownConfig } from '../../utils/countdown';
@@ -77,9 +80,11 @@ export interface FavouriteTabsShelfProps {
   onUngroupTab?: (tabId: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
-  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any> }) => WorkspaceWidget | void;
+  onAddWidget?: (widget: { style: WidgetStyle; size: WidgetSize; config?: Record<string, any>; parentGroupId?: string }) => WorkspaceWidget | void;
   onUpdateWidget?: (id: string, updates: Partial<WorkspaceWidget>) => void;
   onRemoveWidget?: (id: string) => void;
+  onMoveWidgetToGroup?: (widgetId: string, targetGroupId: string) => void;
+  onExtractWidgetFromGroup?: (widgetId: string, targetOrder?: number) => void;
   onReorderFavouriteItem?: (sourceId: string, targetId: string, position: 'before' | 'after') => void;
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   onReorderGroupVariants?: (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => void;
@@ -92,41 +97,8 @@ export interface FavouriteTabsShelfProps {
 export type ShelfItem =
   | { type: 'tab'; id: string; tab: Tab; order?: number; createdAt?: number }
   | { type: 'widget'; id: string; widget: WorkspaceWidget; order?: number; createdAt?: number };
-
-const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-interface ClockInfo {
-  timeMain: string;
-  timeAmpm: string;
-  weekdayShort: string;
-  monthShort: string;
-  day: number;
-  hourAngle: number;
-  minuteAngle: number;
-}
-
-function pad(n: number): string {
-  return n < 10 ? '0' + n : '' + n;
-}
-
-function buildClockInfo(now: Date): ClockInfo {
-  const h24 = now.getHours();
-  const h12 = ((h24 + 11) % 12) + 1;
-  const m = now.getMinutes();
-  const s = now.getSeconds();
-  return {
-    timeMain: h12 + ':' + pad(m),
-    timeAmpm: h24 >= 12 ? 'PM' : 'AM',
-    weekdayShort: WEEKDAY_SHORT[now.getDay()],
-    monthShort: MONTH_SHORT[now.getMonth()],
-    day: now.getDate(),
-    hourAngle: ((h24 % 12) + m / 60) * 30,
-    minuteAngle: m * 6 + s * 0.1,
-  };
-}
-
 export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
+
   tabs,
   widgets = [],
   tabAssociations,
@@ -151,6 +123,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onAddWidget,
   onUpdateWidget,
   onRemoveWidget,
+  onMoveWidgetToGroup,
+  onExtractWidgetFromGroup,
   onReorderFavouriteItem,
   onReorderFavouriteTabs,
   onReorderGroupVariants,
@@ -339,7 +313,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   const clockInfo = useMemo(() => buildClockInfo(now), [now]);
 
-  // Combined sorted list of tabs and widgets
+  // Only show widgets that are not inside a group on the root shelf
+  const shelfWidgets = useMemo(() => widgets.filter((w) => !w.parentGroupId), [widgets]);
+
+  // Combined sorted list of tabs and root widgets
   const shelfItems = useMemo<ShelfItem[]>(() => {
     const tabItems: ShelfItem[] = tabs.map((t) => ({
       type: 'tab',
@@ -348,7 +325,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       order: t.order,
       createdAt: t.createdAt,
     }));
-    const widgetItems: ShelfItem[] = widgets.map((w) => ({
+    const widgetItems: ShelfItem[] = shelfWidgets.map((w) => ({
       type: 'widget',
       id: w.id,
       widget: w,
@@ -365,7 +342,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       if (b.order !== undefined) return 1;
       return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
     });
-  }, [tabs, widgets]);
+  }, [tabs, shelfWidgets]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     if (hoverTimerRef.current) {
@@ -394,10 +371,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     const width = rect.width;
 
     const isTargetTab = tabs.some((t) => t.id === id);
-    const isSourceTab = activeDrag ? (activeDrag.type === 'favTab' || activeDrag.type === 'tab') : !widgets.some((w) => w.id === (activeDrag as any)?.id);
+    const isTargetWidget = shelfWidgets.some((w) => w.id === id);
+    const isSourceTab = activeDrag
+      ? activeDrag.type === 'favTab' || activeDrag.type === 'tab'
+      : tabs.some((t) => t.id === (activeDrag as any)?.id);
+    const isSourceWidget = activeDrag
+      ? activeDrag.type === 'widget'
+      : widgets.some((w) => w.id === (activeDrag as any)?.id);
 
     let pos: 'before' | 'after' | 'inside' = 'after';
-    if (isTargetTab && isSourceTab && onMergeFavouriteTabs) {
+    if ((isTargetTab || isTargetWidget) && (isSourceTab || isSourceWidget) && onMergeFavouriteTabs) {
       if (relX < width * 0.35) {
         pos = 'before';
       } else if (relX > width * 0.65) {
@@ -438,9 +421,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       if (!sourceId || sourceId === targetId) return;
 
       if (pos === 'inside') {
-        const isTargetTab = tabs.some((t) => t.id === targetId);
-        const isSourceTab = tabs.some((t) => t.id === sourceId);
-        if (isTargetTab && isSourceTab && onMergeFavouriteTabs) {
+        const isTarget = tabs.some((t) => t.id === targetId) || shelfWidgets.some((w) => w.id === targetId);
+        const isSource = tabs.some((t) => t.id === sourceId) || widgets.some((w) => w.id === sourceId);
+        if (isTarget && isSource && onMergeFavouriteTabs) {
           onMergeFavouriteTabs(sourceId, targetId);
           return;
         }
@@ -565,7 +548,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           if (item.type === 'tab') {
             const tab = item.tab;
             const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
-            const isGroup = Boolean(tab.isGroup || validVariants.length > 1);
+            const groupWidgets = widgets.filter((w) => w.parentGroupId === tab.id);
+            const isGroup = Boolean(tab.isGroup || validVariants.length > 1 || groupWidgets.length > 0);
 
             // Check if group is associated with any open browser tab
             let isGroupAssociated = false;
@@ -624,8 +608,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 : ' • Open in browser'
               : ' • Closed (Click to open)';
             const divertedSuffix = isDiverted ? ' (Navigated away from original URL)' : '';
+            const totalGroupItems = validVariants.length + groupWidgets.length;
             const tooltipText = isGroup
-              ? `${displayTitle} (${validVariants.length} items)${isAssociated ? ' • Has open tab(s)' : ''}`
+              ? `${displayTitle} (${totalGroupItems} items)${isAssociated ? ' • Has open tab(s)' : ''}`
               : tab.url
               ? `${displayTitle}\n${tab.url}${statusSuffix}${divertedSuffix}`
               : displayTitle;
@@ -995,33 +980,112 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     transition: 'opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease',
                   }}
                 >
-                  {isGroup && !tab.customEmojiIcon ? (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(2, 1fr)',
-                        gap: '3px',
-                        alignItems: 'center',
-                        justifyItems: 'center',
-                        width: '36px',
-                        height: '36px',
-                      }}
-                    >
-                      {validVariants.slice(0, 4).map((variant, vIdx) => (
-                        <TabFavicon
-                          key={variant.id || vIdx}
-                          url={variant.url}
-                          favIconUrl={variant.favIconUrl || tabAssociations?.[variant.id]?.favIconUrl}
-                          customEmojiIcon={variant.customEmojiIcon}
-                          size={16}
-                          emojiSize={15}
-                          globeIconSize={14}
-                          globeIconColor={shelfTheme.subtextColor}
-                          showDomainFallback={false}
+                  {isGroup && !tab.customEmojiIcon ? (() => {
+                    const groupPreviewItems: Array<
+                      | { type: 'tab'; variant: TabUrlVariant }
+                      | { type: 'widget'; widget: WorkspaceWidget }
+                    > = [];
+                    const previewKnownIds = new Set<string>();
+
+                    if (tab.groupItemOrder && tab.groupItemOrder.length > 0) {
+                      for (const entry of tab.groupItemOrder) {
+                        if (groupPreviewItems.length >= 4) break;
+                        if (entry.type === 'tab') {
+                          const v = validVariants.find((varItem) => varItem.id === entry.id);
+                          if (v) {
+                            groupPreviewItems.push({ type: 'tab', variant: v });
+                            previewKnownIds.add(v.id);
+                          }
+                        } else if (entry.type === 'widget') {
+                          const w = groupWidgets.find((wItem) => wItem.id === entry.id);
+                          if (w) {
+                            groupPreviewItems.push({ type: 'widget', widget: w });
+                            previewKnownIds.add(w.id);
+                          }
+                        }
+                      }
+                    }
+
+                    for (const v of validVariants) {
+                      if (groupPreviewItems.length >= 4) break;
+                      if (!previewKnownIds.has(v.id)) {
+                        groupPreviewItems.push({ type: 'tab', variant: v });
+                        previewKnownIds.add(v.id);
+                      }
+                    }
+
+                    for (const w of groupWidgets) {
+                      if (groupPreviewItems.length >= 4) break;
+                      if (!previewKnownIds.has(w.id)) {
+                        groupPreviewItems.push({ type: 'widget', widget: w });
+                        previewKnownIds.add(w.id);
+                      }
+                    }
+
+                    if (groupPreviewItems.length === 0) {
+                      return (
+                        <GridViewIcon
+                          size={20}
+                          color={shelfTheme.subtextColor}
                         />
-                      ))}
-                    </div>
-                  ) : (
+                      );
+                    }
+
+                    return (
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, 1fr)',
+                          gap: '3px',
+                          alignItems: 'center',
+                          justifyItems: 'center',
+                          width: '36px',
+                          height: '36px',
+                        }}
+                      >
+                        {groupPreviewItems.map((pItem, pIdx) => {
+                          if (pItem.type === 'tab') {
+                            const variant = pItem.variant;
+                            return (
+                              <TabFavicon
+                                key={variant.id || pIdx}
+                                url={variant.url}
+                                favIconUrl={variant.favIconUrl || tabAssociations?.[variant.id]?.favIconUrl}
+                                customEmojiIcon={variant.customEmojiIcon}
+                                size={16}
+                                emojiSize={15}
+                                globeIconSize={14}
+                                globeIconColor={shelfTheme.subtextColor}
+                                showDomainFallback={false}
+                              />
+                            );
+                          }
+                          return (
+                            <div
+                              key={pItem.widget.id || pIdx}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <WidgetTileContent
+                                widget={pItem.widget}
+                                theme={shelfTheme}
+                                clockInfo={clockInfo}
+                                now={now}
+                                mode="mini"
+                              />
+                            </div>
+
+
+                          );
+                        })}
+                      </div>
+                    );
+                  })() : (
                     <TabFavicon
                       url={tab.url}
                       favIconUrl={tab.favIconUrl}
@@ -1331,619 +1395,16 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 </button>
               )}
 
-              {/* 1. Calendar Widget */}
-              {widget.style === 'calendar' && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    borderRadius: '13px',
-                    userSelect: 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '17px',
-                      backgroundColor: '#ef4444',
-                      color: '#ffffff',
-                      fontSize: '9px',
-                      fontWeight: 800,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {clockInfo.monthShort}
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      paddingBottom: '2px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '19px',
-                        fontWeight: 800,
-                        lineHeight: 1,
-                        color: shelfTheme.textColor,
-                        letterSpacing: '-0.5px',
-                      }}
-                    >
-                      {clockInfo.day}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '8.5px',
-                        fontWeight: 600,
-                        color: shelfTheme.subtextColor || shelfTheme.textColor,
-                        opacity: 0.65,
-                        marginTop: '1px',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {clockInfo.weekdayShort}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Widget Visual Content */}
+              <WidgetTileContent
+                widget={widget}
+                theme={shelfTheme}
+                clockInfo={clockInfo}
+                now={now}
+                mode="full"
+                compact={false}
+              />
 
-              {/* 2. Digital Clock Widget */}
-              {widget.style === 'digital' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    width: '100%',
-                    userSelect: 'none',
-                    padding: '4px 2px',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: '13.5px',
-                      fontWeight: 700,
-                      letterSpacing: '-0.3px',
-                      color: shelfTheme.textColor,
-                      fontVariantNumeric: 'tabular-nums',
-                      whiteSpace: 'nowrap',
-                      lineHeight: 1.2,
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <span>{clockInfo.timeMain}</span>
-                    <span
-                      style={{
-                        fontSize: '8.5px',
-                        fontWeight: 700,
-                        opacity: 0.65,
-                        marginLeft: '2px',
-                      }}
-                    >
-                      {clockInfo.timeAmpm}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      color: shelfTheme.subtextColor || shelfTheme.textColor,
-                      letterSpacing: '0.04em',
-                      marginTop: '3px',
-                      lineHeight: 1,
-                      textTransform: 'uppercase',
-                      opacity: 0.95,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {clockInfo.weekdayShort} {clockInfo.day}
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Analog Clock Widget */}
-              {widget.style === 'analog' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    width: '100%',
-                    userSelect: 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '38px',
-                      height: '38px',
-                      minWidth: '38px',
-                      minHeight: '38px',
-                      borderRadius: '999px',
-                      background: shelfTheme.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.75)',
-                      border: `1.5px solid ${shelfTheme.borderColor}`,
-                      position: 'relative',
-                    }}
-                  >
-                    {/* Hour Hand */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        width: '2px',
-                        height: '10px',
-                        background: shelfTheme.textColor,
-                        borderRadius: '1px',
-                        transformOrigin: 'bottom center',
-                        transform: `translate(-50%, -100%) rotate(${clockInfo.hourAngle}deg)`,
-                      }}
-                    />
-
-                    {/* Minute Hand */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        width: '1.5px',
-                        height: '14px',
-                        background: shelfTheme.textColor,
-                        borderRadius: '1px',
-                        transformOrigin: 'bottom center',
-                        transform: `translate(-50%, -100%) rotate(${clockInfo.minuteAngle}deg)`,
-                      }}
-                    />
-
-                    {/* Center Dot */}
-                    <div
-                      style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        width: '4px',
-                        height: '4px',
-                        borderRadius: '999px',
-                        background: shelfTheme.textColor,
-                        transform: 'translate(-50%, -50%)',
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 4. Date & Time (Combo) Widget */}
-              {widget.style === 'combo' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    width: '100%',
-                    userSelect: 'none',
-                    padding: '3px 2px',
-                    boxSizing: 'border-box',
-                    gap: '1.5px',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: '8.5px',
-                      fontWeight: 800,
-                      color: shelfTheme.subtextColor || shelfTheme.textColor,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      lineHeight: 1.1,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {clockInfo.weekdayShort}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '8.5px',
-                      fontWeight: 800,
-                      color: shelfTheme.subtextColor || shelfTheme.textColor,
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      lineHeight: 1.1,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {clockInfo.monthShort} {clockInfo.day}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      letterSpacing: '-0.3px',
-                      color: shelfTheme.textColor,
-                      fontVariantNumeric: 'tabular-nums',
-                      whiteSpace: 'nowrap',
-                      lineHeight: 1.2,
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      justifyContent: 'center',
-                      marginTop: '1px',
-                    }}
-                  >
-                    <span>{clockInfo.timeMain}</span>
-                    <span
-                      style={{
-                        fontSize: '8px',
-                        fontWeight: 700,
-                        opacity: 0.65,
-                        marginLeft: '2px',
-                        textTransform: 'lowercase',
-                      }}
-                    >
-                      {clockInfo.timeAmpm}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* 5. Pomodoro Widget */}
-              {widget.style === 'pomodoro' && (() => {
-                const pomoConfig = (widget.config as PomodoroConfig) || {};
-                const isRunning = Boolean(pomoConfig.isRunning);
-                const mode = pomoConfig.mode || 'work';
-                const defaultSeconds = (mode === 'work' ? (pomoConfig.workMinutes ?? 25) : (pomoConfig.breakMinutes ?? 5)) * 60;
-                let remaining = pomoConfig.remainingSeconds ?? defaultSeconds;
-                if (isRunning && pomoConfig.targetTimestamp) {
-                  remaining = Math.max(0, Math.ceil((pomoConfig.targetTimestamp - now.getTime()) / 1000));
-                }
-                const min = Math.floor(remaining / 60);
-                const sec = remaining % 60;
-                const timeStr = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-                const accentColor = mode === 'work' ? '#ef4444' : '#10b981';
-
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                      width: '100%',
-                      userSelect: 'none',
-                      padding: '4px 2px',
-                      boxSizing: 'border-box',
-                      gap: '2px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      <span style={{ fontSize: '11px', lineHeight: 1 }}>{mode === 'work' ? '🍅' : '☕'}</span>
-                      {isRunning && (
-                        <div
-                          style={{
-                            width: '4px',
-                            height: '4px',
-                            borderRadius: '999px',
-                            backgroundColor: accentColor,
-                            boxShadow: `0 0 4px ${accentColor}`,
-                          }}
-                        />
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        letterSpacing: '-0.3px',
-                        color: isRunning ? accentColor : shelfTheme.textColor,
-                        fontVariantNumeric: 'tabular-nums',
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {timeStr}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '8px',
-                        fontWeight: 700,
-                        color: accentColor,
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        opacity: 0.9,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {mode === 'work' ? 'Focus' : 'Break'}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* 6. Countdown Widget */}
-              {widget.style === 'countdown' && (() => {
-                const countConfig = (widget.config as CountdownConfig) || {};
-                const targetStr = countConfig.targetDate;
-                const title = countConfig.title || 'Countdown';
-                const { displayNum, displayUnit } = calculateCountdownStatus(targetStr, now.getTime());
-
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                      width: '100%',
-                      userSelect: 'none',
-                      padding: '4px 3px',
-                      boxSizing: 'border-box',
-                      gap: '2px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '8px',
-                        fontWeight: 700,
-                        color: shelfTheme.subtextColor || shelfTheme.textColor,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        maxWidth: '48px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {title}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '13.5px',
-                        fontWeight: 800,
-                        letterSpacing: '-0.3px',
-                        color: shelfTheme.textColor,
-                        fontVariantNumeric: 'tabular-nums',
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {displayNum}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '8px',
-                        color: shelfTheme.subtextColor,
-                        opacity: 0.75,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {displayUnit || 'Set date'}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* 7. Sticky Note Widget */}
-              {widget.style === 'note' && (() => {
-                const noteConfig = (widget.config as NoteConfig) || {};
-                const text = noteConfig.text || '';
-                const trimmedText = text.trim();
-                const lines = text.split('\n').filter((l) => l.trim().length > 0);
-                const firstLine = lines[0] || '';
-                const remainingLines = lines.slice(1);
-                const remainingText = remainingLines.join('\n');
-
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      justifyContent: trimmedText ? 'flex-start' : 'center',
-                      height: '100%',
-                      width: '100%',
-                      userSelect: 'none',
-                      padding: '4px 6px',
-                      boxSizing: 'border-box',
-                      overflow: 'hidden',
-                      gap: '1px',
-                    }}
-                  >
-                    {trimmedText ? (
-                      <>
-                        <div
-                          style={{
-                            fontSize: '8.5px',
-                            fontWeight: 700,
-                            lineHeight: 1.18,
-                            overflow: 'hidden',
-                            wordBreak: 'break-word',
-                            display: '-webkit-box',
-                            WebkitBoxOrient: 'vertical',
-                            WebkitLineClamp: remainingText ? 2 : 4,
-                            color: shelfTheme.isDark ? '#f1f5f9' : '#1e293b',
-                            width: '100%',
-                          }}
-                        >
-                          {firstLine}
-                        </div>
-                        {remainingText && (
-                          <div
-                            style={{
-                              fontSize: '8px',
-                              opacity: 0.75,
-                              lineHeight: 1.18,
-                              overflow: 'hidden',
-                              wordBreak: 'break-word',
-                              whiteSpace: 'pre-wrap',
-                              display: '-webkit-box',
-                              WebkitBoxOrient: 'vertical',
-                              WebkitLineClamp: 3,
-                              color: shelfTheme.isDark ? '#cbd5e1' : '#475569',
-                              width: '100%',
-                            }}
-                          >
-                            {remainingText}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '100%',
-                          gap: '2px',
-                        }}
-                      >
-                        <span style={{ fontSize: '14px', lineHeight: 1 }}>📝</span>
-                        <span
-                          style={{
-                            fontSize: '8.5px',
-                            fontWeight: 600,
-                            opacity: 0.7,
-                            color: shelfTheme.isDark ? '#e2e8f0' : '#475569',
-                          }}
-                        >
-                          + Note
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* 8. Weather Widget */}
-              {widget.style === 'weather' && (() => {
-                const weatherConfig = (widget.config as WeatherConfig) || {};
-                const temp = weatherConfig.cachedTemp;
-                const code = weatherConfig.cachedCode;
-                const unit = (weatherConfig.tempUnit || 'c').toUpperCase();
-                const { emoji } = getWeatherInterpretation(code ?? 0);
-                const city = weatherConfig.city || 'Weather';
-
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                      width: '100%',
-                      userSelect: 'none',
-                      padding: '4px 2px',
-                      boxSizing: 'border-box',
-                      gap: '2px',
-                    }}
-                  >
-                    <span style={{ fontSize: '15px', lineHeight: 1 }}>{emoji}</span>
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 800,
-                        letterSpacing: '-0.3px',
-                        color: shelfTheme.textColor,
-                        fontVariantNumeric: 'tabular-nums',
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {temp !== undefined ? `${temp}°${unit}` : '--°'}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '8px',
-                        fontWeight: 600,
-                        color: shelfTheme.subtextColor,
-                        maxWidth: '48px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {city}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* 9. Quick Search Widget */}
-              {widget.style === 'search' && (() => {
-                const searchConfig = (widget.config as SearchConfig) || {};
-                const engine = searchConfig.engine === 'custom' ? 'custom' : 'google';
-                const engineIcon =
-                  engine === 'google'
-                    ? '🔍'
-                    : searchConfig.customIcon?.trim() || '⚙️';
-                const engineName =
-                  engine === 'google'
-                    ? 'Google'
-                    : searchConfig.customName?.trim() || 'Custom';
-
-                return (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                      width: '100%',
-                      userSelect: 'none',
-                      padding: '4px 2px',
-                      boxSizing: 'border-box',
-                      gap: '3px',
-                    }}
-                  >
-                    <span style={{ fontSize: '15px', lineHeight: 1 }}>{engineIcon}</span>
-                    <div
-                      style={{
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        color: shelfTheme.textColor,
-                        maxWidth: '48px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {engineName}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '7.5px',
-                        fontWeight: 600,
-                        color: shelfTheme.subtextColor || shelfTheme.textColor,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                        lineHeight: 1,
-                      }}
-                    >
-                      Search
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           );
         })}
@@ -2485,6 +1946,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       {groupPopoverTab && activePopoverGroupTab && (
         <FavouriteGroupPopover
           groupTab={activePopoverGroupTab}
+          childWidgets={widgets.filter((w) => w.parentGroupId === activePopoverGroupTab.id)}
           anchorRect={groupPopoverTab.anchorRect}
           isOpen={Boolean(groupPopoverTab)}
           onClose={() => setGroupPopoverTab(null)}
@@ -2499,6 +1961,15 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           }}
           onEditGroup={(gTab) => onEditTab(gTab)}
           onAddItem={(gTab) => onEditTab(gTab)}
+          onAddWidget={(w) =>
+            onAddWidget?.({
+              ...w,
+              parentGroupId: activePopoverGroupTab.id,
+            })
+          }
+          onExtractWidget={(widgetId) => onExtractWidgetFromGroup?.(widgetId)}
+          onRemoveWidget={(widgetId) => onRemoveWidget?.(widgetId)}
+          onOpenWidget={(widget, anchorRect) => setActiveWidgetPopover({ id: widget.id, anchorRect })}
           onOpenAll={(gTab) => {
             (gTab.urlVariants || []).forEach((v) => {
               if (v.url && onOpenTab) {

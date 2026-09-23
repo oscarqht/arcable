@@ -1148,9 +1148,19 @@ export function useWorkspace() {
           ? prev.raindropRootCollectionId
           : parent?.raindropId || numericParentId,
       }));
+
+      // If the deleted tab is a group tab, also delete any child widgets belonging to it
+      const childWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === id);
+      childWidgets.forEach((w) => {
+        savePendingOperation(createWorkspaceOperation('WIDGET_DELETE', w.id, {
+          raindropId: w.raindropId,
+        }));
+      });
+
       return {
         ...prev,
         tabs: prev.tabs.filter((t) => t.id !== id),
+        widgets: (prev.widgets || []).filter((w) => w.parentGroupId !== id),
       };
     });
   }, [saveWorkspaceData]);
@@ -1582,39 +1592,74 @@ export function useWorkspace() {
   }, [activeSpace, createTab, deleteTmpTab]);
 
   // ================= Widget Operations =================
-  const addWidget = useCallback((widgetInput: { style: WidgetStyle; size?: WidgetSize; config?: Record<string, any> }) => {
-    const existing = data.widgets || [];
-    const favTabs = data.tabs.filter((t) => Boolean(t.favourite));
-    const maxOrder = Math.max(
-      0,
-      ...existing.map((w) => (w.order !== undefined ? w.order : w.createdAt || 0)),
-      ...favTabs.map((t) => (t.order !== undefined ? t.order : t.createdAt || 0))
-    );
+  const addWidget = useCallback(
+    (widgetInput: {
+      style: WidgetStyle;
+      size?: WidgetSize;
+      config?: Record<string, any>;
+      parentGroupId?: string;
+    }) => {
+      const existing = data.widgets || [];
+      const favTabs = data.tabs.filter((t) => Boolean(t.favourite));
+      const maxOrder = Math.max(
+        0,
+        ...existing.map((w) => (w.order !== undefined ? w.order : w.createdAt || 0)),
+        ...favTabs.map((t) => (t.order !== undefined ? t.order : t.createdAt || 0))
+      );
 
-    const newWidget: WorkspaceWidget = {
-      id: generateId('widget'),
-      style: widgetInput.style,
-      size: widgetInput.size || 'small',
-      config: widgetInput.config,
-      order: maxOrder + 1000,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    savePendingOperation(createWorkspaceOperation('WIDGET_CREATE', newWidget.id, newWidget));
-
-    saveWorkspaceData((prev) => {
-      if ((prev.widgets || []).some((w) => w.id === newWidget.id)) {
-        return prev;
-      }
-      return {
-        ...prev,
-        widgets: [...(prev.widgets || []), newWidget],
+      const newWidget: WorkspaceWidget = {
+        id: generateId('widget'),
+        style: widgetInput.style,
+        size: widgetInput.size || 'small',
+        config: widgetInput.config,
+        parentGroupId: widgetInput.parentGroupId || undefined,
+        order: maxOrder + 1000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       };
-    });
 
-    return newWidget;
-  }, [data.widgets, data.tabs, saveWorkspaceData]);
+      savePendingOperation(createWorkspaceOperation('WIDGET_CREATE', newWidget.id, newWidget));
+
+      saveWorkspaceData((prev) => {
+        if ((prev.widgets || []).some((w) => w.id === newWidget.id)) {
+          return prev;
+        }
+
+        let updatedTabs = prev.tabs;
+        if (widgetInput.parentGroupId) {
+          const groupTab = prev.tabs.find((t) => t.id === widgetInput.parentGroupId);
+          if (groupTab) {
+            const nextGroupItemOrder = [
+              ...(groupTab.groupItemOrder || []),
+              { type: 'widget' as const, id: newWidget.id },
+            ];
+            const updatedGroupTab: Tab = {
+              ...groupTab,
+              isGroup: true,
+              groupItemOrder: nextGroupItemOrder,
+              updatedAt: Date.now(),
+            };
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+                isGroup: true,
+                groupItemOrder: nextGroupItemOrder,
+              })
+            );
+            updatedTabs = prev.tabs.map((t) => (t.id === groupTab.id ? updatedGroupTab : t));
+          }
+        }
+
+        return {
+          ...prev,
+          tabs: updatedTabs,
+          widgets: [...(prev.widgets || []), newWidget],
+        };
+      });
+
+      return newWidget;
+    },
+    [data.widgets, data.tabs, saveWorkspaceData]
+  );
 
   const updateWidget = useCallback((id: string, updates: Partial<WorkspaceWidget>) => {
     savePendingOperation(createWorkspaceOperation('WIDGET_UPDATE', id, updates));
@@ -1645,8 +1690,70 @@ export function useWorkspace() {
         raindropId: deletedWidget?.raindropId,
       }));
 
+      // If this widget was part of a group, clean up the group
+      let updatedTabs = prev.tabs;
+      if (deletedWidget?.parentGroupId) {
+        const groupTab = prev.tabs.find((t) => t.id === deletedWidget.parentGroupId);
+        if (groupTab) {
+          const remainingWidgets = (prev.widgets || []).filter((w) => w.id !== id && w.parentGroupId === groupTab.id);
+          const remainingVariants = (groupTab.urlVariants || []).filter((v) => Boolean(v.url));
+
+          if (remainingWidgets.length === 0 && remainingVariants.length === 0) {
+            const numericSourceId = /^\d+$/.test(groupTab.id) ? Number(groupTab.id) : undefined;
+            savePendingOperation(
+              createWorkspaceOperation('TAB_DELETE', groupTab.id, {
+                raindropId: groupTab.raindropId || numericSourceId,
+                collectionId: prev.raindropRootCollectionId,
+              })
+            );
+            updatedTabs = prev.tabs.filter((t) => t.id !== groupTab.id);
+          } else if (remainingWidgets.length === 0 && remainingVariants.length === 1) {
+            const onlyVariant = remainingVariants[0];
+            const revertedTab: Tab = {
+              ...groupTab,
+              customTitle: onlyVariant.name || groupTab.customTitle,
+              url: onlyVariant.url || groupTab.url,
+              favIconUrl: onlyVariant.favIconUrl || groupTab.favIconUrl,
+              customEmojiIcon: onlyVariant.customEmojiIcon || groupTab.customEmojiIcon,
+              isGroup: false,
+              urlVariants: undefined,
+              defaultVariantId: undefined,
+              groupItemOrder: undefined,
+              updatedAt: Date.now(),
+            };
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+                title: revertedTab.customTitle,
+                url: revertedTab.url,
+                favIconUrl: revertedTab.favIconUrl,
+                customEmojiIcon: revertedTab.customEmojiIcon,
+                isGroup: false,
+                urlVariants: null,
+                defaultVariantId: null,
+                groupItemOrder: null,
+              })
+            );
+            updatedTabs = prev.tabs.map((t) => (t.id === groupTab.id ? revertedTab : t));
+          } else {
+            const nextGroupItemOrder = (groupTab.groupItemOrder || []).filter((e) => e.id !== id);
+            const updatedGroupTab: Tab = {
+              ...groupTab,
+              groupItemOrder: nextGroupItemOrder.length > 0 ? nextGroupItemOrder : undefined,
+              updatedAt: Date.now(),
+            };
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+                groupItemOrder: updatedGroupTab.groupItemOrder || null,
+              })
+            );
+            updatedTabs = prev.tabs.map((t) => (t.id === groupTab.id ? updatedGroupTab : t));
+          }
+        }
+      }
+
       return {
         ...prev,
+        tabs: updatedTabs,
         widgets: (prev.widgets || []).filter((w) => w.id !== id),
       };
     });
@@ -2229,12 +2336,14 @@ export function useWorkspace() {
         order: t.order,
         createdAt: t.createdAt,
       }));
-      const currentWidgets: FavItem[] = getSortedWidgets(data.widgets || []).map((w) => ({
-        id: w.id,
-        type: 'widget' as const,
-        order: w.order,
-        createdAt: w.createdAt,
-      }));
+      const currentWidgets: FavItem[] = getSortedWidgets(data.widgets || [])
+        .filter((w) => !w.parentGroupId)
+        .map((w) => ({
+          id: w.id,
+          type: 'widget' as const,
+          order: w.order,
+          createdAt: w.createdAt,
+        }));
 
       const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
         if (a.order !== undefined && b.order !== undefined) {
@@ -2249,31 +2358,57 @@ export function useWorkspace() {
 
       const sourceIdx = allItems.findIndex((i) => i.id === sourceId);
       const targetIdx = allItems.findIndex((i) => i.id === targetId);
-      if (sourceIdx < 0 || targetIdx < 0) return;
+      if (targetIdx < 0) return;
 
-      const [moved] = allItems.splice(sourceIdx, 1);
+      const sourceWidget = (data.widgets || []).find((w) => w.id === sourceId);
+      let moved: FavItem;
+      let extractedFromGroupId: string | undefined = undefined;
+
+      if (sourceIdx < 0 && sourceWidget && sourceWidget.parentGroupId) {
+        // Dragged out of a group onto the root shelf!
+        extractedFromGroupId = sourceWidget.parentGroupId;
+        moved = { id: sourceWidget.id, type: 'widget', createdAt: sourceWidget.createdAt };
+      } else if (sourceIdx >= 0) {
+        [moved] = allItems.splice(sourceIdx, 1);
+      } else {
+        return;
+      }
+
       const newTargetIdx = allItems.findIndex((i) => i.id === targetId);
       const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
       allItems.splice(insertIdx, 0, moved);
 
-      if (allItems.every((item, index) => item.id === originalOrder[index])) return;
+      if (!extractedFromGroupId && allItems.every((item, index) => item.id === originalOrder[index])) return;
 
       const orderMap = new Map<string, number>();
       allItems.forEach((item, idx) => {
         orderMap.set(item.id, (idx + 1) * 1000);
       });
 
-      // Update tabs
+      // Update tabs (and clean up groupItemOrder if extracted from a group)
       const updatedTabs = data.tabs.map((t) => {
         const newOrder = orderMap.get(t.id);
+        let updatedTab = t;
+        if (extractedFromGroupId && t.id === extractedFromGroupId) {
+          const nextOrder = (t.groupItemOrder || []).filter((e) => e.id !== sourceId);
+          updatedTab = {
+            ...updatedTab,
+            groupItemOrder: nextOrder.length > 0 ? nextOrder : undefined,
+          };
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', t.id, {
+              groupItemOrder: updatedTab.groupItemOrder || null,
+            })
+          );
+        }
         if (newOrder !== undefined) {
           return {
-            ...t,
+            ...updatedTab,
             order: newOrder,
             updatedAt: t.id === sourceId || t.order !== newOrder ? Date.now() : t.updatedAt,
           };
         }
-        return t;
+        return updatedTab;
       });
 
       updatedTabs.forEach((t) => {
@@ -2288,17 +2423,29 @@ export function useWorkspace() {
       // Update widgets
       const updatedWidgets = (data.widgets || []).map((w) => {
         const newOrder = orderMap.get(w.id);
-        if (newOrder !== undefined) {
+        const isExtracted = extractedFromGroupId && w.id === sourceId;
+        if (newOrder !== undefined || isExtracted) {
           return {
             ...w,
-            order: newOrder,
+            parentGroupId: isExtracted ? undefined : w.parentGroupId,
+            order: newOrder !== undefined ? newOrder : w.order,
             updatedAt: w.id === sourceId || w.order !== newOrder ? Date.now() : w.updatedAt,
           };
         }
         return w;
       });
 
+      if (extractedFromGroupId) {
+        savePendingOperation(
+          createWorkspaceOperation('WIDGET_UPDATE', sourceId, {
+            parentGroupId: null,
+            order: orderMap.get(sourceId),
+          })
+        );
+      }
+
       updatedWidgets.forEach((w) => {
+        if (w.id === sourceId && extractedFromGroupId) return;
         const oldWidget = (data.widgets || []).find((orig) => orig.id === w.id);
         if (oldWidget && oldWidget.order !== w.order) {
           savePendingOperation(
@@ -2324,33 +2471,63 @@ export function useWorkspace() {
   );
 
   const reorderGroupVariants = useCallback(
-    (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => {
+    (groupTabId: string, sourceItemId: string, targetItemId: string, position: 'before' | 'after') => {
       saveWorkspaceData((prev) => {
         const tab = prev.tabs.find((t) => t.id === groupTabId);
-        if (!tab || !tab.urlVariants || tab.urlVariants.length <= 1 || sourceVariantId === targetVariantId) return prev;
-        const variants = [...tab.urlVariants];
-        const sourceIndex = variants.findIndex((v) => v.id === sourceVariantId);
+        if (!tab || sourceItemId === targetItemId) return prev;
+
+        const childWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === groupTabId);
+        const variants = tab.urlVariants || [];
+
+        // Build current unified item list
+        let existingOrder = tab.groupItemOrder ? [...tab.groupItemOrder] : [];
+        const knownIds = new Set(existingOrder.map((e) => e.id));
+
+        for (const v of variants) {
+          if (!knownIds.has(v.id)) {
+            existingOrder.push({ type: 'tab', id: v.id });
+            knownIds.add(v.id);
+          }
+        }
+        for (const w of childWidgets) {
+          if (!knownIds.has(w.id)) {
+            existingOrder.push({ type: 'widget', id: w.id });
+            knownIds.add(w.id);
+          }
+        }
+
+        const sourceIndex = existingOrder.findIndex((e) => e.id === sourceItemId);
         if (sourceIndex === -1) return prev;
-        const [dragged] = variants.splice(sourceIndex, 1);
-        let targetIndex = variants.findIndex((v) => v.id === targetVariantId);
+        const [moved] = existingOrder.splice(sourceIndex, 1);
+        let targetIndex = existingOrder.findIndex((e) => e.id === targetItemId);
         if (targetIndex === -1) return prev;
         if (position === 'after') targetIndex += 1;
-        variants.splice(targetIndex, 0, dragged);
+        existingOrder.splice(targetIndex, 0, moved);
 
-        const nextDefaultVariantId = variants[0]?.id;
-        const nextUrl = variants[0]?.url || tab.url;
+        // Sort urlVariants to match relative order in existingOrder
+        const nextVariants = [...variants].sort((a, b) => {
+          const idxA = existingOrder.findIndex((e) => e.id === a.id);
+          const idxB = existingOrder.findIndex((e) => e.id === b.id);
+          return (idxA === -1 ? 9999 : idxA) - (idxB === -1 ? 9999 : idxB);
+        });
+
+        const nextDefaultVariantId = nextVariants[0]?.id || tab.defaultVariantId;
+        const nextUrl = nextVariants[0]?.url || tab.url;
+
         const updatedTab: Tab = {
           ...tab,
-          urlVariants: variants,
+          urlVariants: nextVariants.length > 0 ? nextVariants : tab.urlVariants,
           defaultVariantId: nextDefaultVariantId,
           url: nextUrl,
+          groupItemOrder: existingOrder,
           updatedAt: Date.now(),
         };
 
         const opPayload: Record<string, any> = {
-          urlVariants: variants,
+          urlVariants: updatedTab.urlVariants,
           defaultVariantId: nextDefaultVariantId,
           url: nextUrl,
+          groupItemOrder: existingOrder,
           updatedAt: updatedTab.updatedAt,
         };
         savePendingOperation(createWorkspaceOperation('TAB_UPDATE', groupTabId, opPayload));
@@ -2365,11 +2542,213 @@ export function useWorkspace() {
   );
 
   const mergeTabsIntoGroup = useCallback(
-    (sourceTabId: string, targetTabId: string) => {
+    (sourceId: string, targetId: string) => {
       saveWorkspaceData((prev) => {
-        const sourceTab = prev.tabs.find((t) => t.id === sourceTabId);
-        const targetTab = prev.tabs.find((t) => t.id === targetTabId);
-        if (!sourceTab || !targetTab || sourceTabId === targetTabId) return prev;
+        if (sourceId === targetId) return prev;
+
+        const sourceTab = prev.tabs.find((t) => t.id === sourceId);
+        const sourceWidget = (prev.widgets || []).find((w) => w.id === sourceId);
+        const targetTab = prev.tabs.find((t) => t.id === targetId);
+        const targetWidget = (prev.widgets || []).find((w) => w.id === targetId);
+
+        // Case 1: Widget onto Widget -> create new group tab holding both widgets
+        if (sourceWidget && targetWidget) {
+          const groupId = generateId('tab');
+          const groupOrder = targetWidget.order ?? 0;
+          const groupItemOrder: Array<{ type: 'tab' | 'widget'; id: string }> = [
+            { type: 'widget', id: targetWidget.id },
+            { type: 'widget', id: sourceWidget.id },
+          ];
+
+          const newGroupTab: Tab = {
+            id: groupId,
+            url: 'https://arcable.dev',
+            favourite: true,
+            pinned: false,
+            isGroup: true,
+            customTitle: 'Group',
+            order: groupOrder,
+            groupItemOrder,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+
+          savePendingOperation(
+            createWorkspaceOperation('TAB_CREATE', groupId, {
+              url: newGroupTab.url,
+              title: newGroupTab.customTitle,
+              customTitle: newGroupTab.customTitle,
+              favourite: true,
+              isGroup: true,
+              order: groupOrder,
+              groupItemOrder,
+            })
+          );
+
+          savePendingOperation(
+            createWorkspaceOperation('WIDGET_UPDATE', targetWidget.id, {
+              parentGroupId: groupId,
+            })
+          );
+          savePendingOperation(
+            createWorkspaceOperation('WIDGET_UPDATE', sourceWidget.id, {
+              parentGroupId: groupId,
+            })
+          );
+
+          const updatedWidgets = (prev.widgets || []).map((w) => {
+            if (w.id === targetWidget.id || w.id === sourceWidget.id) {
+              return { ...w, parentGroupId: groupId, updatedAt: Date.now() };
+            }
+            return w;
+          });
+
+          return {
+            ...prev,
+            tabs: [...prev.tabs, newGroupTab],
+            widgets: updatedWidgets,
+          };
+        }
+
+        // Case 2: Widget onto Tab (or Group Tab)
+        if (sourceWidget && targetTab) {
+          const targetBaseId = targetTab.raindropId ? String(targetTab.raindropId) : targetTab.id;
+          const existingVariants: TabUrlVariant[] =
+            targetTab.urlVariants && targetTab.urlVariants.length > 0
+              ? targetTab.urlVariants
+              : [
+                  {
+                    id: targetBaseId || generateId('var'),
+                    name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
+                    url: targetTab.url,
+                    favIconUrl: targetTab.favIconUrl,
+                    customEmojiIcon: targetTab.customEmojiIcon,
+                  },
+                ];
+
+          const existingOrder: Array<{ type: 'tab' | 'widget'; id: string }> = targetTab.groupItemOrder
+            ? [...targetTab.groupItemOrder]
+            : existingVariants.map((v) => ({ type: 'tab', id: v.id }));
+
+          if (!existingOrder.some((e) => e.id === sourceWidget.id)) {
+            existingOrder.push({ type: 'widget', id: sourceWidget.id });
+          }
+
+          const defaultVariant =
+            (targetTab.defaultVariantId && existingVariants.find((v) => v.id === targetTab.defaultVariantId)) ||
+            existingVariants[0];
+          const groupTitle = targetTab.customTitle?.trim() || 'Group';
+
+          const updatedTarget: Tab = {
+            ...targetTab,
+            customTitle: groupTitle,
+            url: defaultVariant.url,
+            urlVariants: existingVariants,
+            defaultVariantId: defaultVariant.id,
+            groupItemOrder: existingOrder,
+            isGroup: true,
+            updatedAt: Date.now(),
+          };
+
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', targetTab.id, {
+              title: groupTitle,
+              customTitle: groupTitle,
+              isGroup: true,
+              url: defaultVariant.url,
+              urlVariants: existingVariants,
+              defaultVariantId: defaultVariant.id,
+              groupItemOrder: existingOrder,
+            })
+          );
+
+          savePendingOperation(
+            createWorkspaceOperation('WIDGET_UPDATE', sourceWidget.id, {
+              parentGroupId: targetTab.id,
+            })
+          );
+
+          const updatedWidgets = (prev.widgets || []).map((w) =>
+            w.id === sourceWidget.id ? { ...w, parentGroupId: targetTab.id, updatedAt: Date.now() } : w
+          );
+
+          return {
+            ...prev,
+            tabs: prev.tabs.map((t) => (t.id === targetTab.id ? updatedTarget : t)),
+            widgets: updatedWidgets,
+          };
+        }
+
+        // Case 3: Tab onto Widget
+        if (sourceTab && targetWidget) {
+          const sourceBaseId = sourceTab.raindropId ? String(sourceTab.raindropId) : sourceTab.id;
+          const sourceVariants: TabUrlVariant[] =
+            sourceTab.urlVariants && sourceTab.urlVariants.length > 0
+              ? sourceTab.urlVariants
+              : [
+                  {
+                    id: sourceBaseId || generateId('var'),
+                    name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 1',
+                    url: sourceTab.url,
+                    favIconUrl: sourceTab.favIconUrl,
+                    customEmojiIcon: sourceTab.customEmojiIcon,
+                  },
+                ];
+
+          const groupItemOrder: Array<{ type: 'tab' | 'widget'; id: string }> = [
+            { type: 'widget', id: targetWidget.id },
+            ...sourceVariants.map((v) => ({ type: 'tab' as const, id: v.id })),
+          ];
+
+          const defaultVariant =
+            (sourceTab.defaultVariantId && sourceVariants.find((v) => v.id === sourceTab.defaultVariantId)) ||
+            sourceVariants[0];
+          const groupTitle = sourceTab.customTitle?.trim() || 'Group';
+
+          const updatedTab: Tab = {
+            ...sourceTab,
+            customTitle: groupTitle,
+            url: defaultVariant.url,
+            urlVariants: sourceVariants,
+            defaultVariantId: defaultVariant.id,
+            groupItemOrder,
+            isGroup: true,
+            order: targetWidget.order ?? sourceTab.order,
+            updatedAt: Date.now(),
+          };
+
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', sourceTab.id, {
+              title: groupTitle,
+              customTitle: groupTitle,
+              isGroup: true,
+              url: defaultVariant.url,
+              urlVariants: sourceVariants,
+              defaultVariantId: defaultVariant.id,
+              groupItemOrder,
+              order: updatedTab.order,
+            })
+          );
+
+          savePendingOperation(
+            createWorkspaceOperation('WIDGET_UPDATE', targetWidget.id, {
+              parentGroupId: sourceTab.id,
+            })
+          );
+
+          const updatedWidgets = (prev.widgets || []).map((w) =>
+            w.id === targetWidget.id ? { ...w, parentGroupId: sourceTab.id, updatedAt: Date.now() } : w
+          );
+
+          return {
+            ...prev,
+            tabs: prev.tabs.map((t) => (t.id === sourceTab.id ? updatedTab : t)),
+            widgets: updatedWidgets,
+          };
+        }
+
+        // Case 4: Tab onto Tab
+        if (!sourceTab || !targetTab) return prev;
 
         const targetBaseId = targetTab.raindropId ? String(targetTab.raindropId) : targetTab.id;
         const targetVariants: TabUrlVariant[] =
@@ -2428,12 +2807,23 @@ export function useWorkspace() {
           mergedVariants[0];
         const groupTitle = targetTab.customTitle?.trim() || 'Group';
 
+        // Keep existing child widgets in the group's item order
+        const targetChildWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === targetTab.id);
+        const sourceChildWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === sourceTab.id);
+
+        const groupItemOrder: Array<{ type: 'tab' | 'widget'; id: string }> = [
+          ...mergedVariants.map((v) => ({ type: 'tab' as const, id: v.id })),
+          ...targetChildWidgets.map((w) => ({ type: 'widget' as const, id: w.id })),
+          ...sourceChildWidgets.map((w) => ({ type: 'widget' as const, id: w.id })),
+        ];
+
         const updatedTarget: Tab = {
           ...targetTab,
           customTitle: groupTitle,
           url: defaultVariant.url,
           urlVariants: mergedVariants,
           defaultVariantId: defaultVariant.id,
+          groupItemOrder,
           isGroup: true,
           updatedAt: Date.now(),
         };
@@ -2447,8 +2837,20 @@ export function useWorkspace() {
             url: defaultVariant.url,
             urlVariants: mergedVariants,
             defaultVariantId: defaultVariant.id,
+            groupItemOrder,
           })
         );
+
+        // If sourceTab had child widgets, re-assign their parentGroupId to targetTab.id
+        if (sourceChildWidgets.length > 0) {
+          sourceChildWidgets.forEach((w) => {
+            savePendingOperation(
+              createWorkspaceOperation('WIDGET_UPDATE', w.id, {
+                parentGroupId: targetTab.id,
+              })
+            );
+          });
+        }
 
         // 2. Delete source tab, while preserving any remote IDs that were absorbed into mergedVariants
         const numericSourceId = /^\d+$/.test(sourceTab.id) ? Number(sourceTab.id) : undefined;
@@ -2481,11 +2883,19 @@ export function useWorkspace() {
           })
         );
 
+        const updatedWidgets = (prev.widgets || []).map((w) => {
+          if (w.parentGroupId === sourceTab.id) {
+            return { ...w, parentGroupId: targetTab.id, updatedAt: Date.now() };
+          }
+          return w;
+        });
+
         return {
           ...prev,
           tabs: prev.tabs
-            .filter((t) => t.id !== sourceTabId)
-            .map((t) => (t.id === targetTabId ? updatedTarget : t)),
+            .filter((t) => t.id !== sourceId)
+            .map((t) => (t.id === targetId ? updatedTarget : t)),
+          widgets: updatedWidgets,
         };
       });
     },
@@ -2496,11 +2906,105 @@ export function useWorkspace() {
     (tabId: string) => {
       saveWorkspaceData((prev) => {
         const groupTab = prev.tabs.find((t) => t.id === tabId);
-        if (!groupTab || !groupTab.urlVariants || groupTab.urlVariants.length === 0) {
-          return prev;
+        if (!groupTab) return prev;
+
+        const childWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === tabId);
+        const variants = groupTab.urlVariants || [];
+
+        // If no variants and no child widgets, delete the empty group!
+        if (variants.length === 0 && childWidgets.length === 0) {
+          const numericSourceId = /^\d+$/.test(groupTab.id) ? Number(groupTab.id) : undefined;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_DELETE', groupTab.id, {
+              raindropId: groupTab.raindropId || numericSourceId,
+              collectionId: prev.raindropRootCollectionId,
+            })
+          );
+          return {
+            ...prev,
+            tabs: prev.tabs.filter((t) => t.id !== tabId),
+          };
         }
 
-        const variants = groupTab.urlVariants;
+        // If it was a widget-only group (no variants):
+        if (variants.length === 0) {
+          // Delete groupTab
+          const numericSourceId = /^\d+$/.test(groupTab.id) ? Number(groupTab.id) : undefined;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_DELETE', groupTab.id, {
+              raindropId: groupTab.raindropId || numericSourceId,
+              collectionId: prev.raindropRootCollectionId,
+            })
+          );
+
+          // Unpack child widgets to root shelf at groupTab's position
+          const currentWidgets = getSortedWidgets(prev.widgets || [])
+            .filter((w) => !w.parentGroupId && w.parentGroupId !== tabId)
+            .map((w) => ({
+              id: w.id,
+              type: 'widget' as const,
+              order: w.order,
+              createdAt: w.createdAt,
+            }));
+          const favTabs = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite) && t.id !== tabId)).map((t) => ({
+            id: t.id,
+            type: 'tab' as const,
+            order: t.order,
+            createdAt: t.createdAt,
+          }));
+
+          type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
+          const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
+            if (a.order !== undefined && b.order !== undefined) {
+              if (a.order !== b.order) return a.order - b.order;
+              return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+            }
+            if (a.order !== undefined) return -1;
+            if (b.order !== undefined) return 1;
+            return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+          });
+
+          // Insert unpacked child widgets at target position
+          const unpackedItems: FavItem[] = childWidgets.map((w) => ({ id: w.id, type: 'widget' as const }));
+          const targetIndex = allItems.findIndex((item) => (item.order ?? 0) >= (groupTab.order ?? 0));
+          if (targetIndex >= 0) {
+            allItems.splice(targetIndex, 0, ...unpackedItems);
+          } else {
+            allItems.push(...unpackedItems);
+          }
+
+          const orderMap = new Map<string, number>();
+          allItems.forEach((item, idx) => {
+            orderMap.set(item.id, (idx + 1) * 1000);
+          });
+
+          const finalTabs = prev.tabs.filter((t) => t.id !== tabId).map((t) => {
+            const newOrder = orderMap.get(t.id);
+            return newOrder !== undefined ? { ...t, order: newOrder } : t;
+          });
+
+          const finalWidgets = (prev.widgets || []).map((w) => {
+            if (w.parentGroupId === tabId) {
+              const newOrder = orderMap.get(w.id) ?? (groupTab.order || 0);
+              savePendingOperation(
+                createWorkspaceOperation('WIDGET_UPDATE', w.id, {
+                  parentGroupId: null,
+                  order: newOrder,
+                })
+              );
+              return { ...w, parentGroupId: undefined, order: newOrder, updatedAt: Date.now() };
+            }
+            const newOrder = orderMap.get(w.id);
+            return newOrder !== undefined ? { ...w, order: newOrder } : w;
+          });
+
+          return {
+            ...prev,
+            tabs: finalTabs,
+            widgets: finalWidgets,
+          };
+        }
+
         if (variants.length <= 1) {
           const updatedTab: Tab = {
             ...groupTab,
@@ -2511,6 +3015,7 @@ export function useWorkspace() {
             isGroup: false,
             urlVariants: undefined,
             defaultVariantId: undefined,
+            groupItemOrder: undefined,
             updatedAt: Date.now(),
           };
           savePendingOperation(
@@ -2519,13 +3024,32 @@ export function useWorkspace() {
               url: updatedTab.url,
               favIconUrl: updatedTab.favIconUrl,
               customEmojiIcon: updatedTab.customEmojiIcon,
+              isGroup: false,
               urlVariants: null,
               defaultVariantId: null,
+              groupItemOrder: null,
             })
           );
+
+          // Unpack child widgets to root shelf at groupTab's position
+          const finalWidgets = (prev.widgets || []).map((w, wIdx) => {
+            if (w.parentGroupId === tabId) {
+              const newOrder = (groupTab.order || 0) + (wIdx + 1) * 10;
+              savePendingOperation(
+                createWorkspaceOperation('WIDGET_UPDATE', w.id, {
+                  parentGroupId: null,
+                  order: newOrder,
+                })
+              );
+              return { ...w, parentGroupId: undefined, order: newOrder, updatedAt: Date.now() };
+            }
+            return w;
+          });
+
           return {
             ...prev,
             tabs: prev.tabs.map((t) => (t.id === tabId ? updatedTab : t)),
+            widgets: finalWidgets,
           };
         }
 
@@ -2545,6 +3069,7 @@ export function useWorkspace() {
           isGroup: false,
           urlVariants: undefined,
           defaultVariantId: undefined,
+          groupItemOrder: undefined,
           updatedAt: Date.now(),
         };
 
@@ -2583,7 +3108,7 @@ export function useWorkspace() {
         let updatedWidgets = prev.widgets || [];
 
         if (groupTab.favourite) {
-          // Keep all children tabs at the EXACT place on the favourite shelf where the group was
+          // Keep all children tabs and widgets at the EXACT place on the favourite shelf where the group was
           type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
           const favTabs: FavItem[] = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite))).map((t) => ({
             id: t.id,
@@ -2591,12 +3116,14 @@ export function useWorkspace() {
             order: t.order,
             createdAt: t.createdAt,
           }));
-          const currentWidgets: FavItem[] = getSortedWidgets(prev.widgets || []).map((w) => ({
-            id: w.id,
-            type: 'widget' as const,
-            order: w.order,
-            createdAt: w.createdAt,
-          }));
+          const currentWidgets: FavItem[] = getSortedWidgets(prev.widgets || [])
+            .filter((w) => !w.parentGroupId)
+            .map((w) => ({
+              id: w.id,
+              type: 'widget' as const,
+              order: w.order,
+              createdAt: w.createdAt,
+            }));
 
           const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
             if (a.order !== undefined && b.order !== undefined) {
@@ -2608,11 +3135,12 @@ export function useWorkspace() {
             return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
           });
 
-          // Replace the group entry at its exact index in allItems with [updatedFirstTab, ...newTabs]
+          // Replace the group entry at its exact index in allItems with [updatedFirstTab, ...newTabs, ...childWidgets]
           const groupIdx = allItems.findIndex((item) => item.id === tabId);
           const unpackedItems: FavItem[] = [
             { id: updatedFirstTab.id, type: 'tab' as const },
             ...newTabs.map((nt) => ({ id: nt.id, type: 'tab' as const })),
+            ...childWidgets.map((w) => ({ id: w.id, type: 'widget' as const })),
           ];
           if (groupIdx >= 0) {
             allItems.splice(groupIdx, 1, ...unpackedItems);
@@ -2635,8 +3163,23 @@ export function useWorkspace() {
             return t;
           });
 
-          // Update widget orders
+          // Update widget orders & clear parentGroupId for childWidgets
           updatedWidgets = (prev.widgets || []).map((w) => {
+            if (w.parentGroupId === tabId) {
+              const newOrder = orderMap.get(w.id);
+              savePendingOperation(
+                createWorkspaceOperation('WIDGET_UPDATE', w.id, {
+                  parentGroupId: null,
+                  order: newOrder,
+                })
+              );
+              return {
+                ...w,
+                parentGroupId: undefined,
+                order: newOrder !== undefined ? newOrder : w.order,
+                updatedAt: Date.now(),
+              };
+            }
             const newOrder = orderMap.get(w.id);
             if (newOrder !== undefined) {
               return { ...w, order: newOrder };
@@ -2645,7 +3188,6 @@ export function useWorkspace() {
           });
 
           // Save pending operations:
-          // 1. Updated first tab (with deletedVariantIds to purge old secondary bookmarks in Raindrop)
           const firstTabFinal = finalTabs.find((t) => t.id === updatedFirstTab.id) || updatedFirstTab;
           savePendingOperation(
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
@@ -2655,18 +3197,17 @@ export function useWorkspace() {
               customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
+              groupItemOrder: null,
               order: firstTabFinal.order,
               deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
             })
           );
 
-          // 2. New tabs
           newTabs.forEach((nt) => {
             const ntFinal = finalTabs.find((t) => t.id === nt.id) || nt;
             savePendingOperation(createWorkspaceOperation('TAB_CREATE', ntFinal.id, ntFinal));
           });
 
-          // 3. Other existing tabs whose orders shifted
           finalTabs.forEach((t) => {
             if (t.id === groupTab.id || newTabs.some((nt) => nt.id === t.id)) return;
             const oldTab = prev.tabs.find((orig) => orig.id === t.id);
@@ -2675,8 +3216,8 @@ export function useWorkspace() {
             }
           });
 
-          // 4. Widgets whose orders shifted
           updatedWidgets.forEach((w) => {
+            if (w.parentGroupId === tabId) return;
             const oldWidget = (prev.widgets || []).find((orig) => orig.id === w.id);
             if (oldWidget && oldWidget.order !== w.order) {
               savePendingOperation(createWorkspaceOperation('WIDGET_UPDATE', w.id, { order: w.order }));
@@ -2718,6 +3259,7 @@ export function useWorkspace() {
               customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
+              groupItemOrder: null,
               order: firstTabFinal.order,
               deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
             })
@@ -2779,6 +3321,7 @@ export function useWorkspace() {
               customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
               defaultVariantId: null,
+              groupItemOrder: null,
               order: firstTabFinal.order,
               deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
             })
@@ -2802,6 +3345,139 @@ export function useWorkspace() {
             tabs: finalTabs,
           };
         }
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const moveWidgetToGroup = useCallback(
+    (widgetId: string, targetGroupId: string) => {
+      saveWorkspaceData((prev) => {
+        const widget = (prev.widgets || []).find((w) => w.id === widgetId);
+        const groupTab = prev.tabs.find((t) => t.id === targetGroupId);
+        if (!widget || !groupTab) return prev;
+
+        const nextGroupItemOrder = [
+          ...(groupTab.groupItemOrder || []),
+          { type: 'widget' as const, id: widgetId },
+        ];
+
+        const updatedGroupTab: Tab = {
+          ...groupTab,
+          isGroup: true,
+          groupItemOrder: nextGroupItemOrder,
+          updatedAt: Date.now(),
+        };
+
+        const updatedWidgets = (prev.widgets || []).map((w) =>
+          w.id === widgetId ? { ...w, parentGroupId: targetGroupId, updatedAt: Date.now() } : w
+        );
+
+        savePendingOperation(
+          createWorkspaceOperation('WIDGET_UPDATE', widgetId, {
+            parentGroupId: targetGroupId,
+          })
+        );
+        savePendingOperation(
+          createWorkspaceOperation('TAB_UPDATE', targetGroupId, {
+            isGroup: true,
+            groupItemOrder: nextGroupItemOrder,
+          })
+        );
+
+        return {
+          ...prev,
+          tabs: prev.tabs.map((t) => (t.id === targetGroupId ? updatedGroupTab : t)),
+          widgets: updatedWidgets,
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
+  const extractWidgetFromGroup = useCallback(
+    (widgetId: string, targetOrder?: number) => {
+      saveWorkspaceData((prev) => {
+        const widget = (prev.widgets || []).find((w) => w.id === widgetId);
+        if (!widget || !widget.parentGroupId) return prev;
+        const parentGroupId = widget.parentGroupId;
+        const groupTab = prev.tabs.find((t) => t.id === parentGroupId);
+
+        const nextGroupItemOrder = (groupTab?.groupItemOrder || []).filter((e) => e.id !== widgetId);
+        const newOrder = targetOrder !== undefined ? targetOrder : (groupTab?.order ? groupTab.order + 10 : widget.order);
+
+        const updatedWidgets = (prev.widgets || []).map((w) =>
+          w.id === widgetId ? { ...w, parentGroupId: undefined, order: newOrder, updatedAt: Date.now() } : w
+        );
+
+        savePendingOperation(
+          createWorkspaceOperation('WIDGET_UPDATE', widgetId, {
+            parentGroupId: null,
+            order: newOrder,
+          })
+        );
+
+        let updatedTabs = prev.tabs;
+        if (groupTab) {
+          const remainingWidgets = (prev.widgets || []).filter((w) => w.id !== widgetId && w.parentGroupId === parentGroupId);
+          const remainingVariants = (groupTab.urlVariants || []).filter((v) => Boolean(v.url));
+
+          if (remainingWidgets.length === 0 && remainingVariants.length === 0) {
+            const numericSourceId = /^\d+$/.test(groupTab.id) ? Number(groupTab.id) : undefined;
+            savePendingOperation(
+              createWorkspaceOperation('TAB_DELETE', groupTab.id, {
+                raindropId: groupTab.raindropId || numericSourceId,
+                collectionId: prev.raindropRootCollectionId,
+              })
+            );
+            updatedTabs = prev.tabs.filter((t) => t.id !== parentGroupId);
+          } else if (remainingWidgets.length === 0 && remainingVariants.length === 1) {
+            const onlyVariant = remainingVariants[0];
+            const revertedTab: Tab = {
+              ...groupTab,
+              customTitle: onlyVariant.name || groupTab.customTitle,
+              url: onlyVariant.url || groupTab.url,
+              favIconUrl: onlyVariant.favIconUrl || groupTab.favIconUrl,
+              customEmojiIcon: onlyVariant.customEmojiIcon || groupTab.customEmojiIcon,
+              isGroup: false,
+              urlVariants: undefined,
+              defaultVariantId: undefined,
+              groupItemOrder: undefined,
+              updatedAt: Date.now(),
+            };
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', parentGroupId, {
+                title: revertedTab.customTitle,
+                url: revertedTab.url,
+                favIconUrl: revertedTab.favIconUrl,
+                customEmojiIcon: revertedTab.customEmojiIcon,
+                isGroup: false,
+                urlVariants: null,
+                defaultVariantId: null,
+                groupItemOrder: null,
+              })
+            );
+            updatedTabs = prev.tabs.map((t) => (t.id === parentGroupId ? revertedTab : t));
+          } else {
+            const updatedGroupTab: Tab = {
+              ...groupTab,
+              groupItemOrder: nextGroupItemOrder.length > 0 ? nextGroupItemOrder : undefined,
+              updatedAt: Date.now(),
+            };
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', parentGroupId, {
+                groupItemOrder: updatedGroupTab.groupItemOrder || null,
+              })
+            );
+            updatedTabs = prev.tabs.map((t) => (t.id === parentGroupId ? updatedGroupTab : t));
+          }
+        }
+
+        return {
+          ...prev,
+          tabs: updatedTabs,
+          widgets: updatedWidgets,
+        };
       });
     },
     [saveWorkspaceData]
@@ -3041,6 +3717,8 @@ export function useWorkspace() {
     reorderGroupVariants,
     mergeTabsIntoGroup,
     ungroupTab,
+    moveWidgetToGroup,
+    extractWidgetFromGroup,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,

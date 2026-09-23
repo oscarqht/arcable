@@ -238,6 +238,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     updateWidget,
     removeWidget,
     reorderWidget,
+    moveWidgetToGroup,
+    extractWidgetFromGroup,
     isSyncing: hookIsSyncing,
   } = useWorkspace();
 
@@ -1865,6 +1867,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onAddFavouriteGroup={() => handleOpenNewTabModal(undefined, undefined, false, true, true)}
         onMergeFavouriteTabs={mergeTabsIntoGroup}
         onUngroupTab={ungroupTab}
+        onMoveWidgetToGroup={moveWidgetToGroup}
+        onExtractWidgetFromGroup={extractWidgetFromGroup}
         onReorderFavouriteItem={reorderFavouriteItem}
         onReorderFavouriteTabs={reorderFavouriteTabs}
         onReorderGroupVariants={reorderGroupVariants}
