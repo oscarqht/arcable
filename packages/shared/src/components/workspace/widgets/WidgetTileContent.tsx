@@ -14,6 +14,7 @@ import { SpaceThemeTokens } from '../../../utils/spaceTheme';
 import { NOTE_COLORS } from './StickyNotePopover';
 import { getWeatherInterpretation } from '../../../utils/weatherService';
 import { calculateCountdownStatus } from '../../../utils/countdown';
+import { renderMarkdown } from '../../../utils/markdown';
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -932,10 +933,6 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
       const selectedColor = NOTE_COLORS.find((c) => c.key === noteConfig.colorTheme);
       const text = noteConfig.text || '';
       const trimmedText = text.trim();
-      const lines = text.split('\n').filter((l) => l.trim().length > 0);
-      const firstLine = lines[0] || '';
-      const remainingLines = lines.slice(1);
-      const remainingText = remainingLines.join('\n');
 
       return (
         <div
@@ -954,47 +951,25 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
             padding: compact ? '3px 5px' : '4px 6px',
             boxSizing: 'border-box',
             overflow: 'hidden',
-            gap: '1px',
           }}
         >
           {trimmedText ? (
-            <>
-              <div
-                style={{
-                  fontSize: compact ? '7.5px' : '8.5px',
-                  fontWeight: 700,
-                  lineHeight: 1.15,
-                  overflow: 'hidden',
-                  wordBreak: 'break-word',
-                  display: '-webkit-box',
-                  WebkitBoxOrient: 'vertical',
-                  WebkitLineClamp: remainingText ? (compact ? 1 : 2) : (compact ? 3 : 4),
-                  color: isDark ? '#f1f5f9' : '#1e293b',
-                  width: '100%',
-                }}
-              >
-                {firstLine}
-              </div>
-              {remainingText && (
-                <div
-                  style={{
-                    fontSize: compact ? '7px' : '8px',
-                    opacity: 0.75,
-                    lineHeight: 1.15,
-                    overflow: 'hidden',
-                    wordBreak: 'break-word',
-                    whiteSpace: 'pre-wrap',
-                    display: '-webkit-box',
-                    WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: compact ? 2 : 3,
-                    color: isDark ? '#cbd5e1' : '#475569',
-                    width: '100%',
-                  }}
-                >
-                  {remainingText}
-                </div>
-              )}
-            </>
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: compact ? '0.5px' : '1px',
+              }}
+            >
+              {renderMarkdown(text, {
+                compact: true,
+                isDark,
+                themeTextColor: isDark ? '#f1f5f9' : '#1e293b',
+              })}
+            </div>
           ) : (
             <div
               style={{
