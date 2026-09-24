@@ -101,6 +101,7 @@ const DECORATION_PRESETS = {
  * @typedef {Object} EditorState
  * @property {any} editor
  * @property {string | null} screenshotShapeId
+ * @property {ScreenshotInfo | null} screenshotInfo
  * @property {any} bounds
  * @property {boolean} isCroppingScreenshot
  * @property {boolean} closeAfterAction
@@ -115,6 +116,7 @@ const DECORATION_PRESETS = {
 const editorState = {
   editor: null,
   screenshotShapeId: null,
+  screenshotInfo: null,
   bounds: null,
   isCroppingScreenshot: false,
   closeAfterAction: false,
@@ -746,6 +748,30 @@ function getScreenshotShape() {
 }
 
 /**
+ * Returns the uncropped natural dimensions (width, height) and the uncropped top-left origin (originX, originY)
+ * in page coordinates for the current screenshot shape.
+ * @returns {{ originX: number, originY: number, width: number, height: number } | null}
+ */
+function getScreenshotUncroppedMetrics() {
+  const shape = getScreenshotShape();
+  if (!shape) return null;
+
+  const natW = editorState.screenshotInfo?.width || shape.props?.w || 1;
+  const natH = editorState.screenshotInfo?.height || shape.props?.h || 1;
+  const crop = shape.props?.crop;
+
+  let originX = shape.x;
+  let originY = shape.y;
+
+  if (crop && crop.topLeft) {
+    originX = shape.x - crop.topLeft.x * natW;
+    originY = shape.y - crop.topLeft.y * natH;
+  }
+
+  return { originX, originY, width: natW, height: natH };
+}
+
+/**
  * @returns {void}
  */
 function updateScreenshotExportBounds() {
@@ -799,6 +825,7 @@ function isScreenshotCropModeActive() {
 function syncScreenshotCropState() {
   const active = isScreenshotCropModeActive();
   setCropButtonActive(active);
+  document.body.classList.toggle('crop-mode-active', active);
   updateScreenshotExportBounds();
 
   if (editorState.isCroppingScreenshot && !active) {
@@ -833,6 +860,329 @@ function bindScreenshotCropState(editor) {
     document.removeEventListener('pointerup', scheduleSync, true);
     document.removeEventListener('keydown', scheduleSync, true);
     disposeStoreListener?.();
+  };
+}
+
+/**
+ * Enables click-drag-and-release anywhere across the screenshot to set the crop area,
+ * while preserving native corner/edge handles for fine-tuning.
+ *
+ * @param {any} editor
+ * @returns {() => void}
+ */
+function bindCropDragInteraction(editor) {
+  let isPointerDown = false;
+  let hasMovedEnough = false;
+  let startClientX = 0;
+  let startClientY = 0;
+  let lastClientX = 0;
+  let lastClientY = 0;
+  let startPageX = 0;
+  let startPageY = 0;
+  let currentMetrics = null;
+
+  let marqueeEl = document.getElementById('crop-marquee-overlay');
+  if (!marqueeEl) {
+    marqueeEl = document.createElement('div');
+    marqueeEl.id = 'crop-marquee-overlay';
+    marqueeEl.className = 'crop-marquee-overlay hidden';
+    marqueeEl.innerHTML = '<div class="crop-marquee-badge"></div>';
+    document.body.appendChild(marqueeEl);
+  }
+  const badgeEl = marqueeEl.querySelector('.crop-marquee-badge');
+
+  function hideMarquee() {
+    marqueeEl.classList.add('hidden');
+    marqueeEl.style.width = '0px';
+    marqueeEl.style.height = '0px';
+    document.body.classList.remove('crop-dragging-active');
+  }
+
+  function isNearHandle(clientX, clientY) {
+    const pagePoint = editor.screenToPage({ x: clientX, y: clientY });
+    const zoom = editor.getZoomLevel?.() || 1;
+    const hitMargin = (editor.options?.hitTestMargin || 14) / zoom;
+    const overlay = editor.overlays?.getOverlayAtPoint?.(pagePoint, hitMargin);
+    if (
+      overlay &&
+      (overlay.props?.overlayType === 'resize_handle' ||
+        overlay.props?.overlayType === 'crop_handle' ||
+        overlay.props?.handle)
+    ) {
+      return true;
+    }
+
+    const currentBounds = editor.getShapePageBounds?.(editorState.screenshotShapeId);
+    if (currentBounds) {
+      const handlePoints = [
+        editor.pageToScreen({ x: currentBounds.minX, y: currentBounds.minY }),
+        editor.pageToScreen({ x: currentBounds.maxX, y: currentBounds.minY }),
+        editor.pageToScreen({ x: currentBounds.minX, y: currentBounds.maxY }),
+        editor.pageToScreen({ x: currentBounds.maxX, y: currentBounds.maxY }),
+        editor.pageToScreen({ x: currentBounds.midX, y: currentBounds.minY }),
+        editor.pageToScreen({ x: currentBounds.midX, y: currentBounds.maxY }),
+        editor.pageToScreen({ x: currentBounds.minX, y: currentBounds.midY }),
+        editor.pageToScreen({ x: currentBounds.maxX, y: currentBounds.midY }),
+      ];
+      for (const pt of handlePoints) {
+        if (Math.hypot(pt.x - clientX, pt.y - clientY) <= 18) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function calculateCropBox(currClientX, currClientY, shiftKey) {
+    if (!currentMetrics) return null;
+    const currPage = editor.screenToPage({ x: currClientX, y: currClientY });
+
+    const minX = currentMetrics.originX;
+    const maxX = currentMetrics.originX + currentMetrics.width;
+    const minY = currentMetrics.originY;
+    const maxY = currentMetrics.originY + currentMetrics.height;
+
+    const csX = Math.max(minX, Math.min(maxX, startPageX));
+    const csY = Math.max(minY, Math.min(maxY, startPageY));
+
+    const rawEndX = Math.max(minX, Math.min(maxX, currPage.x));
+    const rawEndY = Math.max(minY, Math.min(maxY, currPage.y));
+
+    let endX = rawEndX;
+    let endY = rawEndY;
+
+    if (shiftKey) {
+      const dx = rawEndX - csX;
+      const dy = rawEndY - csY;
+      let side = Math.max(Math.abs(dx), Math.abs(dy));
+      const signX = dx >= 0 ? 1 : -1;
+      const signY = dy >= 0 ? 1 : -1;
+      const maxSideX = signX > 0 ? maxX - csX : csX - minX;
+      const maxSideY = signY > 0 ? maxY - csY : csY - minY;
+      side = Math.min(side, maxSideX, maxSideY);
+      endX = csX + signX * side;
+      endY = csY + signY * side;
+    }
+
+    const boxPageX = Math.min(csX, endX);
+    const boxPageY = Math.min(csY, endY);
+    const boxPageW = Math.abs(endX - csX);
+    const boxPageH = Math.abs(endY - csY);
+
+    return {
+      boxPageX,
+      boxPageY,
+      boxPageW,
+      boxPageH,
+      metrics: currentMetrics,
+    };
+  }
+
+  function updateMarqueeUI(box) {
+    const screenP1 = editor.pageToScreen({ x: box.boxPageX, y: box.boxPageY });
+    const screenP2 = editor.pageToScreen({ x: box.boxPageX + box.boxPageW, y: box.boxPageY + box.boxPageH });
+
+    const left = Math.min(screenP1.x, screenP2.x);
+    const top = Math.min(screenP1.y, screenP2.y);
+    const width = Math.abs(screenP2.x - screenP1.x);
+    const height = Math.abs(screenP2.y - screenP1.y);
+
+    marqueeEl.style.left = `${left}px`;
+    marqueeEl.style.top = `${top}px`;
+    marqueeEl.style.width = `${width}px`;
+    marqueeEl.style.height = `${height}px`;
+    marqueeEl.classList.remove('hidden');
+    document.body.classList.add('crop-dragging-active');
+
+    if (badgeEl) {
+      const naturalW = Math.round((box.boxPageW / box.metrics.width) * currentMetrics.width);
+      const naturalH = Math.round((box.boxPageH / box.metrics.height) * currentMetrics.height);
+      badgeEl.textContent = `${naturalW} × ${naturalH}`;
+
+      if (top + height + 34 > window.innerHeight) {
+        badgeEl.style.bottom = 'auto';
+        badgeEl.style.top = '-28px';
+      } else {
+        badgeEl.style.top = 'auto';
+        badgeEl.style.bottom = '-28px';
+      }
+    }
+  }
+
+  function onPointerDown(e) {
+    if (!isScreenshotCropModeActive()) return;
+    if (e.button !== 0) return;
+
+    const target = e.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest(
+        'button, input, select, textarea, [role="toolbar"], .tl-toolbar, .tl-floating-toolbar, .decoration-floating-bar, .screenshot-editor-toolbar, .glass-nav, .tlui-toolbar, .tl-popover'
+      )
+    ) {
+      return;
+    }
+
+    if (
+      (target instanceof HTMLElement || target instanceof SVGElement) &&
+      target.closest('[data-testid*="handle"], [class*="handle"], [class*="corner"], [class*="edge"]')
+    ) {
+      return;
+    }
+
+    if (isNearHandle(e.clientX, e.clientY)) {
+      return;
+    }
+
+    currentMetrics = getScreenshotUncroppedMetrics();
+    if (!currentMetrics) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    isPointerDown = true;
+    hasMovedEnough = false;
+    startClientX = e.clientX;
+    startClientY = e.clientY;
+    lastClientX = e.clientX;
+    lastClientY = e.clientY;
+
+    const startP = editor.screenToPage({ x: e.clientX, y: e.clientY });
+    startPageX = startP.x;
+    startPageY = startP.y;
+
+    window.addEventListener('pointermove', onPointerMove, { capture: true });
+    window.addEventListener('pointerup', onPointerUp, { capture: true });
+    window.addEventListener('pointercancel', onPointerCancel, { capture: true });
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    window.addEventListener('keyup', onKeyUp, { capture: true });
+  }
+
+  function onPointerMove(e) {
+    if (!isPointerDown || !currentMetrics) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    lastClientX = e.clientX;
+    lastClientY = e.clientY;
+
+    const screenDist = Math.hypot(e.clientX - startClientX, e.clientY - startClientY);
+    if (!hasMovedEnough && screenDist >= 4) {
+      hasMovedEnough = true;
+    }
+
+    if (hasMovedEnough) {
+      const box = calculateCropBox(e.clientX, e.clientY, e.shiftKey);
+      if (box) {
+        updateMarqueeUI(box);
+      }
+    }
+  }
+
+  function onPointerUp(e) {
+    if (!isPointerDown) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    const screenDist = Math.hypot(e.clientX - startClientX, e.clientY - startClientY);
+    const box = calculateCropBox(e.clientX, e.clientY, e.shiftKey);
+
+    cleanupDrag();
+
+    if (screenDist >= 10 && box && box.boxPageW >= 4 && box.boxPageH >= 4) {
+      applyCropBox(box);
+    }
+  }
+
+  function onPointerCancel() {
+    if (!isPointerDown) return;
+    cleanupDrag();
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape' && isPointerDown) {
+      e.preventDefault();
+      e.stopPropagation();
+      cleanupDrag();
+      return;
+    }
+
+    if (e.key === 'Shift' && isPointerDown && hasMovedEnough) {
+      const box = calculateCropBox(lastClientX, lastClientY, true);
+      if (box) updateMarqueeUI(box);
+    }
+  }
+
+  function onKeyUp(e) {
+    if (e.key === 'Shift' && isPointerDown && hasMovedEnough) {
+      const box = calculateCropBox(lastClientX, lastClientY, false);
+      if (box) updateMarqueeUI(box);
+    }
+  }
+
+  function cleanupDrag() {
+    isPointerDown = false;
+    hasMovedEnough = false;
+    currentMetrics = null;
+    hideMarquee();
+    window.removeEventListener('pointermove', onPointerMove, { capture: true });
+    window.removeEventListener('pointerup', onPointerUp, { capture: true });
+    window.removeEventListener('pointercancel', onPointerCancel, { capture: true });
+    window.removeEventListener('keydown', onKeyDown, { capture: true });
+    window.removeEventListener('keyup', onKeyUp, { capture: true });
+  }
+
+  function applyCropBox(box) {
+    const shape = getScreenshotShape();
+    if (!editor || !shape || !box.metrics) return;
+
+    const tlx = Math.max(0, Math.min(1, (box.boxPageX - box.metrics.originX) / box.metrics.width));
+    const tly = Math.max(0, Math.min(1, (box.boxPageY - box.metrics.originY) / box.metrics.height));
+    const brx = Math.max(0, Math.min(1, (box.boxPageX + box.boxPageW - box.metrics.originX) / box.metrics.width));
+    const bry = Math.max(0, Math.min(1, (box.boxPageY + box.boxPageH - box.metrics.originY) / box.metrics.height));
+
+    if (brx - tlx < 0.001 || bry - tly < 0.001) return;
+
+    editor.run(
+      () => {
+        editor.updateShape({
+          id: shape.id,
+          type: shape.type,
+          x: box.boxPageX,
+          y: box.boxPageY,
+          isLocked: false,
+          props: {
+            ...shape.props,
+            w: box.boxPageW,
+            h: box.boxPageH,
+            crop: {
+              topLeft: { x: tlx, y: tly },
+              bottomRight: { x: brx, y: bry },
+            },
+          },
+        });
+        editor.select(shape.id);
+        editor.setCroppingShape?.(shape.id);
+        editor.setCurrentTool('select.crop.idle');
+      },
+      { history: 'ignore', ignoreShapeLock: true }
+    );
+
+    editorState.isCroppingScreenshot = true;
+    updateScreenshotExportBounds();
+  }
+
+  window.addEventListener('pointerdown', onPointerDown, { capture: true });
+
+  return () => {
+    cleanupDrag();
+    window.removeEventListener('pointerdown', onPointerDown, { capture: true });
+    marqueeEl?.remove();
   };
 }
 
@@ -894,10 +1244,21 @@ function toggleDecorationMode() {
  * @returns {void}
  */
 function handleScreenshotEditorShortcut(event) {
-  if (isCropShortcutEvent(event) && !isScreenshotCropModeActive()) {
+  if (isCropShortcutEvent(event)) {
     event.preventDefault();
     event.stopPropagation();
-    startScreenshotCrop();
+    if (isScreenshotCropModeActive()) {
+      finishScreenshotCrop();
+    } else {
+      startScreenshotCrop();
+    }
+    return;
+  }
+
+  if (event.key === 'Enter' && isScreenshotCropModeActive()) {
+    event.preventDefault();
+    event.stopPropagation();
+    finishScreenshotCrop();
     return;
   }
 
@@ -955,6 +1316,7 @@ function insertScreenshot(editor, screenshot) {
     { history: 'ignore', ignoreShapeLock: true }
   );
 
+  editorState.screenshotInfo = screenshot;
   editorState.screenshotShapeId = shapeId;
   editorState.bounds =
     editor.getShapePageBounds(shapeId) || {
@@ -1012,6 +1374,7 @@ function startScreenshotCrop() {
 
   editorState.isCroppingScreenshot = true;
   setCropButtonActive(true);
+  document.body.classList.add('crop-mode-active');
 }
 
 /**
@@ -1027,6 +1390,7 @@ function finishScreenshotCrop() {
   editorState.isCroppingScreenshot = false;
   setScreenshotLocked(true);
   setCropButtonActive(false);
+  document.body.classList.remove('crop-mode-active');
   updateScreenshotExportBounds();
 }
 
@@ -1317,10 +1681,12 @@ function ScreenshotEditorApp({ screenshot }) {
       insertScreenshot(editor, screenshot);
       const disposeAnnotationStylePreferences = bindAnnotationStylePreferences(editor);
       const disposeScreenshotCropState = bindScreenshotCropState(editor);
+      const disposeCropDrag = bindCropDragInteraction(editor);
       hideStatus();
       return () => {
         disposeAnnotationStylePreferences();
         disposeScreenshotCropState();
+        disposeCropDrag();
       };
     },
     [screenshot]
@@ -1387,7 +1753,11 @@ function bindActions() {
   });
 
   getCropButton()?.addEventListener('click', () => {
-    startScreenshotCrop();
+    if (isScreenshotCropModeActive()) {
+      finishScreenshotCrop();
+    } else {
+      startScreenshotCrop();
+    }
   });
   document.addEventListener('keydown', handleScreenshotEditorShortcut, true);
   document.getElementById('action-copy')?.addEventListener('click', () => {
