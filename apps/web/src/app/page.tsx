@@ -19,7 +19,7 @@ import {
   getOrCreateDeviceId,
   getStoredDeviceName,
 } from '@arcable/shared/utils';
-import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
+import { RaindropAuthState, TabOpenOptions, TmpTab } from '@arcable/shared/types';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -31,13 +31,106 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
+  const localTmpTabsRef = useRef<TmpTab[]>([]);
+  const [localTmpTabsLoaded, setLocalTmpTabsLoaded] = useState(false);
+  const [remoteTmpTabs, setRemoteTmpTabs] = useState<TmpTab[]>([]);
+  const [remoteTmpTabsUpdatedAt, setRemoteTmpTabsUpdatedAt] = useState<Record<string, number>>({});
+  const [remoteTmpTabsLoading, setRemoteTmpTabsLoading] = useState(false);
 
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
     isAuthenticated: false,
   });
+  const tmpTabsPublishStorageKey = `arcable_tmp_tabs_last_published_${authState.user?.id || 'unknown'}`;
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRemoteTmpTabs([]);
+    setRemoteTmpTabsUpdatedAt({});
+  }, [authState.user?.id]);
+
+  const handleLocalTmpTabsChange = useCallback((tabs: TmpTab[]) => {
+    localTmpTabsRef.current = tabs;
+    setLocalTmpTabsLoaded(true);
+  }, []);
+
+  const refreshRemoteTmpTabs = useCallback(async () => {
+    if (!authState.isAuthenticated) return;
+    setRemoteTmpTabsLoading(true);
+    try {
+      const response = await fetch('/api/raindrop/tmp-tabs', {
+        headers: authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : undefined,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Failed to fetch temporary tabs');
+      const snapshots = Array.isArray(result.snapshots) ? result.snapshots : [];
+      const otherDevices = snapshots.filter((snapshot: { deviceId?: string }) => snapshot.deviceId !== getOrCreateDeviceId());
+      setRemoteTmpTabs(otherDevices.flatMap((snapshot: { deviceId: string; deviceName: string; deviceType: 'Web App' | 'Ext'; tabs?: TmpTab[] }) =>
+        (snapshot.tabs || []).map((tab) => ({
+          ...tab,
+          deviceId: snapshot.deviceId,
+          deviceName: snapshot.deviceName,
+          deviceType: snapshot.deviceType,
+        }))
+      ));
+      setRemoteTmpTabsUpdatedAt(Object.fromEntries(otherDevices.map((snapshot: { deviceId: string; updatedAt: number }) => [snapshot.deviceId, snapshot.updatedAt])));
+    } catch (error) {
+      console.warn('[Arcable] Could not refresh remote temporary tabs:', error);
+    } finally {
+      setRemoteTmpTabsLoading(false);
+    }
+  }, [authState.isAuthenticated, authState.accessToken]);
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || !raindropHydrated || !localTmpTabsLoaded) return;
+    let stopped = false;
+    let inFlight = false;
+    const publish = async () => {
+      if (stopped || inFlight || !navigator.onLine) return;
+      let tabs = localTmpTabsRef.current;
+      try {
+        const storedWorkspace = JSON.parse(window.localStorage.getItem('arcable_workspace_data') || 'null');
+        if (Array.isArray(storedWorkspace?.tmpTabs)) tabs = storedWorkspace.tmpTabs;
+      } catch {}
+      const key = JSON.stringify(tabs);
+      let previous = { key: '', at: 0 };
+      try {
+        const storedPrevious = JSON.parse(window.localStorage.getItem(tmpTabsPublishStorageKey) || 'null');
+        if (storedPrevious && typeof storedPrevious.at === 'number') {
+          previous = storedPrevious;
+        }
+      } catch {}
+      if (key === previous.key && Date.now() - previous.at < 24 * 60 * 60 * 1000) return;
+      if (Date.now() - previous.at < 60_000) return;
+      inFlight = true;
+      try {
+        const response = await fetch('/api/raindrop/tmp-tabs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : {}),
+          },
+          body: JSON.stringify({
+            deviceId: getOrCreateDeviceId(),
+            deviceName: getStoredDeviceName(undefined, 'Web App'),
+            deviceType: 'Web App',
+            tabs,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || 'Failed to publish temporary tabs');
+        window.localStorage.setItem(tmpTabsPublishStorageKey, JSON.stringify({ key, at: Date.now() }));
+      } catch (error) {
+        console.warn('[Arcable] Could not publish temporary tabs:', error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void publish();
+    const timer = window.setInterval(() => void publish(), 60_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [authState.isAuthenticated, authState.accessToken, raindropHydrated, localTmpTabsLoaded, tmpTabsPublishStorageKey]);
 
   // Load auth status from API on mount
   useEffect(() => {
@@ -487,6 +580,11 @@ export default function HomePage() {
           showWidgets={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
+          onLocalTmpTabsChange={handleLocalTmpTabsChange}
+          remoteTmpTabs={remoteTmpTabs}
+          remoteTmpTabsUpdatedAt={remoteTmpTabsUpdatedAt}
+          remoteTmpTabsLoading={remoteTmpTabsLoading}
+          onRefreshRemoteTmpTabs={refreshRemoteTmpTabs}
           onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
             if (typeof window !== 'undefined' && url) {
               if (options?.inNewTab) {

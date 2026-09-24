@@ -1562,6 +1562,7 @@ function isArcableInternalItem(item: RaindropBookmarkItem): boolean {
     name === ARCABLE_DATA_FILE_NAME.toLowerCase() ||
     /^sync(?:-v\d+)?\.json(?:\.txt)?$/i.test(name) ||
     /^data(?:-v?\d[\w.-]*)?\.json(?:\.txt)?$/i.test(name) ||
+    /^tmp-tabs-v1-[a-z0-9_-]+\.json\.txt$/i.test(name) ||
     /^backup-/i.test(name)
   );
 }

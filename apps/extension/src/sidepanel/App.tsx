@@ -143,6 +143,9 @@ export const App: React.FC = () => {
     tabAssociationsRef.current = tabAssociations;
   }, [tabAssociations]);
   const [tmpTabs, setTmpTabs] = useState<TmpTab[]>([]);
+  const [remoteTmpTabs, setRemoteTmpTabs] = useState<TmpTab[]>([]);
+  const [remoteTmpTabsUpdatedAt, setRemoteTmpTabsUpdatedAt] = useState<Record<string, number>>({});
+  const [remoteTmpTabsLoading, setRemoteTmpTabsLoading] = useState(false);
   const tmpTabsRef = useRef<TmpTab[]>([]);
   useEffect(() => {
     tmpTabsRef.current = tmpTabs;
@@ -154,6 +157,34 @@ export const App: React.FC = () => {
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
+
+  const refreshRemoteTmpTabs = useCallback(async () => {
+    if (!hasRaindropAuth) return;
+    setRemoteTmpTabsLoading(true);
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'RAINDROP_GET_TMP_TABS' }) as {
+        success: boolean;
+        error?: string;
+        snapshots?: Array<{ deviceId: string; deviceName: string; deviceType: 'Web App' | 'Ext'; updatedAt: number; tabs: TmpTab[] }>;
+      };
+      if (!result?.success) throw new Error(result?.error || 'Failed to fetch temporary tabs');
+      const snapshots = Array.isArray(result.snapshots) ? result.snapshots : [];
+      const otherDevices = snapshots.filter((snapshot: { deviceId?: string }) => snapshot.deviceId !== currentDeviceId);
+      setRemoteTmpTabs(otherDevices.flatMap((snapshot: { deviceId: string; deviceName: string; deviceType: 'Web App' | 'Ext'; tabs?: TmpTab[] }) =>
+        (snapshot.tabs || []).map((tab) => ({
+          ...tab,
+          deviceId: snapshot.deviceId,
+          deviceName: snapshot.deviceName,
+          deviceType: snapshot.deviceType,
+        }))
+      ));
+      setRemoteTmpTabsUpdatedAt(Object.fromEntries(otherDevices.map((snapshot: { deviceId: string; updatedAt: number }) => [snapshot.deviceId, snapshot.updatedAt])));
+    } catch (error) {
+      console.warn('[Arcable Sidepanel] Could not refresh remote temporary tabs:', error);
+    } finally {
+      setRemoteTmpTabsLoading(false);
+    }
+  }, [hasRaindropAuth, currentDeviceId]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -372,6 +403,8 @@ export const App: React.FC = () => {
           const authVal = changes.arcable_raindrop_auth.newValue;
           setHasRaindropAuth(Boolean(authVal?.isAuthenticated));
           setRaindropToken(authVal?.accessToken || null);
+          setRemoteTmpTabs([]);
+          setRemoteTmpTabsUpdatedAt({});
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
@@ -910,12 +943,12 @@ export const App: React.FC = () => {
     [tabAssociations, highlightedTabId]
   );
 
-  const handleOpenAsTmpTab = useCallback(async (url: string, title?: string) => {
+  const handleOpenAsTmpTab = useCallback(async (url: string, title?: string, spaceId?: string) => {
     clearMousePos();
     try {
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
-        tabTracker.registerInitialTmpTab(newTab.id, url, title);
+        tabTracker.registerInitialTmpTab(newTab.id, url, title, spaceId);
       }
     } catch (e) {
       console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
@@ -1408,6 +1441,10 @@ export const App: React.FC = () => {
           onActiveSpaceChange={handleActiveSpaceChange}
           tabAssociations={tabAssociations}
           tmpTabs={tmpTabs}
+          remoteTmpTabs={remoteTmpTabs}
+          remoteTmpTabsUpdatedAt={remoteTmpTabsUpdatedAt}
+          remoteTmpTabsLoading={remoteTmpTabsLoading}
+          onRefreshRemoteTmpTabs={refreshRemoteTmpTabs}
           currentDeviceId={currentDeviceId}
           onCloseTmpTab={handleCloseTmpTab}
           onClearTmpTabs={handleClearTmpTabs}

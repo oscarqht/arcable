@@ -28,6 +28,7 @@ import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { RaindropSearchInput } from './RaindropSearchInput';
 import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
+import { AllTmpTabsModal } from './AllTmpTabsModal';
 import { AudibleTabsWidget } from './AudibleTabsWidget';
 import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
@@ -45,6 +46,7 @@ import {
   SearchIcon,
   CloseIcon,
   DropletIcon,
+  DevicesIcon,
   EditIcon,
   TrashIcon,
 } from '../Icons';
@@ -74,7 +76,7 @@ export interface WorkspaceManagerHandle {
 
 export interface WorkspaceManagerProps {
   onOpenTab?: (url: string, tabId?: string, tmpTab?: TmpTab, options?: TabOpenOptions) => void;
-  onOpenTmpTab?: (url: string, title?: string) => void;
+  onOpenTmpTab?: (url: string, title?: string, spaceId?: string) => void;
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onActivateGroup?: (groupTab: Tab) => boolean | Promise<boolean>;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
@@ -93,6 +95,11 @@ export interface WorkspaceManagerProps {
   searchQuery?: string;
   tabAssociations?: TabAssociationMap;
   tmpTabs?: TmpTab[];
+  remoteTmpTabs?: TmpTab[];
+  remoteTmpTabsUpdatedAt?: Record<string, number>;
+  remoteTmpTabsLoading?: boolean;
+  onRefreshRemoteTmpTabs?: () => Promise<void> | void;
+  onLocalTmpTabsChange?: (tabs: TmpTab[]) => void;
   currentDeviceId?: string;
   onCloseTmpTab?: (tab: TmpTab) => void;
   onClearTmpTabs?: (tabs: TmpTab[], spaceId?: string) => void;
@@ -157,6 +164,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       searchQuery: externalSearchQuery,
       tabAssociations,
       tmpTabs,
+      remoteTmpTabs,
+      remoteTmpTabsUpdatedAt,
+      remoteTmpTabsLoading,
+      onRefreshRemoteTmpTabs,
+      onLocalTmpTabsChange,
       currentDeviceId,
       onCloseTmpTab,
       onClearTmpTabs,
@@ -278,11 +290,17 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       : sortedSpaces;
   }, [showOpenTabsVirtualSpace, sortedSpaces, virtualSyncedSpace]);
 
-  // Temporary tabs are local-only. Extension callers supply their tracker list;
-  // other callers use the locally persisted workspace list.
+  // Extension callers supply their tracker list; other callers use the locally
+  // persisted workspace list. Remote snapshots never enter this local list.
   const effectiveTmpTabs = useMemo(() => {
     return tmpTabs !== undefined ? tmpTabs : (data.tmpTabs || []);
   }, [tmpTabs, data.tmpTabs]);
+
+  const onLocalTmpTabsChangeRef = useRef(onLocalTmpTabsChange);
+  onLocalTmpTabsChangeRef.current = onLocalTmpTabsChange;
+  useEffect(() => {
+    if (isLoaded) onLocalTmpTabsChangeRef.current?.(effectiveTmpTabs);
+  }, [isLoaded, effectiveTmpTabs]);
 
   // Counts of currently opened tabs per space (including opened space tabs and tmp tabs)
   const spaceOpenTabCounts = useMemo(() => {
@@ -412,24 +430,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   );
 
   const handleOpenAsTmpTab = useCallback(
-    (url: string, title?: string) => {
+    (url: string, title?: string, spaceId?: string) => {
       if (activeSearchQuery) {
         handleUpdateSearch('');
       }
 
       if (onOpenTmpTab) {
-        onOpenTmpTab(url, title);
-      } else if (onOpenTab) {
-        onOpenTab(url, undefined, undefined, { inNewTab: true, asTmpTab: true });
+        onOpenTmpTab(url, title, spaceId);
       } else {
-        createTmpTab({
+        const newTmpTab = createTmpTab({
           url,
           title: title || cleanUrl(url),
           deviceId: effectiveCurrentDeviceId,
           deviceName: getStoredDeviceName(undefined, 'Web App'),
           deviceType: 'Web App',
+          spaceId,
         });
-        if (typeof window !== 'undefined') {
+        if (onOpenTab) {
+          onOpenTab(url, newTmpTab.id, newTmpTab, { inNewTab: true, asTmpTab: true });
+        } else if (typeof window !== 'undefined') {
           window.open(url, '_blank', 'noopener,noreferrer');
         }
       }
@@ -494,6 +513,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Modals state
   const [isSpaceModalOpen, setIsSpaceModalOpen] = useState(false);
+  const [isAllTmpTabsModalOpen, setIsAllTmpTabsModalOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
 
   const [isConvertSpaceModalOpen, setIsConvertSpaceModalOpen] = useState(false);
@@ -2980,12 +3000,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
           {(bottomBarMenuItems?.length || true) && (
             <div
-              role={bottomBarSyncItem ? 'group' : undefined}
-              aria-label={bottomBarSyncItem ? 'Raindrop sync and more options' : undefined}
+              role="group"
+              aria-label="Space switch actions"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                border: bottomBarSyncItem ? (isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)') : 'none',
+                border: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)',
                 borderRadius: '9999px',
                 overflow: 'hidden',
               }}
@@ -3024,6 +3044,30 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   </span>
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAllTmpTabsModalOpen(true);
+                  void onRefreshRemoteTmpTabs?.();
+                }}
+                title="Tmp tabs on other devices"
+                aria-label="Tmp tabs on other devices"
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  border: 'none',
+                  borderRight: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)',
+                  padding: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  color: isDark ? '#cbd5e1' : '#475569',
+                  cursor: 'pointer',
+                }}
+              >
+                <DevicesIcon size={16} />
+              </button>
               <ActionDropdown
                 items={bottomBarMoreItems}
                 isDarkTheme={isDark}
@@ -3032,7 +3076,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                 buttonStyle={{
                   width: '32px',
                   height: '32px',
-                  borderRadius: bottomBarSyncItem ? 0 : '9999px',
+                  borderRadius: 0,
                   padding: 0,
                   display: 'flex',
                   alignItems: 'center',
@@ -3048,6 +3092,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Modals */}
+      <AllTmpTabsModal
+        isOpen={isAllTmpTabsModalOpen}
+        onClose={() => setIsAllTmpTabsModalOpen(false)}
+        remoteTabs={remoteTmpTabs || []}
+        spaces={sortedSpaces}
+        currentDeviceId={effectiveCurrentDeviceId}
+        remoteUpdatedAt={remoteTmpTabsUpdatedAt}
+        isLoading={remoteTmpTabsLoading}
+        isDarkTheme={isDark}
+        onRefresh={onRefreshRemoteTmpTabs}
+        onOpenRemote={(tab) => handleOpenAsTmpTab(tab.url, tab.customTitle || tab.title, tab.spaceId)}
+      />
       <SpaceModal
         isOpen={isSpaceModalOpen}
         onClose={() => {

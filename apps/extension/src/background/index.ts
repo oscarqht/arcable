@@ -24,6 +24,8 @@ import {
   exchangeRaindropOAuthCode,
   fetchRaindropWorkspace,
   syncWorkspaceWithRaindrop,
+  fetchRaindropTmpTabs,
+  publishRaindropTmpTabs,
   fetchRaindropDevices,
   renameRaindropDevice,
   deleteRaindropDevice,
@@ -46,6 +48,7 @@ import {
 } from './contextMenus';
 import { handleScreenshotCapture } from './screenshot';
 import { handleCopyOperation } from './clipboard';
+import { reconcileTmpTabsWithBrowserTabs } from '../utils/tmpTabDiff';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
@@ -545,6 +548,12 @@ browser.runtime.onMessage.addListener(
       // automatic writes are allowed in a newly opened extension surface.
       case 'RAINDROP_FETCH_WORKSPACE': {
         return fetchAndCacheRaindropWorkspace();
+      }
+
+      case 'RAINDROP_GET_TMP_TABS': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) return { success: false, error: 'Not authenticated with Raindrop' };
+        return fetchRaindropTmpTabs(auth.accessToken);
       }
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
@@ -1050,16 +1059,86 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
   }
 }
 
-// Set up periodic sync alarm (every 5 minutes)
+const TMP_TABS_SYNC_ALARM_NAME = 'arcable_tmp_tabs_sync_alarm';
+const TMP_TABS_LAST_PUBLISHED_KEY = 'arcable_tmp_tabs_last_published';
+let tmpTabsPublishTimer: ReturnType<typeof setTimeout> | null = null;
+let tmpTabsPublishInFlight = false;
+let tmpTabsPublishQueued = false;
+
+async function publishLocalTmpTabsIfDue(): Promise<void> {
+  if (tmpTabsPublishInFlight) {
+    tmpTabsPublishQueued = true;
+    return;
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+  tmpTabsPublishInFlight = true;
+  try {
+    const auth = await getStoredAuthState();
+    if (!auth.isAuthenticated || !auth.accessToken) return;
+    const publishKey = `${TMP_TABS_LAST_PUBLISHED_KEY}_${auth.user?.id || 'unknown'}`;
+    const stored = await browser.storage.local.get(['arcable_tmp_tabs', publishKey]);
+    const storedTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
+    // The side panel owns the normal tab tracker, so its local snapshot can
+    // become stale while the panel is closed. Read live browser metadata before
+    // publishing this device's snapshot.
+    const browserTabs = await browser.tabs.query({});
+    const reconciled = reconcileTmpTabsWithBrowserTabs(storedTabs, browserTabs);
+    const tabs = reconciled.tabs;
+    if (reconciled.changed) {
+      await browser.storage.local.set({ arcable_tmp_tabs: tabs });
+    }
+    const fingerprint = JSON.stringify(tabs);
+    const previous = stored[publishKey] as { fingerprint?: string; at?: number } | undefined;
+    const now = Date.now();
+    if (fingerprint === previous?.fingerprint && now - (previous?.at || 0) < 24 * 60 * 60 * 1000) return;
+    const delay = Math.max(0, (previous?.at || 0) + 60_000 - now);
+    if (delay > 0) {
+      if (!tmpTabsPublishTimer) {
+        tmpTabsPublishTimer = setTimeout(() => {
+          tmpTabsPublishTimer = null;
+          void publishLocalTmpTabsIfDue();
+        }, delay);
+      }
+      return;
+    }
+
+    const deviceId = await getOrCreateExtensionDeviceId();
+    const deviceName = await getExtensionDeviceName();
+    const result = await publishRaindropTmpTabs(auth.accessToken, {
+      deviceId,
+      deviceName,
+      deviceType: 'Ext',
+      tabs,
+    });
+    if (!result.success) throw new Error(result.error || 'Failed to publish temporary tabs');
+    await browser.storage.local.set({ [publishKey]: { fingerprint, at: Date.now() } });
+  } catch (error) {
+    console.warn('[Arcable Background] Temporary tab publish failed:', error);
+  } finally {
+    tmpTabsPublishInFlight = false;
+    if (tmpTabsPublishQueued) {
+      tmpTabsPublishQueued = false;
+      void publishLocalTmpTabsIfDue();
+    }
+  }
+}
+
+// Workspace writes retain their five minute schedule. Open browser tabs use a
+// separate one minute alarm and never enter the workspace operation log.
 const SYNC_ALARM_NAME = 'arcable_sync_alarm';
 if (typeof chrome !== 'undefined' && chrome.alarms) {
   chrome.alarms.create(SYNC_ALARM_NAME, { periodInMinutes: 5 });
+  chrome.alarms.create(TMP_TABS_SYNC_ALARM_NAME, { periodInMinutes: 1 });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM_NAME) {
       void triggerBackgroundSync();
+    } else if (alarm.name === TMP_TABS_SYNC_ALARM_NAME) {
+      void publishLocalTmpTabsIfDue();
     }
   });
 }
+void publishLocalTmpTabsIfDue();
 
 // Listen for external messages (e.g. from web app OAuth redirect)
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
@@ -1095,8 +1174,9 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     const pendingOpsAfterChange = changes.arcable_pending_ops?.newValue;
     const hasPendingOps = Array.isArray(pendingOpsAfterChange) && pendingOpsAfterChange.length > 0;
-    // Temporary tabs are intentionally local-only. Persisting their browser
-    // state must never turn into a Raindrop workspace write.
+    // Keep browser state out of the workspace operation log. A separate,
+    // throttled device snapshot publishes changes to other devices.
+    if (changes.arcable_tmp_tabs) void publishLocalTmpTabsIfDue();
     if (hasPendingOps) {
       triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, true);
     }
