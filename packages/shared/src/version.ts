@@ -3,4 +3,4 @@
  * This is deliberately a source constant rather than a package.json import so it
  * is available in both the Next.js server bundle and extension service worker.
  */
-export const ARCABLE_VERSION = '0.118.0';
+export const ARCABLE_VERSION = '0.119.0';
