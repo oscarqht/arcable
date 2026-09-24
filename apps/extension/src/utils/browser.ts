@@ -237,3 +237,100 @@ export async function isZenBrowser(): Promise<boolean> {
   return false;
 }
 
+/**
+ * Detects whether the extension is running inside Firefox.
+ */
+export function isFirefox(): boolean {
+  if (typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)) {
+    return true;
+  }
+  return typeof browser !== 'undefined' && typeof (browser.runtime as any)?.getBrowserInfo === 'function';
+}
+
+/**
+ * Detects whether the extension is running inside Brave browser.
+ */
+export function isBrave(): boolean {
+  if (typeof navigator !== 'undefined') {
+    if (Boolean((navigator as any).brave && typeof (navigator as any).brave.isBrave === 'function')) {
+      return true;
+    }
+    if (/Brave/i.test(navigator.userAgent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Synchronous check whether chrome.userScripts is available in the current context.
+ */
+export function isUserScriptsAvailable(): boolean {
+  try {
+    const userScripts = (chrome as any)?.userScripts;
+    return Boolean(
+      userScripts &&
+        (typeof userScripts.execute === 'function' || typeof userScripts.register === 'function')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Asynchronous cross-browser check whether user scripts are permitted and available.
+ */
+export async function checkUserScriptsAvailable(): Promise<boolean> {
+  if (isFirefox()) {
+    try {
+      if (typeof browser !== 'undefined' && browser.permissions?.contains) {
+        return await browser.permissions.contains({ permissions: ['userScripts'] });
+      }
+    } catch {
+      return false;
+    }
+  }
+  return isUserScriptsAvailable();
+}
+
+/**
+ * Resolves the browser-specific extension details/settings URL.
+ */
+export function getExtensionDetailsUrl(): string {
+  const extensionId =
+    (typeof chrome !== 'undefined' && chrome.runtime?.id) ||
+    (typeof browser !== 'undefined' && browser.runtime?.id) ||
+    '';
+  if (isBrave()) {
+    return `brave://extensions/?id=${extensionId}`;
+  }
+  if (isFirefox()) {
+    return 'about:addons';
+  }
+  return `chrome://extensions/?id=${extensionId}`;
+}
+
+/**
+ * Opens the browser extension management details page for Arcable.
+ * In Firefox, attempts to prompt for userScripts permission directly first.
+ */
+export async function openExtensionDetailsPage(): Promise<void> {
+  if (isFirefox()) {
+    try {
+      if (typeof browser !== 'undefined' && browser.permissions?.request) {
+        const granted = await browser.permissions.request({ permissions: ['userScripts'] });
+        if (granted) return;
+      }
+    } catch (err) {
+      console.warn('[Arcable] browser.permissions.request failed:', err);
+    }
+  }
+
+  const url = getExtensionDetailsUrl();
+  try {
+    await browser.tabs.create({ url });
+  } catch (err) {
+    console.warn('[Arcable] Failed to open extension details page tab:', err);
+  }
+}
+

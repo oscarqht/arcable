@@ -12,7 +12,13 @@ import {
   mergeRunCodeRules,
   createWorkspaceOperation,
 } from '@arcable/shared/utils';
-import { browser } from '../../utils/browser';
+import {
+  browser,
+  checkUserScriptsAvailable,
+  openExtensionDetailsPage,
+  isBrave,
+  isFirefox,
+} from '../../utils/browser';
 import { CodeEditor } from './CodeEditor';
 
 const STORAGE_KEY = 'runCodeInPageRules';
@@ -32,9 +38,33 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [userScriptsAvailable, setUserScriptsAvailable] = useState<boolean | null>(null);
+  const [isCheckingScripts, setIsCheckingScripts] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const verifyUserScripts = async (silent = false) => {
+    setIsCheckingScripts(true);
+    try {
+      const available = await checkUserScriptsAvailable();
+      setUserScriptsAvailable(available);
+      if (!silent) {
+        if (available) {
+          showToast('"Allow user scripts" is enabled! You can now run code in pages.', 'success');
+        } else {
+          showToast('"Allow user scripts" is still disabled in browser settings.', 'warning');
+        }
+      }
+      return available;
+    } catch (err) {
+      console.warn('[RunCodeTab] Failed to verify user scripts status:', err);
+      setUserScriptsAvailable(false);
+      return false;
+    } finally {
+      setIsCheckingScripts(false);
+    }
+  };
 
   const syncToRaindropImmediately = async () => {
     try {
@@ -66,6 +96,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
   useEffect(() => {
     loadRules();
+    void verifyUserScripts(true);
 
     const handleStorageChange = (changes: any, area: string) => {
       if (area === 'local' && changes[STORAGE_KEY]) {
@@ -74,8 +105,15 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       }
     };
     browser.storage.onChanged.addListener(handleStorageChange);
+
+    const handleWindowFocus = () => {
+      void verifyUserScripts(true);
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
     return () => {
       browser.storage.onChanged.removeListener(handleStorageChange);
+      window.removeEventListener('focus', handleWindowFocus);
     };
   }, []);
 
@@ -384,6 +422,96 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
         style={{ display: 'none' }}
         onChange={handleImportFile}
       />
+
+      {/* User Scripts Permission Warning Banner */}
+      {userScriptsAvailable === false && (
+        <div
+          style={{
+            borderRadius: '16px',
+            padding: '20px 24px',
+            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.1)' : '#fffbeb',
+            border: isDark ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid #fde68a',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+            <span style={{ fontSize: '24px', lineHeight: 1 }}>⚠️</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div
+                style={{
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  color: isDark ? '#fef3c7' : '#92400e',
+                }}
+              >
+                "Allow user scripts" must be enabled to run code in page
+              </div>
+              <div
+                style={{
+                  fontSize: '13px',
+                  lineHeight: '1.5',
+                  color: isDark ? '#d1d5db' : '#78350f',
+                }}
+              >
+                {isBrave()
+                  ? 'Brave requires user scripts to be explicitly enabled for this extension before running custom JavaScript in pages.'
+                  : isFirefox()
+                  ? 'Firefox requires explicit permission to execute custom user scripts in web pages.'
+                  : 'Chrome requires user scripts permission (or Developer Mode on older versions) before executing custom JavaScript in pages.'}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: '12px 16px',
+              borderRadius: '10px',
+              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.7)',
+              border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #fcd34d',
+              fontSize: '13px',
+              lineHeight: '1.6',
+              color: isDark ? '#f1f5f9' : '#1e293b',
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: '6px' }}>Quick 2-Step Setup:</div>
+            <ol style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <li>
+                Click <strong>"Open Extension Settings"</strong> below to view Arcable's extension details.
+              </li>
+              <li>
+                Scroll down to locate the <strong>"Allow user scripts"</strong> toggle and turn it <strong>ON</strong>.
+              </li>
+            </ol>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={async () => {
+                await openExtensionDetailsPage();
+              }}
+              style={{
+                backgroundColor: '#d97706',
+                borderColor: '#d97706',
+                fontWeight: 600,
+              }}
+            >
+              ⚙️ Open Extension Settings
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => verifyUserScripts(false)}
+              disabled={isCheckingScripts}
+            >
+              {isCheckingScripts ? 'Checking...' : '🔄 Recheck Status'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Editor Card */}
       <Card

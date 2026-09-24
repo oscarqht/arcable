@@ -9,9 +9,7 @@ export const RUN_CODE_BACKGROUND_FETCH_MESSAGE = 'runCodeInPage:backgroundFetch'
 export const RUN_CODE_IN_PAGE_STORAGE_KEY = 'runCodeInPageRules';
 export const CUSTOM_CODE_STORAGE_KEY = 'customCodeRules';
 
-export function isFirefox(): boolean {
-  return typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent);
-}
+import { isFirefox, isBrave } from '../utils/browser';
 
 const ALLOWED_BACKGROUND_FETCH_INIT_KEYS = new Set([
   'body',
@@ -209,11 +207,18 @@ export async function executeManualUserCode(
 ): Promise<void> {
   const setupMessage = isFirefox()
     ? 'Arcable Run Code requires the "Run user scripts" permission. Please enable it in about:addons.'
-    : 'Arcable Run Code requires Chrome user scripts. Enable "Allow User Scripts" on Chrome 138+ or enable Developer Mode.';
+    : isBrave()
+    ? 'Arcable Run Code requires Brave user scripts. Please enable "Allow user scripts" on the extension details page (brave://extensions).'
+    : 'Arcable Run Code requires Chrome user scripts. Please enable "Allow User Scripts" on the extension details page (chrome://extensions) or enable Developer Mode.';
 
   await ensureManualUserScriptPermission();
 
-  const userScripts = (chrome as any).userScripts;
+  let userScripts: any = null;
+  try {
+    userScripts = (chrome as any).userScripts;
+  } catch {
+    userScripts = null;
+  }
 
   if (!userScripts || typeof userScripts.execute !== 'function') {
     throw new Error(setupMessage);

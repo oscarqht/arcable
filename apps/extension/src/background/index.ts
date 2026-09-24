@@ -49,6 +49,7 @@ import {
 import { handleScreenshotCapture } from './screenshot';
 import { handleCopyOperation } from './clipboard';
 import { reconcileTmpTabsWithBrowserTabs } from '../utils/tmpTabDiff';
+import { checkUserScriptsAvailable, openExtensionDetailsPage } from '../utils/browser';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
@@ -349,6 +350,16 @@ browser.runtime.onMessage.addListener(
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to run code in page.' };
         }
+      }
+
+      case 'CHECK_USER_SCRIPTS_AVAILABLE': {
+        const available = await checkUserScriptsAvailable();
+        return { success: true, data: { available } };
+      }
+
+      case 'OPEN_EXTENSION_DETAILS_PAGE': {
+        await openExtensionDetailsPage();
+        return { success: true };
       }
 
       case 'TAKE_SCREENSHOT': {

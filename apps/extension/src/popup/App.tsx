@@ -13,7 +13,16 @@ import {
   replayOperations,
 } from '@arcable/shared/utils';
 import { ArcableItem, RaindropAuthState, ExtensionResponse, SyncResult } from '@arcable/shared/types';
-import { browser, getActiveTab, captureActiveTabScreenshot, openOptionsPageSafely, openWorkspaceSafely } from '../utils/browser';
+import {
+  browser,
+  getActiveTab,
+  captureActiveTabScreenshot,
+  openOptionsPageSafely,
+  openWorkspaceSafely,
+  checkUserScriptsAvailable,
+  openExtensionDetailsPage,
+  isBrave,
+} from '../utils/browser';
 
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
@@ -22,6 +31,7 @@ export const App: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [savingRaindrop, setSavingRaindrop] = useState(false);
   const [raindropSuccess, setRaindropSuccess] = useState(false);
+  const [userScriptsAvailable, setUserScriptsAvailable] = useState<boolean | null>(null);
 
   // Raindrop Auth
   const [authState, setAuthState] = useState<RaindropAuthState>({ isAuthenticated: false });
@@ -46,6 +56,13 @@ export const App: React.FC = () => {
           }).catch(() => {});
         }
       }
+    });
+
+    // Check user scripts availability
+    checkUserScriptsAvailable().then((available) => {
+      setUserScriptsAvailable(available);
+    }).catch(() => {
+      setUserScriptsAvailable(false);
     });
 
     // Load saved items from extension storage
@@ -546,6 +563,52 @@ export const App: React.FC = () => {
             subtitle={`${matchingSnippets.length} snippet(s) available for this site`}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {userScriptsAvailable === false && (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7',
+                    border: isDark ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid #fde68a',
+                    fontSize: '12px',
+                    lineHeight: '1.45',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: isDark ? '#fbbf24' : '#92400e', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>⚠️</span>
+                    <span>"Allow user scripts" required</span>
+                  </div>
+                  <div style={{ color: isDark ? '#cbd5e1' : '#475569' }}>
+                    {isBrave()
+                      ? 'Enable "Allow user scripts" in Brave extension details to run snippets.'
+                      : 'Enable "Allow User Scripts" in extension details to run snippets.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await openExtensionDetailsPage();
+                    }}
+                    style={{
+                      alignSelf: 'flex-start',
+                      marginTop: '2px',
+                      background: 'none',
+                      border: 'none',
+                      color: '#3b82f6',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Open Extension Settings →
+                  </button>
+                </div>
+              )}
+
               {matchingSnippets.map((rule) => {
                 const isRunning = runningSnippetId === rule.id;
                 return (
@@ -572,12 +635,33 @@ export const App: React.FC = () => {
                         try {
                           const tab = await getActiveTab();
                           if (!tab?.id) return;
-                          await browser.runtime.sendMessage({
+                          const res = (await browser.runtime.sendMessage({
                             type: 'RUN_CODE_IN_PAGE_EXECUTE',
                             payload: { ruleId: rule.id, tabId: tab.id },
-                          });
-                        } catch (err) {
+                          })) as ExtensionResponse | undefined;
+
+                          if (res && !res.success) {
+                            const errMsg = res.error || '';
+                            if (
+                              errMsg.includes('user scripts') ||
+                              errMsg.includes('Allow user scripts') ||
+                              errMsg.includes('Allow User Scripts')
+                            ) {
+                              setUserScriptsAvailable(false);
+                              await openExtensionDetailsPage();
+                            }
+                          }
+                        } catch (err: any) {
                           console.warn('Run code error:', err);
+                          const errMsg = err?.message || String(err);
+                          if (
+                            errMsg.includes('user scripts') ||
+                            errMsg.includes('Allow user scripts') ||
+                            errMsg.includes('Allow User Scripts')
+                          ) {
+                            setUserScriptsAvailable(false);
+                            await openExtensionDetailsPage();
+                          }
                         } finally {
                           setTimeout(() => setRunningSnippetId(null), 1200);
                         }

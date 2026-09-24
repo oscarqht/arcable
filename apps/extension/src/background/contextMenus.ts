@@ -2,6 +2,7 @@ import browser from 'webextension-polyfill';
 import { RunCodeRule } from '@arcable/shared/types';
 import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
+import { openExtensionDetailsPage } from '../utils/browser';
 import { handleScreenshotCapture } from './screenshot';
 import {
   createCopyContextMenuItems,
@@ -153,8 +154,16 @@ export function initContextMenuListeners(): void {
     if (typeof info.menuItemId === 'string' && info.menuItemId.startsWith(MENU_ITEM_PREFIX)) {
       const ruleId = info.menuItemId.replace(MENU_ITEM_PREFIX, '');
       if (typeof tabId === 'number') {
-        void runCodeInPageRule(ruleId, tabId).catch((err) => {
+        void runCodeInPageRule(ruleId, tabId).catch(async (err) => {
           console.error('[contextMenus] Execution error:', err);
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            msg.includes('user scripts') ||
+            msg.includes('Allow user scripts') ||
+            msg.includes('Allow User Scripts')
+          ) {
+            await openExtensionDetailsPage();
+          }
         });
       }
     }
