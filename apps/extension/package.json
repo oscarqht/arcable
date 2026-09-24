@@ -1,6 +1,6 @@
 {
   "name": "@arcable/extension",
-  "version": "0.120.0",
+  "version": "0.121.0",
   "description": "Arcable Chrome & Firefox Extension built with React, TypeScript and Vite",
   "type": "module",
   "scripts": {
