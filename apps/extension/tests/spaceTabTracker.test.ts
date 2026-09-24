@@ -1,4 +1,4 @@
-import { Tab, TmpTab } from '@arcable/shared/types';
+import { Tab, TmpTab, Folder } from '@arcable/shared/types';
 import {
   resolveSpaceIdForTabItem,
   rememberActiveTabForSpace,
@@ -9,6 +9,8 @@ import {
   activateRememberedTabForSpace,
   resetMemorySpaceActiveTabsForTest,
   SPACE_LAST_ACTIVE_TAB_KEY,
+  getOpenTabsInSpaceOrder,
+  findNearestOpenTabInSpace,
 } from '../src/sidepanel/spaceTabTracker';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -310,6 +312,99 @@ async function runTests() {
     (await getRememberedActiveTabForSpace(401, 'space-B')) === 902,
     'space-B active tab should remain untouched'
   );
+
+  // Test 10: getOpenTabsInSpaceOrder
+  const testFolders: Folder[] = [
+    { id: 'f-1', title: 'Work Folder', parentSpaceId: 'space-test', order: 2 },
+  ];
+  const testTabs: Tab[] = [
+    { id: 'tab-pinned', title: 'Pinned 1', url: 'https://pinned.com', parentSpaceId: 'space-test', pinned: true, order: 0 },
+    { id: 'tab-root-1', title: 'Root 1', url: 'https://root1.com', parentSpaceId: 'space-test', order: 1 },
+    { id: 'tab-in-f1', title: 'Inside F1', url: 'https://f1.com', parentSpaceId: 'space-test', parentFolderId: 'f-1', order: 0 },
+    { id: 'tab-other-space', title: 'Other Space', url: 'https://other.com', parentSpaceId: 'space-other', order: 0 },
+    { id: 'tab-unopened', title: 'Not Open', url: 'https://unopened.com', parentSpaceId: 'space-test', order: 3 },
+  ];
+  const testAssocs = {
+    'tab-pinned': { browserTabId: 10, windowId: 1 },
+    'tab-root-1': { browserTabId: 20, windowId: 1 },
+    'tab-in-f1': { browserTabId: 30, windowId: 1 },
+    'tab-other-space': { browserTabId: 40, windowId: 1 },
+    // tab-unopened has no entry
+  };
+  const testTmpTabs: TmpTab[] = [
+    { id: 'tmp-1', url: 'https://tmp1.com', spaceId: 'space-test', browserTabId: 50, windowId: 1 },
+    { id: 'tmp-other', url: 'https://tmp-other.com', spaceId: 'space-other', browserTabId: 60, windowId: 1 },
+  ];
+
+  const orderedOpen = getOpenTabsInSpaceOrder(
+    'space-test',
+    testFolders,
+    testTabs,
+    testAssocs,
+    testTmpTabs,
+    1
+  );
+
+  assert(orderedOpen.length === 4, 'Should find exactly 4 open tabs for space-test in window 1');
+  assert(orderedOpen[0].tabItemId === 'tab-pinned' && orderedOpen[0].browserTabId === 10, 'First tab should be pinned');
+  assert(orderedOpen[1].tabItemId === 'tab-root-1' && orderedOpen[1].browserTabId === 20, 'Second tab should be root tab');
+  assert(orderedOpen[2].tabItemId === 'tab-in-f1' && orderedOpen[2].browserTabId === 30, 'Third tab should be inside folder f-1');
+  assert(orderedOpen[3].tabItemId === 'tmp-1' && orderedOpen[3].browserTabId === 50, 'Fourth tab should be tmp tab');
+
+  // Test 11: findNearestOpenTabInSpace
+  // 11a: closing top tab (tab-pinned) -> should prefer downward (tab-root-1)
+  const nearestFromTop = findNearestOpenTabInSpace(
+    'space-test',
+    { tabItemId: 'tab-pinned', browserTabId: 10 },
+    testFolders,
+    testTabs,
+    testAssocs,
+    testTmpTabs,
+    1
+  );
+  assert(nearestFromTop !== null, 'nearestFromTop should not be null');
+  assert(nearestFromTop.tabItemId === 'tab-root-1', 'Closing top tab should select next tab below (downward)');
+
+  // 11b: closing middle tab (tab-root-1) -> should prefer downward (tab-in-f1)
+  const nearestFromMiddle = findNearestOpenTabInSpace(
+    'space-test',
+    { tabItemId: 'tab-root-1', browserTabId: 20 },
+    testFolders,
+    testTabs,
+    testAssocs,
+    testTmpTabs,
+    1
+  );
+  assert(nearestFromMiddle !== null, 'nearestFromMiddle should not be null');
+  assert(nearestFromMiddle.tabItemId === 'tab-in-f1', 'Closing middle tab should select next tab below (downward)');
+
+  // 11c: closing bottom tab (tmp-1) -> should fall back upward (tab-in-f1)
+  const nearestFromBottom = findNearestOpenTabInSpace(
+    'space-test',
+    { tabItemId: 'tmp-1', browserTabId: 50 },
+    testFolders,
+    testTabs,
+    testAssocs,
+    testTmpTabs,
+    1
+  );
+  assert(nearestFromBottom !== null, 'nearestFromBottom should not be null');
+  assert(nearestFromBottom.tabItemId === 'tab-in-f1', 'Closing bottom tab should fall back to tab above (upward)');
+
+  // 11d: closing only open tab in a space -> returns null
+  const singleOpenTabList: TmpTab[] = [
+    { id: 'tmp-only', url: 'https://only.com', spaceId: 'space-isolated', browserTabId: 99, windowId: 1 },
+  ];
+  const nearestWhenOnlyOne = findNearestOpenTabInSpace(
+    'space-isolated',
+    { tabItemId: 'tmp-only', browserTabId: 99 },
+    [],
+    [],
+    {},
+    singleOpenTabList,
+    1
+  );
+  assert(nearestWhenOnlyOne === null, 'Closing the only open tab in a space should return null');
 
   console.log('All spaceTabTracker tests passed successfully!');
 }

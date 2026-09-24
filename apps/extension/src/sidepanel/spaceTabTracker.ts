@@ -1,4 +1,4 @@
-import { Tab, TmpTab } from '@arcable/shared/types';
+import { Tab, TmpTab, Folder } from '@arcable/shared/types';
 
 declare const chrome: any;
 declare const browser: any;
@@ -150,6 +150,168 @@ export function resolveSpaceIdForTabItem(
     return null;
   }
   return tab.parentSpaceId || null;
+}
+
+export interface OpenSpaceTabInfo {
+  tabItemId: string;
+  browserTabId: number;
+  windowId?: number;
+  isTmp: boolean;
+}
+
+/**
+ * Returns all currently open browser tabs belonging to a specific space in sidebar order:
+ * 1. Pinned workspace tabs for this space (if currently open)
+ * 2. Regular workspace tabs and folders in this space (in sidebar hierarchy order, if currently open)
+ * 3. Temporary tabs for this space (in order, if currently open)
+ */
+export function getOpenTabsInSpaceOrder(
+  spaceId: string,
+  folders: Folder[],
+  tabs: Tab[],
+  tabAssociations: Record<string, { browserTabId?: number; windowId?: number } | undefined>,
+  tmpTabs: TmpTab[],
+  windowId?: number
+): OpenSpaceTabInfo[] {
+  if (!spaceId) return [];
+
+  const result: OpenSpaceTabInfo[] = [];
+  const seenBrowserTabIds = new Set<number>();
+
+  const addIfOpen = (
+    tabItemId: string,
+    browserTabId: number | undefined,
+    tabWinId: number | undefined,
+    isTmp: boolean
+  ) => {
+    if (browserTabId === undefined || browserTabId <= 0) return;
+    if (windowId !== undefined && tabWinId !== undefined && tabWinId !== windowId) return;
+    if (seenBrowserTabIds.has(browserTabId)) return;
+    seenBrowserTabIds.add(browserTabId);
+    result.push({
+      tabItemId,
+      browserTabId,
+      windowId: tabWinId,
+      isTmp,
+    });
+  };
+
+  const safeTabs = Array.isArray(tabs) ? tabs : [];
+  const safeFolders = Array.isArray(folders) ? folders : [];
+
+  // 1. Pinned workspace tabs for this space
+  const pinnedTabs = safeTabs
+    .filter((t) => t.parentSpaceId === spaceId && t.pinned && !t.favourite)
+    .sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+
+  for (const t of pinnedTabs) {
+    const assoc = tabAssociations[t.id];
+    if (assoc?.browserTabId) {
+      addIfOpen(t.id, assoc.browserTabId, assoc.windowId, false);
+    }
+  }
+
+  // 2. Regular workspace tabs & folders in this space (hierarchical tree order)
+  const collectLevel = (parentFolderId: string | undefined) => {
+    // Tabs at this level
+    const levelTabs = safeTabs
+      .filter(
+        (t) =>
+          !t.favourite &&
+          !t.pinned &&
+          t.parentSpaceId === spaceId &&
+          (parentFolderId ? t.parentFolderId === parentFolderId : !t.parentFolderId)
+      )
+      .sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+
+    for (const t of levelTabs) {
+      const assoc = tabAssociations[t.id];
+      if (assoc?.browserTabId) {
+        addIfOpen(t.id, assoc.browserTabId, assoc.windowId, false);
+      }
+    }
+
+    // Folders at this level
+    const levelFolders = safeFolders
+      .filter(
+        (f) =>
+          f.parentSpaceId === spaceId &&
+          (parentFolderId ? f.parentFolderId === parentFolderId : !f.parentFolderId)
+      )
+      .sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+
+    for (const f of levelFolders) {
+      collectLevel(f.id);
+    }
+  };
+
+  collectLevel(undefined);
+
+  // 3. Temporary tabs for this space
+  const spaceTmpTabs = (Array.isArray(tmpTabs) ? tmpTabs : []).filter(
+    (t) => t.spaceId === spaceId
+  );
+
+  for (const t of spaceTmpTabs) {
+    if (t.browserTabId !== undefined) {
+      addIfOpen(t.id, t.browserTabId, t.windowId, true);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Find the nearest open tab in the space relative to the closing tab.
+ * Prefers the next tab downward (below), falling back to the tab upward (above).
+ * Returns null if no other open tabs remain in this space.
+ */
+export function findNearestOpenTabInSpace(
+  spaceId: string,
+  closingTab: { tabItemId?: string; browserTabId?: number },
+  folders: Folder[],
+  tabs: Tab[],
+  tabAssociations: Record<string, { browserTabId?: number; windowId?: number } | undefined>,
+  tmpTabs: TmpTab[],
+  windowId?: number
+): OpenSpaceTabInfo | null {
+  const openTabs = getOpenTabsInSpaceOrder(
+    spaceId,
+    folders,
+    tabs,
+    tabAssociations,
+    tmpTabs,
+    windowId
+  );
+
+  if (openTabs.length === 0) {
+    return null;
+  }
+
+  const closingIndex = openTabs.findIndex(
+    (t) =>
+      (closingTab.tabItemId && t.tabItemId === closingTab.tabItemId) ||
+      (closingTab.browserTabId !== undefined && t.browserTabId === closingTab.browserTabId)
+  );
+
+  if (closingIndex === -1) {
+    // If the closing tab is not found in the open tabs list,
+    // return the last open tab in this space
+    return openTabs[openTabs.length - 1] || null;
+  }
+
+  // 1. Prefer downward (next tab below in sidebar)
+  if (closingIndex + 1 < openTabs.length) {
+    return openTabs[closingIndex + 1];
+  }
+
+  // 2. Fall back upward (tab above in sidebar)
+  if (closingIndex - 1 >= 0) {
+    return openTabs[closingIndex - 1];
+  }
+
+  // Only the closing tab was open in this space
+  return null;
 }
 
 /**
