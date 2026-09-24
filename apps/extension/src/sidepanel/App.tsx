@@ -5,7 +5,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions } from '@arcable/shared/types';
+import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions, Folder } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile, isLegacyDemoWorkspace } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
@@ -34,6 +34,7 @@ import {
   resolveSpaceIdForTabItem,
   forgetActiveTabForSpace,
   forgetBrowserTab,
+  findNearestOpenTabInSpace,
 } from './spaceTabTracker';
 export { resolveSidepanelActiveSpaceId };
 
@@ -87,6 +88,18 @@ export function getStoredWorkspaceTabs(): Tab[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed?.tabs)) return parsed.tabs;
+    }
+  } catch {}
+  return [];
+}
+
+export function getStoredWorkspaceFolders(): Folder[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem('arcable_workspace_data');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed?.folders)) return parsed.folders;
     }
   } catch {}
   return [];
@@ -203,6 +216,7 @@ export const App: React.FC = () => {
   const hasAppliedAuthoritativeSnapshotRef = useRef(false);
   const currentWindowIdRef = useRef<number | null>(null);
   const workspaceTabsRef = useRef<Tab[]>(getStoredWorkspaceTabs());
+  const workspaceFoldersRef = useRef<Folder[]>(getStoredWorkspaceFolders());
   const previousSpaceIdRef = useRef<string | null>(null);
   const isInitialSpaceMountRef = useRef<boolean>(true);
 
@@ -252,6 +266,8 @@ export const App: React.FC = () => {
         clearStoredPendingOperations();
         const resolved = applySidepanelActiveSpace(res.data, getStoredLastSpaceId());
         window.localStorage.setItem('arcable_workspace_data', JSON.stringify(resolved));
+        if (resolved.tabs) workspaceTabsRef.current = resolved.tabs;
+        if (resolved.folders) workspaceFoldersRef.current = resolved.folders;
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: resolved }));
         workspaceRef.current?.applySnapshot?.(resolved);
         setRaindropHydrated(true);
@@ -273,7 +289,10 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(raw);
         if (parsed.tabs && Array.isArray(parsed.tabs)) {
           workspaceTabsRef.current = parsed.tabs;
-          void tabTracker.syncWithWorkspace(parsed.tabs);
+          if (parsed.folders && Array.isArray(parsed.folders)) {
+            workspaceFoldersRef.current = parsed.folders;
+          }
+          void tabTracker.syncWithWorkspace(parsed.tabs, parsed.folders);
         }
       }
     } catch {}
@@ -281,7 +300,7 @@ export const App: React.FC = () => {
 
   const handleTabsChange = useCallback((tabs: Tab[]) => {
     workspaceTabsRef.current = tabs;
-    void tabTracker.syncWithWorkspace(tabs);
+    void tabTracker.syncWithWorkspace(tabs, workspaceFoldersRef.current);
   }, []);
 
 
@@ -302,7 +321,17 @@ export const App: React.FC = () => {
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId, details) => {
       clearMousePos();
       setHighlightedTabId(tabItemId);
-      if (tabItemId && workspaceRef.current) {
+      if (tabItemId && workspaceRef.current && !details?.causedByClose) {
+        const workspaceTabs = workspaceTabsRef.current.length > 0
+          ? workspaceTabsRef.current
+          : getStoredWorkspaceTabs();
+        const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, tmpTabsRef.current);
+        if (spaceId) {
+          const currentSpace = workspaceRef.current.getActiveSpace?.();
+          if (currentSpace?.id !== spaceId) {
+            workspaceRef.current.setActiveSpace?.(spaceId);
+          }
+        }
         workspaceRef.current.revealAndHighlightTab(tabItemId);
       }
       if (tabItemId && details?.browserTabId) {
@@ -1028,6 +1057,40 @@ export const App: React.FC = () => {
     // since the device ID stored on the tab may differ from currentDeviceId on
     // Firefox Mobile where storage contexts are separate.
     if (tab.browserTabId !== undefined) {
+      try {
+        const activeTab = await getActiveTab().catch(() => null);
+        const isCurrentlyActive = activeTab && activeTab.id === tab.browserTabId;
+        const currentWinId = tab.windowId ?? currentWindowIdRef.current;
+        const workspaceTabs = workspaceTabsRef.current.length > 0 ? workspaceTabsRef.current : getStoredWorkspaceTabs();
+        const folders = workspaceFoldersRef.current.length > 0 ? workspaceFoldersRef.current : getStoredWorkspaceFolders();
+        const spaceId = tab.spaceId || resolveSpaceIdForTabItem(tab.id, workspaceTabs, tmpTabsRef.current) || workspaceRef.current?.getActiveSpace?.()?.id || previousSpaceIdRef.current || getStoredLastSpaceId();
+
+        if (isCurrentlyActive && spaceId) {
+          const nearest = findNearestOpenTabInSpace(
+            spaceId,
+            { tabItemId: tab.id, browserTabId: tab.browserTabId },
+            folders,
+            workspaceTabs,
+            tabAssociationsRef.current,
+            tmpTabsRef.current,
+            currentWinId ?? undefined
+          );
+
+          if (nearest) {
+            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
+          } else {
+            const newTab = await browser.tabs.create(
+              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
+            );
+            if (newTab && newTab.id !== undefined) {
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Error activating nearest tab before closing tmp tab:', e);
+      }
+
       await tabTracker.closeTmpTab(tab.browserTabId);
     }
   };
@@ -1057,16 +1120,48 @@ export const App: React.FC = () => {
       .filter((id): id is number => id !== undefined);
 
     if (browserTabIds.length > 0) {
-      // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
       try {
         const currentWinId = currentWindowIdRef.current;
-        const allWindowTabs = await browser.tabs.query(
-          typeof currentWinId === 'number' ? { windowId: currentWinId } : { currentWindow: true }
-        );
-        const closingSet = new Set(browserTabIds);
-        const remainingTabs = allWindowTabs.filter((bt) => bt.id !== undefined && !closingSet.has(bt.id));
-        if (remainingTabs.length === 0) {
-          await browser.tabs.create(typeof currentWinId === 'number' ? { windowId: currentWinId } : {});
+        const activeTab = await getActiveTab().catch(() => null);
+        const isActiveBeingCleared = activeTab && activeTab.id !== undefined && browserTabIds.includes(activeTab.id);
+        const targetSpaceId = spaceId || tabsToClear[0]?.spaceId || workspaceRef.current?.getActiveSpace?.()?.id || previousSpaceIdRef.current || getStoredLastSpaceId();
+
+        if (isActiveBeingCleared && targetSpaceId) {
+          const workspaceTabs = workspaceTabsRef.current.length > 0 ? workspaceTabsRef.current : getStoredWorkspaceTabs();
+          const folders = workspaceFoldersRef.current.length > 0 ? workspaceFoldersRef.current : getStoredWorkspaceFolders();
+          const closingSet = new Set(browserTabIds);
+          const remainingTmpTabs = tmpTabsRef.current.filter((t) => t.browserTabId === undefined || !closingSet.has(t.browserTabId));
+
+          const nearest = findNearestOpenTabInSpace(
+            targetSpaceId,
+            { browserTabId: activeTab.id },
+            folders,
+            workspaceTabs,
+            tabAssociationsRef.current,
+            remainingTmpTabs,
+            currentWinId ?? undefined
+          );
+
+          if (nearest) {
+            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
+          } else {
+            const newTab = await browser.tabs.create(
+              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
+            );
+            if (newTab && newTab.id !== undefined) {
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', targetSpaceId);
+            }
+          }
+        } else {
+          // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
+          const allWindowTabs = await browser.tabs.query(
+            typeof currentWinId === 'number' ? { windowId: currentWinId } : { currentWindow: true }
+          );
+          const closingSet = new Set(browserTabIds);
+          const remainingTabs = allWindowTabs.filter((bt) => bt.id !== undefined && !closingSet.has(bt.id));
+          if (remainingTabs.length === 0) {
+            await browser.tabs.create(typeof currentWinId === 'number' ? { windowId: currentWinId } : {});
+          }
         }
       } catch (err) {
         console.warn('[Sidepanel] Could not verify remaining tabs count:', err);
@@ -1159,6 +1254,40 @@ export const App: React.FC = () => {
       assoc = Object.values(tabAssociations).find((a) => a?.tabItemId === tabId);
     }
     if (assoc) {
+      try {
+        const activeTab = await getActiveTab().catch(() => null);
+        const isCurrentlyActive = activeTab && activeTab.id === assoc.browserTabId;
+        const currentWinId = assoc.windowId ?? currentWindowIdRef.current;
+        const workspaceTabs = workspaceTabsRef.current.length > 0 ? workspaceTabsRef.current : getStoredWorkspaceTabs();
+        const folders = workspaceFoldersRef.current.length > 0 ? workspaceFoldersRef.current : getStoredWorkspaceFolders();
+        const spaceId = resolveSpaceIdForTabItem(tabId, workspaceTabs, tmpTabsRef.current) || workspaceRef.current?.getActiveSpace?.()?.id || previousSpaceIdRef.current || getStoredLastSpaceId();
+
+        if (isCurrentlyActive && spaceId) {
+          const nearest = findNearestOpenTabInSpace(
+            spaceId,
+            { tabItemId: tabId, browserTabId: assoc.browserTabId },
+            folders,
+            workspaceTabs,
+            tabAssociationsRef.current,
+            tmpTabsRef.current,
+            currentWinId ?? undefined
+          );
+
+          if (nearest) {
+            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
+          } else {
+            const newTab = await browser.tabs.create(
+              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
+            );
+            if (newTab && newTab.id !== undefined) {
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Error activating nearest tab before closing associated tab:', e);
+      }
+
       await tabTracker.closeAssociatedTab(assoc.browserTabId, tabId);
     }
   };

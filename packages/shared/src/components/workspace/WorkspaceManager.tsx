@@ -63,7 +63,7 @@ export interface WorkspaceManagerHandle {
   openJsonModal: () => void;
   triggerSync: () => Promise<void>;
   captureCurrentTab: () => Promise<void>;
-  revealAndHighlightTab: (tabId: string) => void;
+  revealAndHighlightTab: (tabId: string, options?: { switchSpace?: boolean }) => void;
   getActiveSpace: () => Space | null;
   getActiveSpaceTheme: () => SpaceThemeTokens;
   isSyncing: boolean;
@@ -1409,10 +1409,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       captureCurrentTab: async () => {
         await handleCaptureTab();
       },
-      revealAndHighlightTab: (tabId: string) => {
+      revealAndHighlightTab: (tabId: string, options?: { switchSpace?: boolean }) => {
         const targetTab = data.tabs.find((t) => t.id === tabId);
         if (!targetTab) return;
-        if (targetTab.parentSpaceId) {
+        if (targetTab.parentSpaceId && options?.switchSpace !== false) {
           setActiveSpace(targetTab.parentSpaceId);
         }
       },

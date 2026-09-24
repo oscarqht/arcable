@@ -1,4 +1,4 @@
-import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant } from '@arcable/shared/types';
+import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant, Folder } from '@arcable/shared/types';
 import {
   areUrlsMatching,
   normalizeUrl,
@@ -8,7 +8,7 @@ import {
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
 import { reconcileTmpTabs } from './tmpTabDiff';
-import { forgetBrowserTab } from '../sidepanel/spaceTabTracker';
+import { forgetBrowserTab, resolveSpaceIdForTabItem, findNearestOpenTabInSpace } from '../sidepanel/spaceTabTracker';
 
 const SESSION_KEY = 'arcable_tab_associations';
 const STORAGE_KEY_TMP_TABS = 'arcable_tmp_tabs';
@@ -24,6 +24,7 @@ type TmpTabsChangeListener = (tmpTabs: TmpTab[]) => void;
 export interface TabActivatedDetails {
   browserTabId?: number;
   windowId?: number;
+  causedByClose?: boolean;
 }
 type TabActivatedListener = (tabItemId: string | null, details?: TabActivatedDetails) => void;
 
@@ -33,6 +34,7 @@ class TabTracker {
   private tabActivatedListeners: Set<TabActivatedListener> = new Set();
   private isInitialized = false;
   private currentWorkspaceTabs: Tab[] = [];
+  private currentWorkspaceFolders: Folder[] = [];
   private recentlyAssociatedIds: Map<string, number> = new Map();
   private lastActivatedTimestamps: Map<string, number> = new Map();
   private cachedDeviceId: string = '';
@@ -41,6 +43,9 @@ class TabTracker {
   private hasCompletedInitialSync = false;
   private windowActiveSpaces: Map<number, string> = new Map();
   private lastActiveSpaceId: string | null = null;
+  private lastActiveBrowserTabIdByWindow: Map<number, number> = new Map();
+  private lastActiveTabSpaceByWindow: Map<number, string> = new Map();
+  private recentlyClosedTabs: Map<number, { spaceId: string | null; timestamp: number; windowId?: number }> = new Map();
 
   constructor() {
     this.setupListeners();
@@ -470,8 +475,34 @@ class TabTracker {
   private pendingCreations: Map<string, { tabItemId: string; url: string; timestamp: number }> = new Map();
   private pendingInitialTitles: Map<number, string> = new Map();
   /** Browser tab IDs that are in the process of being closed — excluded from syncWithWorkspace queries */
-  private closingTabIds: Set<number> = new Set();
+  public closingTabIds: Set<number> = new Set();
   private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  public getStoredWorkspaceFolders(): Folder[] {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed?.folders)) return parsed.folders;
+        }
+      } catch {}
+    }
+    return this.currentWorkspaceFolders;
+  }
+
+  public getStoredWorkspaceTabs(): Tab[] {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('arcable_workspace_data');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed?.tabs)) return parsed.tabs;
+        }
+      } catch {}
+    }
+    return this.currentWorkspaceTabs;
+  }
 
   private runWithLock<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.lockPromise.then(
@@ -567,9 +598,12 @@ class TabTracker {
     });
   }
 
-  public async syncWithWorkspace(workspaceTabs: Tab[]): Promise<TabAssociationMap> {
+  public async syncWithWorkspace(workspaceTabs: Tab[], workspaceFolders?: Folder[]): Promise<TabAssociationMap> {
     return this.runWithLock(async () => {
       this.currentWorkspaceTabs = workspaceTabs;
+      if (workspaceFolders && Array.isArray(workspaceFolders)) {
+        this.currentWorkspaceFolders = workspaceFolders;
+      }
       let allBrowserTabs: any[] = [];
       try {
         allBrowserTabs = await browser.tabs.query({});
@@ -1077,6 +1111,13 @@ class TabTracker {
 
   // Close the associated browser tab and break association (strictly 1-to-1)
   public async closeAssociatedTab(browserTabId: number, tabItemId: string): Promise<void> {
+    this.closingTabIds.add(browserTabId);
+    const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+    const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, memoryTmpTabs);
+    this.recentlyClosedTabs.set(browserTabId, {
+      spaceId,
+      timestamp: Date.now(),
+    });
     return this.runWithLock(async () => {
       try {
         await browser.tabs.remove(browserTabId).catch(() => {});
@@ -1087,6 +1128,8 @@ class TabTracker {
         await this.saveAssociations(associations);
       } catch (err) {
         console.warn('[TabTracker] Error closing tab:', err);
+      } finally {
+        this.closingTabIds.delete(browserTabId);
       }
     });
   }
@@ -1096,6 +1139,12 @@ class TabTracker {
     // Mark this tab as closing immediately so syncWithWorkspace (triggered by
     // onRemoved / onUpdated events) never re-adds it to the tmp tabs list.
     this.closingTabIds.add(browserTabId);
+    const matchTmp = memoryTmpTabs.find((t) => t.browserTabId === browserTabId);
+    this.recentlyClosedTabs.set(browserTabId, {
+      spaceId: matchTmp?.spaceId || null,
+      timestamp: Date.now(),
+      windowId: matchTmp?.windowId,
+    });
     // Also prune from in-memory list immediately so subscribers see the removal
     // before the async storage write completes.
     memoryTmpTabs = memoryTmpTabs.filter((t) => t.browserTabId !== browserTabId);
@@ -1123,8 +1172,15 @@ class TabTracker {
   public async closeTmpTabs(browserTabIds: number[]): Promise<void> {
     if (browserTabIds.length === 0) return;
     const idSet = new Set(browserTabIds);
+    const now = Date.now();
     for (const id of browserTabIds) {
       this.closingTabIds.add(id);
+      const matchTmp = memoryTmpTabs.find((t) => t.browserTabId === id);
+      this.recentlyClosedTabs.set(id, {
+        spaceId: matchTmp?.spaceId || null,
+        timestamp: now,
+        windowId: matchTmp?.windowId,
+      });
     }
     memoryTmpTabs = memoryTmpTabs.filter((t) => t.browserTabId === undefined || !idSet.has(t.browserTabId));
     this.notifyTmpTabs(memoryTmpTabs);
@@ -1461,9 +1517,37 @@ class TabTracker {
 
     // 3. Tab removed (closed)
     if (tabsApi && tabsApi.onRemoved) {
-      tabsApi.onRemoved.addListener(async (tabId: number) => {
+      tabsApi.onRemoved.addListener(async (tabId: number, removeInfo?: any) => {
+        this.closingTabIds.add(tabId);
         this.pendingInitialTitles.delete(tabId);
         void forgetBrowserTab(tabId);
+
+        const winId = removeInfo?.windowId;
+        let closedSpaceId: string | null = null;
+        try {
+          const associations = await this.getAssociations();
+          const assoc = Object.entries(associations).find(([_, info]) => info.browserTabId === tabId);
+          if (assoc) {
+            const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+            closedSpaceId = resolveSpaceIdForTabItem(assoc[0], workspaceTabs, memoryTmpTabs);
+          }
+          if (!closedSpaceId) {
+            const matchTmp = memoryTmpTabs.find((t) => t.browserTabId === tabId);
+            if (matchTmp?.spaceId) {
+              closedSpaceId = matchTmp.spaceId;
+            }
+          }
+          if (!closedSpaceId && winId !== undefined) {
+            closedSpaceId = this.lastActiveTabSpaceByWindow.get(winId) || null;
+          }
+        } catch {}
+
+        this.recentlyClosedTabs.set(tabId, {
+          spaceId: closedSpaceId,
+          timestamp: Date.now(),
+          windowId: winId,
+        });
+
         await this.runWithLock(async () => {
           const associations = await this.getAssociations();
           let changed = false;
@@ -1499,11 +1583,98 @@ class TabTracker {
             return;
           }
         } catch {}
-        const details = { browserTabId: activeInfo.tabId, windowId: activeInfo.windowId };
+
+        const winId = activeInfo?.windowId;
+        const prevTabId = winId !== undefined ? this.lastActiveBrowserTabIdByWindow.get(winId) : undefined;
+        let causedByClose = false;
+
+        // Check if the previous tab was closed
+        if (prevTabId !== undefined && prevTabId !== activeInfo.tabId) {
+          if (this.closingTabIds.has(prevTabId) || this.recentlyClosedTabs.has(prevTabId)) {
+            causedByClose = true;
+          } else {
+            try {
+              const tab = await tabsApi.get(prevTabId);
+              if (!tab) causedByClose = true;
+            } catch {
+              causedByClose = true;
+            }
+          }
+        }
+
+        // Clean up old entries from recentlyClosedTabs (> 10s)
+        const now = Date.now();
+        for (const [id, entry] of this.recentlyClosedTabs.entries()) {
+          if (now - entry.timestamp > 10000) {
+            this.recentlyClosedTabs.delete(id);
+          }
+        }
+
+        // If this activation was triggered by a tab closing:
+        let closedSpaceId: string | null = null;
+        if (causedByClose) {
+          if (prevTabId !== undefined && this.recentlyClosedTabs.has(prevTabId)) {
+            closedSpaceId = this.recentlyClosedTabs.get(prevTabId)!.spaceId;
+          }
+          if (!closedSpaceId && winId !== undefined) {
+            closedSpaceId = this.lastActiveTabSpaceByWindow.get(winId) || this.resolveActiveSpaceIdForWindow(winId);
+          }
+
+          if (closedSpaceId) {
+            const folders = this.getStoredWorkspaceFolders();
+            const tabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+            const associations = await this.getAssociations();
+            const tmpTabs = await this.getTmpTabs();
+
+            const nearest = findNearestOpenTabInSpace(
+              closedSpaceId,
+              { browserTabId: prevTabId },
+              folders,
+              tabs,
+              associations,
+              tmpTabs,
+              winId
+            );
+
+            if (nearest) {
+              if (nearest.browserTabId !== activeInfo.tabId) {
+                try {
+                  await (tabsApi as any).update(nearest.browserTabId, { active: true });
+                  return; // Next onActivated event will fire for nearest.browserTabId
+                } catch (err) {
+                  console.warn('[TabTracker] Could not activate nearest tab in space:', err);
+                }
+              }
+            } else {
+              // No open tabs remain in this space: create a new tmp tab in this space!
+              try {
+                const newTab = await (tabsApi as any).create(
+                  winId !== undefined ? { windowId: winId, active: true } : { active: true }
+                );
+                if (newTab && newTab.id !== undefined) {
+                  this.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', closedSpaceId);
+                }
+                return; // Next onActivated event will fire for newTab.id
+              } catch (err) {
+                console.warn('[TabTracker] Could not create new tmp tab for empty space:', err);
+              }
+            }
+          }
+        }
+
+        const details: TabActivatedDetails = {
+          browserTabId: activeInfo.tabId,
+          windowId: activeInfo.windowId,
+          causedByClose,
+        };
+
         const associations = await this.getAssociations();
         let found = false;
+        let activatedTabItemId: string | null = null;
+
         for (const [tabItemId, info] of Object.entries(associations)) {
           if (info.browserTabId === activeInfo.tabId) {
+            activatedTabItemId = tabItemId;
             this.notifyActivated(tabItemId, details);
             found = true;
             break;
@@ -1513,6 +1684,7 @@ class TabTracker {
           const tmpTabs = await this.getTmpTabs();
           const matchingTmp = tmpTabs.find((t) => t.browserTabId === activeInfo.tabId);
           if (matchingTmp) {
+            activatedTabItemId = matchingTmp.id;
             this.notifyActivated(matchingTmp.id, details);
             found = true;
           }
@@ -1522,6 +1694,7 @@ class TabTracker {
           const updatedAssociations = await this.syncWithWorkspace(this.currentWorkspaceTabs);
           for (const [tabItemId, info] of Object.entries(updatedAssociations)) {
             if (info.browserTabId === activeInfo.tabId) {
+              activatedTabItemId = tabItemId;
               this.notifyActivated(tabItemId, details);
               found = true;
               break;
@@ -1531,6 +1704,7 @@ class TabTracker {
             const updatedTmp = await this.getTmpTabs();
             const matchingTmp = updatedTmp.find((t) => t.browserTabId === activeInfo.tabId);
             if (matchingTmp) {
+              activatedTabItemId = matchingTmp.id;
               this.notifyActivated(matchingTmp.id, details);
               found = true;
             }
@@ -1538,6 +1712,19 @@ class TabTracker {
         }
         if (!found) {
           this.notifyActivated(null, details);
+        }
+
+        // Update tracking for window
+        if (winId !== undefined) {
+          this.lastActiveBrowserTabIdByWindow.set(winId, activeInfo.tabId);
+          const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+          const resolvedSpace = activatedTabItemId
+            ? resolveSpaceIdForTabItem(activatedTabItemId, workspaceTabs, memoryTmpTabs)
+            : (closedSpaceId && causedByClose ? closedSpaceId : null);
+          if (resolvedSpace) {
+            this.lastActiveTabSpaceByWindow.set(winId, resolvedSpace);
+            this.setActiveSpaceForWindow(winId, resolvedSpace);
+          }
         }
       });
     }
