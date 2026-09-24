@@ -219,6 +219,8 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
 
     const initial: ArcableWorkspaceData = {
       raindropRootCollectionId: parsed.raindropRootCollectionId,
+      raindropArchiveCollectionId: parsed.raindropArchiveCollectionId,
+      raindropSpaceThemeCollectionId: parsed.raindropSpaceThemeCollectionId,
       raindropMetadataItemId: parsed.raindropMetadataItemId,
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
@@ -3563,6 +3565,8 @@ export function useWorkspace() {
 
         return {
           raindropRootCollectionId: snapshot.raindropRootCollectionId ?? prev.raindropRootCollectionId,
+          raindropArchiveCollectionId: snapshot.raindropArchiveCollectionId ?? prev.raindropArchiveCollectionId,
+          raindropSpaceThemeCollectionId: snapshot.raindropSpaceThemeCollectionId ?? prev.raindropSpaceThemeCollectionId,
           raindropMetadataItemId: snapshot.raindropMetadataItemId !== undefined
             ? snapshot.raindropMetadataItemId
             : prev.raindropMetadataItemId,

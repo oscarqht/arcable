@@ -17,6 +17,7 @@ import {
   mergeRunCodeRules,
   createWorkspaceOperation,
   clearStoredPendingOperations,
+  resolveRaindropArchiveCollectionId,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
@@ -277,9 +278,23 @@ export const App: React.FC = () => {
 
   const handleOpenRaindropArchive = async () => {
     try {
-      const stored = await browser.storage.local.get('arcable_workspace_snapshot');
-      const snapshot = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
-      const archiveId = snapshot?.raindropArchiveCollectionId;
+      const stored = (await browser.storage.local.get(['arcable_workspace_snapshot', 'arcable_raindrop_auth'])) as {
+        arcable_workspace_snapshot?: ArcableWorkspaceData;
+        arcable_raindrop_auth?: { accessToken?: string };
+      };
+      const snapshot = stored.arcable_workspace_snapshot;
+      let archiveId = snapshot?.raindropArchiveCollectionId;
+      if (!archiveId) {
+        const token = stored.arcable_raindrop_auth?.accessToken;
+        if (token) {
+          archiveId = await resolveRaindropArchiveCollectionId(token);
+          if (archiveId && snapshot) {
+            void browser.storage.local.set({
+              arcable_workspace_snapshot: { ...snapshot, raindropArchiveCollectionId: archiveId },
+            });
+          }
+        }
+      }
       const url = archiveId ? `https://app.raindrop.io/my/${archiveId}` : 'https://app.raindrop.io';
       window.open(url, '_blank');
     } catch {

@@ -192,6 +192,43 @@ export async function getOrCreateArchiveCollection(token: string): Promise<Raind
   return created;
 }
 
+/**
+ * Finds the root collection named ARCABLE_ARCHIVE_COLLECTION_NAME ("Arcable v2 / Archive").
+ * Returns null if no such root collection exists.
+ */
+export async function findArchiveRootCollection(token: string): Promise<RaindropCollectionItem | null> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return null;
+  const collections = await fetchRaindropCollections(clean);
+  const matches = collections.filter(
+    (c) =>
+      c.title.trim().toLowerCase() === ARCABLE_ARCHIVE_COLLECTION_NAME.toLowerCase() &&
+      (!c.parent || !c.parent.$id)
+  );
+  if (matches.length > 0) {
+    matches.sort((a, b) => (b.count || 0) - (a.count || 0) || a._id - b._id);
+    return matches[0];
+  }
+  return null;
+}
+
+/**
+ * Finds the ID of the root collection named ARCABLE_ARCHIVE_COLLECTION_NAME ("Arcable v2 / Archive"),
+ * creating it if it does not already exist.
+ * Returns the numeric collection ID or undefined on failure.
+ */
+export async function resolveRaindropArchiveCollectionId(token: string): Promise<number | undefined> {
+  const clean = cleanRaindropToken(token);
+  if (!clean) return undefined;
+  try {
+    const archiveColl = await getOrCreateArchiveCollection(clean);
+    return archiveColl?._id;
+  } catch (err) {
+    console.warn('[RaindropSync] Failed to resolve archive collection ID:', err);
+    return undefined;
+  }
+}
+
 interface RemoteArcableTree {
   root?: RaindropCollectionItem;
   archiveRootId?: number;
@@ -1067,6 +1104,37 @@ export async function syncIncrementalOperations(
           await deleteRaindropBookmark(token, themeId);
         }
       }
+    }
+
+    // Filter out archived spaces, folders, and tabs from latestSnapshot
+    const archivedSpaceIds = new Set<string>();
+    const archivedFolderIds = new Set<string>();
+    const archivedTabIds = new Set<string>();
+
+    for (const [key, operations] of groups) {
+      if (key.startsWith('space:') && operations.some((op) => op.type === 'SPACE_ARCHIVE')) {
+        archivedSpaceIds.add(operations[0].entityId);
+      } else if (key.startsWith('folder:') && operations.some((op) => op.type === 'FOLDER_ARCHIVE')) {
+        archivedFolderIds.add(operations[0].entityId);
+      } else if (key.startsWith('tab:') && operations.some((op) => op.type === 'TAB_ARCHIVE')) {
+        archivedTabIds.add(operations[0].entityId);
+      }
+    }
+
+    if (archivedSpaceIds.size > 0 || archivedFolderIds.size > 0 || archivedTabIds.size > 0) {
+      latestSnapshot = {
+        ...latestSnapshot,
+        spaces: latestSnapshot.spaces.filter((s) => !archivedSpaceIds.has(s.id)),
+        folders: latestSnapshot.folders.filter(
+          (f) => !archivedFolderIds.has(f.id) && (!f.parentSpaceId || !archivedSpaceIds.has(f.parentSpaceId))
+        ),
+        tabs: latestSnapshot.tabs.filter(
+          (t) =>
+            !archivedTabIds.has(t.id) &&
+            (!t.parentSpaceId || !archivedSpaceIds.has(t.parentSpaceId)) &&
+            (!t.parentFolderId || !archivedFolderIds.has(t.parentFolderId))
+        ),
+      };
     }
   }
 

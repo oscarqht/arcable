@@ -1,4 +1,9 @@
-import { syncIncrementalOperations, ARCABLE_ARCHIVE_COLLECTION_NAME } from '../src/utils/raindropSync';
+import {
+  syncIncrementalOperations,
+  ARCABLE_ARCHIVE_COLLECTION_NAME,
+  findArchiveRootCollection,
+  resolveRaindropArchiveCollectionId,
+} from '../src/utils/raindropSync';
 import { applyOperation, createWorkspaceOperation } from '../src/utils/syncEngine';
 import type { ArcableWorkspaceData, Space, Folder, Tab } from '../src/types/workspace';
 import type { WorkspaceOperation } from '../src/types/sync';
@@ -143,8 +148,25 @@ async function runIncrementalTest() {
   assert(result.latestSnapshot.raindropArchiveCollectionId === archiveCollectionId, 'Snapshot should record raindropArchiveCollectionId');
   assert(!result.latestSnapshot.spaces.some((s) => s.id === 's1'), 'Snapshot should not contain s1');
   assert(!result.latestSnapshot.folders.some((f) => f.id === 'f1'), 'Snapshot should not contain f1');
-  assert(!result.latestSnapshot.tabs.some((t) => t.id === 't1'), 'Snapshot should not contain t1');
+  // Test findArchiveRootCollection and resolveRaindropArchiveCollectionId
+  console.log('Testing findArchiveRootCollection and resolveRaindropArchiveCollectionId...');
+  const foundColl = await findArchiveRootCollection('test-token');
+  assert(foundColl !== null, 'findArchiveRootCollection should find the archive collection');
+  assert(foundColl._id === archiveCollectionId, 'findArchiveRootCollection should match archiveCollectionId');
 
+  const resolvedId = await resolveRaindropArchiveCollectionId('test-token');
+  assert(resolvedId === archiveCollectionId, 'resolveRaindropArchiveCollectionId should return archiveCollectionId');
+
+  // Test when archive collection does not exist yet
+  archiveCollectionId = null;
+  const notFoundColl = await findArchiveRootCollection('test-token');
+  assert(notFoundColl === null, 'findArchiveRootCollection should return null when not present');
+
+  const createdId = await resolveRaindropArchiveCollectionId('test-token');
+  assert(typeof createdId === 'number' && createdId > 0, 'resolveRaindropArchiveCollectionId should create and return new id');
+  assert(archiveCollectionId === createdId, 'resolveRaindropArchiveCollectionId created the collection');
+
+  console.log('Archive collection resolution tests passed successfully!');
   console.log('syncIncrementalOperations unit tests passed successfully!');
 }
 

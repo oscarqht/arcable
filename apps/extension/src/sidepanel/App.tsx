@@ -19,6 +19,7 @@ import {
   SpaceThemeTokens,
   searchRaindrop,
   clearMousePos,
+  resolveRaindropArchiveCollectionId,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -1198,8 +1199,52 @@ export const App: React.FC = () => {
             id: 'open-archive',
             label: 'Open Raindrop Archive',
             icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>📦</span>,
-            onClick: () => {
-              const archiveId = workspaceRef.current?.getArchiveCollectionId?.();
+            onClick: async () => {
+              let archiveId = workspaceRef.current?.getArchiveCollectionId?.();
+              if (!archiveId) {
+                try {
+                  const stored = (await browser.storage.local.get('arcable_workspace_snapshot')) as any;
+                  archiveId = stored?.arcable_workspace_snapshot?.raindropArchiveCollectionId;
+                } catch {}
+              }
+
+              if (!archiveId) {
+                try {
+                  let token = raindropToken;
+                  if (!token) {
+                    const authRes = (await browser.storage.local.get('arcable_raindrop_auth')) as any;
+                    token = authRes?.arcable_raindrop_auth?.accessToken;
+                  }
+                  if (token) {
+                    archiveId = await resolveRaindropArchiveCollectionId(token);
+                    if (archiveId) {
+                      void browser.storage.local.get('arcable_workspace_snapshot').then((storedSnap: any) => {
+                        if (storedSnap?.arcable_workspace_snapshot) {
+                          const updated = {
+                            ...storedSnap.arcable_workspace_snapshot,
+                            raindropArchiveCollectionId: archiveId,
+                          };
+                          void browser.storage.local.set({ arcable_workspace_snapshot: updated });
+                        }
+                      });
+                      if (typeof window !== 'undefined') {
+                        try {
+                          const raw = window.localStorage.getItem('arcable_workspace_data');
+                          if (raw) {
+                            const parsed = JSON.parse(raw);
+                            parsed.raindropArchiveCollectionId = archiveId;
+                            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(parsed));
+                            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: parsed }));
+                          }
+                        } catch {}
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.warn('[Arcable Sidepanel] Failed to find Raindrop archive collection ID:', err);
+                }
+              }
+
               const url = archiveId ? `https://app.raindrop.io/my/${archiveId}` : 'https://app.raindrop.io';
               void browser.tabs.create({ url });
             },
