@@ -65,9 +65,12 @@ export function updateLastMousePos(x: number, y: number): void {
  * Checks if the given element is currently directly underneath the stationary cursor.
  * Uses document.elementFromPoint to respect z-index, visibility, and overlays.
  */
-export function isElementUnderCursor(el: HTMLElement | null): boolean {
+export function isElementUnderCursor(
+  el: HTMLElement | null,
+  position: { x: number; y: number } = lastMousePos
+): boolean {
   if (!el || typeof document === 'undefined') return false;
-  const { x, y } = lastMousePos;
+  const { x, y } = position;
   if (x < 0 || y < 0) return false;
   if (typeof window !== 'undefined') {
     if (x > window.innerWidth || y > window.innerHeight) return false;

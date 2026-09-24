@@ -14,6 +14,7 @@ import { TabFavicon } from './TabFavicon';
 import {
   getLastMousePos,
   isElementUnderCursor,
+  updateLastMousePos,
   CLEAR_HOVER_EVENT,
 } from '../../utils/mouseTracker';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
@@ -262,6 +263,20 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     setShowHoverPopup(false);
   }, [clearHoverTimer, clearCloseTimer]);
 
+  const scheduleHoverPopup = useCallback(() => {
+    if (hoverTimerRef.current) return;
+    hoverTimerRef.current = setTimeout(() => {
+      hoverTimerRef.current = null;
+      if (isActionMenuHoveredRef.current || isActionMenuOpenRef.current) return;
+      if (!headerRef.current || !isElementUnderCursor(headerRef.current)) {
+        setIsHovered(false);
+        return;
+      }
+      updatePopupPosition();
+      setShowHoverPopup(true);
+    }, 1000);
+  }, [updatePopupPosition]);
+
   const handleActionMenuMouseLeave = useCallback((e: React.MouseEvent) => {
     isActionMenuHoveredRef.current = false;
     if (
@@ -273,24 +288,16 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       siblings.length > 0 &&
       !isMobile
     ) {
-      clearHoverTimer();
-      hoverTimerRef.current = setTimeout(() => {
-        if (isActionMenuHoveredRef.current || isActionMenuOpenRef.current) return;
-        if (!headerRef.current || !isElementUnderCursor(headerRef.current)) {
-          setIsHovered(false);
-          return;
-        }
-        updatePopupPosition();
-        setShowHoverPopup(true);
-      }, 1000);
+      scheduleHoverPopup();
     }
-  }, [isExpanded, siblings.length, isMobile, clearHoverTimer, updatePopupPosition]);
+  }, [isExpanded, siblings.length, isMobile, scheduleHoverPopup]);
 
   const handleMouseEnterHeader = (e: React.MouseEvent) => {
     if (isMobile) return;
     const mousePos = getLastMousePos();
     if (mousePos.x < 0 || mousePos.y < 0) return;
-    if (headerRef.current && !isElementUnderCursor(headerRef.current)) return;
+    if (headerRef.current && !isElementUnderCursor(headerRef.current, { x: e.clientX, y: e.clientY })) return;
+    updateLastMousePos(e.clientX, e.clientY);
     setIsHovered(true);
     clearCloseTimer();
 
@@ -302,28 +309,21 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
 
     if (!isExpanded && siblings.length > 0 && !isActionMenuHoveredRef.current && !isActionMenuOpenRef.current) {
-      clearHoverTimer();
-      hoverTimerRef.current = setTimeout(() => {
-        if (isActionMenuHoveredRef.current || isActionMenuOpenRef.current) return;
-        if (!headerRef.current || !isElementUnderCursor(headerRef.current)) {
-          setIsHovered(false);
-          return;
-        }
-        updatePopupPosition();
-        setShowHoverPopup(true);
-      }, 1000);
+      scheduleHoverPopup();
     }
   };
 
   const handleMouseMoveHeader = (e: React.MouseEvent) => {
     if (isMobile) return;
     const mousePos = getLastMousePos();
-    if (mousePos.x < 0 || mousePos.y < 0) {
+    if ((mousePos.x < 0 || mousePos.y < 0) && !e.nativeEvent.isTrusted) {
       setIsHovered(false);
       clearHoverTimer();
       return;
     }
-    if (!isHovered && headerRef.current && isElementUnderCursor(headerRef.current)) {
+    if (!headerRef.current || !isElementUnderCursor(headerRef.current, { x: e.clientX, y: e.clientY })) return;
+    updateLastMousePos(e.clientX, e.clientY);
+    if (!isHovered) {
       setIsHovered(true);
     }
     if (actionMenuRef.current && e.target && actionMenuRef.current.contains(e.target as Node)) {
@@ -337,6 +337,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       }
     } else if (isActionMenuHoveredRef.current) {
       isActionMenuHoveredRef.current = false;
+    }
+    if (
+      !isExpanded && siblings.length > 0 && !showHoverPopup &&
+      !isActionMenuHoveredRef.current && !isActionMenuOpenRef.current
+    ) {
+      scheduleHoverPopup();
     }
   };
 

@@ -78,3 +78,21 @@ test('folder popup safety: hover popup should not open if element is no longer u
   // Without document.elementFromPoint matching, it still stays false
   assert.equal(shouldOpenPopup(headerElement), false);
 });
+
+test('folder hover uses the entering event position when tracked coordinates lag behind', () => {
+  const previousDocument = (globalThis as any).document;
+  const child = {};
+  const header = { contains: (target: unknown) => target === child } as HTMLElement;
+  (globalThis as any).document = {
+    elementFromPoint: (x: number, y: number) => x === 100.5 && y === 80.5 ? child : null,
+  };
+
+  try {
+    updateLastMousePos(75, 80.5);
+    assert.equal(isElementUnderCursor(header), false);
+    assert.equal(isElementUnderCursor(header, { x: 100.5, y: 80.5 }), true);
+  } finally {
+    (globalThis as any).document = previousDocument;
+    clearMousePos();
+  }
+});
