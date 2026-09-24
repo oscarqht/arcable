@@ -34,6 +34,7 @@ import {
   searchRaindrop,
   searchRaindropCollectionCovers,
   getRaindropRequestFailureDetails,
+  isValidHttpUrl,
 } from '@arcable/shared/utils';
 
 import {
@@ -635,8 +636,8 @@ browser.runtime.onMessage.addListener(
           );
 
           const taggedTmp = localTmp
-            // Drop tabs that are pending deletion — they should not be re-uploaded
-            .filter((t) => !pendingDeletedTmpIds.has(t.id))
+            // Drop tabs that are pending deletion or non-HTTP — they should not be re-uploaded
+            .filter((t) => !pendingDeletedTmpIds.has(t.id) && isValidHttpUrl(t.url))
             .map((t) => ({
               ...t,
               deviceId: t.deviceId || effectiveDeviceId,
@@ -648,7 +649,7 @@ browser.runtime.onMessage.addListener(
           if (stateToSync) {
             // Also filter deletions from the localState tmpTabs supplied by the UI
             const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
-              (t: TmpTab) => !pendingDeletedTmpIds.has(t.id)
+              (t: TmpTab) => !pendingDeletedTmpIds.has(t.id) && isValidHttpUrl(t.url)
             );
             const rawCustomRules = localCustomRules ?? stateToSync.customCodeRules ?? [];
             const rawRunRules = localRunRules ?? stateToSync.runCodeInPageRules ?? [];
@@ -973,7 +974,7 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
     );
 
     const taggedTmpTabs = localTmpTabs
-      .filter((t) => !pendingDeletedTmpIds.has(t.id))
+      .filter((t) => !pendingDeletedTmpIds.has(t.id) && isValidHttpUrl(t.url))
       .map((t) => ({
         ...t,
         deviceId: t.deviceId || deviceId,

@@ -1,4 +1,5 @@
 import type { TmpTab } from '@arcable/shared/types';
+import { isValidHttpUrl } from '@arcable/shared/utils';
 
 const TMP_TAB_CONTENT_KEYS: Array<Exclude<keyof TmpTab, 'updatedAt'>> = [
   'id',
@@ -30,10 +31,12 @@ export function reconcileTmpTabs(
   candidates: TmpTab[],
   now: number = Date.now()
 ): { tabs: TmpTab[]; changed: boolean } {
-  const previousById = new Map(previous.map((tab) => [tab.id, tab]));
-  let changed = previous.length !== candidates.length;
+  const sanitizedPrevious = (previous || []).filter((tab) => tab && isValidHttpUrl(tab.url));
+  const sanitizedCandidates = (candidates || []).filter((tab) => tab && isValidHttpUrl(tab.url));
+  const previousById = new Map(sanitizedPrevious.map((tab) => [tab.id, tab]));
+  let changed = sanitizedPrevious.length !== sanitizedCandidates.length || (previous || []).length !== sanitizedPrevious.length;
 
-  const tabs = candidates.map((candidate) => {
+  const tabs = sanitizedCandidates.map((candidate) => {
     const existing = previousById.get(candidate.id);
     if (existing && hasSameTmpTabContent(existing, candidate)) return existing;
     changed = true;
@@ -45,7 +48,7 @@ export function reconcileTmpTabs(
   });
 
   if (!changed) {
-    changed = tabs.some((tab, index) => tab !== previous[index]);
+    changed = tabs.some((tab, index) => tab !== sanitizedPrevious[index]);
   }
 
   return { tabs, changed };
@@ -80,6 +83,11 @@ export function reconcileTmpTabsWithBrowserTabs(
   const tabs: TmpTab[] = [];
 
   for (const existing of previous) {
+    if (!existing || !isValidHttpUrl(existing.url)) {
+      changed = true;
+      continue;
+    }
+
     if (typeof existing.browserTabId !== 'number') {
       tabs.push(existing);
       continue;
@@ -93,6 +101,12 @@ export function reconcileTmpTabsWithBrowserTabs(
 
     const pendingNavigation = browserTab.status === 'loading' && Boolean(browserTab.pendingUrl);
     const nextUrl = (pendingNavigation ? browserTab.pendingUrl : browserTab.url || browserTab.pendingUrl) || existing.url;
+
+    if (!isValidHttpUrl(nextUrl)) {
+      changed = true;
+      continue;
+    }
+
     const urlChanged = nextUrl !== existing.url;
     const rawTitle = browserTab.title?.trim();
     const staleLoadingTitle = urlChanged && browserTab.status === 'loading' && rawTitle === existing.title;

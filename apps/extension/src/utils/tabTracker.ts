@@ -5,6 +5,7 @@ import {
   extractTabNotificationBadge,
   getOrCreateDeviceId,
   getStoredDeviceName,
+  isValidHttpUrl,
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
 import { reconcileTmpTabs } from './tmpTabDiff';
@@ -46,6 +47,7 @@ class TabTracker {
   private lastActiveBrowserTabIdByWindow: Map<number, number> = new Map();
   private lastActiveTabSpaceByWindow: Map<number, string> = new Map();
   private recentlyClosedTabs: Map<number, { spaceId: string | null; timestamp: number; windowId?: number }> = new Map();
+  private pendingTabSpaces: Map<number, string> = new Map();
 
   constructor() {
     this.setupListeners();
@@ -331,29 +333,46 @@ class TabTracker {
       if (typeof browser !== 'undefined' && browser.storage?.local) {
         const res = await browser.storage.local.get(STORAGE_KEY_TMP_TABS);
         if (res && res[STORAGE_KEY_TMP_TABS] && Array.isArray(res[STORAGE_KEY_TMP_TABS])) {
-          memoryTmpTabs = [...res[STORAGE_KEY_TMP_TABS]];
+          const rawTabs: TmpTab[] = res[STORAGE_KEY_TMP_TABS];
+          const sanitized = rawTabs.filter((t) => t && isValidHttpUrl(t.url));
+          if (sanitized.length !== rawTabs.length) {
+            void browser.storage.local.set({ [STORAGE_KEY_TMP_TABS]: sanitized }).catch(() => {});
+          }
+          memoryTmpTabs = sanitized;
           return memoryTmpTabs;
         }
       }
       if (typeof window !== 'undefined') {
         const raw = window.localStorage.getItem(STORAGE_KEY_TMP_TABS);
         if (raw) {
-          memoryTmpTabs = JSON.parse(raw);
-          return memoryTmpTabs;
+          const rawTabs = JSON.parse(raw);
+          if (Array.isArray(rawTabs)) {
+            const sanitized = rawTabs.filter((t: TmpTab) => t && isValidHttpUrl(t.url));
+            if (sanitized.length !== rawTabs.length) {
+              window.localStorage.setItem(STORAGE_KEY_TMP_TABS, JSON.stringify(sanitized));
+            }
+            memoryTmpTabs = sanitized;
+            return memoryTmpTabs;
+          }
         }
       }
     } catch (err) {
       console.warn('[TabTracker] Could not read tmpTabs from storage:', err);
     }
+    memoryTmpTabs = memoryTmpTabs.filter((t) => t && isValidHttpUrl(t.url));
     return [...memoryTmpTabs];
   }
 
   // Save tmp tabs strictly to local storage
-  private async saveTmpTabs(tmpTabs: TmpTab[]): Promise<void> {
-    const reconciled = reconcileTmpTabs(memoryTmpTabs, tmpTabs);
-    if (!reconciled.changed) return;
-
-    memoryTmpTabs = reconciled.tabs;
+  private async saveTmpTabs(tmpTabs: TmpTab[], force = false): Promise<void> {
+    const sanitized = (tmpTabs || []).filter((t) => t && isValidHttpUrl(t.url));
+    if (!force) {
+      const reconciled = reconcileTmpTabs(memoryTmpTabs, sanitized);
+      if (!reconciled.changed) return;
+      memoryTmpTabs = reconciled.tabs.filter((t) => t && isValidHttpUrl(t.url));
+    } else {
+      memoryTmpTabs = sanitized;
+    }
     this.notifyTmpTabs(memoryTmpTabs);
 
     try {
@@ -539,6 +558,20 @@ class TabTracker {
     spaceId?: string,
     windowId?: number
   ): void {
+    const targetSpaceId = spaceId || this.resolveActiveSpaceIdForWindow(windowId);
+    if (targetSpaceId) {
+      this.pendingTabSpaces.set(browserTabId, targetSpaceId);
+    }
+
+    if (!isValidHttpUrl(url)) {
+      // Exclude non-http tabs (chrome://newtab, about:blank, etc.)
+      const updated = memoryTmpTabs.filter((t) => t.browserTabId !== browserTabId);
+      if (updated.length !== memoryTmpTabs.length) {
+        void this.saveTmpTabs(updated, true);
+      }
+      return;
+    }
+
     const trimmedTitle = initialTitle?.trim();
     if (trimmedTitle) {
       this.pendingInitialTitles.set(browserTabId, trimmedTitle);
@@ -549,11 +582,12 @@ class TabTracker {
     const resolvedWinId = typeof windowId === 'number' ? windowId : 0;
     const existingIndex = memoryTmpTabs.findIndex((t) => t.browserTabId === browserTabId);
 
+    let updated: TmpTab[];
     if (existingIndex >= 0) {
       const existing = memoryTmpTabs[existingIndex];
       const updatedSpaceId =
-        spaceId || existing.spaceId || this.resolveActiveSpaceIdForWindow(existing.windowId || resolvedWinId);
-      memoryTmpTabs = memoryTmpTabs.map((t, idx) =>
+        targetSpaceId || existing.spaceId || this.resolveActiveSpaceIdForWindow(existing.windowId || resolvedWinId);
+      updated = memoryTmpTabs.map((t, idx) =>
         idx === existingIndex
           ? {
               ...t,
@@ -564,7 +598,6 @@ class TabTracker {
             }
           : t
       );
-      this.notifyTmpTabs(memoryTmpTabs);
     } else {
       const newTmp: TmpTab = {
         id: `tmp_${currentDevId}_${browserTabId}_${now}`,
@@ -572,17 +605,16 @@ class TabTracker {
         title: trimmedTitle || '',
         browserTabId,
         windowId: resolvedWinId,
-        spaceId: spaceId || this.resolveActiveSpaceIdForWindow(resolvedWinId),
+        spaceId: targetSpaceId || this.resolveActiveSpaceIdForWindow(resolvedWinId),
         createdAt: now,
         updatedAt: now,
         deviceType: 'Ext',
         deviceId: this.cachedDeviceId || undefined,
         deviceName: this.cachedDeviceName || undefined,
       };
-      memoryTmpTabs = [newTmp, ...memoryTmpTabs];
-      this.notifyTmpTabs(memoryTmpTabs);
+      updated = [newTmp, ...memoryTmpTabs];
     }
-    void this.saveTmpTabs(memoryTmpTabs);
+    void this.saveTmpTabs(updated, true);
   }
 
   /**
@@ -926,28 +958,9 @@ class TabTracker {
           }
         }
         const rawUrl = bt.url || bt.pendingUrl || '';
-        if (
-          rawUrl.startsWith('chrome-extension://') ||
-          rawUrl.startsWith('moz-extension://') ||
-          rawUrl.startsWith('devtools://')
-        ) {
+        // Exclude all non-http url browser tabs (new tab, empty tab, chrome://, about:, file://, extension, etc.)
+        if (!isValidHttpUrl(rawUrl)) {
           return false;
-        }
-        // Firefox for Android never lets the browser reach zero tabs: closing the
-        // last tab (e.g. via closeTmpTab) makes it auto-open a blank "New Tab" to
-        // replace it. Without this, that auto-created tab gets tracked right back
-        // into the tmp tabs list a moment after the user deleted it. Exclude
-        // untouched blank tabs from tracking on Android since they carry no real
-        // content yet — a genuine navigation will show up on the next sync once
-        // the user actually loads something.
-        if (this.cachedIsAndroid && !bt.title) {
-          const isBlankNewTab =
-            rawUrl === '' ||
-            rawUrl === 'about:blank' ||
-            rawUrl.startsWith('about:newtab') ||
-            rawUrl.startsWith('chrome://newtab') ||
-            rawUrl.startsWith('edge://newtab');
-          if (isBlankNewTab) return false;
         }
         return true;
       });
@@ -1045,11 +1058,20 @@ class TabTracker {
           deviceId: this.cachedDeviceId || undefined,
           deviceName: this.cachedDeviceName || undefined,
           deviceType: 'Ext',
-          spaceId: existingTmp?.spaceId || this.resolveActiveSpaceIdForWindow(bt.windowId),
+          spaceId:
+            existingTmp?.spaceId ||
+            (bt.id !== undefined ? this.pendingTabSpaces.get(bt.id) : undefined) ||
+            this.resolveActiveSpaceIdForWindow(bt.windowId),
           createdAt,
           updatedAt: Date.now(),
         };
       });
+
+      for (const bt of unmatchedBrowserTabs) {
+        if (bt.id !== undefined) {
+          this.pendingTabSpaces.delete(bt.id);
+        }
+      }
 
       if (customTitlesModified) {
         await this.saveTmpTabCustomTitles(updatedCustomTitles);
@@ -1165,6 +1187,7 @@ class TabTracker {
       try {
         await browser.tabs.remove(browserTabId).catch(() => {});
         this.pendingInitialTitles.delete(browserTabId);
+        this.pendingTabSpaces.delete(browserTabId);
         await this.removeTmpTabCustomTitle(browserTabId);
         const currentTmpTabs = await this.getTmpTabs();
         const updated = currentTmpTabs.filter((t) => t.browserTabId !== browserTabId);
@@ -1201,6 +1224,7 @@ class TabTracker {
         await browser.tabs.remove(browserTabIds).catch(() => {});
         for (const id of browserTabIds) {
           this.pendingInitialTitles.delete(id);
+          this.pendingTabSpaces.delete(id);
           await this.removeTmpTabCustomTitle(id);
         }
         const currentTmpTabs = await this.getTmpTabs();
@@ -1459,7 +1483,7 @@ class TabTracker {
         }
         if (changes[STORAGE_KEY_TMP_TABS]) {
           const newVal = (changes[STORAGE_KEY_TMP_TABS].newValue as TmpTab[]) || [];
-          memoryTmpTabs = [...newVal];
+          memoryTmpTabs = newVal.filter((t) => t && isValidHttpUrl(t.url));
           this.notifyTmpTabs(memoryTmpTabs);
         }
         if (changes[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES]) {
@@ -1484,16 +1508,20 @@ class TabTracker {
       tabsApi.onUpdated.addListener((tabId: number, changeInfo: any, tab: any) => {
         if (this.closingTabIds.has(tabId)) return;
 
-        const rawTitle = (changeInfo?.title ?? tab?.title)?.trim();
-        if (rawTitle && rawTitle !== 'about:blank') {
-          const currentUrl = tab?.url || '';
-          const isBlank =
-            currentUrl.startsWith('chrome://newtab') ||
-            currentUrl.startsWith('about:newtab') ||
-            currentUrl.startsWith('edge://newtab') ||
-            currentUrl === 'about:blank';
+        const currentUrl = tab?.url || changeInfo?.url || '';
 
-          const isMeaningfulTitle = !isBlank && rawTitle !== currentUrl;
+        // If tab navigated to a non-HTTP URL, immediately remove it from memoryTmpTabs and storage
+        if (currentUrl && !isValidHttpUrl(currentUrl)) {
+          const prevLen = memoryTmpTabs.length;
+          const updated = memoryTmpTabs.filter((t) => t.browserTabId !== tabId);
+          if (updated.length !== prevLen) {
+            void this.saveTmpTabs(updated, true);
+          }
+        }
+
+        const rawTitle = (changeInfo?.title ?? tab?.title)?.trim();
+        if (rawTitle && rawTitle !== 'about:blank' && isValidHttpUrl(currentUrl)) {
+          const isMeaningfulTitle = rawTitle !== currentUrl;
           if (isMeaningfulTitle) {
             this.pendingInitialTitles.delete(tabId);
           }
@@ -1502,12 +1530,12 @@ class TabTracker {
           memoryTmpTabs = memoryTmpTabs.map((t) => {
             if (t.browserTabId === tabId) {
               const targetTitle = isMeaningfulTitle ? rawTitle : (t.title || rawTitle);
-              if (t.title !== targetTitle) {
+              if (t.title !== targetTitle || t.url !== currentUrl) {
                 updatedInMemory = true;
                 return {
                   ...t,
                   title: targetTitle,
-                  url: tab?.url || t.url,
+                  url: currentUrl || t.url,
                   favIconUrl: tab?.favIconUrl || t.favIconUrl,
                   updatedAt: Date.now(),
                 };
@@ -1531,6 +1559,7 @@ class TabTracker {
       tabsApi.onRemoved.addListener(async (tabId: number, removeInfo?: any) => {
         this.closingTabIds.add(tabId);
         this.pendingInitialTitles.delete(tabId);
+        this.pendingTabSpaces.delete(tabId);
         void forgetBrowserTab(tabId);
 
         const winId = removeInfo?.windowId;

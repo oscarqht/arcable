@@ -1,7 +1,7 @@
 import { ArcableWorkspaceData, Space, Folder, Tab, TabUrlVariant, TmpTab, WorkspaceWidget, CustomCodeRule, RunCodeRule } from '../types/workspace';
 import { WorkspaceOperation, OperationType, ArcableSyncFile, DeviceSyncRecord } from '../types/sync';
 import { generateId } from './format';
-import { getDescendantFolderIds } from './treeUtils';
+import { getDescendantFolderIds, isValidHttpUrl } from './treeUtils';
 import { sortCustomCodeRules, sortRunCodeRules } from './customCodeUtils';
 
 export const ONLINE_DEVICE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes (online compaction threshold)
@@ -622,11 +622,14 @@ export function applyOperation(
 
     // ================= Tmp Tab Operations =================
     case 'TMP_TAB_CREATE': {
+      if (!isValidHttpUrl(op.payload?.url)) {
+        break;
+      }
       const tmpTabs = cloned.tmpTabs || (cloned.tmpTabs = []);
       const existingIdx = tmpTabs.findIndex((t) => t.id === op.entityId);
       const tmpData: TmpTab = {
         id: op.entityId,
-        url: op.payload?.url || 'about:blank',
+        url: op.payload?.url || '',
         title: op.payload?.title,
         customTitle: op.payload?.customTitle,
         favIconUrl: op.payload?.favIconUrl,
@@ -653,6 +656,10 @@ export function applyOperation(
       const tmpTabs = cloned.tmpTabs || (cloned.tmpTabs = []);
       const existingIdx = tmpTabs.findIndex((t) => t.id === op.entityId);
       if (existingIdx >= 0) {
+        if (op.payload?.url && !isValidHttpUrl(op.payload.url)) {
+          cloned.tmpTabs = tmpTabs.filter((t) => t.id !== op.entityId);
+          break;
+        }
         const current = tmpTabs[existingIdx];
         tmpTabs[existingIdx] = {
           ...current,
@@ -930,12 +937,14 @@ export function replayOperations(
     const fallbackSpaceId = state.activeSpaceId && spaceIds.has(state.activeSpaceId)
       ? state.activeSpaceId
       : (state.spaces[0]?.id || 'space_personal');
-    state.tmpTabs = state.tmpTabs.map((t) => {
-      if (!t.spaceId || !spaceIds.has(t.spaceId)) {
-        return { ...t, spaceId: fallbackSpaceId };
-      }
-      return t;
-    });
+    state.tmpTabs = state.tmpTabs
+      .filter((t) => t && isValidHttpUrl(t.url))
+      .map((t) => {
+        if (!t.spaceId || !spaceIds.has(t.spaceId)) {
+          return { ...t, spaceId: fallbackSpaceId };
+        }
+        return t;
+      });
     state.tmpTabs.sort(
       (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
     );
@@ -1126,20 +1135,20 @@ export function compactSyncFile(
 
   const otherDeviceMap = new Map<string, TmpTab>();
   for (const t of newBaseline.tmpTabs || []) {
-    if (t.deviceId && t.deviceId !== currentDeviceId && !isTabDeleted(t.id)) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !isTabDeleted(t.id) && isValidHttpUrl(t.url)) {
       otherDeviceMap.set(t.id, t);
     }
   }
   // Also preserve any non-current-device tabs passed in localTmpTabs (if not deleted)
   for (const t of localTmpTabs || []) {
-    if (t.deviceId && t.deviceId !== currentDeviceId && !otherDeviceMap.has(t.id) && !isTabDeleted(t.id)) {
+    if (t.deviceId && t.deviceId !== currentDeviceId && !otherDeviceMap.has(t.id) && !isTabDeleted(t.id) && isValidHttpUrl(t.url)) {
       otherDeviceMap.set(t.id, t);
     }
   }
 
   if (localTmpTabs !== undefined) {
     const currentDeviceTabs = localTmpTabs
-      .filter((t) => !t.deviceId || t.deviceId === currentDeviceId)
+      .filter((t) => (!t.deviceId || t.deviceId === currentDeviceId) && isValidHttpUrl(t.url))
       .map((t) => ({
         ...t,
         deviceId: currentDeviceId,
@@ -1152,7 +1161,7 @@ export function compactSyncFile(
   } else {
     // Keep baseline's current-device tabs if not deleted
     const currentDeviceTabs = (newBaseline.tmpTabs || []).filter(
-      (t) => (!t.deviceId || t.deviceId === currentDeviceId) && !isTabDeleted(t.id)
+      (t) => (!t.deviceId || t.deviceId === currentDeviceId) && !isTabDeleted(t.id) && isValidHttpUrl(t.url)
     );
     newBaseline.tmpTabs = [...Array.from(otherDeviceMap.values()), ...currentDeviceTabs];
   }

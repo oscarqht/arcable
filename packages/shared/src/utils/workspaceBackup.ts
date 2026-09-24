@@ -1,5 +1,6 @@
 import { ArcableWorkspaceData, Space } from '../types/workspace';
 import { getStoredDeviceName, detectDeviceType } from './syncEngine';
+import { isValidHttpUrl } from './treeUtils';
 
 export interface WorkspaceBackupFile {
   arcableBackupVersion: number;
@@ -70,7 +71,7 @@ export function createWorkspaceBackupJson(
       spaces: Array.isArray(workspaceData.spaces) ? workspaceData.spaces : [],
       folders: Array.isArray(workspaceData.folders) ? workspaceData.folders : [],
       tabs: Array.isArray(workspaceData.tabs) ? workspaceData.tabs : [],
-      tmpTabs: Array.isArray(workspaceData.tmpTabs) ? workspaceData.tmpTabs : [],
+      tmpTabs: (Array.isArray(workspaceData.tmpTabs) ? workspaceData.tmpTabs : []).filter((t) => t && isValidHttpUrl(t.url)),
       widgets: Array.isArray(workspaceData.widgets) ? workspaceData.widgets : [],
       customCodeRules: Array.isArray(workspaceData.customCodeRules) ? workspaceData.customCodeRules : [],
       runCodeInPageRules: Array.isArray(workspaceData.runCodeInPageRules) ? workspaceData.runCodeInPageRules : [],
@@ -179,7 +180,7 @@ export function parseWorkspaceBackupJson(
     spaces,
     folders: Array.isArray(wsData.folders) ? wsData.folders : [],
     tabs: Array.isArray(wsData.tabs) ? wsData.tabs : [],
-    tmpTabs: Array.isArray(wsData.tmpTabs) ? wsData.tmpTabs : [],
+    tmpTabs: (Array.isArray(wsData.tmpTabs) ? wsData.tmpTabs : []).filter((t: any) => t && isValidHttpUrl(t.url)),
     widgets: Array.isArray(wsData.widgets) ? wsData.widgets : [],
     customCodeRules: Array.isArray(wsData.customCodeRules) ? wsData.customCodeRules : [],
     runCodeInPageRules: Array.isArray(wsData.runCodeInPageRules) ? wsData.runCodeInPageRules : [],

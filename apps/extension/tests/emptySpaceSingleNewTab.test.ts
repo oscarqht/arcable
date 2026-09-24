@@ -143,12 +143,19 @@ async function runTests() {
     `Subsequent onActivated events must NOT create additional tabs! Current count: ${createdTabs.length}`
   );
 
-  // Verify tmp tabs list has the new tab in space-solo
-  const allTmp = await tabTracker.getTmpTabs();
-  const newTmpTab = allTmp.find((t) => t.browserTabId === 701);
-  assert(newTmpTab !== undefined, 'Tab 701 should be registered in tmpTabs');
-  assert(newTmpTab.spaceId === 'space-solo', `Tab 701 spaceId should be space-solo, got ${newTmpTab.spaceId}`);
-  assert(newTmpTab.windowId === 1, `Tab 701 windowId should be 1, got ${newTmpTab.windowId}`);
+  // Verify tmp tabs list excludes chrome://newtab
+  const allTmpBeforeNav = await tabTracker.getTmpTabs();
+  const tmpBeforeNav = allTmpBeforeNav.find((t) => t.browserTabId === 701);
+  assert(tmpBeforeNav === undefined, 'Tab 701 with chrome://newtab should NOT be registered in tmpTabs');
+
+  // When Tab 701 navigates to an HTTP URL, it should be registered in tmpTabs under space-solo
+  createdNewTab.url = 'https://example.com/welcome';
+  tabTracker.registerInitialTmpTab(701, 'https://example.com/welcome', 'Welcome', undefined, 1);
+  const allTmpAfterNav = await tabTracker.getTmpTabs();
+  const newTmpTab = allTmpAfterNav.find((t) => t.browserTabId === 701);
+  assert(newTmpTab !== undefined, 'Tab 701 should now be registered in tmpTabs after navigating to HTTP URL');
+  assert(newTmpTab.spaceId === 'space-solo', `Tab 701 spaceId should be space-solo, got ${newTmpTab?.spaceId}`);
+  assert(newTmpTab.windowId === 1, `Tab 701 windowId should be 1, got ${newTmpTab?.windowId}`);
 
   console.log('emptySpaceSingleNewTab tests passed successfully!');
   process.exit(0);
