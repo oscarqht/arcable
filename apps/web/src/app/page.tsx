@@ -18,6 +18,9 @@ import {
   clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
+  loadCachedRemoteTmpTabs,
+  saveCachedRemoteTmpTabs,
+  clearCachedRemoteTmpTabs,
 } from '@arcable/shared/utils';
 import { RaindropAuthState, TabOpenOptions, TmpTab } from '@arcable/shared/types';
 
@@ -33,8 +36,12 @@ export default function HomePage() {
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const localTmpTabsRef = useRef<TmpTab[]>([]);
   const [localTmpTabsLoaded, setLocalTmpTabsLoaded] = useState(false);
-  const [remoteTmpTabs, setRemoteTmpTabs] = useState<TmpTab[]>([]);
-  const [remoteTmpTabsUpdatedAt, setRemoteTmpTabsUpdatedAt] = useState<Record<string, number>>({});
+  const [remoteTmpTabs, setRemoteTmpTabs] = useState<TmpTab[]>(() => {
+    return loadCachedRemoteTmpTabs()?.tabs || [];
+  });
+  const [remoteTmpTabsUpdatedAt, setRemoteTmpTabsUpdatedAt] = useState<Record<string, number>>(() => {
+    return loadCachedRemoteTmpTabs()?.updatedAt || {};
+  });
   const [remoteTmpTabsLoading, setRemoteTmpTabsLoading] = useState(false);
 
   // Raindrop Auth State
@@ -46,9 +53,20 @@ export default function HomePage() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    setRemoteTmpTabs([]);
-    setRemoteTmpTabsUpdatedAt({});
-  }, [authState.user?.id]);
+    if (authState.isAuthenticated) {
+      const cached = loadCachedRemoteTmpTabs(authState.user?.id);
+      if (cached) {
+        setRemoteTmpTabs(cached.tabs);
+        setRemoteTmpTabsUpdatedAt(cached.updatedAt);
+      } else {
+        setRemoteTmpTabs([]);
+        setRemoteTmpTabsUpdatedAt({});
+      }
+    } else {
+      setRemoteTmpTabs([]);
+      setRemoteTmpTabsUpdatedAt({});
+    }
+  }, [authState.isAuthenticated, authState.user?.id]);
 
   const handleLocalTmpTabsChange = useCallback((tabs: TmpTab[]) => {
     localTmpTabsRef.current = tabs;
@@ -66,21 +84,24 @@ export default function HomePage() {
       if (!response.ok || !result.success) throw new Error(result.error || 'Failed to fetch temporary tabs');
       const snapshots = Array.isArray(result.snapshots) ? result.snapshots : [];
       const otherDevices = snapshots.filter((snapshot: { deviceId?: string }) => snapshot.deviceId !== getOrCreateDeviceId());
-      setRemoteTmpTabs(otherDevices.flatMap((snapshot: { deviceId: string; deviceName: string; deviceType: 'Web App' | 'Ext'; tabs?: TmpTab[] }) =>
+      const newTabs = otherDevices.flatMap((snapshot: { deviceId: string; deviceName: string; deviceType: 'Web App' | 'Ext'; tabs?: TmpTab[] }) =>
         (snapshot.tabs || []).map((tab) => ({
           ...tab,
           deviceId: snapshot.deviceId,
           deviceName: snapshot.deviceName,
           deviceType: snapshot.deviceType,
         }))
-      ));
-      setRemoteTmpTabsUpdatedAt(Object.fromEntries(otherDevices.map((snapshot: { deviceId: string; updatedAt: number }) => [snapshot.deviceId, snapshot.updatedAt])));
+      );
+      const newUpdatedAt = Object.fromEntries(otherDevices.map((snapshot: { deviceId: string; updatedAt: number }) => [snapshot.deviceId, snapshot.updatedAt]));
+      setRemoteTmpTabs(newTabs);
+      setRemoteTmpTabsUpdatedAt(newUpdatedAt);
+      saveCachedRemoteTmpTabs(authState.user?.id, { tabs: newTabs, updatedAt: newUpdatedAt });
     } catch (error) {
       console.warn('[Arcable] Could not refresh remote temporary tabs:', error);
     } finally {
       setRemoteTmpTabsLoading(false);
     }
-  }, [authState.isAuthenticated, authState.accessToken]);
+  }, [authState.isAuthenticated, authState.accessToken, authState.user?.id]);
 
   useEffect(() => {
     if (!authState.isAuthenticated || !raindropHydrated || !localTmpTabsLoaded) return;
@@ -182,6 +203,7 @@ export default function HomePage() {
   const handleLogout = async () => {
     setAuthLoading(true);
     try {
+      clearCachedRemoteTmpTabs(authState.user?.id);
       await fetch('/api/auth/logout', { method: 'POST' });
       setAuthState({ isAuthenticated: false });
     } catch (e) {

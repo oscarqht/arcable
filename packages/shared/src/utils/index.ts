@@ -3,6 +3,7 @@ export * from './raindropClient';
 export * from './syncEngine';
 export * from './raindropSync';
 export * from './tmpTabSync';
+export * from './tmpTabCache';
 export * from './treeUtils';
 export * from './dragState';
 export * from './spaceTheme';
