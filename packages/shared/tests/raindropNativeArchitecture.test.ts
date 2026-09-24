@@ -348,8 +348,8 @@ async function runTests(): Promise<void> {
   assert.equal(runExcerpt.code, 'document.body.classList.add("dark");');
   console.log('✓ Run Code placeholder item created with JSON excerpt');
 
-  // Verify URL Variants: Primary item titled "GitHub", secondary items titled "GitHub ||| <variant>"
-  const primaryTab = mockState.bookmarks.find(b => b.title === 'GitHub');
+  // Verify URL Variants: Primary item titled "GitHub" or "GitHub ||| Main", secondary items titled "GitHub ||| <variant>"
+  const primaryTab = mockState.bookmarks.find(b => b.title === 'GitHub' || b.title === `GitHub${ARCABLE_VARIANT_DELIMITER}Main`);
   const issuesVariant = mockState.bookmarks.find(b => b.title === `GitHub${ARCABLE_VARIANT_DELIMITER}Issues`);
   const prsVariant = mockState.bookmarks.find(b => b.title === `GitHub${ARCABLE_VARIANT_DELIMITER}Pull Requests`);
   assert(primaryTab, 'Primary tab item "GitHub" must exist');
@@ -832,7 +832,9 @@ async function runTests(): Promise<void> {
   const folderCol = mockState.collections.find((c) => c.title === 'Folder ＜v1.0＞');
   assert(folderCol, 'Folder collection must have title encoded as Folder ＜v1.0＞ in Raindrop');
 
-  const mainBookmark = mockState.bookmarks.find((b) => b.title === 'Tab ＜Main & Test＞');
+  const mainBookmark = mockState.bookmarks.find(
+    (b) => b.title === 'Tab ＜Main & Test＞' || b.title === `Tab ＜Main & Test＞${ARCABLE_VARIANT_DELIMITER}Tab ＜Main & Test＞`
+  );
   assert(mainBookmark, 'Tab bookmark must have title encoded as Tab ＜Main & Test＞ in Raindrop');
   const variantBookmark = mockState.bookmarks.find(
     (b) => b.title === `Tab ＜Main & Test＞${ARCABLE_VARIANT_DELIMITER}Variant ＜Dev＞`
