@@ -21,6 +21,23 @@ const ENGINES: { id: NonNullable<SearchConfig['engine']>; name: string; url: str
   { id: 'custom', name: 'Custom', url: '', icon: '⚙️' },
 ];
 
+export function resolveSearchUrl(
+  engine?: SearchConfig['engine'],
+  customUrl?: string,
+  query?: string
+): string {
+  const activeEngine = engine === 'custom' ? 'custom' : 'google';
+  let targetTemplate = ENGINES.find((e) => e.id === activeEngine)?.url;
+  if (activeEngine === 'custom') {
+    targetTemplate = customUrl?.trim() || 'https://www.google.com/search?q=%s';
+  }
+
+  const template = targetTemplate || 'https://www.google.com/search?q=%s';
+  const cleanQuery = query ? query.trim() : '';
+
+  return template.replaceAll('%s', encodeURIComponent(cleanQuery));
+}
+
 export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
   widget,
   anchorRect,
@@ -112,18 +129,7 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
 
   const handleExecuteSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanQuery = query.trim();
-    if (!cleanQuery) return;
-
-    let targetTemplate = ENGINES.find((e) => e.id === activeEngine)?.url;
-    if (activeEngine === 'custom') {
-      targetTemplate = customUrl || 'https://www.google.com/search?q=%s';
-    }
-
-    const finalUrl = (targetTemplate || 'https://www.google.com/search?q=%s').replace(
-      '%s',
-      encodeURIComponent(cleanQuery)
-    );
+    const finalUrl = resolveSearchUrl(activeEngine, customUrl, query);
 
     if (onOpenTab) {
       onOpenTab(finalUrl);
