@@ -49,6 +49,14 @@ export const ARCABLE_ARCHIVE_COLLECTION_NAME = 'Arcable v2 / Archive';
 export const ARCABLE_CUSTOM_CSS_COLLECTION_NAME = '_custom_css';
 export const ARCABLE_RUN_CODE_COLLECTION_NAME = '_run_code';
 export const ARCABLE_SPACE_THEME_COLLECTION_NAME = '_space_themes';
+
+export const ARCABLE_COLLECTION_ICON_URL = 'https://arcable.vercel.app/favicon.ico';
+export const ARCABLE_ARCHIVE_COLLECTION_ICON_URL = 'https://arcable.vercel.app/favicon.ico';
+export const ARCABLE_CUSTOM_CSS_COLLECTION_COLOR = 'green';
+export const ARCABLE_RUN_CODE_COLLECTION_COLOR = 'blue';
+export const ARCABLE_SPACE_THEME_COLLECTION_COLOR = 'orange';
+export const ARCABLE_TMP_TABS_COLLECTION_COLOR = 'red';
+
 export const ARCABLE_WIDGET_TAG = 'arcable-widget';
 export const ARCABLE_SPACE_THEME_TAG = 'arcable-space-theme';
 export const ARCABLE_WIDGET_LINK_PREFIX = 'https://arcable.app/widget/';
@@ -166,7 +174,9 @@ export async function getOrCreateArcableCollection(token: string): Promise<Raind
   }
 
   // Create new root collection
-  const created = await createRaindropCollection(token, ARCABLE_COLLECTION_NAME);
+  const created = await createRaindropCollection(token, ARCABLE_COLLECTION_NAME, undefined, {
+    cover: [ARCABLE_COLLECTION_ICON_URL],
+  });
   return created;
 }
 
@@ -188,7 +198,9 @@ export async function getOrCreateArchiveCollection(token: string): Promise<Raind
   }
 
   // Create new root collection
-  const created = await createRaindropCollection(token, ARCABLE_ARCHIVE_COLLECTION_NAME);
+  const created = await createRaindropCollection(token, ARCABLE_ARCHIVE_COLLECTION_NAME, undefined, {
+    cover: [ARCABLE_ARCHIVE_COLLECTION_ICON_URL],
+  });
   return created;
 }
 
@@ -1241,7 +1253,9 @@ export async function syncIncrementalOperations(
       (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase()
     );
     if (!customCssColl) {
-      customCssColl = await createRaindropCollection(token, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, rootId);
+      customCssColl = await createRaindropCollection(token, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, rootId, {
+        color: ARCABLE_CUSTOM_CSS_COLLECTION_COLOR,
+      });
     }
     const customCssCollId = customCssColl._id;
 
@@ -1327,7 +1341,9 @@ export async function syncIncrementalOperations(
       (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase()
     );
     if (!runCodeColl) {
-      runCodeColl = await createRaindropCollection(token, ARCABLE_RUN_CODE_COLLECTION_NAME, rootId);
+      runCodeColl = await createRaindropCollection(token, ARCABLE_RUN_CODE_COLLECTION_NAME, rootId, {
+        color: ARCABLE_RUN_CODE_COLLECTION_COLOR,
+      });
     }
     const runCodeCollId = runCodeColl._id;
 
@@ -1416,7 +1432,9 @@ export async function syncIncrementalOperations(
         (c) => c.parent?.$id === rootId && c.title.trim().toLowerCase() === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase()
       );
       if (!spaceThemeColl) {
-        spaceThemeColl = await createRaindropCollection(token, ARCABLE_SPACE_THEME_COLLECTION_NAME, rootId);
+        spaceThemeColl = await createRaindropCollection(token, ARCABLE_SPACE_THEME_COLLECTION_NAME, rootId, {
+          color: ARCABLE_SPACE_THEME_COLLECTION_COLOR,
+        });
       }
       spaceThemeCollId = spaceThemeColl._id;
       latestSnapshot = {
@@ -2448,7 +2466,9 @@ export async function syncWorkspaceWithRaindrop(
 
     let tree = authoritativeTree || await fetchRemoteArcableTree(clean);
     let root = tree.root;
-    if (!root) root = await createRaindropCollection(clean, ARCABLE_COLLECTION_NAME);
+    if (!root) root = await createRaindropCollection(clean, ARCABLE_COLLECTION_NAME, undefined, {
+      cover: [ARCABLE_COLLECTION_ICON_URL],
+    });
     if (!root?._id) throw new Error(`Failed to create root "${ARCABLE_COLLECTION_NAME}" collection in Raindrop.`);
 
     const localState: ArcableWorkspaceData = syncLocalState || {
@@ -2689,7 +2709,9 @@ export async function syncWorkspaceWithRaindrop(
       (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_CUSTOM_CSS_COLLECTION_NAME.toLowerCase()
     );
     if (!customCssColl && (localState.customCodeRules || []).length > 0) {
-      customCssColl = await createRaindropCollection(clean, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, root._id);
+      customCssColl = await createRaindropCollection(clean, ARCABLE_CUSTOM_CSS_COLLECTION_NAME, root._id, {
+        color: ARCABLE_CUSTOM_CSS_COLLECTION_COLOR,
+      });
       tree.collections.push(customCssColl);
       remoteCollections.set(customCssColl._id, customCssColl);
     }
@@ -2698,7 +2720,9 @@ export async function syncWorkspaceWithRaindrop(
       (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_RUN_CODE_COLLECTION_NAME.toLowerCase()
     );
     if (!runCodeColl && (localState.runCodeInPageRules || []).length > 0) {
-      runCodeColl = await createRaindropCollection(clean, ARCABLE_RUN_CODE_COLLECTION_NAME, root._id);
+      runCodeColl = await createRaindropCollection(clean, ARCABLE_RUN_CODE_COLLECTION_NAME, root._id, {
+        color: ARCABLE_RUN_CODE_COLLECTION_COLOR,
+      });
       tree.collections.push(runCodeColl);
       remoteCollections.set(runCodeColl._id, runCodeColl);
     }
@@ -2710,7 +2734,9 @@ export async function syncWorkspaceWithRaindrop(
       (c) => c.parent?.$id === root._id && c.title.trim().toLowerCase() === ARCABLE_SPACE_THEME_COLLECTION_NAME.toLowerCase()
     );
     if (!spaceThemeColl && hasAnySpaceThemes) {
-      spaceThemeColl = await createRaindropCollection(clean, ARCABLE_SPACE_THEME_COLLECTION_NAME, root._id);
+      spaceThemeColl = await createRaindropCollection(clean, ARCABLE_SPACE_THEME_COLLECTION_NAME, root._id, {
+        color: ARCABLE_SPACE_THEME_COLLECTION_COLOR,
+      });
       tree.collections.push(spaceThemeColl);
       remoteCollections.set(spaceThemeColl._id, spaceThemeColl);
     }
