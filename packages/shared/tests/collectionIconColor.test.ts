@@ -14,13 +14,7 @@ import {
   ARCABLE_CUSTOM_CSS_COLLECTION_COLOR,
   ARCABLE_RUN_CODE_COLLECTION_COLOR,
   ARCABLE_SPACE_THEME_COLLECTION_COLOR,
-  ARCABLE_TMP_TABS_COLLECTION_COLOR,
 } from '../src/utils/raindropSync';
-import {
-  publishRaindropTmpTabs,
-  RAINDROP_TMP_TABS_COLLECTION_NAME,
-  RAINDROP_TMP_TABS_COLLECTION_COLOR,
-} from '../src/utils/tmpTabSync';
 import type { ArcableWorkspaceData } from '../types/workspace';
 
 async function runTests(): Promise<void> {
@@ -32,8 +26,6 @@ async function runTests(): Promise<void> {
   assert.equal(ARCABLE_CUSTOM_CSS_COLLECTION_COLOR, 'green');
   assert.equal(ARCABLE_RUN_CODE_COLLECTION_COLOR, 'blue');
   assert.equal(ARCABLE_SPACE_THEME_COLLECTION_COLOR, 'orange');
-  assert.equal(ARCABLE_TMP_TABS_COLLECTION_COLOR, 'red');
-  assert.equal(RAINDROP_TMP_TABS_COLLECTION_COLOR, 'red');
   console.log('✓ Collection icon and color constants verified');
 
   const calls: Array<{ url: string; method: string; body?: any }> = [];
@@ -144,23 +136,7 @@ async function runTests(): Promise<void> {
   assert.equal(spaceThemeCall.body?.color, 'orange', '_space_themes collection must have color orange');
   console.log('✓ _space_themes created with color orange');
 
-  // 4. Test publishRaindropTmpTabs creates _tmp_tabs (red)
-  calls.length = 0;
-  await publishRaindropTmpTabs('mock-token', {
-    deviceId: 'device_test_123',
-    deviceName: 'MacBook Pro',
-    deviceType: 'Web App',
-    tabs: [
-      { id: 'tab_tmp_1', url: 'https://example.com/test', title: 'Test Tmp' } as any,
-    ],
-  });
-
-  const tmpTabsCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/collection') && c.body?.title === RAINDROP_TMP_TABS_COLLECTION_NAME);
-  assert(tmpTabsCall, 'createRaindropCollection call for _tmp_tabs must exist');
-  assert.equal(tmpTabsCall.body?.color, 'red', '_tmp_tabs collection must have color red');
-  console.log('✓ _tmp_tabs created with color red');
-
-  // 5. Test incremental sync collection creation color options
+  // 4. Test incremental sync collection creation color options
   calls.length = 0;
   // Reset collections to just root
   collections = [{ _id: 1, title: ARCABLE_COLLECTION_NAME }];

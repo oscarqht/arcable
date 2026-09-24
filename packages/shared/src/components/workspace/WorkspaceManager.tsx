@@ -28,7 +28,6 @@ import { FavouriteTabsShelf } from './FavouriteTabsShelf';
 import { RaindropSearchInput } from './RaindropSearchInput';
 import { RaindropSearchResult } from '../../types/raindrop';
 import { TmpTabsList } from './TmpTabsList';
-import { AllTmpTabsModal } from './AllTmpTabsModal';
 import { AudibleTabsWidget } from './AudibleTabsWidget';
 import { SpaceModal } from './SpaceModal';
 import { ConvertSpaceModal } from './ConvertSpaceModal';
@@ -46,7 +45,6 @@ import {
   SearchIcon,
   CloseIcon,
   DropletIcon,
-  DevicesIcon,
   EditIcon,
   TrashIcon,
 } from '../Icons';
@@ -95,11 +93,6 @@ export interface WorkspaceManagerProps {
   searchQuery?: string;
   tabAssociations?: TabAssociationMap;
   tmpTabs?: TmpTab[];
-  remoteTmpTabs?: TmpTab[];
-  remoteTmpTabsUpdatedAt?: Record<string, number>;
-  remoteTmpTabsLoading?: boolean;
-  onRefreshRemoteTmpTabs?: () => Promise<void> | void;
-  onLocalTmpTabsChange?: (tabs: TmpTab[]) => void;
   currentDeviceId?: string;
   onCloseTmpTab?: (tab: TmpTab) => void;
   onClearTmpTabs?: (tabs: TmpTab[], spaceId?: string) => void;
@@ -164,11 +157,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       searchQuery: externalSearchQuery,
       tabAssociations,
       tmpTabs,
-      remoteTmpTabs,
-      remoteTmpTabsUpdatedAt,
-      remoteTmpTabsLoading,
-      onRefreshRemoteTmpTabs,
-      onLocalTmpTabsChange,
       currentDeviceId,
       onCloseTmpTab,
       onClearTmpTabs,
@@ -296,11 +284,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     return tmpTabs !== undefined ? tmpTabs : (data.tmpTabs || []);
   }, [tmpTabs, data.tmpTabs]);
 
-  const onLocalTmpTabsChangeRef = useRef(onLocalTmpTabsChange);
-  onLocalTmpTabsChangeRef.current = onLocalTmpTabsChange;
-  useEffect(() => {
-    if (isLoaded) onLocalTmpTabsChangeRef.current?.(effectiveTmpTabs);
-  }, [isLoaded, effectiveTmpTabs]);
 
   // Counts of currently opened tabs per space (including opened space tabs and tmp tabs)
   const spaceOpenTabCounts = useMemo(() => {
@@ -513,7 +496,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   // Modals state
   const [isSpaceModalOpen, setIsSpaceModalOpen] = useState(false);
-  const [isAllTmpTabsModalOpen, setIsAllTmpTabsModalOpen] = useState(false);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
 
   const [isConvertSpaceModalOpen, setIsConvertSpaceModalOpen] = useState(false);
@@ -3044,30 +3026,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   </span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAllTmpTabsModalOpen(true);
-                  void onRefreshRemoteTmpTabs?.();
-                }}
-                title="Tmp tabs on other devices"
-                aria-label="Tmp tabs on other devices"
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  border: 'none',
-                  borderRight: isDark ? '1px solid rgba(51, 65, 85, 0.85)' : '1px solid rgba(226, 232, 240, 0.95)',
-                  padding: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'transparent',
-                  color: isDark ? '#cbd5e1' : '#475569',
-                  cursor: 'pointer',
-                }}
-              >
-                <DevicesIcon size={16} />
-              </button>
               <ActionDropdown
                 items={bottomBarMoreItems}
                 isDarkTheme={isDark}
@@ -3092,18 +3050,6 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Modals */}
-      <AllTmpTabsModal
-        isOpen={isAllTmpTabsModalOpen}
-        onClose={() => setIsAllTmpTabsModalOpen(false)}
-        remoteTabs={remoteTmpTabs || []}
-        spaces={sortedSpaces}
-        currentDeviceId={effectiveCurrentDeviceId}
-        remoteUpdatedAt={remoteTmpTabsUpdatedAt}
-        isLoading={remoteTmpTabsLoading}
-        isDarkTheme={isDark}
-        onRefresh={onRefreshRemoteTmpTabs}
-        onOpenRemote={(tab) => handleOpenAsTmpTab(tab.url, tab.customTitle || tab.title, tab.spaceId)}
-      />
       <SpaceModal
         isOpen={isSpaceModalOpen}
         onClose={() => {

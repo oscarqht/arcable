@@ -24,8 +24,6 @@ import {
   exchangeRaindropOAuthCode,
   fetchRaindropWorkspace,
   syncWorkspaceWithRaindrop,
-  fetchRaindropTmpTabs,
-  publishRaindropTmpTabs,
   fetchRaindropDevices,
   renameRaindropDevice,
   deleteRaindropDevice,
@@ -49,7 +47,6 @@ import {
 } from './contextMenus';
 import { handleScreenshotCapture } from './screenshot';
 import { handleCopyOperation } from './clipboard';
-import { reconcileTmpTabsWithBrowserTabs } from '../utils/tmpTabDiff';
 import { checkUserScriptsAvailable, openExtensionDetailsPage } from '../utils/browser';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
@@ -562,12 +559,6 @@ browser.runtime.onMessage.addListener(
         return fetchAndCacheRaindropWorkspace();
       }
 
-      case 'RAINDROP_GET_TMP_TABS': {
-        const auth = await getStoredAuthState();
-        if (!auth.isAuthenticated || !auth.accessToken) return { success: false, error: 'Not authenticated with Raindrop' };
-        return fetchRaindropTmpTabs(auth.accessToken);
-      }
-
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
       case 'RAINDROP_SYNC_WORKSPACE': {
         if (debouncedSyncTimer) {
@@ -686,34 +677,6 @@ browser.runtime.onMessage.addListener(
           });
 
           if (result.success && result.latestSnapshot) {
-            const remoteDeletedOps = (result.syncFile?.operations || [])
-              .filter((op: any) => op.type === 'TMP_TAB_DELETE' && op.deviceId !== effectiveDeviceId)
-              .map((op: any) => op.entityId);
-            const remoteDeletedOpSet = new Set(remoteDeletedOps);
-            const deletedTmpTabMap = result.syncFile?.deletedTmpTabIds || {};
-
-            const remainingLocalTmp: TmpTab[] = [];
-            for (const localTab of localTmp) {
-              if (localTab.browserTabId !== undefined) {
-                const isExplicitlyDeletedByRemote = remoteDeletedOpSet.has(localTab.id);
-                const tombstoneTime = deletedTmpTabMap[localTab.id];
-                // Only honor tombstone if it was deleted after this tab instance was created
-                const isTombstoned = Boolean(tombstoneTime && (!localTab.createdAt || localTab.createdAt <= tombstoneTime));
-
-                if (isExplicitlyDeletedByRemote || isTombstoned) {
-                  try {
-                    await browser.tabs.remove(localTab.browserTabId);
-                    console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to remote deletion.`);
-                  } catch {}
-                  continue;
-                }
-              }
-              remainingLocalTmp.push(localTab);
-            }
-            if (remainingLocalTmp.length !== localTmp.length) {
-              await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmp });
-            }
-
             // Cache latest snapshot and custom code rules in extension storage
             const updates: Record<string, any> = {
               arcable_workspace_snapshot: result.latestSnapshot,
@@ -1012,33 +975,6 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
     });
 
     if (result.success && result.latestSnapshot) {
-      // Reconcile remote tab closures against local open browser tabs.
-      const deletedOpIds = new Set([
-        ...(result.syncFile?.operations || [])
-          .filter((op: any) => op.type === 'TMP_TAB_DELETE')
-          .map((op: any) => op.entityId),
-        ...Object.keys(result.syncFile?.deletedTmpTabIds || {}),
-      ]);
-
-      const remainingLocalTmpTabs: TmpTab[] = [];
-      for (const localTab of localTmpTabs) {
-        if (
-          localTab.browserTabId !== undefined &&
-          (deletedOpIds.has(localTab.id) || (localTab.deviceId && deletedOpIds.has(`tmp_${localTab.deviceId}_${localTab.browserTabId}`)))
-        ) {
-          try {
-            await browser.tabs.remove(localTab.browserTabId);
-            console.log(`[Arcable Background] Closed browser tab ${localTab.browserTabId} (${localTab.url}) due to explicit remote deletion operation.`);
-          } catch {}
-        } else {
-          remainingLocalTmpTabs.push(localTab);
-        }
-      }
-
-      if (remainingLocalTmpTabs.length !== localTmpTabs.length) {
-        await browser.storage.local.set({ arcable_tmp_tabs: remainingLocalTmpTabs });
-      }
-
       const updates: Record<string, any> = {
         arcable_workspace_snapshot: result.latestSnapshot,
         arcable_last_synced_at: result.syncedAt,
@@ -1071,86 +1007,17 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
   }
 }
 
-const TMP_TABS_SYNC_ALARM_NAME = 'arcable_tmp_tabs_sync_alarm';
-const TMP_TABS_LAST_PUBLISHED_KEY = 'arcable_tmp_tabs_last_published';
-let tmpTabsPublishTimer: ReturnType<typeof setTimeout> | null = null;
-let tmpTabsPublishInFlight = false;
-let tmpTabsPublishQueued = false;
-
-async function publishLocalTmpTabsIfDue(): Promise<void> {
-  if (tmpTabsPublishInFlight) {
-    tmpTabsPublishQueued = true;
-    return;
-  }
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-
-  tmpTabsPublishInFlight = true;
-  try {
-    const auth = await getStoredAuthState();
-    if (!auth.isAuthenticated || !auth.accessToken) return;
-    const publishKey = `${TMP_TABS_LAST_PUBLISHED_KEY}_${auth.user?.id || 'unknown'}`;
-    const stored = await browser.storage.local.get(['arcable_tmp_tabs', publishKey]);
-    const storedTabs = (stored.arcable_tmp_tabs as TmpTab[]) || [];
-    // The side panel owns the normal tab tracker, so its local snapshot can
-    // become stale while the panel is closed. Read live browser metadata before
-    // publishing this device's snapshot.
-    const browserTabs = await browser.tabs.query({});
-    const reconciled = reconcileTmpTabsWithBrowserTabs(storedTabs, browserTabs);
-    const tabs = reconciled.tabs;
-    if (reconciled.changed) {
-      await browser.storage.local.set({ arcable_tmp_tabs: tabs });
-    }
-    const fingerprint = JSON.stringify(tabs);
-    const previous = stored[publishKey] as { fingerprint?: string; at?: number } | undefined;
-    const now = Date.now();
-    if (fingerprint === previous?.fingerprint && now - (previous?.at || 0) < 24 * 60 * 60 * 1000) return;
-    const delay = Math.max(0, (previous?.at || 0) + 60_000 - now);
-    if (delay > 0) {
-      if (!tmpTabsPublishTimer) {
-        tmpTabsPublishTimer = setTimeout(() => {
-          tmpTabsPublishTimer = null;
-          void publishLocalTmpTabsIfDue();
-        }, delay);
-      }
-      return;
-    }
-
-    const deviceId = await getOrCreateExtensionDeviceId();
-    const deviceName = await getExtensionDeviceName();
-    const result = await publishRaindropTmpTabs(auth.accessToken, {
-      deviceId,
-      deviceName,
-      deviceType: 'Ext',
-      tabs,
-    });
-    if (!result.success) throw new Error(result.error || 'Failed to publish temporary tabs');
-    await browser.storage.local.set({ [publishKey]: { fingerprint, at: Date.now() } });
-  } catch (error) {
-    console.warn('[Arcable Background] Temporary tab publish failed:', error);
-  } finally {
-    tmpTabsPublishInFlight = false;
-    if (tmpTabsPublishQueued) {
-      tmpTabsPublishQueued = false;
-      void publishLocalTmpTabsIfDue();
-    }
-  }
-}
-
-// Workspace writes retain their five minute schedule. Open browser tabs use a
-// separate one minute alarm and never enter the workspace operation log.
+// Workspace writes retain their five minute schedule.
 const SYNC_ALARM_NAME = 'arcable_sync_alarm';
 if (typeof chrome !== 'undefined' && chrome.alarms) {
   chrome.alarms.create(SYNC_ALARM_NAME, { periodInMinutes: 5 });
-  chrome.alarms.create(TMP_TABS_SYNC_ALARM_NAME, { periodInMinutes: 1 });
+  chrome.alarms.clear('arcable_tmp_tabs_sync_alarm');
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM_NAME) {
       void triggerBackgroundSync();
-    } else if (alarm.name === TMP_TABS_SYNC_ALARM_NAME) {
-      void publishLocalTmpTabsIfDue();
     }
   });
 }
-void publishLocalTmpTabsIfDue();
 
 // Listen for external messages (e.g. from web app OAuth redirect)
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
@@ -1186,9 +1053,6 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     const pendingOpsAfterChange = changes.arcable_pending_ops?.newValue;
     const hasPendingOps = Array.isArray(pendingOpsAfterChange) && pendingOpsAfterChange.length > 0;
-    // Keep browser state out of the workspace operation log. A separate,
-    // throttled device snapshot publishes changes to other devices.
-    if (changes.arcable_tmp_tabs) void publishLocalTmpTabsIfDue();
     if (hasPendingOps) {
       triggerDebouncedBackgroundSync(BACKGROUND_SYNC_DEBOUNCE_MS, true);
     }
