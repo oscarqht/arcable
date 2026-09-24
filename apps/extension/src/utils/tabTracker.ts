@@ -476,6 +476,7 @@ class TabTracker {
   private pendingInitialTitles: Map<number, string> = new Map();
   /** Browser tab IDs that are in the process of being closed — excluded from syncWithWorkspace queries */
   public closingTabIds: Set<number> = new Set();
+  private isCreatingEmptySpaceTabForWindow: Set<number> = new Set();
   private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   public getStoredWorkspaceFolders(): Folder[] {
@@ -531,7 +532,13 @@ class TabTracker {
    * Register an initial title for a newly opened tmp tab without marking it as a permanent customTitle.
    * Immediately adds or updates the in-memory tmp tab so the UI reflects it instantly while loading.
    */
-  public registerInitialTmpTab(browserTabId: number, url: string, initialTitle?: string, spaceId?: string): void {
+  public registerInitialTmpTab(
+    browserTabId: number,
+    url: string,
+    initialTitle?: string,
+    spaceId?: string,
+    windowId?: number
+  ): void {
     const trimmedTitle = initialTitle?.trim();
     if (trimmedTitle) {
       this.pendingInitialTitles.set(browserTabId, trimmedTitle);
@@ -539,17 +546,20 @@ class TabTracker {
 
     const currentDevId = this.cachedDeviceId || 'dev';
     const now = Date.now();
+    const resolvedWinId = typeof windowId === 'number' ? windowId : 0;
     const existingIndex = memoryTmpTabs.findIndex((t) => t.browserTabId === browserTabId);
 
     if (existingIndex >= 0) {
       const existing = memoryTmpTabs[existingIndex];
-      const updatedSpaceId = spaceId || existing.spaceId || this.resolveActiveSpaceIdForWindow(existing.windowId);
+      const updatedSpaceId =
+        spaceId || existing.spaceId || this.resolveActiveSpaceIdForWindow(existing.windowId || resolvedWinId);
       memoryTmpTabs = memoryTmpTabs.map((t, idx) =>
         idx === existingIndex
           ? {
               ...t,
               title: trimmedTitle || t.title,
               spaceId: updatedSpaceId,
+              windowId: resolvedWinId || t.windowId || 0,
               updatedAt: now,
             }
           : t
@@ -561,8 +571,8 @@ class TabTracker {
         url,
         title: trimmedTitle || '',
         browserTabId,
-        windowId: 0,
-        spaceId: spaceId || this.resolveActiveSpaceIdForWindow(0),
+        windowId: resolvedWinId,
+        spaceId: spaceId || this.resolveActiveSpaceIdForWindow(resolvedWinId),
         createdAt: now,
         updatedAt: now,
         deviceType: 'Ext',
@@ -572,6 +582,7 @@ class TabTracker {
       memoryTmpTabs = [newTmp, ...memoryTmpTabs];
       this.notifyTmpTabs(memoryTmpTabs);
     }
+    void this.saveTmpTabs(memoryTmpTabs);
   }
 
   /**
@@ -1571,6 +1582,10 @@ class TabTracker {
             await this.saveTmpTabs(updatedTmp);
           }
         });
+
+        setTimeout(() => {
+          this.closingTabIds.delete(tabId);
+        }, 10000);
       });
     }
 
@@ -1639,6 +1654,15 @@ class TabTracker {
             if (nearest) {
               if (nearest.browserTabId !== activeInfo.tabId) {
                 try {
+                  if (prevTabId !== undefined) {
+                    this.recentlyClosedTabs.delete(prevTabId);
+                    this.closingTabIds.delete(prevTabId);
+                  }
+                  if (winId !== undefined) {
+                    this.lastActiveBrowserTabIdByWindow.set(winId, nearest.browserTabId);
+                    this.lastActiveTabSpaceByWindow.set(winId, closedSpaceId);
+                    this.setActiveSpaceForWindow(winId, closedSpaceId);
+                  }
                   await (tabsApi as any).update(nearest.browserTabId, { active: true });
                   return; // Next onActivated event will fire for nearest.browserTabId
                 } catch (err) {
@@ -1647,18 +1671,51 @@ class TabTracker {
               }
             } else {
               // No open tabs remain in this space: create a new tmp tab in this space!
+              if (winId !== undefined && this.isCreatingEmptySpaceTabForWindow.has(winId)) {
+                return;
+              }
+              if (winId !== undefined) {
+                this.isCreatingEmptySpaceTabForWindow.add(winId);
+              }
               try {
+                if (prevTabId !== undefined) {
+                  this.recentlyClosedTabs.delete(prevTabId);
+                  this.closingTabIds.delete(prevTabId);
+                }
                 const newTab = await (tabsApi as any).create(
                   winId !== undefined ? { windowId: winId, active: true } : { active: true }
                 );
                 if (newTab && newTab.id !== undefined) {
-                  this.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', closedSpaceId);
+                  const resolvedWinId = newTab.windowId ?? winId;
+                  this.registerInitialTmpTab(
+                    newTab.id,
+                    newTab.url || 'chrome://newtab',
+                    'New Tab',
+                    closedSpaceId,
+                    resolvedWinId
+                  );
+                  if (winId !== undefined) {
+                    this.lastActiveBrowserTabIdByWindow.set(winId, newTab.id);
+                    this.lastActiveTabSpaceByWindow.set(winId, closedSpaceId);
+                    this.setActiveSpaceForWindow(winId, closedSpaceId);
+                  }
                 }
                 return; // Next onActivated event will fire for newTab.id
               } catch (err) {
                 console.warn('[TabTracker] Could not create new tmp tab for empty space:', err);
+              } finally {
+                if (winId !== undefined) {
+                  setTimeout(() => {
+                    this.isCreatingEmptySpaceTabForWindow.delete(winId);
+                  }, 500);
+                }
               }
             }
+          }
+
+          if (prevTabId !== undefined) {
+            this.recentlyClosedTabs.delete(prevTabId);
+            this.closingTabIds.delete(prevTabId);
           }
         }
 

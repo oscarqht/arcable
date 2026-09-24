@@ -406,6 +406,42 @@ async function runTests() {
   );
   assert(nearestWhenOnlyOne === null, 'Closing the only open tab in a space should return null');
 
+  // 11e: windowId wildcard behavior in getOpenTabsInSpaceOrder
+  const wildcardTmpTabs: TmpTab[] = [
+    { id: 'tmp-zero-win', url: 'https://zero.com', spaceId: 'space-wildcard', browserTabId: 101, windowId: 0 },
+    { id: 'tmp-other-win', url: 'https://otherwin.com', spaceId: 'space-wildcard', browserTabId: 102, windowId: 2 },
+  ];
+  const matchedWildcard = getOpenTabsInSpaceOrder(
+    'space-wildcard',
+    [],
+    [],
+    {},
+    wildcardTmpTabs,
+    1
+  );
+  assert(
+    matchedWildcard.length === 1 && matchedWildcard[0].browserTabId === 101,
+    'Tab with windowId: 0 should be treated as wildcard and match windowId: 1, while windowId: 2 should be excluded'
+  );
+
+  // 11f: after creating replacement tab, findNearestOpenTabInSpace finds it
+  const replacementTabs: TmpTab[] = [
+    { id: 'tmp-new', url: 'chrome://newtab', spaceId: 'space-isolated', browserTabId: 100, windowId: 1 },
+  ];
+  const nearestAfterReplacement = findNearestOpenTabInSpace(
+    'space-isolated',
+    { browserTabId: 99 }, // closing tab
+    [],
+    [],
+    {},
+    replacementTabs,
+    1
+  );
+  assert(
+    nearestAfterReplacement !== null && nearestAfterReplacement.browserTabId === 100,
+    'After replacement tab is created, findNearestOpenTabInSpace should find the new tab'
+  );
+
   console.log('All spaceTabTracker tests passed successfully!');
 }
 

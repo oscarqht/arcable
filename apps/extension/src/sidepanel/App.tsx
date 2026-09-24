@@ -777,7 +777,7 @@ export const App: React.FC = () => {
         const newTab = await browser.tabs.create({ url, active: true });
         if (newTab && newTab.id !== undefined) {
           const assignedSpaceId = tmpTabInfo?.spaceId || previousSpaceIdRef.current || getStoredLastSpaceId() || undefined;
-          tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo?.title, assignedSpaceId);
+          tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo?.title, assignedSpaceId, newTab.windowId);
         }
         return;
       } catch (e) {
@@ -840,7 +840,7 @@ export const App: React.FC = () => {
           if (customTitle) {
             await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
           } else if (initialTitle) {
-            tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle, assignedSpaceId);
+            tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle, assignedSpaceId, newTab.windowId);
           }
         }
         return;
@@ -1025,7 +1025,7 @@ export const App: React.FC = () => {
     try {
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
-        tabTracker.registerInitialTmpTab(newTab.id, url, title, spaceId);
+        tabTracker.registerInitialTmpTab(newTab.id, url, title, spaceId, newTab.windowId ?? currentWindowIdRef.current ?? undefined);
       }
     } catch (e) {
       console.warn('Failed to open tmp tab via browser API, falling back to window.open:', e);
@@ -1083,7 +1083,7 @@ export const App: React.FC = () => {
               typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
             );
             if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId);
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId, newTab.windowId ?? currentWinId ?? undefined);
             }
           }
         }
@@ -1149,7 +1149,7 @@ export const App: React.FC = () => {
               typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
             );
             if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', targetSpaceId);
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', targetSpaceId, newTab.windowId ?? currentWinId ?? undefined);
             }
           }
         } else {
@@ -1280,7 +1280,7 @@ export const App: React.FC = () => {
               typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
             );
             if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId);
+              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId, newTab.windowId ?? currentWinId ?? undefined);
             }
           }
         }

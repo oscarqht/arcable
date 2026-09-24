@@ -185,7 +185,7 @@ export function getOpenTabsInSpaceOrder(
     isTmp: boolean
   ) => {
     if (browserTabId === undefined || browserTabId <= 0) return;
-    if (windowId !== undefined && tabWinId !== undefined && tabWinId !== windowId) return;
+    if (windowId !== undefined && tabWinId !== undefined && tabWinId > 0 && tabWinId !== windowId) return;
     if (seenBrowserTabIds.has(browserTabId)) return;
     seenBrowserTabIds.add(browserTabId);
     result.push({
