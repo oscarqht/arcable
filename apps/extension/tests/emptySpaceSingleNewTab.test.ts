@@ -70,7 +70,16 @@ const mockApi = {
         activatedListeners.push(fn);
       },
     },
-    query: async () => createdTabs,
+    remove: async (tabId: number) => {
+      const idx = createdTabs.findIndex((t) => t.id === tabId);
+      if (idx >= 0) {
+        createdTabs.splice(idx, 1);
+      }
+      for (const listener of removedListeners) {
+        await listener(tabId, { windowId: 1, isWindowClosing: false });
+      }
+    },
+    query: async () => [...createdTabs],
   },
   windows: {
     getCurrent: (callback?: (win: any) => void) => {
@@ -148,14 +157,53 @@ async function runTests() {
   const tmpBeforeNav = allTmpBeforeNav.find((t) => t.browserTabId === 701);
   assert(tmpBeforeNav === undefined, 'Tab 701 with chrome://newtab should NOT be registered in tmpTabs');
 
-  // When Tab 701 navigates to an HTTP URL, it should be registered in tmpTabs under space-solo
-  createdNewTab.url = 'https://example.com/welcome';
-  tabTracker.registerInitialTmpTab(701, 'https://example.com/welcome', 'Welcome', undefined, 1);
+  // 5. Test BLANK TAB REUSE: If ensureOrReuseBlankTabForSpace is called again for space-solo,
+  // it must reuse tab 701 rather than creating another new tab
+  const reusedTabId = await tabTracker.ensureOrReuseBlankTabForSpace('space-solo', 1);
+  assert(reusedTabId === 701, `Expected reused tab id to be 701, got ${reusedTabId}`);
+  assert(createdTabs.length === 2, `Blank tab reuse must NOT create new tabs! Tab count: ${createdTabs.length}`);
+
+  // 6. Test BLANK TAB CLEANUP: When a real HTTP tab is opened in space-solo,
+  // the placeholder blank tab (701) must be automatically cleaned up (closed)
+  const realHttpTab = { id: 800, url: 'https://example.com/real-page', windowId: 1, active: true };
+  createdTabs.push(realHttpTab);
+  tabTracker.registerInitialTmpTab(800, 'https://example.com/real-page', 'Real Page', 'space-solo', 1);
+  for (const listener of activatedListeners) {
+    await listener({ tabId: 800, windowId: 1 });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Tab 701 should now be closed and removed from createdTabs
+  const blankTabAfterReal = createdTabs.find((t) => t.id === 701);
+  assert(
+    blankTabAfterReal === undefined,
+    'Placeholder blank tab 701 should have been cleaned up after opening a real HTTP tab'
+  );
+  assert(
+    createdTabs.some((t) => t.id === 800),
+    'Real HTTP tab 800 should remain in createdTabs'
+  );
+
+  // 7. Test CLOSING LAST TAB AGAIN: When tab 800 is closed, a new blank tab is created for space-solo
+  await mockApi.tabs.remove(800);
+  for (const listener of activatedListeners) {
+    await listener({ tabId: 600, windowId: 1 });
+  }
+
+  // A new replacement blank tab (702) should now exist
+  const secondBlankTab = createdTabs.find((t) => t.id > 701);
+  assert(secondBlankTab !== undefined, 'A replacement blank tab should be created when tab 800 is closed');
+  assert(secondBlankTab.id === 702, `Expected replacement blank tab id to be 702, got ${secondBlankTab?.id}`);
+
+  // 8. Test NAVIGATING BLANK TAB TO HTTP:
+  // When Tab 702 navigates to an HTTP URL, it should be registered in tmpTabs under space-solo
+  secondBlankTab.url = 'https://example.com/welcome';
+  tabTracker.registerInitialTmpTab(702, 'https://example.com/welcome', 'Welcome', undefined, 1);
   const allTmpAfterNav = await tabTracker.getTmpTabs();
-  const newTmpTab = allTmpAfterNav.find((t) => t.browserTabId === 701);
-  assert(newTmpTab !== undefined, 'Tab 701 should now be registered in tmpTabs after navigating to HTTP URL');
-  assert(newTmpTab.spaceId === 'space-solo', `Tab 701 spaceId should be space-solo, got ${newTmpTab?.spaceId}`);
-  assert(newTmpTab.windowId === 1, `Tab 701 windowId should be 1, got ${newTmpTab?.windowId}`);
+  const newTmpTab = allTmpAfterNav.find((t) => t.browserTabId === 702);
+  assert(newTmpTab !== undefined, 'Tab 702 should now be registered in tmpTabs after navigating to HTTP URL');
+  assert(newTmpTab.spaceId === 'space-solo', `Tab 702 spaceId should be space-solo, got ${newTmpTab?.spaceId}`);
+  assert(newTmpTab.windowId === 1, `Tab 702 windowId should be 1, got ${newTmpTab?.windowId}`);
 
   console.log('emptySpaceSingleNewTab tests passed successfully!');
   process.exit(0);

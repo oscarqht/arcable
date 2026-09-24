@@ -11,6 +11,23 @@ export function isValidHttpUrl(url: string | null | undefined): boolean {
 }
 
 /**
+ * Checks whether a URL represents an empty or blank/new tab
+ * (e.g. '', about:blank, chrome://newtab, edge://newtab, about:newtab, about:home)
+ */
+export function isBlankNewTabUrl(url: string | null | undefined): boolean {
+  if (!url) return true;
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed === '' ||
+    trimmed === 'about:blank' ||
+    trimmed.startsWith('chrome://newtab') ||
+    trimmed.startsWith('edge://newtab') ||
+    trimmed.startsWith('about:newtab') ||
+    trimmed.startsWith('about:home')
+  );
+}
+
+/**
  * Extracts hostname from URL for favicon and domain badges
  */
 export function getDomain(urlStr: string | null | undefined): string {

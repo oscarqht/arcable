@@ -754,14 +754,20 @@ export const App: React.FC = () => {
         }
         return undefined;
       };
+      const onSpaceActivated = (activated: boolean) => {
+        if (!activated) {
+          const wId = currentWindowIdRef.current || winId;
+          void tabTracker.ensureOrReuseBlankTabForSpace(nextSpaceId, wId ?? undefined);
+        }
+      };
       if (winId !== null && winId !== undefined) {
-        void activateRememberedTabForSpace(winId, nextSpaceId, undefined, lookupAssoc);
+        void activateRememberedTabForSpace(winId, nextSpaceId, undefined, lookupAssoc).then(onSpaceActivated);
       } else {
         void browser.windows?.getCurrent?.().then((win) => {
           if (win?.id !== undefined) {
             currentWindowIdRef.current = win.id;
             tabTracker.setActiveSpaceForWindow(win.id, nextSpaceId);
-            void activateRememberedTabForSpace(win.id, nextSpaceId, undefined, lookupAssoc);
+            void activateRememberedTabForSpace(win.id, nextSpaceId, undefined, lookupAssoc).then(onSpaceActivated);
           }
         }).catch(() => {});
       }
@@ -1079,12 +1085,7 @@ export const App: React.FC = () => {
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
           } else {
-            const newTab = await browser.tabs.create(
-              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
-            );
-            if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId, newTab.windowId ?? currentWinId ?? undefined);
-            }
+            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
       } catch (e) {
@@ -1145,12 +1146,7 @@ export const App: React.FC = () => {
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
           } else {
-            const newTab = await browser.tabs.create(
-              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
-            );
-            if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', targetSpaceId, newTab.windowId ?? currentWinId ?? undefined);
-            }
+            await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
           }
         } else {
           // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
@@ -1276,12 +1272,7 @@ export const App: React.FC = () => {
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
           } else {
-            const newTab = await browser.tabs.create(
-              typeof currentWinId === 'number' ? { windowId: currentWinId, active: true } : { active: true }
-            );
-            if (newTab && newTab.id !== undefined) {
-              tabTracker.registerInitialTmpTab(newTab.id, newTab.url || 'chrome://newtab', 'New Tab', spaceId, newTab.windowId ?? currentWinId ?? undefined);
-            }
+            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
       } catch (e) {
