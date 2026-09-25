@@ -230,6 +230,8 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       raindropArchiveCollectionId: parsed.raindropArchiveCollectionId,
       raindropSpaceThemeCollectionId: parsed.raindropSpaceThemeCollectionId,
       raindropMetadataItemId: parsed.raindropMetadataItemId,
+      driveWorkspaceFileId: parsed.driveWorkspaceFileId,
+      driveWorkspaceVersion: parsed.driveWorkspaceVersion,
       spaces: parsed.spaces || [],
       folders: (parsed.folders || []).map((f) => {
         const isExp = f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true);
@@ -3670,10 +3672,10 @@ export function useWorkspace() {
         const activeSpaceStillExists =
           currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID ||
           snapshot.spaces.some((s) => s.id === currentActive);
-        // A missing root collection ID indicates the workspace has not been
-        // initialized in Raindrop. Do not erase data which this client can
-        // create on its next sync.
-        const remoteMetadataMissing = !snapshot.raindropRootCollectionId;
+        // A snapshot with no backend identity (no Raindrop root collection and
+        // no Drive file) has not been initialized remotely. Do not erase data
+        // which this client can create on its next sync.
+        const remoteMetadataMissing = !snapshot.raindropRootCollectionId && !snapshot.driveWorkspaceFileId;
 
         // Preserve in-memory local folder expand state as fallback
         const prevExpandMap = new Map<string, boolean>();
@@ -3703,6 +3705,8 @@ export function useWorkspace() {
           raindropMetadataItemId: snapshot.raindropMetadataItemId !== undefined
             ? snapshot.raindropMetadataItemId
             : prev.raindropMetadataItemId,
+          driveWorkspaceFileId: snapshot.driveWorkspaceFileId ?? prev.driveWorkspaceFileId,
+          driveWorkspaceVersion: snapshot.driveWorkspaceFileId ? snapshot.driveWorkspaceVersion : prev.driveWorkspaceVersion,
           spaces: snapshot.spaces,
           folders: mergedFolders,
           tabs: snapshot.tabs || [],

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>An Arc-style tab and workspace manager with native Raindrop.io cloud sync for Chrome, Firefox, and the Web.</strong>
+  <strong>An Arc-style tab and workspace manager with native Raindrop.io or Google Drive cloud sync for Chrome, Firefox, and the Web.</strong>
 </p>
 
 <p align="center">
@@ -249,11 +249,30 @@ Arcable natively synchronizes with **Raindrop.io** via OAuth 2.0 or a Personal A
 
 ---
 
+## ☁️ Google Drive Sync
+
+As an alternative to Raindrop.io, Arcable can store the workspace in an **`Arcable`** folder in your Google Drive. One sync backend is active at a time; switch or move your workspace between them from **Extension Settings → Sync → Sync Backend** or the **Backend** button in the Web App. Moving never deletes data: the source keeps a backup and its current copy.
+
+- **Layout**: `Arcable/workspace.json` (the whole workspace), `Arcable/archive.json` (archived items) and `Arcable/backups/`.
+- **Scope**: only `drive.file`, so Arcable can see the files it created and nothing else in your Drive.
+- **Limitations**: Raindrop-only features (bookmark search, collection cover icons, saving pages to Raindrop) are unavailable while Google Drive is active.
+
+### Configuration
+The extension signs in through [oh-auth](https://oh-auth.vercel.app) (`/auth/google`). The Web App exchanges the code itself and must use the **same Google Cloud project** as oh-auth, because `drive.file` access is per project:
+```env
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback/google
+```
+In Google Cloud Console, enable the **Google Drive API**, add the `.../auth/drive.file` scope to the OAuth consent screen, register the redirect URIs above, and publish the consent screen to **Production** (refresh tokens of apps in *Testing* expire after 7 days).
+
+---
+
 ## 🛡️ Privacy & Security
 
 - **Local-First**: Workspace data is kept local by default and works fully offline.
 - **Zero Tracking**: No tracking cookies, analytics SDKs, behavioral fingerprinting, or ads.
-- **Direct Sync**: Synchronization connects directly between your browser and the official Raindrop.io API.
+- **Direct Sync**: Synchronization connects directly between your browser and the official Raindrop.io or Google Drive API.
 - For full details, see [PRIVACY.md](PRIVACY.md).
 
 ---

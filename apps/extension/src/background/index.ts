@@ -10,6 +10,10 @@ import {
   WorkspaceOperation,
   CustomCodeRule,
   RunCodeRule,
+  SyncProvider,
+  SyncProviderId,
+  SyncRequest,
+  SyncResult,
 } from '@arcable/shared/types';
 import {
   fetchRaindropUser,
@@ -22,8 +26,6 @@ import {
   fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
-  fetchRaindropWorkspace,
-  syncWorkspaceWithRaindrop,
   fetchRaindropDevices,
   renameRaindropDevice,
   deleteRaindropDevice,
@@ -33,7 +35,21 @@ import {
   searchRaindropCollectionCovers,
   getRaindropRequestFailureDetails,
   isValidHttpUrl,
+  getSyncProvider,
+  migrateWorkspace,
+  SYNC_PROVIDER_CAPABILITIES,
+  ACTIVE_SYNC_PROVIDER_STORAGE_KEY,
 } from '@arcable/shared/utils';
+import {
+  STORAGE_KEY_GOOGLE_AUTH,
+  clearGoogleAuthState,
+  getActiveSyncProviderId,
+  getGoogleAuthState,
+  getValidGoogleAccessToken,
+  processGoogleOAuthTokens,
+  setActiveSyncProviderId,
+  startGoogleOAuth,
+} from './syncBackend';
 
 import {
   initRunCodeBackgroundListeners,
@@ -243,35 +259,78 @@ async function clearAuthState(): Promise<void> {
   void syncSidePanelBehavior(false);
 }
 
-/** Fetches Raindrop's tree and atomically replaces the extension cache and outbox. */
-async function fetchAndCacheRaindropWorkspace(): Promise<ExtensionResponse<ArcableWorkspaceData>> {
+/** Resolves the active sync backend and a usable access token for it. */
+async function resolveActiveBackend(): Promise<{ provider: SyncProvider; token?: string; error?: string }> {
+  const provider = getSyncProvider(await getActiveSyncProviderId());
+  if (provider.id === 'drive') {
+    const token = await getValidGoogleAccessToken();
+    return token ? { provider, token } : { provider, error: 'Not authenticated with Google Drive' };
+  }
   const auth = await getStoredAuthState();
-  if (!auth.isAuthenticated || !auth.accessToken) {
-    return { success: false, error: 'Not authenticated with Raindrop' };
+  return auth.isAuthenticated && auth.accessToken
+    ? { provider, token: auth.accessToken }
+    : { provider, error: 'Not authenticated with Raindrop' };
+}
+
+/**
+ * The workspace on the current backend was moved elsewhere by another device.
+ * Follow it: switch this device to the new backend and hydrate from there.
+ */
+async function followMigratedWorkspace(from: SyncProviderId, to: SyncProviderId): Promise<void> {
+  console.warn(`[Arcable Background] Workspace moved from ${from} to ${to}; switching this device.`);
+  await setActiveSyncProviderId(to);
+}
+
+/** Fetches the active backend's workspace and atomically replaces the extension cache and outbox. */
+async function fetchAndCacheWorkspace(): Promise<ExtensionResponse<ArcableWorkspaceData>> {
+  const { provider, token, error } = await resolveActiveBackend();
+  if (!token) {
+    return { success: false, error };
   }
 
   try {
     const stored = await browser.storage.local.get('arcable_workspace_snapshot');
-    const currentActiveSpaceId = (stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined)?.activeSpaceId;
+    const cached = stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined;
+    const currentActiveSpaceId = cached?.activeSpaceId;
 
-    const result = await fetchRaindropWorkspace(auth.accessToken, currentActiveSpaceId);
-    if (!result.success || !result.data) {
+    const result = await provider.fetchWorkspace(token, currentActiveSpaceId);
+    if (result.migratedTo) {
+      await followMigratedWorkspace(provider.id, result.migratedTo);
+      return { success: false, error: result.error };
+    }
+    let data = result.data;
+    if (result.success && !data && result.exists === false) {
+      // First use of an empty backend: seed it from this device's cache.
+      const created = await runQueuedWorkspaceSync(provider, token, {
+        localState: cached || {
+          activeSpaceId: '',
+          version: 1,
+          spaces: [],
+          folders: [],
+          tabs: [],
+        },
+        replaceBaseline: true,
+      });
+      if (!created.success) return { success: false, error: created.error };
+      data = created.latestSnapshot;
+    }
+    if (!result.success || !data) {
       if (result.errorDetails) {
-        console.warn('[Arcable Background] Raindrop workspace fetch exhausted transport retries.', result.errorDetails);
+        console.warn('[Arcable Background] Workspace fetch exhausted transport retries.', result.errorDetails);
       }
       return { success: false, error: result.error || 'Failed to fetch workspace', errorDetails: result.errorDetails };
     }
 
     await browser.storage.local.set({
-      arcable_workspace_snapshot: result.data,
-      [CUSTOM_CODE_STORAGE_KEY]: result.data.customCodeRules || [],
-      [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.data.runCodeInPageRules || [],
-      // A successful startup fetch adopts Raindrop as the source of truth.
+      arcable_workspace_snapshot: data,
+      [CUSTOM_CODE_STORAGE_KEY]: data.customCodeRules || [],
+      [RUN_CODE_IN_PAGE_STORAGE_KEY]: data.runCodeInPageRules || [],
+      // A successful startup fetch adopts the backend as the source of truth.
       // Keeping an old outbox would replay stale creates on the next sync.
       arcable_pending_ops: [],
       arcable_last_synced_at: Date.now(),
     });
-    return { success: true, data: result.data };
+    return { success: true, data };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Failed to fetch workspace' };
   }
@@ -298,15 +357,83 @@ async function processOAuthTokens(tokens: {
   };
 
   await saveAuthState(authState);
-  void fetchAndCacheRaindropWorkspace();
+  await preferProviderAfterSignIn('raindrop');
   return authState;
+}
+
+/**
+ * After signing in to a backend, make it active unless the current backend is
+ * still signed in (then switching requires an explicit migration). An
+ * unchanged provider re-hydrates here; a changed one re-hydrates from the
+ * storage listener.
+ */
+async function preferProviderAfterSignIn(id: SyncProviderId): Promise<void> {
+  const active = await getActiveSyncProviderId();
+  if (active === id) {
+    void fetchAndCacheWorkspace();
+    return;
+  }
+  const activeSignedIn = active === 'drive'
+    ? (await getGoogleAuthState()).isAuthenticated
+    : (await getStoredAuthState()).isAuthenticated;
+  if (!activeSignedIn) await setActiveSyncProviderId(id);
+}
+
+async function handleGoogleSignIn(tokens: {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+}) {
+  const auth = await processGoogleOAuthTokens(tokens);
+  if (auth) await preferProviderAfterSignIn('drive');
+  return auth;
+}
+
+/** Copies the workspace from the active backend to `to`, then makes `to` active. */
+async function migrateActiveWorkspace(to: SyncProviderId): Promise<ExtensionResponse<ArcableWorkspaceData>> {
+  const from = await getActiveSyncProviderId();
+  if (from === to) return { success: false, error: 'That backend is already active.' };
+  const raindropAuth = await getStoredAuthState();
+  const googleToken = await getValidGoogleAccessToken();
+  const tokens: Record<SyncProviderId, string | undefined> = {
+    raindrop: raindropAuth.isAuthenticated ? raindropAuth.accessToken : undefined,
+    drive: googleToken || undefined,
+  };
+
+  const stored = await browser.storage.local.get(['arcable_workspace_snapshot', 'arcable_pending_ops']);
+  const deviceId = await getOrCreateExtensionDeviceId();
+  const deviceName = await getExtensionDeviceName();
+  // Hold the sync queue so no regular sync writes to either backend mid-migration.
+  const result = await runExclusiveWorkspaceTask(() => migrateWorkspace({
+    from,
+    to,
+    fromToken: tokens[from] || '',
+    toToken: tokens[to] || '',
+    localState: stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined,
+    pendingOps: (stored.arcable_pending_ops as WorkspaceOperation[]) || [],
+    deviceId,
+    deviceName,
+  }));
+  if (!result.success || !result.latestSnapshot) {
+    return { success: false, error: result.error || 'Migration failed.' };
+  }
+
+  await browser.storage.local.set({
+    arcable_workspace_snapshot: result.latestSnapshot,
+    [CUSTOM_CODE_STORAGE_KEY]: result.latestSnapshot.customCodeRules || [],
+    [RUN_CODE_IN_PAGE_STORAGE_KEY]: result.latestSnapshot.runCodeInPageRules || [],
+    arcable_pending_ops: [],
+    arcable_last_synced_at: Date.now(),
+  });
+  await setActiveSyncProviderId(to);
+  return { success: true, data: result.latestSnapshot };
 }
 
 const BACKGROUND_SYNC_DEBOUNCE_MS = 2_000;
 // Every extension surface shares this worker. Serialize the actual Raindrop
 // request so a popup, side panel, option page, or alarm cannot write the same
 // workspace concurrently.
-let raindropWorkspaceSyncTail: Promise<void> = Promise.resolve();
+let workspaceSyncTail: Promise<void> = Promise.resolve();
 let queuedWorkspaceSyncCount = 0;
 let isBackgroundSyncInFlight = false;
 let isBackgroundSyncQueued = false;
@@ -320,6 +447,10 @@ browser.runtime.onMessage.addListener(
 
     // Handle OAuth bridge event from content script
     if (rawMessage && rawMessage.type === 'oauth_bridge_success') {
+      if (rawMessage.provider === 'google') {
+        const auth = await handleGoogleSignIn(rawMessage.tokens);
+        return { success: Boolean(auth), data: auth };
+      }
       const auth = await processOAuthTokens(rawMessage.tokens);
       return { success: Boolean(auth), data: auth };
     }
@@ -414,7 +545,7 @@ browser.runtime.onMessage.addListener(
         };
 
         await saveAuthState(authState);
-        void fetchAndCacheRaindropWorkspace();
+        await preferProviderAfterSignIn('raindrop');
         return { success: true, data: authState };
       }
 
@@ -489,6 +620,48 @@ browser.runtime.onMessage.addListener(
         }
       }
 
+      // Google Drive: authentication
+      case 'GOOGLE_GET_AUTH_STATE': {
+        return { success: true, data: await getGoogleAuthState() };
+      }
+
+      case 'GOOGLE_START_OAUTH': {
+        try {
+          await startGoogleOAuth();
+          return { success: true, data: { status: 'opened_tab' } };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to start Google sign-in' };
+        }
+      }
+
+      case 'GOOGLE_LOGOUT': {
+        await clearGoogleAuthState();
+        return { success: true };
+      }
+
+      // Sync backend selection and migration
+      case 'SYNC_GET_PROVIDER': {
+        const provider = await getActiveSyncProviderId();
+        return { success: true, data: { provider, capabilities: SYNC_PROVIDER_CAPABILITIES[provider] } };
+      }
+
+      case 'SYNC_SET_PROVIDER': {
+        const provider = (message.payload as { provider?: SyncProviderId } | undefined)?.provider;
+        if (provider !== 'raindrop' && provider !== 'drive') {
+          return { success: false, error: 'Unknown sync backend' };
+        }
+        await setActiveSyncProviderId(provider);
+        return { success: true, data: { provider } };
+      }
+
+      case 'SYNC_MIGRATE': {
+        const to = (message.payload as { to?: SyncProviderId } | undefined)?.to;
+        if (to !== 'raindrop' && to !== 'drive') {
+          return { success: false, error: 'Unknown sync backend' };
+        }
+        return migrateActiveWorkspace(to);
+      }
+
       // Raindrop: Logout
       case 'RAINDROP_LOGOUT': {
         await clearAuthState();
@@ -556,7 +729,7 @@ browser.runtime.onMessage.addListener(
       // Raindrop: Always hydrate the local cache from the Arcable tree before
       // automatic writes are allowed in a newly opened extension surface.
       case 'RAINDROP_FETCH_WORKSPACE': {
-        return fetchAndCacheRaindropWorkspace();
+        return fetchAndCacheWorkspace();
       }
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
@@ -566,9 +739,9 @@ browser.runtime.onMessage.addListener(
           debouncedSyncTimer = null;
         }
 
-        const auth = await getStoredAuthState();
-        if (!auth.isAuthenticated || !auth.accessToken) {
-          return { success: false, error: 'Not authenticated with Raindrop' };
+        const backend = await resolveActiveBackend();
+        if (!backend.token) {
+          return { success: false, error: backend.error };
         }
 
         const payload = message.payload as { localState?: any; deviceId?: string; deviceName?: string; pendingOps?: any[]; replaceBaseline?: boolean } | undefined;
@@ -667,7 +840,7 @@ browser.runtime.onMessage.addListener(
             };
           }
 
-          const result = await syncWorkspaceWithRaindropQueued(auth.accessToken, {
+          const result = await runQueuedWorkspaceSync(backend.provider, backend.token, {
             localState: stateToSync,
             deviceId: effectiveDeviceId,
             deviceName: effectiveDeviceName,
@@ -675,6 +848,9 @@ browser.runtime.onMessage.addListener(
             replaceBaseline: payload?.replaceBaseline,
             identitySnapshot,
           });
+          if (result.migratedTo) {
+            await followMigratedWorkspace(backend.provider.id, result.migratedTo);
+          }
 
           if (result.success && result.latestSnapshot) {
             // Cache latest snapshot and custom code rules in extension storage
@@ -688,7 +864,7 @@ browser.runtime.onMessage.addListener(
             if (result.latestSnapshot.runCodeInPageRules) {
               updates[RUN_CODE_IN_PAGE_STORAGE_KEY] = result.latestSnapshot.runCodeInPageRules;
             }
-            const isInitialSync = !identitySnapshot?.raindropRootCollectionId;
+            const isInitialSync = backend.provider.isInitialSync(identitySnapshot);
             if (isInitialSync) {
               updates.arcable_pending_ops = [];
             } else if (syncedOpIds.size > 0) {
@@ -705,7 +881,7 @@ browser.runtime.onMessage.addListener(
           }
 
           if (!result.success && result.errorDetails) {
-            console.warn('[Arcable Background] Raindrop sync exhausted transport retries.', result.errorDetails);
+            console.warn('[Arcable Background] Workspace sync exhausted transport retries.', result.errorDetails);
           }
           return { success: result.success, data: result, error: result.error, errorDetails: result.errorDetails };
         } catch (err: any) {
@@ -845,19 +1021,25 @@ async function getExtensionDeviceName(): Promise<string> {
   return (typeof stored[STORAGE_KEY_DEVICE_NAME] === 'string' && stored[STORAGE_KEY_DEVICE_NAME]) || getDefaultDeviceName('Ext');
 }
 
-async function syncWorkspaceWithRaindropQueued(
-  ...args: Parameters<typeof syncWorkspaceWithRaindrop>
-): ReturnType<typeof syncWorkspaceWithRaindrop> {
+function runQueuedWorkspaceSync(
+  provider: SyncProvider,
+  token: string,
+  request: SyncRequest
+): Promise<SyncResult> {
+  return runExclusiveWorkspaceTask(() => provider.sync(token, request));
+}
+
+async function runExclusiveWorkspaceTask<T>(task: () => Promise<T>): Promise<T> {
   queuedWorkspaceSyncCount += 1;
-  const previousSync = raindropWorkspaceSyncTail;
+  const previousSync = workspaceSyncTail;
   let releaseQueue!: () => void;
-  raindropWorkspaceSyncTail = new Promise<void>((resolve) => {
+  workspaceSyncTail = new Promise<void>((resolve) => {
     releaseQueue = resolve;
   });
 
   await previousSync;
   try {
-    return await syncWorkspaceWithRaindrop(...args);
+    return await task();
   } finally {
     queuedWorkspaceSyncCount -= 1;
     releaseQueue();
@@ -899,8 +1081,8 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
   isBackgroundSyncInFlight = true;
 
   try {
-    const auth = await getStoredAuthState();
-    if (!auth.isAuthenticated || !auth.accessToken) return;
+    const backend = await resolveActiveBackend();
+    if (!backend.token) return;
 
     const storedData = await browser.storage.local.get([
       'arcable_workspace_snapshot',
@@ -967,12 +1149,15 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
       };
     }
 
-    const result = await syncWorkspaceWithRaindropQueued(auth.accessToken, {
+    const result = await runQueuedWorkspaceSync(backend.provider, backend.token, {
       localState,
       deviceId,
       deviceName,
       pendingOps,
     });
+    if (result.migratedTo) {
+      await followMigratedWorkspace(backend.provider.id, result.migratedTo);
+    }
 
     if (result.success && result.latestSnapshot) {
       const updates: Record<string, any> = {
@@ -1023,7 +1208,8 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessageExternal) {
   chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
     if (message && message.type === 'oauth_success') {
-      void processOAuthTokens(message.tokens).then((auth) => {
+      const signIn = message.provider === 'google' ? handleGoogleSignIn : processOAuthTokens;
+      void signIn(message.tokens).then((auth) => {
         if (sendResponse) {
           sendResponse({ success: Boolean(auth), auth });
         }
@@ -1043,12 +1229,16 @@ browser.storage.onChanged.addListener((changes, area) => {
       cachedAuthState = newAuth && newAuth.isAuthenticated && newAuth.accessToken ? newAuth : { isAuthenticated: false };
       void syncSidePanelBehavior(Boolean(cachedAuthState.isAuthenticated && cachedAuthState.accessToken));
       if (cachedAuthState.isAuthenticated && (!oldAuth || !oldAuth.isAuthenticated)) {
-        void fetchAndCacheRaindropWorkspace();
+        void fetchAndCacheWorkspace();
       }
     } else if (changes.arcable_token || changes.arcable_config) {
       void getStoredAuthState(true).then((auth) => {
         void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
       });
+    }
+
+    if (changes[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]) {
+      void fetchAndCacheWorkspace();
     }
 
     const pendingOpsAfterChange = changes.arcable_pending_ops?.newValue;
@@ -1107,14 +1297,14 @@ browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
   void initPlatformBehavior();
   void syncSidePanelBehavior();
-  void fetchAndCacheRaindropWorkspace();
+  void fetchAndCacheWorkspace();
 });
 
 if (browser.runtime?.onStartup) {
   browser.runtime.onStartup.addListener(() => {
     void initPlatformBehavior();
     void syncSidePanelBehavior();
-    void fetchAndCacheRaindropWorkspace();
+    void fetchAndCacheWorkspace();
   });
 }
 

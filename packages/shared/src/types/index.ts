@@ -45,6 +45,12 @@ export type ExtensionMessageType =
   | 'RAINDROP_CREATE_BACKUP'
   | 'RAINDROP_LIST_BACKUPS'
   | 'RAINDROP_RESTORE_BACKUP'
+  | 'GOOGLE_GET_AUTH_STATE'
+  | 'GOOGLE_START_OAUTH'
+  | 'GOOGLE_LOGOUT'
+  | 'SYNC_GET_PROVIDER'
+  | 'SYNC_SET_PROVIDER'
+  | 'SYNC_MIGRATE'
   | 'INJECT_CUSTOM_JS'
   | 'RUN_CODE_IN_PAGE_EXECUTE'
   | 'CHECK_USER_SCRIPTS_AVAILABLE'
@@ -69,6 +75,8 @@ export interface ExtensionResponse<T = unknown> {
 }
 
 export * from './raindrop';
+export * from './google';
+export * from './syncProvider';
 export * from './workspace';
 export * from './sync';
 export * from './tabTracker';

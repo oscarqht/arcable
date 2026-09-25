@@ -61,4 +61,6 @@ export interface SyncResult {
   error?: string;
   errorDetails?: RaindropRequestFailureDetails;
   syncedAt?: number;
+  /** Set when the backend's workspace was migrated to another backend; nothing was written. */
+  migratedTo?: 'raindrop' | 'drive';
 }

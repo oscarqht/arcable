@@ -8,6 +8,12 @@ import {
   getAuthCookieOptions,
 } from '@/lib/raindrop';
 import crypto from 'crypto';
+import {
+  GOOGLE_ACCESS_TOKEN_COOKIE,
+  GOOGLE_REFRESH_TOKEN_COOKIE,
+  getActiveSyncProvider,
+  setSyncProviderCookie,
+} from '@/lib/google';
 
 export const dynamic = 'force-dynamic';
 
@@ -153,6 +159,13 @@ export async function GET(request: NextRequest) {
     // built from the forwarded/host headers instead.
     baseUrl.searchParams.set('auth', 'success');
     const redirectResponse = NextResponse.redirect(baseUrl);
+    if (
+      getActiveSyncProvider(request) === 'drive' &&
+      !request.cookies.get(GOOGLE_ACCESS_TOKEN_COOKIE)?.value &&
+      !request.cookies.get(GOOGLE_REFRESH_TOKEN_COOKIE)?.value
+    ) {
+      setSyncProviderCookie(redirectResponse, 'raindrop');
+    }
 
     redirectResponse.cookies.set(
       ACCESS_TOKEN_COOKIE,

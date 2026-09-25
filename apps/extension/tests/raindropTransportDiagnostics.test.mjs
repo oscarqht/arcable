@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const background = await readFile(new URL('../src/background/index.ts', import.meta.url), 'utf8');
 
-assert.match(background, /Raindrop workspace fetch exhausted transport retries\.[\s\S]*result\.errorDetails/,
+assert.match(background, /Workspace fetch exhausted transport retries\.[\s\S]*result\.errorDetails/,
   'workspace hydration failures must log the token-safe transport diagnostics after retries are exhausted');
 assert.match(background, /Raindrop collection fetch exhausted transport retries\.[\s\S]*errorDetails/,
   'collection fetch failures must return the token-safe diagnostics to extension callers');

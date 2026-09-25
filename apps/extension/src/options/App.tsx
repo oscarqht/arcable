@@ -4,11 +4,12 @@ import {
   Badge,
   Card,
   RaindropAuthCard,
+  SyncBackendCard,
   ExternalLinkIcon,
   RefreshIcon,
   ArchiveIcon,
 } from '@arcable/shared/components';
-import { RaindropAuthState, ExtensionResponse, SyncResult, ArcableWorkspaceData } from '@arcable/shared/types';
+import { RaindropAuthState, GoogleAuthState, SyncProviderId, ExtensionResponse, SyncResult, ArcableWorkspaceData } from '@arcable/shared/types';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
   formatDate,
@@ -18,6 +19,10 @@ import {
   createWorkspaceOperation,
   clearStoredPendingOperations,
   resolveRaindropArchiveCollectionId,
+  ACTIVE_SYNC_PROVIDER_STORAGE_KEY,
+  SYNC_PROVIDER_LABELS,
+  normalizeSyncProviderId,
+  getDriveRootFolderUrl,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
@@ -44,6 +49,14 @@ export const App: React.FC = () => {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Sync backend (Raindrop or Google Drive)
+  const [syncProvider, setSyncProvider] = useState<SyncProviderId>('raindrop');
+  const [googleAuth, setGoogleAuth] = useState<GoogleAuthState>({ isAuthenticated: false });
+  const [backendBusy, setBackendBusy] = useState(false);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const activeBackendConnected = syncProvider === 'drive' ? googleAuth.isAuthenticated : authState.isAuthenticated;
+  const syncProviderLabel = SYNC_PROVIDER_LABELS[syncProvider];
 
   // Sync state
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
@@ -123,10 +136,16 @@ export const App: React.FC = () => {
     // 2. Load sync info from storage
     browser.storage.local.get([
       'arcable_last_synced_at',
+      'arcable_google_auth',
+      ACTIVE_SYNC_PROVIDER_STORAGE_KEY,
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
       }
+      if (res.arcable_google_auth?.isAuthenticated) {
+        setGoogleAuth(res.arcable_google_auth);
+      }
+      setSyncProvider(normalizeSyncProviderId(res[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]));
     });
 
     // 3. Listen to storage changes
@@ -143,6 +162,14 @@ export const App: React.FC = () => {
         }
         if (changes.arcable_last_synced_at) {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
+        }
+        if (changes.arcable_google_auth) {
+          const next = changes.arcable_google_auth.newValue as GoogleAuthState | undefined;
+          setGoogleAuth(next?.isAuthenticated ? next : { isAuthenticated: false });
+          if (next?.isAuthenticated) setBackendError(null);
+        }
+        if (changes[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]) {
+          setSyncProvider(normalizeSyncProviderId(changes[ACTIVE_SYNC_PROVIDER_STORAGE_KEY].newValue));
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
           clearStoredPendingOperations();
@@ -232,9 +259,69 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleConnectGoogle = async () => {
+    setBackendError(null);
+    try {
+      const res = (await browser.runtime.sendMessage({ type: 'GOOGLE_START_OAUTH' })) as ExtensionResponse;
+      if (!res?.success) throw new Error(res?.error || 'Failed to start Google sign-in');
+      showToast('Opening Google sign-in...', 'info');
+    } catch (err: any) {
+      setBackendError(err?.message || 'Failed to start Google sign-in');
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    setBackendBusy(true);
+    try {
+      await browser.runtime.sendMessage({ type: 'GOOGLE_LOGOUT' });
+      setGoogleAuth({ isAuthenticated: false });
+      showToast('Disconnected from Google Drive', 'info');
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const handleUseProvider = async (provider: SyncProviderId) => {
+    setBackendError(null);
+    await browser.runtime.sendMessage({ type: 'SYNC_SET_PROVIDER', payload: { provider } });
+    setSyncProvider(provider);
+    showToast(`Now syncing with ${SYNC_PROVIDER_LABELS[provider]}`, 'success');
+  };
+
+  const handleMigrate = async (to: SyncProviderId) => {
+    setBackendError(null);
+    setBackendBusy(true);
+    try {
+      const res = (await browser.runtime.sendMessage({
+        type: 'SYNC_MIGRATE',
+        payload: { to },
+      })) as ExtensionResponse<ArcableWorkspaceData>;
+      if (!res?.success) throw new Error(res?.error || 'Migration failed');
+      if (res.data && typeof window !== 'undefined') {
+        clearStoredPendingOperations();
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.data));
+        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.data }));
+      }
+      setSyncProvider(to);
+      showToast(`Workspace moved to ${SYNC_PROVIDER_LABELS[to]}`, 'success');
+    } catch (err: any) {
+      setBackendError(err?.message || 'Migration failed');
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const handleOpenDriveFolder = async () => {
+    let url = 'https://drive.google.com/drive/my-drive';
+    try {
+      if (googleAuth.accessToken) url = (await getDriveRootFolderUrl(googleAuth.accessToken)) || url;
+    } catch {}
+    window.open(url, '_blank');
+  };
+
   const handleManualSync = async () => {
-    if (!authState.isAuthenticated) {
-      showToast('Please connect to Raindrop first.', 'warning');
+    if (!activeBackendConnected) {
+      showToast(`Please connect to ${syncProviderLabel} first.`, 'warning');
       return;
     }
     setIsSyncing(true);
@@ -265,7 +352,7 @@ export const App: React.FC = () => {
         const now = res.data?.syncedAt || Date.now();
         setLastSyncAt(now);
         await browser.storage.local.set({ arcable_last_synced_at: now });
-        showToast('Workspace synced with Raindrop.io cloud!', 'success');
+        showToast(`Workspace synced with ${syncProviderLabel}!`, 'success');
       } else {
         showToast(`Sync issue: ${res?.error || 'Unknown'}`, 'warning');
       }
@@ -527,7 +614,7 @@ export const App: React.FC = () => {
           }}
         >
           {[
-            { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
+            { id: 'sync', label: 'Sync', icon: '💧' },
             { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
             { id: 'run-code', label: 'Run Code', icon: '⚡' },
             { id: 'about', label: 'About', icon: 'ℹ️' },
@@ -629,10 +716,22 @@ export const App: React.FC = () => {
               subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
             />
 
-            {authState.isAuthenticated && (
+            <SyncBackendCard
+              activeProvider={syncProvider}
+              raindropConnected={authState.isAuthenticated}
+              googleAuth={googleAuth}
+              onConnectGoogle={handleConnectGoogle}
+              onDisconnectGoogle={handleDisconnectGoogle}
+              onMigrate={handleMigrate}
+              onUseProvider={handleUseProvider}
+              isBusy={backendBusy}
+              errorMessage={backendError}
+            />
+
+            {activeBackendConnected && (
               <Card
                 title="Sync Status"
-                subtitle="Manage your cloud synchronization with Raindrop"
+                subtitle={`Manage your cloud synchronization with ${syncProviderLabel}`}
                 style={{ borderRadius: '16px', padding: '24px' }}
               >
                 <div
@@ -692,17 +791,19 @@ export const App: React.FC = () => {
                 >
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                      Raindrop Archive
+                      {syncProvider === 'drive' ? 'Drive Archive' : 'Raindrop Archive'}
                     </div>
                     <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                      Archived spaces, folders, and tabs are moved to &quot;Arcable v2 / Archive&quot; in Raindrop
+                      {syncProvider === 'drive'
+                        ? <>Archived spaces, folders, and tabs are saved to &quot;Arcable/archive.json&quot; in Google Drive</>
+                        : <>Archived spaces, folders, and tabs are moved to &quot;Arcable v2 / Archive&quot; in Raindrop</>}
                     </div>
                   </div>
 
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleOpenRaindropArchive}
+                    onClick={syncProvider === 'drive' ? handleOpenDriveFolder : handleOpenRaindropArchive}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -713,7 +814,7 @@ export const App: React.FC = () => {
                     }}
                   >
                     <ArchiveIcon size={14} />
-                    <span>Open Raindrop Archive</span>
+                    <span>{syncProvider === 'drive' ? 'Open in Google Drive' : 'Open Raindrop Archive'}</span>
                   </Button>
                 </div>
               </Card>

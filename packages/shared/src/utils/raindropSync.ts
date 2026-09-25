@@ -2432,15 +2432,67 @@ export function reconstructWorkspace(
 }
 
 /** Always rebuilds Arcable's local cache from the live Raindrop tree without mutating Raindrop. */
+/**
+ * Marker file left in the Arcable root after the workspace moved to Google
+ * Drive. The name matches the retired `data-v*.json.txt` pattern, so every
+ * existing client already hides it from the workspace tree.
+ */
+export const RAINDROP_MIGRATION_MARKER_FILE_NAME = 'data-v2-migrated-to-drive.json.txt';
+
+function isMigrationMarkerItem(item: RaindropBookmarkItem): boolean {
+  const name = (item.file?.name || item.title || '').trim().toLowerCase();
+  return name === RAINDROP_MIGRATION_MARKER_FILE_NAME;
+}
+
+/** Records in Raindrop that the workspace now lives in Google Drive. */
+export async function setRaindropMigrationMarker(token: string): Promise<void> {
+  const clean = cleanRaindropToken(token);
+  const root = await getOrCreateArcableCollection(clean);
+  await uploadRaindropFile(
+    clean,
+    root._id,
+    RAINDROP_MIGRATION_MARKER_FILE_NAME,
+    JSON.stringify({ migratedTo: 'drive', migratedAt: Date.now() })
+  );
+}
+
+/**
+ * Moves an existing Arcable root aside (renamed, never deleted) so a migration
+ * into Raindrop materializes into a fresh root instead of mixing with stale data.
+ */
+export async function retireRaindropArcableRoot(token: string, date: Date = new Date()): Promise<boolean> {
+  const clean = cleanRaindropToken(token);
+  const tree = await fetchRemoteArcableTree(clean);
+  if (!tree.root) return false;
+  const stamp = date.toISOString().slice(0, 10);
+  await updateRaindropCollection(clean, tree.root._id, { title: `${ARCABLE_COLLECTION_NAME} (replaced ${stamp})` });
+  return true;
+}
+
 export async function fetchRaindropWorkspace(
   token: string,
   targetActiveSpaceId?: string
-): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string; errorDetails?: RaindropRequestFailureDetails }> {
+): Promise<{
+  success: boolean;
+  data?: ArcableWorkspaceData;
+  exists?: boolean;
+  migratedTo?: 'drive';
+  error?: string;
+  errorDetails?: RaindropRequestFailureDetails;
+}> {
   const clean = cleanRaindropToken(token);
   if (!clean) return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
   try {
     const tree = await fetchRemoteArcableTree(clean);
-    return { success: true, data: reconstructWorkspace(tree, targetActiveSpaceId) };
+    if (tree.items.some(isMigrationMarkerItem)) {
+      return {
+        success: false,
+        exists: true,
+        migratedTo: 'drive',
+        error: 'This workspace was moved from Raindrop to Google Drive. Switch the sync backend to Google Drive in Settings.',
+      };
+    }
+    return { success: true, exists: Boolean(tree.root), data: reconstructWorkspace(tree, targetActiveSpaceId) };
   } catch (err: any) {
     console.error('[RaindropSync] Failed to fetch Arcable tree:', err);
     return {
