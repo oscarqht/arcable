@@ -15,7 +15,15 @@ import {
   detectDeviceType,
 } from '../utils/syncEngine';
 import { syncWorkspaceWithRaindrop, numericRaindropId } from '../utils/raindropSync';
-import { getDescendantFolderIds, getAllSpaceFolderIds, getDomain } from '../utils/treeUtils';
+import {
+  getDescendantFolderIds,
+  getAllSpaceFolderIds,
+  getDomain,
+  getTabEffectiveTitle,
+  getSiblingTabs,
+  findTabTitleConflict,
+  getUniqueTabTitle,
+} from '../utils/treeUtils';
 
 
 export const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
@@ -973,10 +981,46 @@ export function useWorkspace() {
       }
     }
 
+    // Ensure unique variant names internally if multiple variants are provided
+    if (cleanedVariants && cleanedVariants.length > 1) {
+      const seenNames = new Set<string>();
+      cleanedVariants = cleanedVariants.map((v, idx) => {
+        const baseName = v.name.trim() || `Variant ${idx + 1}`;
+        let varName = baseName;
+        let counter = 2;
+        while (seenNames.has(varName.toLowerCase())) {
+          varName = `${baseName} (${counter++})`;
+        }
+        seenNames.add(varName.toLowerCase());
+        return { ...v, name: varName };
+      });
+    }
+
     const isFav = Boolean(tabInput.favourite);
     const isPinned = !isFav && Boolean(tabInput.pinned);
     const targetSpaceId = isFav ? undefined : (tabInput.parentSpaceId || activeSpace?.id || 'space_personal');
     const targetFolderId = (isFav || isPinned) ? undefined : (tabInput.parentFolderId || undefined);
+
+    const targetScope = {
+      favourite: isFav,
+      parentSpaceId: targetSpaceId,
+      parentFolderId: targetFolderId,
+    };
+    const siblingTabs = getSiblingTabs(data.tabs, targetScope);
+    const proposedTitle =
+      tabInput.customTitle?.trim() ||
+      (cleanedVariants && cleanedVariants.length > 0 && cleanedVariants[0]?.name ? cleanedVariants[0].name.trim() : '') ||
+      getDomain(cleanUrl) ||
+      cleanUrl;
+
+    let finalCustomTitle = tabInput.customTitle?.trim() || undefined;
+    if (findTabTitleConflict(proposedTitle, siblingTabs)) {
+      const uniqueTitle = getUniqueTabTitle(proposedTitle, siblingTabs);
+      finalCustomTitle = uniqueTitle;
+      if (cleanedVariants && cleanedVariants.length > 0) {
+        cleanedVariants[0].name = uniqueTitle;
+      }
+    }
 
     let maxOrder = 0;
     if (isFav) {
@@ -1001,7 +1045,7 @@ export function useWorkspace() {
       defaultVariantId: cleanedVariants && cleanedVariants.length > 0 ? selectedDefaultId : undefined,
       pinned: isPinned,
       favourite: isFav || undefined,
-      customTitle: tabInput.customTitle?.trim() || undefined,
+      customTitle: finalCustomTitle,
       customEmojiIcon: tabInput.customEmojiIcon?.trim() || undefined,
       favIconUrl: tabInput.favIconUrl,
       parentSpaceId: targetSpaceId,
@@ -1124,11 +1168,44 @@ export function useWorkspace() {
         }
       }
 
+      // Ensure unique variant names internally if multiple variants are provided
+      if (updated.urlVariants && updated.urlVariants.length > 1) {
+        const seenNames = new Set<string>();
+        updated.urlVariants = updated.urlVariants.map((v, idx) => {
+          const baseName = v.name.trim() || `Variant ${idx + 1}`;
+          let varName = baseName;
+          let counter = 2;
+          while (seenNames.has(varName.toLowerCase())) {
+            varName = `${baseName} (${counter++})`;
+          }
+          seenNames.add(varName.toLowerCase());
+          return { ...v, name: varName };
+        });
+      }
+
+      // Check if candidate title conflicts with existing sibling tabs in the destination container
+      const targetScope = {
+        favourite: Boolean(updated.favourite),
+        parentSpaceId: updated.parentSpaceId,
+        parentFolderId: updated.parentFolderId,
+      };
+      const siblingTabs = getSiblingTabs(prev.tabs, targetScope, id);
+      const proposedTitle = getTabEffectiveTitle(updated);
+      if (findTabTitleConflict(proposedTitle, siblingTabs)) {
+        const uniqueTitle = getUniqueTabTitle(proposedTitle, siblingTabs);
+        updated.customTitle = uniqueTitle;
+        if (updated.urlVariants && updated.urlVariants.length > 0) {
+          updated.urlVariants = updated.urlVariants.map((v, idx) =>
+            idx === 0 ? { ...v, name: uniqueTitle } : v
+          );
+        }
+      }
+
       const opPayload: Record<string, any> = { ...updates };
-      if ('urlVariants' in normalizedUpdates) {
-        opPayload.urlVariants = normalizedUpdates.urlVariants ?? null;
+      if ('urlVariants' in normalizedUpdates || updated.urlVariants !== currentTab.urlVariants) {
+        opPayload.urlVariants = updated.urlVariants ?? null;
         const currentVariants = currentTab.urlVariants || [];
-        const nextVariants = normalizedUpdates.urlVariants || [];
+        const nextVariants = updated.urlVariants || [];
         const deletedVariantIds = currentVariants
           .filter((cv) => !nextVariants.some((nv) => nv.id === cv.id))
           .map((v) => v.id);
@@ -1139,7 +1216,7 @@ export function useWorkspace() {
       if ('defaultVariantId' in normalizedUpdates) opPayload.defaultVariantId = normalizedUpdates.defaultVariantId ?? null;
       if (normalizedUpdates.url) opPayload.url = normalizedUpdates.url;
       if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updated.customEmojiIcon ?? null;
-      if ('customTitle' in updates) opPayload.customTitle = updated.customTitle ?? null;
+      if ('customTitle' in updates || updated.customTitle !== currentTab.customTitle) opPayload.customTitle = updated.customTitle ?? null;
       if ('parentFolderId' in updates || isLocationChanged) opPayload.parentFolderId = updated.parentFolderId ?? null;
       if ('parentSpaceId' in updates || isLocationChanged) opPayload.parentSpaceId = updated.parentSpaceId ?? null;
       if ('favourite' in updates) opPayload.favourite = Boolean(updated.favourite);
@@ -1339,6 +1416,24 @@ export function useWorkspace() {
         }
       }
 
+      // Generate unique title for duplicated tab within its container
+      const isFav = Boolean(sourceTab.favourite);
+      const isPinned = !isFav && Boolean(sourceTab.pinned);
+      const scopeSpaceId = isFav ? undefined : (sourceTab.parentSpaceId || activeSpace?.id || data.activeSpaceId || 'space_personal');
+      const scopeFolderId = (isFav || isPinned) ? undefined : (sourceTab.parentFolderId || undefined);
+
+      const siblingTabs = getSiblingTabs(data.tabs, {
+        favourite: isFav,
+        parentSpaceId: scopeSpaceId,
+        parentFolderId: scopeFolderId,
+      });
+      const sourceTitle = getTabEffectiveTitle(sourceTab);
+      const uniqueTitle = getUniqueTabTitle(sourceTitle, siblingTabs);
+
+      if (clonedVariants && clonedVariants.length > 0) {
+        clonedVariants[0].name = uniqueTitle;
+      }
+
       // Case 1: Favourite tab
       if (sourceTab.favourite) {
         const favTabs = data.tabs
@@ -1356,7 +1451,7 @@ export function useWorkspace() {
           url: targetUrl,
           urlVariants: clonedVariants,
           defaultVariantId: clonedDefaultVariantId,
-          customTitle: sourceTab.customTitle,
+          customTitle: uniqueTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
           favIconUrl: sourceTab.favIconUrl,
           pinned: false,
@@ -1413,7 +1508,7 @@ export function useWorkspace() {
           url: targetUrl,
           urlVariants: clonedVariants,
           defaultVariantId: clonedDefaultVariantId,
-          customTitle: sourceTab.customTitle,
+          customTitle: uniqueTitle,
           customEmojiIcon: sourceTab.customEmojiIcon,
           favIconUrl: sourceTab.favIconUrl,
           pinned: true,
@@ -1470,7 +1565,7 @@ export function useWorkspace() {
         url: targetUrl,
         urlVariants: clonedVariants,
         defaultVariantId: clonedDefaultVariantId,
-        customTitle: sourceTab.customTitle,
+        customTitle: uniqueTitle,
         customEmojiIcon: sourceTab.customEmojiIcon,
         favIconUrl: sourceTab.favIconUrl,
         pinned: false,
@@ -1969,6 +2064,24 @@ export function useWorkspace() {
         const newOrder = maxOrder + 1000;
 
         if (sourceType === 'tab') {
+          const currentTab = data.tabs.find((t) => t.id === sourceId);
+          let uniqueTitle: string | undefined;
+          let nextVariants = currentTab?.urlVariants;
+          if (currentTab) {
+            const destSiblings = getSiblingTabs(
+              data.tabs,
+              { favourite: false, parentSpaceId: targetFolder.parentSpaceId, parentFolderId: targetFolder.id },
+              sourceId
+            );
+            const effTitle = getTabEffectiveTitle(currentTab);
+            if (findTabTitleConflict(effTitle, destSiblings)) {
+              uniqueTitle = getUniqueTabTitle(effTitle, destSiblings);
+              if (nextVariants && nextVariants.length > 0) {
+                nextVariants = nextVariants.map((v, i) => (i === 0 ? { ...v, name: uniqueTitle! } : v));
+              }
+            }
+          }
+
           savePendingOperation(
             createWorkspaceOperation('TAB_UPDATE', sourceId, {
               parentSpaceId: targetFolder.parentSpaceId,
@@ -1976,6 +2089,7 @@ export function useWorkspace() {
               pinned: false,
               favourite: false,
               order: newOrder,
+              ...(uniqueTitle ? { customTitle: uniqueTitle, urlVariants: nextVariants } : {}),
             })
           );
 
@@ -1990,6 +2104,7 @@ export function useWorkspace() {
                     pinned: false,
                     favourite: false,
                     order: newOrder,
+                    ...(uniqueTitle ? { customTitle: uniqueTitle, urlVariants: nextVariants } : {}),
                     updatedAt: Date.now(),
                   }
                 : t
@@ -2146,6 +2261,21 @@ export function useWorkspace() {
         const newOrder = updatedOrderMap.get(t.id);
         const orderChanged = newOrder !== undefined && newOrder !== t.order;
         if (t.id === sourceId) {
+          const destSiblings = getSiblingTabs(
+            data.tabs,
+            { favourite: false, parentSpaceId, parentFolderId: parentFolderId || undefined },
+            sourceId
+          );
+          const effTitle = getTabEffectiveTitle(t);
+          let uniqueTitle: string | undefined;
+          let nextVariants = t.urlVariants;
+          if (findTabTitleConflict(effTitle, destSiblings)) {
+            uniqueTitle = getUniqueTabTitle(effTitle, destSiblings);
+            if (nextVariants && nextVariants.length > 0) {
+              nextVariants = nextVariants.map((v, i) => (i === 0 ? { ...v, name: uniqueTitle! } : v));
+            }
+          }
+
           return {
             ...t,
             parentSpaceId,
@@ -2153,6 +2283,7 @@ export function useWorkspace() {
             pinned: false,
             favourite: false,
             order: newOrder ?? t.order ?? 1000,
+            ...(uniqueTitle ? { customTitle: uniqueTitle, urlVariants: nextVariants } : {}),
             updatedAt: Date.now(),
           };
         }
@@ -2204,7 +2335,8 @@ export function useWorkspace() {
             oldTab.parentSpaceId !== t.parentSpaceId ||
             oldTab.parentFolderId !== t.parentFolderId ||
             oldTab.pinned !== t.pinned ||
-            oldTab.favourite !== t.favourite)
+            oldTab.favourite !== t.favourite ||
+            oldTab.customTitle !== t.customTitle)
         ) {
           savePendingOperation(
             createWorkspaceOperation('TAB_UPDATE', t.id, {
@@ -2213,6 +2345,7 @@ export function useWorkspace() {
               pinned: t.pinned,
               favourite: t.favourite,
               order: t.order,
+              ...(t.customTitle !== oldTab.customTitle ? { customTitle: t.customTitle, urlVariants: t.urlVariants } : {}),
             })
           );
         }

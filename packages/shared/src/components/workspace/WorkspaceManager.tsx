@@ -3114,6 +3114,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           setIsTabGroupModal(false);
         }}
         tab={editingTab}
+        existingTabs={data.tabs}
         allFolders={data.folders}
         allSpaces={sortedSpaces}
         defaultSpaceId={targetSpaceIdForModal || activeSpace?.id}

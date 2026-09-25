@@ -6,7 +6,7 @@ import { Button } from '../Button';
 import { StarIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
-import { getDomain, getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
+import { getDomain, getFolderPath, getTreeOrderedFolders, getSiblingTabs, findTabTitleConflict } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 import { generateId } from '../../utils/format';
 
@@ -44,6 +44,7 @@ interface TabModalProps {
   isOpen: boolean;
   onClose: () => void;
   tab?: Tab | null; // null/undefined for create, Tab for edit
+  existingTabs?: Tab[];
   allFolders: Folder[];
   allSpaces: Space[];
   defaultSpaceId?: string;
@@ -75,6 +76,7 @@ export const TabModal: React.FC<TabModalProps> = ({
   isOpen,
   onClose,
   tab,
+  existingTabs,
   allFolders,
   allSpaces,
   defaultSpaceId,
@@ -226,6 +228,62 @@ export const TabModal: React.FC<TabModalProps> = ({
   const isVariantsMode = showVariants && variants.length > 0;
   const firstVariantName = isVariantsMode ? (variants[0]?.name || '') : '';
 
+  const currentSiblingTabs = useMemo(() => {
+    if (!existingTabs) return [];
+    return getSiblingTabs(
+      existingTabs,
+      {
+        favourite,
+        parentSpaceId: favourite ? undefined : parentSpaceId,
+        parentFolderId: favourite ? undefined : parentFolderId || undefined,
+      },
+      tab?.id
+    );
+  }, [existingTabs, favourite, parentSpaceId, parentFolderId, tab?.id]);
+
+  const effectiveCandidateTitle = useMemo(() => {
+    if (isVariantsMode) {
+      return firstVariantName.trim();
+    }
+    const custom = customTitle.trim();
+    if (custom) return custom;
+    const u = url.trim();
+    if (u) {
+      const domain = getDomain(u);
+      return domain || u;
+    }
+    return '';
+  }, [isVariantsMode, firstVariantName, customTitle, url]);
+
+  const titleConflictTab = useMemo(() => {
+    if (!effectiveCandidateTitle) return undefined;
+    return findTabTitleConflict(effectiveCandidateTitle, currentSiblingTabs);
+  }, [effectiveCandidateTitle, currentSiblingTabs]);
+
+  const duplicateVariantName = useMemo(() => {
+    if (!isVariantsMode) return null;
+    const seen = new Set<string>();
+    for (const v of variants) {
+      if (!v.name.trim() && !v.url.trim()) continue;
+      const effectiveName = v.name.trim().toLowerCase() || 'variant';
+      if (seen.has(effectiveName)) {
+        return v.name.trim() || 'Variant';
+      }
+      seen.add(effectiveName);
+    }
+    return null;
+  }, [isVariantsMode, variants]);
+
+  const titleErrorMessage = titleConflictTab
+    ? `A tab with the name "${effectiveCandidateTitle}" already exists in this ${
+        favourite ? 'favourites shelf' : parentFolderId ? 'folder' : 'space root'
+      }.`
+    : null;
+
+  const variantErrorMessage = duplicateVariantName
+    ? `Variant names within this tab must be unique (duplicate: "${duplicateVariantName}").`
+    : null;
+
   if (!isOpen) return null;
 
   const handleEnableVariants = () => {
@@ -302,6 +360,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (titleConflictTab || duplicateVariantName) return;
 
     if (showVariants && variants.length > 0) {
       const validVariants = variants.filter((v) => v.name.trim() || v.url.trim());
@@ -653,6 +712,12 @@ export const TabModal: React.FC<TabModalProps> = ({
                 })}
               </div>
 
+              {variantErrorMessage && (
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#ef4444', fontWeight: 500 }}>
+                  {variantErrorMessage}
+                </p>
+              )}
+
               <button
                 type="button"
                 onClick={handleAddVariantRow}
@@ -692,7 +757,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 borderRadius: '6px',
-                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                border: `1px solid ${titleConflictTab ? '#ef4444' : isDark ? '#475569' : '#cbd5e1'}`,
                 backgroundColor: isVariantsMode
                   ? (isDark ? '#1e293b' : '#f1f5f9')
                   : (isDark ? '#0f172a' : '#ffffff'),
@@ -705,6 +770,11 @@ export const TabModal: React.FC<TabModalProps> = ({
                 outline: 'none',
               }}
             />
+            {titleErrorMessage && (
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#ef4444', fontWeight: 500 }}>
+                {titleErrorMessage}
+              </p>
+            )}
           </div>
 
           {/* Favourite checkbox */}
@@ -852,7 +922,12 @@ export const TabModal: React.FC<TabModalProps> = ({
               <Button type="button" variant="secondary" size="md" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" size="md">
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={Boolean(titleConflictTab || duplicateVariantName)}
+              >
                 {tab ? 'Save' : 'Add'}
               </Button>
             </div>

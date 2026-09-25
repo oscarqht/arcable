@@ -1,4 +1,4 @@
-import { Folder, Tab, Space, TmpTab } from '../types/workspace';
+import { Folder, Tab, Space, TmpTab, TabUrlVariant } from '../types/workspace';
 import { TabAssociationMap } from '../types/tabTracker';
 
 /**
@@ -563,4 +563,103 @@ export function getSpaceOpenTabCounts(
 
   return counts;
 }
+
+/**
+ * Resolves the effective title for a tab item.
+ * Evaluates customTitle first, then first variant name if variants exist,
+ * and finally falls back to domain or clean URL.
+ */
+export function getTabEffectiveTitle(tab: {
+  customTitle?: string;
+  url?: string;
+  urlVariants?: TabUrlVariant[];
+}): string {
+  const custom = tab.customTitle?.trim();
+  if (custom) return custom;
+
+  if (tab.urlVariants && tab.urlVariants.length > 0) {
+    const firstVarName = tab.urlVariants[0]?.name?.trim();
+    if (firstVarName) return firstVarName;
+  }
+
+  if (tab.url) {
+    const domain = getDomain(tab.url);
+    if (domain) return domain;
+    return tab.url.trim();
+  }
+
+  return 'Untitled Tab';
+}
+
+/**
+ * Returns all sibling tabs within the specified scope (favourite shelf, folder, or space root),
+ * optionally excluding a tab by ID (e.g. the tab currently being edited).
+ */
+export function getSiblingTabs(
+  tabs: Tab[],
+  scope: {
+    favourite?: boolean;
+    parentSpaceId?: string;
+    parentFolderId?: string;
+  },
+  excludeTabId?: string
+): Tab[] {
+  return tabs.filter((t) => {
+    if (excludeTabId && t.id === excludeTabId) return false;
+    if (scope.favourite) {
+      return Boolean(t.favourite);
+    }
+    if (t.favourite) return false;
+
+    if (scope.parentFolderId) {
+      return (
+        t.parentFolderId === scope.parentFolderId &&
+        (!scope.parentSpaceId || !t.parentSpaceId || t.parentSpaceId === scope.parentSpaceId)
+      );
+    }
+
+    return !t.parentFolderId && t.parentSpaceId === scope.parentSpaceId;
+  });
+}
+
+/**
+ * Checks if a candidate title matches the effective title of any sibling tab in the given list (case-insensitively).
+ */
+export function findTabTitleConflict(
+  candidateTitle: string,
+  siblingTabs: Tab[]
+): Tab | undefined {
+  const norm = candidateTitle.trim().toLowerCase();
+  if (!norm) return undefined;
+  return siblingTabs.find((t) => getTabEffectiveTitle(t).trim().toLowerCase() === norm);
+}
+
+/**
+ * Generates a unique tab title within a sibling list.
+ * If candidateTitle already exists case-insensitively, appends/increments " (2)", " (3)", etc.
+ */
+export function getUniqueTabTitle(
+  candidateTitle: string,
+  siblingTabs: Tab[]
+): string {
+  const trimmed = candidateTitle.trim() || 'Untitled Tab';
+  if (!findTabTitleConflict(trimmed, siblingTabs)) {
+    return trimmed;
+  }
+
+  const existingTitles = new Set(
+    siblingTabs.map((t) => getTabEffectiveTitle(t).trim().toLowerCase())
+  );
+
+  const match = trimmed.match(/^(.*?)\s*\((\d+)\)$/);
+  const root = match && match[1]?.trim() ? match[1].trim() : trimmed;
+  let counter = match && match[2] ? parseInt(match[2], 10) + 1 : 2;
+
+  while (existingTitles.has(`${root} (${counter})`.toLowerCase())) {
+    counter++;
+  }
+
+  return `${root} (${counter})`;
+}
+
 
