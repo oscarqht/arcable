@@ -55,7 +55,6 @@ export const ARCABLE_ARCHIVE_COLLECTION_ICON_URL = 'https://arcable.vercel.app/f
 export const ARCABLE_CUSTOM_CSS_COLLECTION_COLOR = 'green';
 export const ARCABLE_RUN_CODE_COLLECTION_COLOR = 'blue';
 export const ARCABLE_SPACE_THEME_COLLECTION_COLOR = 'orange';
-export const ARCABLE_TMP_TABS_COLLECTION_COLOR = 'red';
 
 export const ARCABLE_WIDGET_TAG = 'arcable-widget';
 export const ARCABLE_SPACE_THEME_TAG = 'arcable-space-theme';

@@ -25,7 +25,6 @@ export * from './workspace/DeviceModal';
 export * from './workspace/ActionDropdown';
 export * from './workspace/TmpTabRow';
 export * from './workspace/TmpTabsList';
-export * from './workspace/AllTmpTabsModal';
 export * from './workspace/RaindropSearchInput';
 export * from './workspace/AudibleTabsWidget';
 export * from './workspace/BackupRestoreModal';
