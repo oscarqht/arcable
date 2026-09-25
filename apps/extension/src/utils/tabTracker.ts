@@ -7,6 +7,7 @@ import {
   getStoredDeviceName,
   isValidHttpUrl,
   isBlankNewTabUrl,
+  isMobileDevice,
 } from '@arcable/shared/utils';
 import { browser, isAndroidPlatform } from './browser';
 import { reconcileTmpTabs } from './tmpTabDiff';
@@ -2050,14 +2051,17 @@ class TabTracker {
                 }
               }
             } else {
-              // No open tabs remain in this space: ensure or reuse single blank tab in this space!
+              // No open tabs remain in this space:
               if (prevTabId !== undefined) {
                 this.recentlyClosedTabs.delete(prevTabId);
                 this.closingTabIds.delete(prevTabId);
               }
-              const targetTabId = await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
-              if (targetTabId !== undefined) {
-                return; // Next onActivated event will fire for targetTabId
+              if (!isMobileDevice()) {
+                // On desktop, ensure or reuse single blank tab in this space!
+                const targetTabId = await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
+                if (targetTabId !== undefined) {
+                  return; // Next onActivated event will fire for targetTabId
+                }
               }
             }
           }
@@ -2126,10 +2130,12 @@ class TabTracker {
           const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
           const resolvedSpace = activatedTabItemId
             ? resolveSpaceIdForTabItem(activatedTabItemId, workspaceTabs, memoryTmpTabs)
-            : (closedSpaceId && causedByClose ? closedSpaceId : null);
+            : (!isMobileDevice() && closedSpaceId && causedByClose ? closedSpaceId : null);
           if (resolvedSpace) {
             this.lastActiveTabSpaceByWindow.set(winId, resolvedSpace);
             this.setActiveSpaceForWindow(winId, resolvedSpace);
+          } else if (isMobileDevice() && causedByClose) {
+            this.lastActiveTabSpaceByWindow.delete(winId);
           }
         }
       });

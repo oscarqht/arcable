@@ -20,6 +20,7 @@ import {
   searchRaindrop,
   clearMousePos,
   resolveRaindropArchiveCollectionId,
+  isMobileDevice,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -675,7 +676,7 @@ export const App: React.FC = () => {
         return undefined;
       };
       const onSpaceActivated = (activated: boolean) => {
-        if (!activated) {
+        if (!activated && !isMobileDevice()) {
           const wId = currentWindowIdRef.current || winId;
           void tabTracker.ensureOrReuseBlankTabForSpace(nextSpaceId, wId ?? undefined);
         }
@@ -1004,7 +1005,7 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
+          } else if (!isMobileDevice()) {
             await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
@@ -1065,10 +1066,10 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
+          } else if (!isMobileDevice()) {
             await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
           }
-        } else {
+        } else if (!isMobileDevice()) {
           // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
           const allWindowTabs = await browser.tabs.query(
             typeof currentWinId === 'number' ? { windowId: currentWinId } : { currentWindow: true }
@@ -1191,7 +1192,7 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
+          } else if (!isMobileDevice()) {
             await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
