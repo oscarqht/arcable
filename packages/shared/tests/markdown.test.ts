@@ -141,15 +141,56 @@ assertEqual(noLink, null, 'should return null when cursor is outside any link');
 
 // 8. renderMarkdownSyntaxHighlight tests
 let toggledLineIndex = -1;
+let toggledNewChecked: boolean | null = null;
+let toggleCallCount = 0;
 const highlighted = renderMarkdownSyntaxHighlight(sampleText, {
   isDark: true,
-  onToggleCheckbox: (lineIdx) => {
+  onToggleCheckbox: (lineIdx, newChecked) => {
     toggledLineIndex = lineIdx;
+    toggledNewChecked = newChecked;
+    toggleCallCount++;
   },
 });
 assertEqual(React.isValidElement(highlighted), true, 'renderMarkdownSyntaxHighlight returns valid React element');
 
+// Test interaction on checkbox span in renderMarkdownSyntaxHighlight
+const taskElement = (highlighted as React.ReactElement).props.children[1];
+const checkboxSpan = taskElement.props.children[3];
+assertEqual(checkboxSpan.props.role, 'button', 'checkbox should have button role');
+
+// mousedown should preventDefault and NOT trigger onToggleCheckbox
+checkboxSpan.props.onMouseDown({ preventDefault: () => {}, stopPropagation: () => {} });
+assertEqual(toggleCallCount, 0, 'onMouseDown should not toggle checkbox');
+
+// click should trigger onToggleCheckbox exactly once with (lineIndex, newChecked)
+checkboxSpan.props.onClick({ preventDefault: () => {}, stopPropagation: () => {} });
+assertEqual(toggleCallCount, 1, 'onClick should toggle checkbox');
+assertEqual(toggledLineIndex, 1, 'onClick should pass correct lineIndex');
+assertEqual(toggledNewChecked, true, 'onClick should pass newChecked true for unchecked item');
+
+// 9. toggleMarkdownCheckbox explicitChecked tests
+const testText = '# Heading\n- [ ] Unchecked item\n- [x] Checked item';
+const forcedChecked = toggleMarkdownCheckbox(testText, 1, true);
+assertEqual(forcedChecked, '# Heading\n- [x] Unchecked item\n- [x] Checked item', 'explicitChecked=true should check item');
+const alreadyCheckedRemainsChecked = toggleMarkdownCheckbox(forcedChecked, 1, true);
+assertEqual(alreadyCheckedRemainsChecked, '# Heading\n- [x] Unchecked item\n- [x] Checked item', 'explicitChecked=true on already checked item remains checked');
+const forcedUnchecked = toggleMarkdownCheckbox(testText, 2, false);
+assertEqual(forcedUnchecked, '# Heading\n- [ ] Unchecked item\n- [ ] Checked item', 'explicitChecked=false should uncheck item');
+
 const highlightedEmpty = renderMarkdownSyntaxHighlight('');
 assertEqual(highlightedEmpty, null, 'empty content returns null');
 
+// 10. Verify exact 1:1 character content of task list checkbox in highlight output
+const taskContentSample = '- [ ] sample';
+const renderedTaskHighlight = renderMarkdownSyntaxHighlight(taskContentSample) as React.ReactElement;
+const taskDiv = renderedTaskHighlight.props.children[0];
+const cb = taskDiv.props.children[3];
+// cb is the checkbox span containing '[', ' ' / 'x', ']'
+const cbChildren = cb.props.children;
+assertEqual(cbChildren[0].props.children, '[', 'first bracket is [');
+assertEqual(cbChildren[1].props.children, ' ', 'unchecked inner character is space');
+assertEqual(cbChildren[2].props.children, ']', 'second bracket is ]');
+assertEqual(cb.props.style?.padding, undefined, 'checkbox span has no padding to prevent layout shift');
+
 console.log('All markdown utility tests passed successfully!');
+

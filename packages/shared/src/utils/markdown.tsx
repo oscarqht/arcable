@@ -26,8 +26,13 @@ export function isSafeUrl(url: string): boolean {
 /**
  * Toggles a checkbox on the specified line in the markdown text.
  * Handles `- [ ]`, `- [x]`, `* [ ]`, `* [x]`, `1. [ ]`, etc.
+ * If explicitChecked is provided, sets the checkbox to that state instead of inverting.
  */
-export function toggleMarkdownCheckbox(content: string, targetLineIndex: number): string {
+export function toggleMarkdownCheckbox(
+  content: string,
+  targetLineIndex: number,
+  explicitChecked?: boolean
+): string {
   const lines = content.split('\n');
   if (targetLineIndex < 0 || targetLineIndex >= lines.length) return content;
   const line = lines[targetLineIndex];
@@ -36,7 +41,10 @@ export function toggleMarkdownCheckbox(content: string, targetLineIndex: number)
   if (!match) return content;
 
   const currentCheck = match[2];
-  const newCheck = currentCheck.trim() === '' ? 'x' : ' ';
+  const newCheck =
+    explicitChecked !== undefined
+      ? (explicitChecked ? 'x' : ' ')
+      : (currentCheck.trim() === '' ? 'x' : ' ');
   lines[targetLineIndex] = `${match[1]}${newCheck}${match[3]}`;
   return lines.join('\n');
 }
@@ -581,7 +589,7 @@ export interface MarkdownSyntaxHighlightOptions {
   isDark?: boolean;
   textColor?: string;
   accentColor?: string;
-  onToggleCheckbox?: (lineIndex: number) => void;
+  onToggleCheckbox?: (lineIndex: number, newChecked: boolean) => void;
 }
 
 /**
@@ -659,19 +667,17 @@ function parseInlineHighlightTokens(
         const codeText = earliest.match[1];
         nodes.push(
           <span key={key}>
-            <span style={{ opacity: 0.38, fontFamily: 'monospace' }}>`</span>
-            <code
+            <span style={{ opacity: 0.38 }}>`</span>
+            <span
               style={{
-                fontFamily: 'monospace',
                 backgroundColor: options.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.07)',
-                padding: '0 2px',
-                borderRadius: '3px',
+                borderRadius: '2px',
                 color: options.isDark ? '#e2e8f0' : '#0f172a',
               }}
             >
               {codeText}
-            </code>
-            <span style={{ opacity: 0.38, fontFamily: 'monospace' }}>`</span>
+            </span>
+            <span style={{ opacity: 0.38 }}>`</span>
           </span>
         );
         remaining = remaining.substring(earliest.index + earliest.match[0].length);
@@ -702,11 +708,16 @@ function parseInlineHighlightTokens(
         const boldText = earliest.match[1] || earliest.match[2];
         nodes.push(
           <span key={key}>
-            <span style={{ opacity: 0.38, fontWeight: 700 }}>{delim}</span>
-            <strong style={{ fontWeight: 700 }}>
+            <span style={{ opacity: 0.38 }}>{delim}</span>
+            <span
+              style={{
+                color: options.isDark ? '#ffffff' : '#0f172a',
+                textShadow: options.isDark ? '0 0 0.4px #ffffff' : '0 0 0.4px #000000',
+              }}
+            >
               {parseInlineHighlightTokens(boldText, options, `${key}-b`)}
-            </strong>
-            <span style={{ opacity: 0.38, fontWeight: 700 }}>{delim}</span>
+            </span>
+            <span style={{ opacity: 0.38 }}>{delim}</span>
           </span>
         );
         remaining = remaining.substring(earliest.index + earliest.match[0].length);
@@ -782,7 +793,7 @@ export function renderMarkdownSyntaxHighlight(
             whiteSpace: 'pre-wrap',
           }}
         >
-          <span style={{ opacity: 0.4, fontFamily: 'monospace' }}>{rawLine}</span>
+          <span style={{ opacity: 0.4 }}>{rawLine}</span>
         </div>
       );
       continue;
@@ -801,10 +812,8 @@ export function renderMarkdownSyntaxHighlight(
         >
           <span
             style={{
-              fontFamily: 'monospace',
               backgroundColor: options.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.06)',
               borderRadius: '2px',
-              padding: '0 2px',
             }}
           >
             {rawLine || <br />}
@@ -844,7 +853,7 @@ export function renderMarkdownSyntaxHighlight(
             whiteSpace: 'pre-wrap',
           }}
         >
-          <span style={{ opacity: 0.35, letterSpacing: '1px' }}>{rawLine}</span>
+          <span style={{ opacity: 0.35 }}>{rawLine}</span>
         </div>
       );
       continue;
@@ -866,9 +875,14 @@ export function renderMarkdownSyntaxHighlight(
             whiteSpace: 'pre-wrap',
           }}
         >
-          <span style={{ opacity: 0.38, fontWeight: 700 }}>{hashes}</span>
+          <span style={{ opacity: 0.38 }}>{hashes}</span>
           <span>{spaces}</span>
-          <span style={{ fontWeight: 700, color: textColor }}>
+          <span
+            style={{
+              color: textColor,
+              textShadow: options.isDark ? '0 0 0.4px #ffffff' : '0 0 0.4px #000000',
+            }}
+          >
             {parseInlineHighlightTokens(headingText, options, `h-${i}`)}
           </span>
         </div>
@@ -909,34 +923,29 @@ export function renderMarkdownSyntaxHighlight(
             tabIndex={-1}
             title={isChecked ? 'Mark as incomplete' : 'Mark as complete'}
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
-              options.onToggleCheckbox?.(lineIndex);
+              options.onToggleCheckbox?.(lineIndex, !isChecked);
             }}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              options.onToggleCheckbox?.(lineIndex);
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
             }}
             style={{
               cursor: 'pointer',
-              pointerEvents: 'auto',
-              position: 'relative',
-              zIndex: 2,
-              display: 'inline-block',
               userSelect: 'none',
               borderRadius: '3px',
-              padding: '0 1px',
               backgroundColor: isChecked
                 ? (options.isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.15)')
                 : (options.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
               color: isChecked ? (options.isDark ? '#60a5fa' : '#2563eb') : 'inherit',
-              fontWeight: isChecked ? 700 : 500,
             }}
           >
             <span style={{ opacity: 0.4 }}>[</span>
-            <span style={{ display: 'inline-block', width: '1ch', textAlign: 'center' }}>
-              {isChecked ? '✓' : ' '}
-            </span>
+            <span style={{ opacity: isChecked ? 1 : 0.4 }}>{isChecked ? 'x' : ' '}</span>
             <span style={{ opacity: 0.4 }}>]</span>
           </span>
           <span>{postBracket.slice(1)}</span>
@@ -962,7 +971,7 @@ export function renderMarkdownSyntaxHighlight(
           }}
         >
           <span>{unorderMatch[1]}</span>
-          <span style={{ opacity: 0.45, fontWeight: 700 }}>{unorderMatch[2]}</span>
+          <span style={{ opacity: 0.45 }}>{unorderMatch[2]}</span>
           <span>{unorderMatch[3]}</span>
           <span>{parseInlineHighlightTokens(unorderMatch[4], options, `ul-${i}`)}</span>
         </div>
@@ -984,7 +993,7 @@ export function renderMarkdownSyntaxHighlight(
           }}
         >
           <span>{orderMatch[1]}</span>
-          <span style={{ opacity: 0.55, fontVariantNumeric: 'tabular-nums' }}>{orderMatch[2]}</span>
+          <span style={{ opacity: 0.55 }}>{orderMatch[2]}</span>
           <span>{orderMatch[3]}</span>
           <span>{parseInlineHighlightTokens(orderMatch[4], options, `ol-${i}`)}</span>
         </div>
@@ -1005,7 +1014,7 @@ export function renderMarkdownSyntaxHighlight(
             whiteSpace: 'pre-wrap',
           }}
         >
-          <span style={{ opacity: 0.45, fontStyle: 'italic', fontWeight: 600 }}>{quoteMatch[1]}</span>
+          <span style={{ opacity: 0.45, fontStyle: 'italic' }}>{quoteMatch[1]}</span>
           <span style={{ fontStyle: 'italic', opacity: 0.9 }}>
             {parseInlineHighlightTokens(quoteMatch[2], options, `q-${i}`)}
           </span>

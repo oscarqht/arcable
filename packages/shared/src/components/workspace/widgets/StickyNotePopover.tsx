@@ -185,9 +185,22 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
     }, 50);
   };
 
-  const handleToggleCheckbox = (lineIndex: number) => {
-    const newText = toggleMarkdownCheckbox(text, lineIndex);
+  const handleToggleCheckbox = (lineIndex: number, explicitChecked?: boolean) => {
+    const currentText = textareaRef.current ? textareaRef.current.value : text;
+    const isFocused = typeof document !== 'undefined' && document.activeElement === textareaRef.current;
+    const selStart = textareaRef.current?.selectionStart;
+    const selEnd = textareaRef.current?.selectionEnd;
+
+    const newText = toggleMarkdownCheckbox(currentText, lineIndex, explicitChecked);
     handleTextChange(newText);
+
+    if (isFocused && textareaRef.current && selStart !== undefined && selEnd !== undefined) {
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.setSelectionRange(selStart, selEnd);
+        }
+      });
+    }
   };
 
   const handleTextareaClick = (e: React.MouseEvent<HTMLTextAreaElement>) => {
@@ -213,10 +226,13 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
       const cbMatch = lineStr.match(/^(\s*(?:[-*]|\d+\.)\s+\[)([ xX])(\])/);
       if (cbMatch) {
         const cbStart = cbMatch[1].length - 1; // index of '['
-        const cbEnd = cbStart + 3; // end index after ']'
-        if (col >= cbStart && col <= cbEnd) {
+        const cbEnd = cbStart + 2; // index of ']'
+        const hasTextAfter = lineStr.length > cbEnd + 1;
+        const maxCol = hasTextAfter ? cbEnd : cbEnd + 1;
+        if (col >= cbStart && col <= maxCol) {
           const lineIndex = text.slice(0, sel).split('\n').length - 1;
-          handleToggleCheckbox(lineIndex);
+          const isChecked = cbMatch[2].toLowerCase() === 'x';
+          handleToggleCheckbox(lineIndex, !isChecked);
         }
       }
     }
@@ -421,6 +437,8 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
             fontSize: '12px',
             lineHeight: '1.5',
             fontFamily: 'inherit',
+            letterSpacing: 'normal',
+            tabSize: 2,
             boxSizing: 'border-box',
             padding: '4px',
             color: theme.isDark ? '#f8fafc' : '#1e293b',
@@ -460,6 +478,8 @@ export const StickyNotePopover: React.FC<StickyNotePopoverProps> = ({
             fontSize: '12px',
             fontFamily: 'inherit',
             lineHeight: '1.5',
+            letterSpacing: 'normal',
+            tabSize: 2,
             boxSizing: 'border-box',
             padding: '4px',
             whiteSpace: 'pre-wrap',
