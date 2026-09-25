@@ -192,6 +192,23 @@ export function detectOsName(): string {
 }
 
 /**
+ * Detects whether the current environment is running on a mobile operating system (e.g. Android, iOS, iPadOS, Mobile).
+ * Uses navigator.userAgent and navigator.platform to reliably identify mobile devices
+ * without false positives from narrow desktop sidepanels or touch-enabled laptops.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  const os = detectOsName();
+  if (os === 'iOS' || os === 'Android') {
+    return true;
+  }
+  const ua = navigator.userAgent || '';
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+}
+
+/**
  * Generates the default device name in the format: `type + browser name + os name`
  * e.g., 'Web App / Chrome / macOS' or 'Ext / Zen / Windows'
  */
