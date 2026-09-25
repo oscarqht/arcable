@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Arcable",
   "version": "0.133.0",
-  "description": "Arcable - Unified browser workspace and intelligence extension with Raindrop.io sync",
+  "description": "Arcable - Unified browser workspace and intelligence extension with Raindrop.io and Google Drive sync",
   "permissions": [
     "storage",
     "activeTab",
@@ -19,6 +19,8 @@
     "<all_urls>",
     "https://api.raindrop.io/*",
     "https://raindrop.io/*",
+    "https://www.googleapis.com/*",
+    "https://openidconnect.googleapis.com/*",
     "https://oh-auth.vercel.app/*",
     "https://arcable.vercel.app/*",
     "http://localhost/*",

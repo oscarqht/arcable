@@ -5,7 +5,7 @@ import {
   BackupRestoreModal,
   ActionDropdownItem,
 } from '@arcable/shared/components';
-import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions, Folder } from '@arcable/shared/types';
+import { TabAssociationMap, AssociatedTabInfo, Tab, TmpTab, AudibleTab, MediaControlAction, Space, TabUrlVariant, TabOpenOptions, Folder, SyncProviderId } from '@arcable/shared/types';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme, getSortedSpaces, useIsMobile, isLegacyDemoWorkspace } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
@@ -21,6 +21,10 @@ import {
   clearMousePos,
   resolveRaindropArchiveCollectionId,
   isMobileDevice,
+  ACTIVE_SYNC_PROVIDER_STORAGE_KEY,
+  SYNC_PROVIDER_LABELS,
+  normalizeSyncProviderId,
+  getDriveRootFolderUrl,
 } from '@arcable/shared/utils';
 import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
@@ -165,6 +169,13 @@ export const App: React.FC = () => {
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
   const [raindropToken, setRaindropToken] = useState<string | null>(null);
+  const [syncProvider, setSyncProvider] = useState<SyncProviderId>('raindrop');
+  const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
+  // Workspace sync follows the active backend; Raindrop-only features (search,
+  // save bookmark, collection covers, archive link) need Raindrop to be active.
+  const hasSyncAuth = syncProvider === 'drive' ? hasGoogleAuth : hasRaindropAuth;
+  const raindropFeaturesEnabled = syncProvider === 'raindrop' && hasRaindropAuth;
+  const syncProviderLabel = SYNC_PROVIDER_LABELS[syncProvider];
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
@@ -210,7 +221,7 @@ export const App: React.FC = () => {
   // automatic writes are allowed; replaying the local outbox here can recreate
   // stale spaces and favourites as duplicates.
   useEffect(() => {
-    if (!hasRaindropAuth) {
+    if (!hasSyncAuth) {
       initialRaindropHydrationRef.current = false;
       hasAppliedAuthoritativeSnapshotRef.current = false;
       setRaindropHydrated(false);
@@ -232,12 +243,12 @@ export const App: React.FC = () => {
         setRaindropHydrated(true);
       }
     }).catch((error) => {
-      console.warn('[Arcable Sidepanel] Initial Raindrop tree fetch failed:', error);
+      console.warn('[Arcable Sidepanel] Initial workspace fetch failed:', error);
     }).finally(() => {
       initialRaindropHydrationRef.current = false;
     });
     return () => { cancelled = true; };
-  }, [hasRaindropAuth]);
+  }, [hasSyncAuth, syncProvider]);
 
   // Sync tabTracker with local workspace tabs
   const syncTabsWithTracker = useCallback(() => {
@@ -335,7 +346,7 @@ export const App: React.FC = () => {
 
 
     // Check initial Raindrop auth and cached snapshot
-    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
+    browser.storage.local.get(['arcable_raindrop_auth', 'arcable_google_auth', ACTIVE_SYNC_PROVIDER_STORAGE_KEY, 'arcable_workspace_snapshot', 'arcable_device_id', SIDEPANEL_LAST_SPACE_KEY]).then((res: any) => {
       if (res.arcable_device_id) {
         setCurrentDeviceId(res.arcable_device_id);
       } else {
@@ -348,6 +359,11 @@ export const App: React.FC = () => {
       const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
       setHasRaindropAuth(isRaindropAuth);
       setRaindropToken(auth?.accessToken || null);
+      const isGoogleAuth = Boolean(res.arcable_google_auth?.isAuthenticated);
+      setHasGoogleAuth(isGoogleAuth);
+      const provider = normalizeSyncProviderId(res[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]);
+      setSyncProvider(provider);
+      const isActiveAuth = provider === 'drive' ? isGoogleAuth : isRaindropAuth;
       if (res[SIDEPANEL_LAST_SPACE_KEY] && !getStoredLastSpaceId()) {
         setStoredLastSpaceId(res[SIDEPANEL_LAST_SPACE_KEY]);
       }
@@ -355,9 +371,9 @@ export const App: React.FC = () => {
       if (hasAppliedAuthoritativeSnapshotRef.current) {
         // The asynchronous cache read began before the authoritative fetch.
         // Never let its stale result overwrite the fetched snapshot.
-      } else if (isRaindropAuth && isLegacyDemoWorkspace(res.arcable_workspace_snapshot)) {
+      } else if (isActiveAuth && isLegacyDemoWorkspace(res.arcable_workspace_snapshot)) {
         void browser.storage.local.remove('arcable_workspace_snapshot');
-      } else if (isRaindropAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
+      } else if (isActiveAuth && res.arcable_workspace_snapshot && typeof window !== 'undefined') {
         const snapshot = res.arcable_workspace_snapshot;
         const resolvedSnapshot = applySidepanelActiveSpace(
           snapshot,
@@ -403,6 +419,12 @@ export const App: React.FC = () => {
           const isAuth = Boolean(authVal?.isAuthenticated);
           setHasRaindropAuth(isAuth);
           setRaindropToken(authVal?.accessToken || null);
+        }
+        if (changes.arcable_google_auth) {
+          setHasGoogleAuth(Boolean(changes.arcable_google_auth.newValue?.isAuthenticated));
+        }
+        if (changes[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]) {
+          setSyncProvider(normalizeSyncProviderId(changes[ACTIVE_SYNC_PROVIDER_STORAGE_KEY].newValue));
         }
         if (changes.arcable_device_id?.newValue) {
           setCurrentDeviceId(changes.arcable_device_id.newValue);
@@ -493,10 +515,12 @@ export const App: React.FC = () => {
     updateActiveTab();
 
     const handleFocus = () => {
-      browser.storage.local.get(['arcable_raindrop_auth']).then((res: any) => {
+      browser.storage.local.get(['arcable_raindrop_auth', 'arcable_google_auth', ACTIVE_SYNC_PROVIDER_STORAGE_KEY]).then((res: any) => {
         if (res.arcable_raindrop_auth !== undefined) {
           setHasRaindropAuth(Boolean(res.arcable_raindrop_auth?.isAuthenticated));
         }
+        setHasGoogleAuth(Boolean(res.arcable_google_auth?.isAuthenticated));
+        setSyncProvider(normalizeSyncProviderId(res[ACTIVE_SYNC_PROVIDER_STORAGE_KEY]));
         browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((r: any) => {
           if (r && r.success) {
             setHasRaindropAuth(Boolean(r.data?.isAuthenticated));
@@ -555,7 +579,7 @@ export const App: React.FC = () => {
       },
     });
     if (!res || !res.success) {
-      throw new Error(res?.error || 'Failed to sync with Raindrop');
+      throw new Error(res?.error || 'Failed to sync workspace');
     }
     return res.data;
   };
@@ -623,8 +647,8 @@ export const App: React.FC = () => {
       // A local restore has no corresponding operation-log entries, so a
       // normal sync would merge remote history right over it and silently
       // revert the restored data. Push the restored snapshot as a brand-new
-      // Raindrop baseline instead, so it becomes the authoritative state.
-      if (hasRaindropAuth) {
+      // baseline instead, so it becomes the authoritative state.
+      if (hasSyncAuth) {
         try {
           await handleSyncRaindrop({
             localState: toSave,
@@ -633,14 +657,14 @@ export const App: React.FC = () => {
             replaceBaseline: true,
           });
         } catch (err) {
-          console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
+          console.warn('[Arcable] Failed to push restored workspace:', err);
         }
       }
 
       syncTabsWithTracker();
       window.location.reload();
     }
-  }, [syncTabsWithTracker, hasRaindropAuth, handleSyncRaindrop]);
+  }, [syncTabsWithTracker, hasSyncAuth, handleSyncRaindrop]);
 
   const handleActiveSpaceChange = useCallback((activeSpace: Space | null) => {
     const nextSpaceId = activeSpace?.id;
@@ -1290,7 +1314,11 @@ export const App: React.FC = () => {
   const bottomBarMenuItems: ActionDropdownItem[] = [
     {
       id: 'sync-raindrop',
-      label: isSyncing ? 'Syncing...' : hasRaindropAuth ? 'Raindrop Sync' : 'Connect Raindrop.io',
+      label: isSyncing
+        ? 'Syncing...'
+        : hasSyncAuth
+          ? `${syncProvider === 'drive' ? 'Drive' : 'Raindrop'} Sync`
+          : `Connect ${syncProviderLabel}`,
       icon: (
         <span
           style={{
@@ -1301,11 +1329,11 @@ export const App: React.FC = () => {
             animation: isSyncing ? 'arcable-spin 1s linear infinite' : 'none',
           }}
         >
-          💧
+          {syncProvider === 'drive' ? '☁️' : '💧'}
         </span>
       ),
       onClick: async () => {
-        if (!hasRaindropAuth) {
+        if (!hasSyncAuth) {
           browser.runtime.openOptionsPage();
           return;
         }
@@ -1315,7 +1343,27 @@ export const App: React.FC = () => {
       },
       disabled: isSyncing,
     },
-    ...(hasRaindropAuth
+    ...(syncProvider === 'drive' && hasGoogleAuth
+      ? [
+          {
+            id: 'open-archive',
+            label: 'Open Arcable Folder in Drive',
+            icon: <span style={{ fontSize: '15px', display: 'inline-flex' }}>📦</span>,
+            onClick: async () => {
+              let url = 'https://drive.google.com/drive/my-drive';
+              try {
+                const stored = (await browser.storage.local.get('arcable_google_auth')) as any;
+                const token = stored?.arcable_google_auth?.accessToken;
+                if (token) url = (await getDriveRootFolderUrl(token)) || url;
+              } catch (err) {
+                console.warn('[Arcable Sidepanel] Failed to find the Arcable Drive folder:', err);
+              }
+              void browser.tabs.create({ url });
+            },
+          },
+        ]
+      : []),
+    ...(raindropFeaturesEnabled
       ? [
           {
             id: 'open-archive',
@@ -1477,9 +1525,9 @@ export const App: React.FC = () => {
               fontSize: '14px',
             }}
           >
-            Checking Raindrop login…
+            Checking sync login…
           </div>
-        ) : !hasRaindropAuth ? (
+        ) : !hasSyncAuth ? (
           <section
             aria-labelledby="raindrop-login-title"
             style={{
@@ -1495,12 +1543,12 @@ export const App: React.FC = () => {
               background: currentSpaceTheme.shelfBg,
             }}
           >
-            <div aria-hidden="true" style={{ fontSize: '32px', marginBottom: '10px' }}>💧</div>
+            <div aria-hidden="true" style={{ fontSize: '32px', marginBottom: '10px' }}>{syncProvider === 'drive' ? '☁️' : '💧'}</div>
             <h1 id="raindrop-login-title" style={{ margin: '0 0 8px', fontSize: '19px', color: currentSpaceTheme.textColor }}>
-              Log in to Raindrop.io
+              Log in to {syncProviderLabel}
             </h1>
             <p style={{ margin: '0 0 18px', color: currentSpaceTheme.subtextColor, lineHeight: 1.45, fontSize: '14px' }}>
-              Connect your account in Extension Settings to open your Arcable workspace.
+              Connect Raindrop.io or Google Drive in Extension Settings to open your Arcable workspace.
             </p>
             <button
               type="button"
@@ -1550,14 +1598,15 @@ export const App: React.FC = () => {
           onActivateAudibleTab={handleActivateAudibleTab}
           onToggleTabMute={handleToggleTabMute}
           onMediaControl={handleMediaControl}
-          onSaveToRaindrop={handleSaveCurrentTabToRaindrop}
+          onSaveToRaindrop={raindropFeaturesEnabled ? handleSaveCurrentTabToRaindrop : undefined}
 
-          hasRaindropAuth={hasRaindropAuth}
-          raindropToken={raindropToken || undefined}
-          autoSync={Boolean(hasRaindropAuth && raindropHydrated)}
-          onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
-          onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
-          onSearchCollectionCovers={hasRaindropAuth ? handleSearchCollectionCovers : undefined}
+          syncProvider={syncProvider}
+          hasRaindropAuth={raindropFeaturesEnabled}
+          raindropToken={raindropFeaturesEnabled ? raindropToken || undefined : undefined}
+          autoSync={Boolean(hasSyncAuth && raindropHydrated)}
+          onSyncRaindrop={hasSyncAuth ? handleSyncRaindrop : undefined}
+          onSearchRaindrop={raindropFeaturesEnabled ? handleSearchRaindrop : undefined}
+          onSearchCollectionCovers={raindropFeaturesEnabled ? handleSearchCollectionCovers : undefined}
           onSyncStateChange={setIsSyncing}
         />
         )}

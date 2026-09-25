@@ -19,13 +19,13 @@ assert.match(popup, /type:\s*'RAINDROP_FETCH_WORKSPACE'/,
 assert.match(popup, /clearStoredPendingOperations\(\);[\s\S]*window\.localStorage\.setItem\('arcable_workspace_data'/,
   'popup startup must replace its local workspace only after clearing the stale local outbox');
 
-assert.match(background, /arcable_workspace_snapshot:\s*result\.data,[\s\S]*arcable_pending_ops:\s*\[\]/,
+assert.match(background, /arcable_workspace_snapshot:\s*data,[\s\S]*arcable_pending_ops:\s*\[\]/,
   'the extension fetch handler must replace the persisted snapshot and clear its persisted outbox together');
-assert.match(background, /\[CUSTOM_CODE_STORAGE_KEY\]:\s*result\.data\.customCodeRules \|\| \[\],[\s\S]*\[RUN_CODE_IN_PAGE_STORAGE_KEY\]:\s*result\.data\.runCodeInPageRules \|\| \[\]/,
+assert.match(background, /\[CUSTOM_CODE_STORAGE_KEY\]:\s*data\.customCodeRules \|\| \[\],[\s\S]*\[RUN_CODE_IN_PAGE_STORAGE_KEY\]:\s*data\.runCodeInPageRules \|\| \[\]/,
   'the extension fetch handler must replace its dedicated custom JS/CSS and Run Code stores, including with empty remote lists');
 const onInstalled = background.slice(background.indexOf('browser.runtime.onInstalled'), background.indexOf('if (browser.runtime?.onStartup)'));
-assert.match(onInstalled, /fetchAndCacheRaindropWorkspace\(\)/,
-  'extension install/update startup must hydrate from Raindrop before any later sync');
+assert.match(onInstalled, /fetchAndCacheWorkspace\(\)/,
+  'extension install/update startup must hydrate from the active backend before any later sync');
 assert.doesNotMatch(onInstalled, /triggerBackgroundSync\(\)/,
   'extension install/update startup must not write the stale cache before hydration');
 assert.match(sidepanel, /hasAppliedAuthoritativeSnapshotRef\.current/,

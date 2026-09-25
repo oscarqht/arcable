@@ -369,6 +369,8 @@ export function applyOperation(
   const cloned: ArcableWorkspaceData = {
     raindropRootCollectionId: state.raindropRootCollectionId,
     raindropMetadataItemId: state.raindropMetadataItemId,
+    driveWorkspaceFileId: state.driveWorkspaceFileId,
+    driveWorkspaceVersion: state.driveWorkspaceVersion,
     spaces: [...state.spaces],
     folders: [...state.folders],
     tabs: [...state.tabs],
@@ -856,6 +858,8 @@ export function replayOperations(
   let state: ArcableWorkspaceData = {
     raindropRootCollectionId: baseline.raindropRootCollectionId,
     raindropMetadataItemId: baseline.raindropMetadataItemId,
+    driveWorkspaceFileId: baseline.driveWorkspaceFileId,
+    driveWorkspaceVersion: baseline.driveWorkspaceVersion,
     spaces: [...baseline.spaces],
     folders: [...baseline.folders],
     tabs: [...baseline.tabs],

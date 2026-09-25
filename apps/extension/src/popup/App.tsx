@@ -95,13 +95,12 @@ export const App: React.FC = () => {
       const res = rawRes as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
-        // Startup must fetch Raindrop's authoritative tree. A normal sync here
-        // would upload this popup's stale cache before it has been replaced.
-        if (res.data.isAuthenticated) {
-          void hydrateWorkspaceFromRaindrop();
-        }
       }
     });
+    // Startup must fetch the active backend's authoritative workspace (Raindrop
+    // or Google Drive). A normal sync here would upload this popup's stale cache
+    // before it has been replaced. The background rejects it when signed out.
+    void hydrateWorkspaceFromRaindrop();
   }, []);
 
   const hydrateWorkspaceFromRaindrop = async () => {
@@ -124,7 +123,7 @@ export const App: React.FC = () => {
       };
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(hydrated));
     } catch (error) {
-      console.warn('[Arcable Popup] Initial Raindrop tree fetch failed:', error);
+      console.warn('[Arcable Popup] Initial workspace fetch failed:', error);
     }
   };
 

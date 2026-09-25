@@ -3,6 +3,7 @@ export * from './Card';
 export * from './Header';
 export * from './Badge';
 export * from './RaindropAuthCard';
+export * from './SyncBackendCard';
 
 
 export * from './Icons';

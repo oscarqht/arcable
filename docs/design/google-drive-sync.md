@@ -1,6 +1,6 @@
 # Google Drive Sync — Design
 
-Status: Accepted (design only; implementation pending)
+Status: Implemented
 Date: 2026-09-25
 
 ## 1. Context
@@ -98,70 +98,53 @@ Non-goals
 
 ### 4.1 `SyncProvider` interface
 
-New file `packages/shared/src/types/syncProvider.ts`:
+`packages/shared/src/types/syncProvider.ts`; implementations in
+`packages/shared/src/utils/syncProviders.ts`:
 
 ```ts
 export type SyncProviderId = 'raindrop' | 'drive';
 
-export interface SyncProviderCapabilities {
-  /** Full-text search over the user's non-Arcable bookmarks. */
-  bookmarkSearch: boolean;
-  /** Remote icon catalogue for space/folder covers. */
-  collectionCoverSearch: boolean;
-  /** Server-side page metadata parsing when saving a tab. */
-  remoteLinkParsing: boolean;
-  /** Save an arbitrary page as a bookmark outside the workspace. */
-  saveBookmark: boolean;
-  backups: boolean;
-}
-
-export interface SyncProviderAuth {
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt?: number;
-}
-
-export interface SyncRequest {
-  localState?: ArcableWorkspaceData;
-  pendingOps?: WorkspaceOperation[];
-  deviceId?: string;
-  deviceName?: string;
-  /** Overwrite remote with localState (restore / migration target). */
-  replaceBaseline?: boolean;
-  isInitialSync?: boolean;
-}
-
 export interface SyncProvider {
   readonly id: SyncProviderId;
-  readonly capabilities: SyncProviderCapabilities;
-  fetchWorkspace(auth: SyncProviderAuth, activeSpaceId?: string): Promise<FetchWorkspaceResult>;
-  sync(auth: SyncProviderAuth, request: SyncRequest): Promise<SyncResult>;
-  createBackup(auth: SyncProviderAuth, data: ArcableWorkspaceData, deviceName: string): Promise<BackupResult>;
-  listBackups(auth: SyncProviderAuth): Promise<BackupListResult>;
-  restoreBackup(auth: SyncProviderAuth, backupId: string): Promise<FetchWorkspaceResult>;
+  readonly label: string;
+  readonly capabilities: SyncProviderCapabilities; // bookmarkSearch, collectionCoverSearch,
+                                                    // remoteLinkParsing, saveBookmark
+  fetchWorkspace(token: string, activeSpaceId?: string): Promise<FetchWorkspaceResult>;
+  sync(token: string, request: SyncRequest): Promise<SyncResult>;
+  createBackup(token: string, data: ArcableWorkspaceData, deviceName?: string): Promise<CreateBackupResult>;
+  /** True when `data` has never been hydrated from this backend on this device. */
+  isInitialSync(data: ArcableWorkspaceData | undefined | null): boolean;
 }
 ```
 
-- `RaindropSyncProvider` delegates to the existing `fetchRaindropWorkspace`,
-  `syncWorkspaceWithRaindrop`, `createRaindropBackup`, `fetchRaindropBackups`,
-  `restoreRaindropBackup`. No behavioural change; Raindrop tests keep passing.
-- `SyncResult` gains an optional `remoteVersion?: string` (Drive file
-  version); `collectionId`/`dataItemId` remain Raindrop-only.
+- Providers take a plain access token; the caller (extension background,
+  web route) is responsible for refreshing it.
+- `raindropSyncProvider` delegates to the existing `fetchRaindropWorkspace`,
+  `syncWorkspaceWithRaindrop` and `createRaindropBackup` without behavioural
+  change. `isInitialSync` = no `raindropRootCollectionId`.
+- `driveSyncProvider` delegates to `driveSync.ts`. `isInitialSync` = no
+  `driveWorkspaceFileId`.
+- `FetchWorkspaceResult` carries `exists` (backend has no workspace yet) and
+  `migratedTo`; `SyncResult` gains `migratedTo`.
+- Remote backup listing/restore is not part of the interface: the existing
+  Backup & Restore modal is local-file based and doesn't use it.
 - Provider-specific extras (Raindrop search, cover search, save bookmark) stay
-  as their existing functions and are gated by `capabilities`.
+  as their existing functions; surfaces pass them to `WorkspaceManager` only
+  when Raindrop is the active backend.
 
 ### 4.2 Active provider state
 
-- Stored as `arcable_active_sync_provider` (`'raindrop' | 'drive'`), default
-  `'raindrop'` so existing users are unaffected.
-- Extension: `chrome.storage.local`, alongside `arcable_raindrop_auth` and a
-  new `arcable_google_auth` (`GoogleAuthState`, same shape as
-  `RaindropAuthState` minus Raindrop fields, with `user.email/name/avatarUrl`
-  from the OpenID `userinfo` endpoint).
-- Web app: cookie `arcable_sync_provider` plus Google token cookies
-  (`google_access_token`, `google_refresh_token`).
-- Switching the active provider is only done through the migration flow or an
-  explicit "use this backend" action on first login (§7).
+- Key `arcable_sync_provider` (`'raindrop' | 'drive'`), default `'raindrop'` so
+  existing users are unaffected.
+- Extension: `browser.storage.local`, alongside `arcable_raindrop_auth` and
+  `arcable_google_auth` (`GoogleAuthState`: tokens, `expiresAt`, and
+  `user.id/name/email/avatarUrl` from the OpenID `userinfo` endpoint).
+- Web app: httpOnly cookies `arcable_sync_provider`, `google_access_token`,
+  `google_refresh_token` (plus the existing Raindrop cookies).
+- Signing in to a backend makes it active unless the currently active backend
+  is still signed in; switching between two signed-in backends goes through
+  the migration flow (§7). A "Use …" action switches without copying when the
+  active backend is signed out.
 
 ## 5. Drive layout and file format
 
@@ -169,20 +152,22 @@ export interface SyncProvider {
 My Drive/
 └── Arcable/                          (folder, appProperties.arcable=root)
     ├── workspace.json                (appProperties.arcable=workspace)
+    ├── archive.json                  (appProperties.arcable=archive)
     └── backups/                      (appProperties.arcable=backups)
-        └── backup-<device>-<YYYYMMDDHHmmss>.json
+        └── backup-<device>-<YYYYMMDDHHmmss>.json   (appProperties.arcable=backup)
 ```
 
 - Files are located by `appProperties` query
   (`appProperties has { key='arcable' and value='workspace' } and trashed=false`),
-  not by name, so renames/moves by the user don't break sync. The resolved
-  file IDs are cached locally (`driveWorkspaceFileId`, `driveRootFolderId`) and
-  re-resolved on 404.
+  not by name, so renames/moves by the user don't break sync.
 - If multiple `workspace` files are found (e.g. two first-time devices racing),
   the one with the latest `modifiedTime` wins and the others are renamed
-  `workspace-conflict-<timestamp>.json` (kept, not deleted).
-- The Drive-specific IDs are stored in local sync metadata, **not** in
-  `ArcableWorkspaceData`, to avoid growing the Raindrop-style coupling.
+  `workspace-conflict-<timestamp>.json` with `arcable=conflict` (kept, not deleted).
+- The device's view of the remote file is stored in the workspace itself as
+  `driveWorkspaceFileId` / `driveWorkspaceVersion`, mirroring how
+  `raindropRootCollectionId` already drives Raindrop's initial-sync detection.
+  Both are stripped before upload. `applyOperation`, `replayOperations`, the
+  workspace storage reader and `applyLatestSnapshot` preserve them.
 
 `workspace.json`:
 
@@ -193,7 +178,8 @@ My Drive/
   "arcableVersion": "0.133.0",       // ARCABLE_VERSION of the writer
   "updatedAt": 1790000000000,
   "updatedBy": { "deviceId": "device_…", "deviceName": "Arc on macOS" },
-  "lamportSeq": 1234,                 // max Lamport seq applied
+  "lamportSeq": 1234,                 // max Lamport seq of the ops in this write
+  "migratedTo": "raindrop",           // only after migrating away (read-only)
   "data": {                           // ArcableWorkspaceData minus local-only fields
     "spaces": [], "folders": [], "tabs": [],
     "widgets": [], "customCodeRules": [], "runCodeInPageRules": [],
@@ -202,152 +188,149 @@ My Drive/
 }
 ```
 
-- Stripped before upload: `tmpTabs`, all `raindrop*` workspace-level IDs, and
-  folder `isExpanded` (already local via `setLocalFolderExpanded`).
-  Entity-level `raindropId` fields are left as-is (harmless, and useful after
-  migrating back).
+- Stripped before upload: `tmpTabs`, `devices`, all workspace-level
+  `raindrop*` IDs and the `drive*` IDs. Entity-level `raindropId` fields are
+  left as-is (harmless).
 - A reader that sees `schemaVersion` greater than it supports refuses to write
-  and prompts the user to update Arcable (read-only mode), preventing an old
-  client from truncating newer data.
-- Payload is plain JSON (`application/json`), so sticky-note content, custom
-  CSS and scripts need no escaping tricks.
+  (read-only mode, error asks the user to update Arcable).
+- A bare `ArcableWorkspaceData` JSON (e.g. a backup copied in by hand) is also
+  accepted on read.
 
 ## 6. Sync algorithm (Drive)
 
-Implemented in `packages/shared/src/utils/driveSync.ts` on top of a thin REST
-client `driveClient.ts` (fetch-based, no `googleapis` dependency; shared retry
-policy modelled on `raindropClient`'s transport retries; handles 401 → refresh
-→ retry once, 403 `rateLimitExceeded`/429 → exponential backoff).
+`packages/shared/src/utils/driveSync.ts` on top of a thin fetch-based REST
+client `driveClient.ts` (no `googleapis` dependency). The client retries
+429, 5xx and 403 `rateLimitExceeded`/`userRateLimitExceeded` with exponential
+backoff, and transport failures for GETs. 401 surfaces as `DriveApiError`
+(`isDriveAuthError`); callers refresh tokens proactively before they expire.
 
 ### 6.1 Pull (`fetchWorkspace`)
 
-1. Resolve the workspace file (cached ID or `appProperties` query).
-2. `GET files/{id}?fields=id,version,modifiedTime` → if `version` equals the
-   locally cached `lastPulledVersion`, return "unchanged" (one cheap request).
-3. Otherwise `GET files/{id}?alt=media`, validate `format`/`schemaVersion`,
-   return `data` and the new `version`.
-4. No file → return empty result with `exists: false` (caller decides between
-   first-time setup and migration).
+1. Resolve the layout by `appProperties` (one list call each for the folder and
+   the workspace file).
+2. No workspace file → `{ success: true, exists: false }`. The extension
+   background and the web page then seed Drive from the device's cache with a
+   `replaceBaseline` sync (first use of an empty Drive).
+3. Otherwise download, validate `format`/`schemaVersion`, and return the
+   hydrated workspace (`tmpTabs: []`, `driveWorkspaceFileId/Version` set).
+   A `migratedTo` marker returns `{ success: false, migratedTo }`.
 
-### 6.2 Initial sync on a new device
-
-Same rule as Raindrop today: if the remote file exists, adopt it as the source
-of truth and discard pre-login local pending ops (`clearStoredPendingOperations`).
-If it doesn't exist, offer "Start fresh" (upload local state) or
-"Migrate from Raindrop" (§7).
-
-### 6.3 Push (`sync` with pending ops)
+### 6.2 Push (`sync`)
 
 ```
-remoteMeta = GET version
-if remoteMeta.version != lastPulledVersion:
-    remote = download()
-    base   = remote.data
-else:
-    base   = lastPulledSnapshot            // cached copy of what we last saw
-next = replayOperations(base, sortOperations(pendingOps))
-verify = GET version                        // narrow the race window
-if verify.version != remoteMeta.version: restart (max 3 attempts)
-PATCH upload/drive/v3/files/{id}?uploadType=media  body = serialize(next)
-lastPulledVersion  = response.version
-lastPulledSnapshot = next
-return { success, latestSnapshot: next, remoteVersion }
+for attempt in 1..3:
+  meta = resolve layout                       // includes file version
+  no file            → create workspace.json from localState, done
+  replaceBaseline    → upload localState, done
+  initial            = no local driveWorkspaceFileId (or a different file)
+  remoteChanged      = initial || meta.version != local.driveWorkspaceVersion
+  remote             = download() if remoteChanged or archive ops pending
+  remote.migratedTo  → fail with migratedTo
+  initial            → return remote (caller discards pre-login outbox)
+  no pending ops     → return remote if changed, else nothing
+  next = remoteChanged ? replayOperations(remote, pendingOps) : localState
+  if GET version != meta.version: retry       // narrow the race window
+  PATCH upload/drive/v3/files/{id}?uploadType=media  body = serialize(next)
+  append archived subtrees to archive.json
+  return next with the new version
 ```
 
-- The caller only clears the outbox (`removeStoredPendingOperations`) after a
-  successful upload, exactly as today.
-- `replaceBaseline: true` skips the merge and uploads `localState` directly
-  (used by restore and by migration into Drive).
-- Rebasing on the remote snapshot and replaying local ops is what prevents
-  most lost updates; the residual race is between the verify `GET` and the
-  `PATCH` (sub-second).
-- Deletions are carried by `*_DELETE` ops, so a stale device cannot resurrect
-  deleted entities as long as it replays ops rather than uploading its whole
-  cache. A full-cache upload happens only on `replaceBaseline`.
+- **Fast path**: when nobody else wrote since this device's last read, the
+  exact local state is uploaded, so edits that don't emit operations (e.g.
+  ordering) are never lost.
+- **Rebase path**: when another device wrote, this device's queued operations
+  are replayed on the freshly downloaded remote snapshot.
+- The caller only clears the outbox after a successful upload, exactly as
+  today. `WorkspaceManager` applies Drive results as full snapshots (it only
+  uses `mergeIncrementalSyncSnapshot` for Raindrop).
+- The residual race is between the verify `GET` and the `PATCH` (sub-second).
 
-### 6.4 Scheduling
+### 6.3 Scheduling
 
-Unchanged: the extension's `SYNC_ALARM_NAME` alarm (every 5 minutes) and the
-existing debounced sync after local edits call `provider.sync(...)` instead of
-`syncWorkspaceWithRaindrop`. The extension keeps serialising syncs through the
-existing queue (`syncWorkspaceWithRaindropQueued` becomes provider-agnostic).
+Unchanged: the extension's 5-minute alarm and the debounced sync after local
+edits go through the same serialized queue (`runQueuedWorkspaceSync`), which
+now calls `provider.sync(...)` for the active backend.
 
-### 6.5 Backups
+### 6.4 Archive and backups
 
-- `createBackup` uploads `backups/backup-<device>-<timestamp>.json` (same
-  naming as `formatBackupFileName`, `.json` extension).
-- `listBackups` lists files in the backups folder; `restoreBackup` downloads
-  one and then syncs with `replaceBaseline: true`.
-- Retention: keep the latest 30, delete older ones created by Arcable
-  (applies to Drive only).
+- `*_ARCHIVE` operations append the removed subtree (taken from the remote
+  snapshot before the operation) to `Arcable/archive.json`.
+- `createDriveBackup` writes `backups/backup-<device>-<timestamp>.json` and keeps
+  the newest 30 (`DRIVE_BACKUP_RETENTION`). Used by migration.
 
 ## 7. Migration
 
-Entry point: Settings → Sync → "Switch backend…", available when signed into
-both providers.
+`migrateWorkspace({ from, to, fromToken, toToken, localState, pendingOps })` in
+`syncProviders.ts`, called by the extension background (`SYNC_MIGRATE`) and the
+web route `POST /api/sync/migrate`. Entry points: Extension Settings → Sync →
+Sync Backend, and the **Backend** button in the web app (shared
+`SyncBackendCard`, with a confirmation dialog).
 
-Raindrop → Drive
-
-1. Flush the Raindrop outbox (normal sync) so Raindrop is up to date.
-2. `RaindropSyncProvider.fetchWorkspace` → authoritative snapshot.
-3. Automatically create a Raindrop backup (safety net).
-4. `DriveSyncProvider.sync({ localState: snapshot, replaceBaseline: true })`.
-   If a `workspace.json` already exists, ask the user to confirm overwrite
-   (a Drive backup of the existing file is taken first).
-5. Set `activeProvider = 'drive'` and clear the outbox.
-
-Drive → Raindrop
-
-1. Flush the Drive outbox; `DriveSyncProvider.fetchWorkspace`.
-2. Create a Drive backup.
-3. Strip entity `raindropId`s that no longer resolve (or all of them if the
-   Raindrop `Arcable v2` root is absent) and push via
-   `syncWorkspaceWithRaindrop({ localState, replaceBaseline: true })` — the
-   existing restore path.
-4. Set `activeProvider = 'raindrop'`; the next sync re-hydrates Raindrop IDs.
+1. Flush the local outbox to the source backend.
+2. Read the source workspace; create a source backup (abort if it fails).
+3. Write the target:
+   - **→ Drive**: back up an existing `workspace.json`, then write with
+     `replaceBaseline`.
+   - **→ Raindrop**: rename an existing `Arcable v2` root to
+     `Arcable v2 (replaced YYYY-MM-DD)` (never deleted), then materialize the
+     workspace in a fresh root through the existing restore path
+     (`replaceBaseline`). Remote identities are stripped and every
+     space/folder/tab is marked changed, so Raindrop creates them all.
+4. Mark the source as migrated:
+   - Raindrop: a `data-v2-migrated-to-drive.json.txt` file in the Arcable root.
+     The name matches the retired `data-v*.json.txt` pattern, so all existing
+     clients already hide it.
+   - Drive: `migratedTo: 'raindrop'` in `workspace.json`.
+5. The device stores the target snapshot, clears its outbox and switches its
+   active backend.
 
 Rules
 
-- **Non-destructive**: the source backend's data is never deleted. The UI tells
-  the user where the old copy remains and that it will no longer be updated.
+- **Non-destructive**: nothing is deleted on either side.
 - Entity `id`s are preserved, so extension tab associations survive.
-- Other devices must not keep writing to the old backend. The migration
-  writes a marker on the source (a `migratedTo: 'drive'` marker item in the
-  Raindrop `Arcable v2` root, or a `migratedTo: 'raindrop'` field in
-  `workspace.json`). A device that sees the marker during sync stops syncing
-  and prompts the user to switch backends.
+- Another device that sees the marker on fetch or sync switches its own active
+  backend to the target automatically (and shows the target's login screen if
+  it isn't signed in there). Unsynced local edits on that device are discarded,
+  as with any initial hydration.
+- Migrating back re-activates a backend: the Raindrop marker leaves with the
+  renamed root, and a `replaceBaseline` write replaces a Drive file that has
+  `migratedTo`.
 
 ## 8. Authentication
 
 ### 8.1 Extension
 
-- Start: open
-  `https://oh-auth.vercel.app/auth/google?scope=https://www.googleapis.com/auth/drive.file&state={"extensionId":"…"}`
+- Start (`GOOGLE_START_OAUTH`): open a tab at
+  `https://oh-auth.vercel.app/auth/google?scope=https://www.googleapis.com/auth/drive.file&state={"extensionId":"…","provider":"google"}`
   (resulting scope: `openid email profile drive.file`).
-- Receive tokens via the existing `oauth_success` message handler, branching on
-  `payload.provider === 'google'`.
-- Refresh: `POST https://oh-auth.vercel.app/auth/google/refresh` with
-  `refresh_token`. Google's refresh response omits `refresh_token`; keep the
-  stored one.
-- Profile: `GET https://openidconnect.googleapis.com/v1/userinfo`.
-- Manifest: add host permissions `https://www.googleapis.com/*` and
-  `https://openidconnect.googleapis.com/*` (Chrome and Firefox manifests).
-- New background messages: `GOOGLE_GET_AUTH_STATE`, `GOOGLE_START_OAUTH`,
-  `GOOGLE_LOGOUT`, plus provider-agnostic `SYNC_GET_PROVIDER`,
-  `SYNC_SET_PROVIDER`, `SYNC_MIGRATE`. Existing `RAINDROP_SYNC_WORKSPACE` /
-  `RAINDROP_FETCH_WORKSPACE` are generalised to `SYNC_WORKSPACE` /
-  `FETCH_WORKSPACE` (old names kept as aliases for one release).
+- oh-auth delivers `{ type: 'oauth_success', provider: 'google', tokens }` via
+  `chrome.runtime.sendMessage` (handled by `onMessageExternal`) and
+  `postMessage` (relayed by the `oauth-bridge` content script). Both handlers
+  branch on `provider === 'google'`.
+- Refresh (`getValidGoogleAccessToken`): 2 minutes before expiry,
+  `POST https://oh-auth.vercel.app/auth/google/refresh`, single-flight. Google's
+  refresh response omits `refresh_token`, so the stored one is kept. A
+  revoked/expired grant signs the user out.
+- Manifest: host permissions `https://www.googleapis.com/*` and
+  `https://openidconnect.googleapis.com/*` (Chrome and Firefox).
+- Messages: `GOOGLE_GET_AUTH_STATE`, `GOOGLE_START_OAUTH`, `GOOGLE_LOGOUT`,
+  `SYNC_GET_PROVIDER`, `SYNC_SET_PROVIDER`, `SYNC_MIGRATE`. The existing
+  `RAINDROP_FETCH_WORKSPACE` / `RAINDROP_SYNC_WORKSPACE` messages keep their
+  names but now serve the active backend.
 
 ### 8.2 Web app
 
-- `api/auth/login?provider=google` → Google authorize URL (same client ID as
-  oh-auth, `access_type=offline`, `prompt=consent`, state cookie).
-- `api/auth/callback/google` → exchange code, set httpOnly cookies, redirect
-  with `?auth=success`, modelled on `api/auth/callback/raindrop/route.ts`.
-- `api/drive/sync` (GET/POST) and `api/drive/backups` mirror the Raindrop
-  routes and run the shared `DriveSyncProvider` server-side, refreshing the
-  access token from the refresh cookie when expired.
-- Env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`.
+- `GET /api/auth/google/login` → Google authorize URL (`access_type=offline`,
+  `prompt=consent`, random state in an httpOnly cookie).
+- `GET /api/auth/callback/google` → strict state check, code exchange with
+  `GOOGLE_CLIENT_SECRET`, httpOnly token cookies, redirect `?auth=success`.
+- `POST /api/auth/google/logout`, `GET /api/sync/session` (active backend and
+  Google user), `POST /api/sync/provider`, `POST /api/sync/migrate`.
+- `GET/POST /api/drive/sync` mirror `/api/raindrop/sync` and run
+  `driveSyncProvider` server-side, refreshing the access token from the
+  refresh cookie when the access cookie has expired.
+- Env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`. Use
+  the same Google Cloud project as oh-auth.
 
 ### 8.3 Google Cloud setup (manual)
 
@@ -361,42 +344,44 @@ Rules
 
 ## 9. UI changes
 
-- Settings: a "Sync backend" section with provider cards (Raindrop / Google
-  Drive), sign-in state, active badge, and "Switch backend…".
-- `GoogleAuthCard` next to the existing `RaindropAuthCard`.
-- Header sync button label: "Sync" with provider icon instead of
-  "Raindrop Sync".
-- Capability gating when Drive is active:
-  - `RaindropSearchInput` → searches the local workspace only.
-  - Space/folder cover search → emoji / favicon picker only.
-  - "Save to Raindrop" context menu → hidden.
-  - `pleaseParse` → skipped; the tab keeps the browser-provided title/favicon.
+- `SyncBackendCard` (shared): Raindrop / Google Drive rows with Active /
+  Connected badges, Connect / Disconnect Google, "Move workspace to …" and
+  "Use …" actions. Shown in Extension Settings → Sync and in a web app modal.
+- Sidepanel and web login screens offer both backends; sync button labels,
+  toasts and archive confirmations name the active backend.
+- "Open Raindrop Archive" becomes "Open Arcable Folder in Drive" / "Open in
+  Google Drive" when Drive is active.
+- Capability gating when Drive is active: Raindrop search (local filtering
+  only), collection cover search, and "Save to Raindrop" are not passed to the
+  workspace UI.
 
-## 10. Implementation plan
+## 10. Implementation status
 
-1. **Provider seam (no behaviour change)** — add `SyncProvider` types,
-   `RaindropSyncProvider`, `getSyncProvider`; route `useWorkspace`,
-   `WorkspaceManager`, the extension background and web routes through it.
-2. **Drive client + provider** — `driveClient.ts`, `driveSync.ts`,
-   `DriveSyncProvider`, backups; unit tests with a mocked fetch.
-3. **Extension auth + provider switch** — Google auth state, oh-auth flow,
-   manifest permissions, messages, settings UI, capability gating.
-4. **Web app auth + routes** — Google login/callback, `api/drive/*`, UI.
-5. **Migration flow** — both directions, markers, backups, confirmation UI.
-6. **Docs** — README / PRIVACY.md updates (Drive data handling, scope).
+All phases are implemented:
+
+1. Provider seam — `SyncProvider`, `raindropSyncProvider`, `getSyncProvider`;
+   `WorkspaceManager`, the extension background and web routes go through it.
+2. Drive client + provider — `driveClient.ts`, `driveSync.ts`, backups, archive.
+3. Extension — Google auth via oh-auth, provider switching, settings UI,
+   capability gating.
+4. Web app — Google login/callback, `api/drive/sync`, `api/sync/*`, UI.
+5. Migration — both directions, markers, backups, confirmation UI.
+6. Docs — README and PRIVACY.md.
 
 ## 11. Testing
 
-- Unit (mock-first, `packages/shared/tests`): `driveSync` pull unchanged/changed,
-  push rebase + replay, verify-version retry, `replaceBaseline`, schema-version
-  read-only guard, duplicate workspace-file resolution, 401 refresh, 429 backoff,
-  backup retention.
-- Migration: Raindrop → Drive and Drive → Raindrop round trip preserves
-  spaces/folders/tabs/variants/widgets/custom code/themes (reuse fixtures from
-  `raindropNativeArchitecture.test.ts`).
-- Regression: all existing Raindrop tests pass unchanged after step 1.
-- Manual: two devices (Chrome + Firefox) editing concurrently; token expiry
-  after 1 hour; sign-out and re-sign-in.
+- `packages/shared/tests/driveSync.test.ts` (in-memory Drive mock,
+  `tests/helpers/mockDrive.ts`): first sync, fetch, read-only unchanged sync,
+  fast path, rebase on concurrent write, verify-version retry, pull, initial
+  sync adoption, archive, schema guard, duplicate files, rate-limit retry,
+  backup retention, migrated marker.
+- `packages/shared/tests/syncMigration.test.ts` (Drive + Raindrop mocks):
+  Raindrop → Drive → Raindrop → Drive round trip preserves spaces, folders and
+  tabs; checks backups, markers and root renaming.
+- Regression: all existing tests pass unchanged.
+- Manual (to do): two devices (Chrome + Firefox) editing concurrently; token
+  expiry after 1 hour; sign-out and re-sign-in; migration with a second device
+  open.
 
 ## 12. Risks
 
@@ -405,5 +390,5 @@ Rules
 | Lost update on truly simultaneous writes | Rebase + replay, verify-version check, pre-migration backups |
 | Old client overwrites newer schema | `schemaVersion` read-only guard |
 | Consent screen left in Testing mode | Setup checklist §8.3 |
-| Users edit/delete `workspace.json` in Drive | Validation on read; fall back to latest backup with a prompt |
+| Users edit/delete `workspace.json` in Drive | Validation on read stops sync with an error; deleting it re-seeds from the device cache; backups in `Arcable/backups/` |
 | Devices still on the old backend after migration | `migratedTo` marker on the source |

@@ -18,6 +18,8 @@ import {
   replayOperations,
 } from '../../utils/syncEngine';
 import { syncWorkspaceWithRaindrop, INCREMENTAL_OPERATION_TYPES } from '../../utils/raindropSync';
+import { getSyncProvider } from '../../utils/syncProviders';
+import type { SyncProviderId } from '../../types/syncProvider';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
 import { getSpaceThemeStyles, getSpacePrimaryColor, SpaceThemeTokens } from '../../utils/spaceTheme';
 import { Button } from '../Button';
@@ -134,6 +136,8 @@ export interface WorkspaceManagerProps {
     deviceId: string;
     pendingOps: WorkspaceOperation[];
   }) => Promise<SyncResult | void | any>;
+  /** Backend that `onSyncRaindrop` talks to. Defaults to Raindrop. */
+  syncProvider?: SyncProviderId;
 }
 
 
@@ -188,6 +192,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onActiveSpaceChange,
       onThemeChange,
       onSyncRaindrop,
+      syncProvider = 'raindrop',
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
@@ -195,6 +200,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
   const { isDark } = useSystemTheme();
+  const syncProviderLabel = getSyncProvider(syncProvider).label;
+  const syncProviderShortLabel = syncProvider === 'drive' ? 'Drive' : 'Raindrop';
   const {
     data,
     isLoaded,
@@ -1082,7 +1089,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const isIncrementalCrud = pendingOps.length > 0 &&
           pendingOps.every((operation) => INCREMENTAL_OPERATION_TYPES.has(operation.type));
 
-        const isInitialSync = !latestWorkspaceDataRef.current?.raindropRootCollectionId;
+        const provider = getSyncProvider(syncProvider);
+        const isInitialSync = provider.isInitialSync(latestWorkspaceDataRef.current);
 
         const applySuccessfulSnapshot = (snapshot: ArcableWorkspaceData) => {
           removeStoredPendingOperations(syncedOpIds);
@@ -1090,7 +1098,9 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             clearStoredPendingOperations();
           }
           const remainingOps = isInitialSync ? [] : getStoredPendingOperations();
-          let nextSnapshot = !isInitialSync && isIncrementalCrud
+          // Raindrop's incremental responses only carry newly issued IDs; Drive
+          // always returns the full merged workspace.
+          let nextSnapshot = provider.id === 'raindrop' && !isInitialSync && isIncrementalCrud
             ? mergeIncrementalSyncSnapshot(latestWorkspaceDataRef.current, snapshot)
             : snapshot;
           if (remainingOps.length > 0) {
@@ -1130,7 +1140,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               }
             }
           }
-        } else if (raindropToken) {
+        } else if (raindropToken && provider.id === 'raindrop') {
           const res = await syncWorkspaceWithRaindrop(raindropToken, {
             localState: latestWorkspaceDataRef.current,
             deviceId,
@@ -1152,7 +1162,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           // No active cloud connection
           if (!isCurrentSyncSilentRef.current) {
             setSyncFeedback({
-              message: 'Please connect a Raindrop account or API token first.',
+              message: `Please connect ${provider.label} first.`,
               isError: true,
             });
           }
@@ -1163,16 +1173,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           if (result) {
             if (result.success) {
               setSyncFeedback({
-                message: '✓ Synced with Raindrop!',
+                message: `✓ Synced with ${provider.label}!`,
               });
             } else {
               setSyncFeedback({
-                message: result.error || 'Failed to sync with Raindrop.',
+                message: result.error || `Failed to sync with ${provider.label}.`,
                 isError: true,
               });
             }
           } else if (!result && onSyncRaindrop) {
-            setSyncFeedback({ message: '✓ Synced with Raindrop successfully!' });
+            setSyncFeedback({ message: `✓ Synced with ${provider.label} successfully!` });
           }
         }
       } catch (err: any) {
@@ -1402,7 +1412,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       getActiveSpaceTheme: () => activeSpaceTheme,
       isSyncing: isCurrentlySyncing,
       applySnapshot: (snapshot: ArcableWorkspaceData) => {
-        const remoteMetadataMissing = !snapshot.raindropRootCollectionId;
+        const remoteMetadataMissing = !snapshot.raindropRootCollectionId && !snapshot.driveWorkspaceFileId;
         const hydratedSnapshot = remoteMetadataMissing
           ? {
               ...snapshot,
@@ -1819,7 +1829,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       title: 'Archive Folder',
       message: (
         <span>
-          Are you sure you want to archive folder <strong>"{folderName}"</strong> and all its contents to Raindrop Archive?
+          Are you sure you want to archive folder <strong>"{folderName}"</strong> and all its contents to {syncProviderLabel} Archive?
         </span>
       ),
       confirmLabel: 'Archive Folder',
@@ -1828,7 +1838,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         archiveFolder(folderId);
       },
     });
-  }, [data.folders, archiveFolder]);
+  }, [data.folders, archiveFolder, syncProviderLabel]);
 
   const handleRequestArchiveSpace = useCallback((spaceId: string) => {
     const space = data.spaces.find((s) => s.id === spaceId);
@@ -1839,7 +1849,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       title: 'Archive Space',
       message: (
         <span>
-          Are you sure you want to archive space <strong>"{spaceName}"</strong> and all its folders &amp; tabs to Raindrop Archive?
+          Are you sure you want to archive space <strong>"{spaceName}"</strong> and all its folders &amp; tabs to {syncProviderLabel} Archive?
         </span>
       ),
       confirmLabel: 'Archive Space',
@@ -1848,7 +1858,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         archiveSpace(spaceId);
       },
     });
-  }, [data.spaces, archiveSpace]);
+  }, [data.spaces, archiveSpace, syncProviderLabel]);
 
   // Split expanded and collapsed spaces for Synctable grid layout
   const { expandedSpaces, collapsedSpaces } = useMemo(() => {
@@ -2103,7 +2113,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   type="button"
                   onClick={handleTriggerSync}
                   disabled={isCurrentlySyncing}
-                  title="Sync spaces, folders and tabs with Raindrop.io"
+                  title={`Sync spaces, folders and tabs with ${syncProviderLabel}`}
                   style={{
                     border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                     background: isDark
@@ -2131,7 +2141,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   >
                     <DropletIcon size={13} color={isDark ? '#38bdf8' : '#0284c7'} />
                   </span>
-                  <span>{isCurrentlySyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+                  <span>{isCurrentlySyncing ? 'Syncing...' : `${syncProviderShortLabel} Sync`}</span>
                 </button>
               )}
 
@@ -2997,8 +3007,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   type="button"
                   onClick={(event) => { void bottomBarSyncItem.onClick?.(event); }}
                   disabled={Boolean(bottomBarSyncItem.disabled) || isCurrentlySyncing}
-                  title={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}
-                  aria-label={isCurrentlySyncing ? 'Syncing with Raindrop...' : 'Sync with Raindrop'}
+                  title={isCurrentlySyncing ? `Syncing with ${syncProviderLabel}...` : `Sync with ${syncProviderLabel}`}
+                  aria-label={isCurrentlySyncing ? `Syncing with ${syncProviderLabel}...` : `Sync with ${syncProviderLabel}`}
                   style={{
                     width: '32px',
                     height: '32px',

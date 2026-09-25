@@ -166,6 +166,10 @@ export interface ArcableWorkspaceData {
   raindropSpaceThemeCollectionId?: number;
   /** Current non-tree metadata file. Null means a fresh remote read confirmed it does not exist. */
   raindropMetadataItemId?: number | null;
+  /** Google Drive file ID of `Arcable/workspace.json`; set once hydrated from Drive on this device. */
+  driveWorkspaceFileId?: string;
+  /** Drive file `version` this device last read or wrote; detects writes from other devices. */
+  driveWorkspaceVersion?: string;
   spaces: Space[];
   folders: Folder[];
   tabs: Tab[];

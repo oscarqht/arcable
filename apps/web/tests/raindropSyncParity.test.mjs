@@ -42,7 +42,7 @@ assert.match(workspaceHook, /const hasGlobalWorkspaceData = Boolean\(/,
   'a workspace with only global favourites or widgets must not be discarded for having no spaces');
 assert.match(workspaceHook, /parsed\.spaces\.length === 0 && !hasGlobalWorkspaceData/,
   'only an entirely empty workspace may be reset when it has no spaces');
-assert.match(workspaceHook, /const remoteMetadataMissing = !snapshot\.raindropRootCollectionId;/,
+assert.match(workspaceHook, /const remoteMetadataMissing = !snapshot\.raindropRootCollectionId && !snapshot\.driveWorkspaceFileId;/,
   'hydration must distinguish an absent remote root collection from an initialized workspace');
 assert.match(workspaceHook, /widgets:\s*remoteMetadataMissing \? \(prev\.widgets \|\| \[\]\) : \(snapshot\.widgets \|\| \[\]\)/,
   'hydration must retain widgets when Raindrop has no root collection');

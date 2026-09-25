@@ -12,14 +12,29 @@ import {
   BackupRestoreModal,
   LogInIcon,
   LogOutIcon,
+  SyncBackendCard,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
+  getStoredPendingOperations,
+  SYNC_PROVIDER_LABELS,
+  normalizeSyncProviderId,
 } from '@arcable/shared/utils';
-import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
+import { GoogleAuthState, RaindropAuthState, SyncProviderId, TabOpenOptions } from '@arcable/shared/types';
+
+const WORKSPACE_STORAGE_KEY = 'arcable_workspace_data';
+
+function readCachedWorkspace(): any {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -37,6 +52,16 @@ export default function HomePage() {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Sync backend (Raindrop or Google Drive)
+  const [syncProvider, setSyncProvider] = useState<SyncProviderId>('raindrop');
+  const [googleAuth, setGoogleAuth] = useState<GoogleAuthState>({ isAuthenticated: false });
+  const [isBackendModalOpen, setIsBackendModalOpen] = useState(false);
+  const [backendBusy, setBackendBusy] = useState(false);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const hasSyncAuth = syncProvider === 'drive' ? googleAuth.isAuthenticated : authState.isAuthenticated;
+  const raindropFeaturesEnabled = syncProvider === 'raindrop' && authState.isAuthenticated;
+  const syncProviderLabel = SYNC_PROVIDER_LABELS[syncProvider];
+  const activeUserName = syncProvider === 'drive' ? googleAuth.user?.name : authState.user?.name;
 
   // Load auth status from API on mount
   useEffect(() => {
@@ -59,6 +84,12 @@ export default function HomePage() {
   const fetchAuthState = async () => {
     setAuthLoading(true);
     try {
+      const sessionRes = await fetch('/api/sync/session').catch(() => null);
+      if (sessionRes?.ok) {
+        const session = await sessionRes.json();
+        setSyncProvider(normalizeSyncProviderId(session.provider));
+        setGoogleAuth(session.google?.isAuthenticated ? session.google : { isAuthenticated: false });
+      }
       const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
@@ -85,9 +116,89 @@ export default function HomePage() {
     window.location.href = '/api/auth/login';
   };
 
+  const handleLoginWithGoogle = () => {
+    setAuthError(null);
+    window.location.href = '/api/auth/google/login';
+  };
+
+  const handleUseProvider = async (provider: SyncProviderId) => {
+    await fetch('/api/sync/provider', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider }),
+    });
+    hasAutoFetchedRef.current = false;
+    setRaindropHydrated(false);
+    setSyncProvider(provider);
+  };
+
+  // Login screen: an already signed-in backend is selected directly; otherwise
+  // sign in (the callback selects the new backend when the current one is signed out).
+  const handleChooseProvider = (provider: SyncProviderId) => {
+    const signedIn = provider === 'drive' ? googleAuth.isAuthenticated : authState.isAuthenticated;
+    if (signedIn) {
+      void handleUseProvider(provider);
+    } else if (provider === 'drive') {
+      handleLoginWithGoogle();
+    } else {
+      handleLoginWithOAuth();
+    }
+  };
+
+  const handleMigrate = async (to: SyncProviderId) => {
+    setBackendError(null);
+    setBackendBusy(true);
+    try {
+      const res = await fetch('/api/sync/migrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to,
+          localState: readCachedWorkspace(),
+          pendingOps: getStoredPendingOperations(),
+          deviceId: getOrCreateDeviceId(),
+          deviceName: getStoredDeviceName(undefined, 'Web App'),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Migration failed');
+      clearStoredPendingOperations();
+      if (data.latestSnapshot) {
+        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(data.latestSnapshot));
+      }
+      window.location.reload();
+    } catch (err: any) {
+      setBackendError(err?.message || 'Migration failed');
+    } finally {
+      setBackendBusy(false);
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    await fetch('/api/auth/google/logout', { method: 'POST' });
+    setGoogleAuth({ isAuthenticated: false });
+  };
+
+  /** The active backend's workspace moved elsewhere (another device migrated it); follow it. */
+  const followMigration = useCallback(async (to: SyncProviderId) => {
+    await fetch('/api/sync/provider', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: to }),
+    });
+    hasAutoFetchedRef.current = false;
+    setRaindropHydrated(false);
+    setSyncProvider(to);
+  }, []);
+
   const handleLogout = async () => {
     setAuthLoading(true);
     try {
+      if (syncProvider === 'drive') {
+        await fetch('/api/auth/google/logout', { method: 'POST' });
+        setGoogleAuth({ isAuthenticated: false });
+        return;
+      }
       await fetch('/api/auth/logout', { method: 'POST' });
       setAuthState({ isAuthenticated: false });
     } catch (e) {
@@ -98,6 +209,33 @@ export default function HomePage() {
   };
 
   const handleFetchWorkspace = useCallback(async () => {
+    if (syncProvider === 'drive') {
+      const active = readCachedWorkspace()?.activeSpaceId;
+      const res = await fetch(`/api/drive/sync${active ? `?activeSpaceId=${encodeURIComponent(active)}` : ''}`);
+      const data = await res.json();
+      if (data?.migratedTo) {
+        await followMigration(data.migratedTo);
+        throw new Error(data.error);
+      }
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to fetch workspace from Google Drive');
+      if (data.exists === false) {
+        // First use of an empty Drive: seed it from this browser's cache.
+        const seedRes = await fetch('/api/drive/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            localState: readCachedWorkspace() || { activeSpaceId: '', version: 1, spaces: [], folders: [], tabs: [] },
+            deviceId: getOrCreateDeviceId(),
+            deviceName: getStoredDeviceName(undefined, 'Web App'),
+            replaceBaseline: true,
+          }),
+        });
+        const seeded = await seedRes.json();
+        if (!seedRes.ok || !seeded.success) throw new Error(seeded.error || 'Failed to create the Google Drive workspace');
+        return { success: true, data: seeded.latestSnapshot };
+      }
+      return data;
+    }
     try {
       const res = await fetch('/api/raindrop/sync', {
         headers: authState.accessToken
@@ -105,6 +243,10 @@ export default function HomePage() {
           : undefined,
       });
       const data = await res.json();
+      if (data?.migratedTo) {
+        await followMigration(data.migratedTo);
+        throw new Error(data.error);
+      }
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to fetch workspace from Raindrop');
       }
@@ -113,13 +255,14 @@ export default function HomePage() {
       console.error('Workspace fetch error:', err);
       throw err;
     }
-  }, [authState.accessToken]);
+  }, [authState.accessToken, syncProvider, followMigration]);
 
   // On page load, show the cached workspace while the remote tree is fetched.
   // A successful fetch is authoritative: do not replay the stale local outbox
   // over it, or a previous local create can be written back as a duplicate.
   useEffect(() => {
-    if (!authState.isAuthenticated) {
+    if (authLoading) return;
+    if (!hasSyncAuth) {
       hasAutoFetchedRef.current = false;
       setRaindropHydrated(false);
       return;
@@ -146,7 +289,7 @@ export default function HomePage() {
       .finally(() => {
         setIsInitialSyncing(false);
       });
-  }, [authState.isAuthenticated, handleFetchWorkspace]);
+  }, [authLoading, hasSyncAuth, handleFetchWorkspace]);
 
   const handleSyncWorkspace = useCallback(async (syncParams?: {
     localState: any;
@@ -155,7 +298,7 @@ export default function HomePage() {
     replaceBaseline?: boolean;
   }) => {
     try {
-      const res = await fetch('/api/raindrop/sync', {
+      const res = await fetch(syncProvider === 'drive' ? '/api/drive/sync' : '/api/raindrop/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -172,15 +315,18 @@ export default function HomePage() {
       });
 
       const data = await res.json();
+      if (data?.migratedTo) {
+        await followMigration(data.migratedTo);
+      }
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to sync with Raindrop');
+        throw new Error(data.error || `Failed to sync with ${SYNC_PROVIDER_LABELS[syncProvider]}`);
       }
       return data;
     } catch (err: any) {
       console.error('Workspace sync error:', err);
       throw err;
     }
-  }, [authState.accessToken]);
+  }, [authState.accessToken, syncProvider, followMigration]);
 
   const handleSearchRaindrop = async (query: string, options?: { signal?: AbortSignal }) => {
     try {
@@ -211,7 +357,7 @@ export default function HomePage() {
         window.localStorage.removeItem('arcable_pending_ops');
       } catch {}
 
-      if (authState.isAuthenticated) {
+      if (hasSyncAuth) {
         try {
           await handleSyncWorkspace({
             localState: restoredSnapshot,
@@ -220,13 +366,13 @@ export default function HomePage() {
             replaceBaseline: true,
           });
         } catch (err) {
-          console.warn('[Arcable] Failed to push restored workspace to Raindrop:', err);
+          console.warn('[Arcable] Failed to push restored workspace:', err);
         }
       }
 
       window.location.reload();
     }
-  }, [authState.isAuthenticated, handleSyncWorkspace]);
+  }, [hasSyncAuth, handleSyncWorkspace]);
 
   return (
     <div
@@ -242,12 +388,12 @@ export default function HomePage() {
       <Header
         title="Arcable"
         leftContent={
-          authState.isAuthenticated && authState.user ? (
+          hasSyncAuth && activeUserName ? (
             <span
               className="header-user-info"
               style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginLeft: '6px' }}
             >
-              Signed in as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{authState.user.name}</strong>
+              Signed in to {syncProviderLabel} as <strong style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>{activeUserName}</strong>
             </span>
           ) : null
         }
@@ -262,8 +408,8 @@ export default function HomePage() {
                 }
               }}
               disabled={isSyncing}
-              title={isSyncing ? 'Syncing...' : 'Raindrop Sync'}
-              aria-label={isSyncing ? 'Syncing...' : 'Raindrop Sync'}
+              title={isSyncing ? 'Syncing...' : `Sync with ${syncProviderLabel}`}
+              aria-label={isSyncing ? 'Syncing...' : `Sync with ${syncProviderLabel}`}
               style={{
                 border: isDark ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid #bae6fd',
                 background: isDark
@@ -293,7 +439,7 @@ export default function HomePage() {
               >
                 <DropletIcon size={14} color={isDark ? '#38bdf8' : '#0284c7'} />
               </span>
-              <span className="header-btn-text">{isSyncing ? 'Syncing...' : 'Raindrop Sync'}</span>
+              <span className="header-btn-text">{isSyncing ? 'Syncing...' : `${syncProvider === 'drive' ? 'Drive' : 'Raindrop'} Sync`}</span>
             </button>
 
             <button
@@ -324,6 +470,34 @@ export default function HomePage() {
             </button>
 
 
+            {/* Sync Backend Button */}
+            <button
+              type="button"
+              className="header-action-btn"
+              onClick={() => setIsBackendModalOpen(true)}
+              title="Choose sync backend"
+              aria-label="Choose sync backend"
+              style={{
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
+              }}
+            >
+              <span style={{ fontSize: '13px', display: 'inline-flex' }}>{syncProvider === 'drive' ? '☁️' : '💧'}</span>
+              <span className="header-btn-text">Backend</span>
+            </button>
+
             {/* Backup & Restore Button */}
             <button
               type="button"
@@ -352,7 +526,7 @@ export default function HomePage() {
               <span className="header-btn-text">Backup</span>
             </button>
 
-            {authState.isAuthenticated ? (
+            {hasSyncAuth ? (
               <button
                 type="button"
                 className="header-action-btn"
@@ -384,7 +558,7 @@ export default function HomePage() {
               <button
                 type="button"
                 className="header-action-btn"
-                onClick={handleLoginWithOAuth}
+                onClick={() => handleChooseProvider(syncProvider)}
                 disabled={authLoading}
                 title={authLoading ? 'Connecting...' : 'Login'}
                 aria-label={authLoading ? 'Connecting...' : 'Login'}
@@ -421,8 +595,8 @@ export default function HomePage() {
           margin: '20px auto',
           padding: '0 20px',
           boxSizing: 'border-box',
-          flex: authLoading || !authState.isAuthenticated ? 1 : undefined,
-          display: authLoading || !authState.isAuthenticated ? 'flex' : undefined,
+          flex: authLoading || !hasSyncAuth ? 1 : undefined,
+          display: authLoading || !hasSyncAuth ? 'flex' : undefined,
         }}
       >
         {authLoading ? (
@@ -430,9 +604,9 @@ export default function HomePage() {
             role="status"
             style={{ margin: 'auto', color: isDark ? '#94a3b8' : '#64748b', fontSize: '14px' }}
           >
-            Checking Raindrop login…
+            Checking sync login…
           </div>
-        ) : !authState.isAuthenticated ? (
+        ) : !hasSyncAuth ? (
           <section
             aria-labelledby="raindrop-login-title"
             style={{
@@ -447,28 +621,33 @@ export default function HomePage() {
               boxShadow: isDark ? '0 16px 40px rgba(0, 0, 0, 0.2)' : '0 16px 40px rgba(15, 23, 42, 0.08)',
             }}
           >
-            <div aria-hidden="true" style={{ fontSize: '34px', marginBottom: '12px' }}>💧</div>
+            <div aria-hidden="true" style={{ fontSize: '34px', marginBottom: '12px' }}>{syncProvider === 'drive' ? '☁️' : '💧'}</div>
             <h1 id="raindrop-login-title" style={{ margin: '0 0 8px', fontSize: '20px' }}>
-              Log in to Raindrop.io
+              Log in to sync your workspace
             </h1>
             <p style={{ margin: '0 0 20px', color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.5 }}>
-              Connect your Raindrop account to view and sync your Arcable workspace.
+              Store your Arcable workspace in Raindrop.io or in an &quot;Arcable&quot; folder in your Google Drive.
             </p>
-            <button
-              type="button"
-              onClick={handleLoginWithOAuth}
-              style={{
-                border: 'none',
-                borderRadius: '8px',
-                padding: '10px 16px',
-                cursor: 'pointer',
-                background: isDark ? '#38bdf8' : '#0284c7',
-                color: isDark ? '#0b101b' : '#ffffff',
-                fontWeight: 700,
-              }}
-            >
-              Log in with Raindrop.io
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {(['raindrop', 'drive'] as SyncProviderId[]).map((provider) => (
+                <button
+                  key={provider}
+                  type="button"
+                  onClick={() => handleChooseProvider(provider)}
+                  style={{
+                    border: provider === syncProvider ? 'none' : `1px solid ${isDark ? '#38bdf8' : '#0284c7'}`,
+                    borderRadius: '8px',
+                    padding: '10px 16px',
+                    cursor: 'pointer',
+                    background: provider === syncProvider ? (isDark ? '#38bdf8' : '#0284c7') : 'transparent',
+                    color: provider === syncProvider ? (isDark ? '#0b101b' : '#ffffff') : (isDark ? '#38bdf8' : '#0284c7'),
+                    fontWeight: 700,
+                  }}
+                >
+                  {provider === 'drive' ? 'Continue with Google Drive' : 'Log in with Raindrop.io'}
+                </button>
+              ))}
+            </div>
             {authError && (
               <p role="alert" style={{ margin: '16px 0 0', color: isDark ? '#fca5a5' : '#dc2626', fontSize: '13px' }}>
                 {authError}
@@ -485,7 +664,8 @@ export default function HomePage() {
           showJsonInspector={true}
           showWidgets={true}
           defaultViewMode="grid"
-          raindropToken={authState.accessToken}
+          syncProvider={syncProvider}
+          raindropToken={raindropFeaturesEnabled ? authState.accessToken : undefined}
           onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
             if (typeof window !== 'undefined' && url) {
               if (options?.inNewTab) {
@@ -504,13 +684,69 @@ export default function HomePage() {
               }
             }
           }}
-          onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
-          onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
-          autoSync={Boolean(authState.isAuthenticated && raindropHydrated)}
+          onSyncRaindrop={hasSyncAuth ? handleSyncWorkspace : undefined}
+          onSearchRaindrop={raindropFeaturesEnabled ? handleSearchRaindrop : undefined}
+          autoSync={Boolean(hasSyncAuth && raindropHydrated)}
           onSyncStateChange={setIsWorkspaceSyncing}
         />
         )}
       </main>
+
+      {isBackendModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sync backend"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setIsBackendModalOpen(false);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            background: 'rgba(15, 23, 42, 0.45)',
+          }}
+        >
+          <div style={{ width: '100%', maxWidth: '560px', position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setIsBackendModalOpen(false)}
+              aria-label="Close"
+              style={{
+                position: 'absolute',
+                top: '14px',
+                right: '14px',
+                zIndex: 1,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: isDark ? '#94a3b8' : '#64748b',
+              }}
+            >
+              <CloseIcon size={16} />
+            </button>
+            <SyncBackendCard
+              activeProvider={syncProvider}
+              raindropConnected={authState.isAuthenticated}
+              googleAuth={googleAuth}
+              onConnectRaindrop={handleLoginWithOAuth}
+              onConnectGoogle={handleLoginWithGoogle}
+              onDisconnectGoogle={handleDisconnectGoogle}
+              onMigrate={handleMigrate}
+              onUseProvider={async (provider) => {
+                await handleUseProvider(provider);
+                setIsBackendModalOpen(false);
+              }}
+              isBusy={backendBusy}
+              errorMessage={backendError}
+            />
+          </div>
+        </div>
+      )}
 
       <BackupRestoreModal
         isOpen={isBackupModalOpen}
