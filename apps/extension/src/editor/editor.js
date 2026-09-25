@@ -110,6 +110,7 @@ const DECORATION_PRESETS = {
  * @property {number | null} stylePreferencesSaveTimer
  * @property {DecorationPreferences} decorationPreferences
  * @property {number | null} decorationPreferencesSaveTimer
+ * @property {any | null} [cropInitialState]
  */
 
 /** @type {EditorState} */
@@ -119,6 +120,7 @@ const editorState = {
   screenshotInfo: null,
   bounds: null,
   isCroppingScreenshot: false,
+  cropInitialState: null,
   closeAfterAction: false,
   actionFeedbackTimers: {},
   annotationStylePreferences: { version: 1, shapes: {}, sharedStylesForNextShape: {} },
@@ -785,6 +787,61 @@ function updateScreenshotExportBounds() {
 }
 
 /**
+ * @param {{ width: number, height: number }} viewport
+ * @returns {number}
+ */
+function getScreenshotFitInset(viewport) {
+  const minDim = Math.min(viewport.width, viewport.height);
+  const dynamicInset = Math.round(minDim * 0.22);
+  const maxSafeInset = Math.round(minDim * 0.28);
+  return Math.min(maxSafeInset, Math.max(140, dynamicInset));
+}
+
+/**
+ * Zooms the camera to fit the screenshot bounds within the viewport.
+ * @param {{ immediate?: boolean }} [options]
+ * @returns {void}
+ */
+function fitScreenshotToViewport(options = {}) {
+  const { editor, screenshotShapeId } = editorState;
+  if (!editor || !screenshotShapeId) return;
+
+  const bounds = editor.getShapePageBounds?.(screenshotShapeId);
+  if (!bounds) return;
+
+  editorState.bounds = bounds;
+
+  const viewport = editor.getViewportScreenBounds?.() || {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+  const inset = getScreenshotFitInset(viewport);
+
+  editor.zoomToBounds(bounds, {
+    inset,
+    animation: options.immediate ? undefined : { duration: 240 },
+    immediate: Boolean(options.immediate),
+  });
+}
+
+/**
+ * Checks whether the screenshot shape crop or dimensions have changed since crop started.
+ * @returns {boolean}
+ */
+function hasScreenshotCropChanged() {
+  const shape = getScreenshotShape();
+  if (!shape || !editorState.cropInitialState) return false;
+  const currentCrop = shape.props?.crop ? JSON.stringify(shape.props.crop) : null;
+  return (
+    currentCrop !== editorState.cropInitialState.crop ||
+    Math.abs((shape.props?.w || 0) - (editorState.cropInitialState.w || 0)) > 1 ||
+    Math.abs((shape.props?.h || 0) - (editorState.cropInitialState.h || 0)) > 1 ||
+    Math.abs((shape.x || 0) - (editorState.cropInitialState.x || 0)) > 1 ||
+    Math.abs((shape.y || 0) - (editorState.cropInitialState.y || 0)) > 1
+  );
+}
+
+/**
  * @param {boolean} locked
  * @returns {void}
  */
@@ -812,11 +869,7 @@ function isScreenshotCropModeActive() {
   const { editor, screenshotShapeId } = editorState;
   if (!editor || !screenshotShapeId) return false;
 
-  const croppingShapeId = editor.getCroppingShapeId?.();
-  if (croppingShapeId === screenshotShapeId) return true;
-
-  const selectedShapeIds = editor.getSelectedShapeIds?.() || [];
-  return selectedShapeIds.includes(screenshotShapeId) && Boolean(editor.isIn?.('select.crop'));
+  return Boolean(editor.isIn?.('select.crop'));
 }
 
 /**
@@ -829,9 +882,7 @@ function syncScreenshotCropState() {
   updateScreenshotExportBounds();
 
   if (editorState.isCroppingScreenshot && !active) {
-    editorState.isCroppingScreenshot = false;
-    setScreenshotLocked(true);
-    updateScreenshotExportBounds();
+    finishScreenshotCrop({ preserveTool: true });
   }
 }
 
@@ -851,14 +902,20 @@ function bindScreenshotCropState(editor) {
 
   const disposeStoreListener = editor.store.listen(scheduleSync);
   document.addEventListener('pointerup', scheduleSync, true);
+  document.addEventListener('pointerdown', scheduleSync, true);
+  document.addEventListener('click', scheduleSync, true);
   document.addEventListener('keydown', scheduleSync, true);
+  document.addEventListener('keyup', scheduleSync, true);
 
   return () => {
     if (syncFrame) {
       window.cancelAnimationFrame(syncFrame);
     }
     document.removeEventListener('pointerup', scheduleSync, true);
+    document.removeEventListener('pointerdown', scheduleSync, true);
+    document.removeEventListener('click', scheduleSync, true);
     document.removeEventListener('keydown', scheduleSync, true);
+    document.removeEventListener('keyup', scheduleSync, true);
     disposeStoreListener?.();
   };
 }
@@ -1010,6 +1067,7 @@ function bindCropDragInteraction(editor) {
   }
 
   function onPointerDown(e) {
+    syncScreenshotCropState();
     if (!isScreenshotCropModeActive()) return;
     if (e.button !== 0) return;
 
@@ -1017,7 +1075,7 @@ function bindCropDragInteraction(editor) {
     if (
       target instanceof HTMLElement &&
       target.closest(
-        'button, input, select, textarea, [role="toolbar"], .tl-toolbar, .tl-floating-toolbar, .decoration-floating-bar, .screenshot-editor-toolbar, .glass-nav, .tlui-toolbar, .tl-popover'
+        'button, input, select, textarea, [role="toolbar"], [role="menu"], [role="dialog"], .tl-toolbar, .tl-floating-toolbar, .decoration-floating-bar, .screenshot-editor-toolbar, .glass-nav, .tlui-toolbar, .tlui-main-toolbar, .tlui-menu, .tlui-popover, .tl-popover'
       )
     ) {
       return;
@@ -1155,7 +1213,7 @@ function bindCropDragInteraction(editor) {
           type: shape.type,
           x: box.boxPageX,
           y: box.boxPageY,
-          isLocked: false,
+          isLocked: true,
           props: {
             ...shape.props,
             w: box.boxPageW,
@@ -1166,15 +1224,19 @@ function bindCropDragInteraction(editor) {
             },
           },
         });
-        editor.select(shape.id);
-        editor.setCroppingShape?.(shape.id);
-        editor.setCurrentTool('select.crop.idle');
+        editor.setCroppingShape?.(null);
+        editor.selectNone();
+        editor.setCurrentTool('select.idle');
       },
       { history: 'ignore', ignoreShapeLock: true }
     );
 
-    editorState.isCroppingScreenshot = true;
+    editorState.isCroppingScreenshot = false;
+    setCropButtonActive(false);
+    document.body.classList.remove('crop-mode-active');
     updateScreenshotExportBounds();
+    fitScreenshotToViewport();
+    editorState.cropInitialState = null;
   }
 
   window.addEventListener('pointerdown', onPointerDown, { capture: true });
@@ -1262,6 +1324,13 @@ function handleScreenshotEditorShortcut(event) {
     return;
   }
 
+  if (event.key === 'Escape' && isScreenshotCropModeActive()) {
+    event.preventDefault();
+    event.stopPropagation();
+    finishScreenshotCrop();
+    return;
+  }
+
   if (isDecorateShortcutEvent(event)) {
     event.preventDefault();
     event.stopPropagation();
@@ -1326,18 +1395,7 @@ function insertScreenshot(editor, screenshot) {
       h: screenshot.height,
     };
 
-  const viewport = editor.getViewportScreenBounds?.() || {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  };
-  // Provide ample padding so surrounding UI components (top glass header + floating Arc toolbar,
-  // right style palette, bottom dock, and top-left page/history toolbar)
-  // do not block or overlap the four corners or edges of the screenshot.
-  const dynamicInset = Math.round(
-    Math.min(viewport.width, viewport.height) * 0.28
-  );
-  const inset = Math.max(260, dynamicInset);
-  editor.zoomToBounds(editorState.bounds, { immediate: true, inset });
+  fitScreenshotToViewport({ immediate: true });
 }
 
 /**
@@ -1356,6 +1414,14 @@ function startScreenshotCrop() {
     alert('Screenshot editor is not ready yet.');
     return;
   }
+
+  editorState.cropInitialState = {
+    crop: shape.props?.crop ? JSON.stringify(shape.props.crop) : null,
+    w: shape.props?.w,
+    h: shape.props?.h,
+    x: shape.x,
+    y: shape.y,
+  };
 
   editor.complete?.();
   editor.run(
@@ -1378,20 +1444,31 @@ function startScreenshotCrop() {
 }
 
 /**
+ * @param {{ preserveTool?: boolean, forceFit?: boolean }} [options]
  * @returns {void}
  */
-function finishScreenshotCrop() {
+function finishScreenshotCrop(options = {}) {
   const { editor } = editorState;
   if (!editor || (!editorState.isCroppingScreenshot && !isScreenshotCropModeActive())) return;
 
+  const cropChanged = hasScreenshotCropChanged();
+
   editor.complete?.();
   editor.setCroppingShape?.(null);
-  editor.setCurrentTool?.('select.idle');
+  if (!options.preserveTool) {
+    editor.setCurrentTool?.('select.idle');
+  }
+  editor.selectNone();
   editorState.isCroppingScreenshot = false;
   setScreenshotLocked(true);
   setCropButtonActive(false);
   document.body.classList.remove('crop-mode-active');
   updateScreenshotExportBounds();
+
+  if (cropChanged || options.forceFit) {
+    fitScreenshotToViewport();
+  }
+  editorState.cropInitialState = null;
 }
 
 /**

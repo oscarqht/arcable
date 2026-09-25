@@ -411,6 +411,27 @@ export function widgetToRaindropItemInput(
   targetOrder?: number
 ): Parameters<typeof createRaindropBookmarks>[1][number] {
   const order = targetOrder !== undefined ? targetOrder : widget.order;
+  const config = { ...(widget.config || {}) };
+  const rawConfigJson = JSON.stringify(widget.config || {});
+  const configB64 = encodeSafePayload(rawConfigJson);
+  const notePayload: Record<string, any> = { config_b64: configB64 };
+
+  if (typeof config.text === 'string') {
+    const textB64 = encodeSafePayload(config.text);
+    config.text_b64 = textB64;
+    // Replace ASCII '<' and '>' in excerpt string with full-width counterparts '＜' and '＞'
+    // so Raindrop backend HTML/text sanitizers do not strip tags or characters from the excerpt JSON.
+    config.text = encodeRaindropTitle(config.text);
+    notePayload.text_b64 = textB64;
+  }
+
+  if (typeof config.title === 'string') {
+    const titleB64 = encodeSafePayload(config.title);
+    config.title_b64 = titleB64;
+    config.title = encodeRaindropTitle(config.title);
+    notePayload.title_b64 = titleB64;
+  }
+
   return {
     title: `[Widget] ${widget.style}`,
     link: `${ARCABLE_WIDGET_LINK_PREFIX}${widget.id}`,
@@ -421,8 +442,10 @@ export function widgetToRaindropItemInput(
       size: widget.size,
       order: widget.order,
       parentGroupId: widget.parentGroupId,
-      config: widget.config,
+      config,
+      config_b64: configB64,
     }),
+    note: JSON.stringify(notePayload),
     order,
     sort: order,
     collectionId: rootId,
@@ -1191,6 +1214,7 @@ export async function syncIncrementalOperations(
         const updated = await updateRaindropItem(token, remoteId, {
           title: input.title,
           excerpt: input.excerpt,
+          ...(input.note !== undefined ? { note: input.note } : {}),
           order: targetOrder,
           sort: targetOrder,
         });
@@ -1797,11 +1821,55 @@ export function reconstructWorkspace(
     try {
       if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
     } catch {}
+
+    let parsedNote: any = {};
+    if (typeof item.note === 'string' && item.note.trim().startsWith('{')) {
+      try {
+        parsedNote = JSON.parse(item.note.trim());
+      } catch {}
+    }
+
     const widgetId =
       parsedExcerpt.id ||
       (item.link?.startsWith(ARCABLE_WIDGET_LINK_PREFIX)
         ? item.link.slice(ARCABLE_WIDGET_LINK_PREFIX.length)
         : String(item._id));
+
+    let config: Record<string, any> = {};
+    if (typeof parsedExcerpt.config_b64 === 'string' && parsedExcerpt.config_b64) {
+      try {
+        config = JSON.parse(decodeSafePayload(parsedExcerpt.config_b64));
+      } catch {}
+    } else if (typeof parsedNote.config_b64 === 'string' && parsedNote.config_b64) {
+      try {
+        config = JSON.parse(decodeSafePayload(parsedNote.config_b64));
+      } catch {}
+    }
+
+    if (!config || Object.keys(config).length === 0) {
+      config = { ...(parsedExcerpt.config || {}) };
+    }
+
+    // Safely decode sticky note content (and text/title) so '<' and '>' are faithfully restored
+    if (typeof parsedExcerpt.config?.text_b64 === 'string') {
+      config.text = decodeSafePayload(parsedExcerpt.config.text_b64);
+    } else if (typeof parsedNote.text_b64 === 'string') {
+      config.text = decodeSafePayload(parsedNote.text_b64);
+    } else if (typeof config.text === 'string') {
+      config.text = decodeRaindropTitle(config.text);
+    }
+    delete config.text_b64;
+
+    if (typeof parsedExcerpt.config?.title_b64 === 'string') {
+      config.title = decodeSafePayload(parsedExcerpt.config.title_b64);
+    } else if (typeof parsedNote.title_b64 === 'string') {
+      config.title = decodeSafePayload(parsedNote.title_b64);
+    } else if (typeof config.title === 'string') {
+      config.title = decodeRaindropTitle(config.title);
+    }
+    delete config.title_b64;
+    delete config.config_b64;
+
     return {
       id: widgetId,
       raindropId: item._id,
@@ -1809,7 +1877,7 @@ export function reconstructWorkspace(
       size: parsedExcerpt.size || 'small',
       order: itemOrderMap.get(item._id) ?? (item.order ?? 0),
       parentGroupId: parsedExcerpt.parentGroupId || widgetToParentGroupMap.get(widgetId) || undefined,
-      config: parsedExcerpt.config || {},
+      config,
       createdAt: timestamp(item.created),
       updatedAt: timestamp(item.lastUpdate),
     };
@@ -3037,12 +3105,14 @@ export async function syncWorkspaceWithRaindrop(
       } else {
         const excerptChanged = existing.excerpt !== input.excerpt;
         const titleChanged = existing.title !== input.title;
+        const noteChanged = input.note !== undefined && existing.note !== input.note;
         const orderChanged = existing.sort !== targetOrder && existing.order !== targetOrder;
-        const shouldUpdate = changedIds.has(widget.id) || excerptChanged || titleChanged || orderChanged || (widget.updatedAt || 0) > timestamp(existing.lastUpdate);
+        const shouldUpdate = changedIds.has(widget.id) || excerptChanged || titleChanged || noteChanged || orderChanged || (widget.updatedAt || 0) > timestamp(existing.lastUpdate);
         if (shouldUpdate) {
           await updateRaindropItem(clean, existing._id, {
             title: input.title,
             excerpt: input.excerpt,
+            ...(input.note !== undefined ? { note: input.note } : {}),
             order: targetOrder,
             sort: targetOrder,
           });
