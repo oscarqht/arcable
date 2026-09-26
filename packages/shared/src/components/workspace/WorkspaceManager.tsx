@@ -69,6 +69,10 @@ export interface WorkspaceManagerHandle {
   setActiveSpace?: (spaceId: string) => void;
   expandAllFolders?: (spaceId: string) => void;
   collapseAllFolders?: (spaceId: string) => void;
+  expandAllFoldersAcrossAllSpaces?: () => void;
+  collapseAllFoldersAcrossAllSpaces?: () => void;
+  toggleAllFoldersAcrossAllSpaces?: () => boolean;
+  areAllFoldersCollapsed?: () => boolean;
   getArchiveCollectionId?: () => number | undefined;
 }
 
@@ -129,6 +133,7 @@ export interface WorkspaceManagerProps {
   defaultViewMode?: 'grid' | 'focused';
   onActiveSpaceChange?: (activeSpace: Space | null) => void;
   onThemeChange?: (themeTokens: SpaceThemeTokens) => void;
+  onFoldersCollapseStateChange?: (state: { areAllCollapsed: boolean; totalFolders: number }) => void;
   onSyncRaindrop?: (params: {
     localState: ArcableWorkspaceData;
     deviceId: string;
@@ -187,6 +192,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       defaultViewMode = 'grid',
       onActiveSpaceChange,
       onThemeChange,
+      onFoldersCollapseStateChange,
       onSyncRaindrop,
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
@@ -215,6 +221,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setAllFoldersExpanded,
     expandAllFolders,
     collapseAllFolders,
+    setAllFoldersExpandedAcrossAllSpaces,
+    expandAllFoldersAcrossAllSpaces,
+    collapseAllFoldersAcrossAllSpaces,
+    toggleAllFoldersAcrossAllSpaces,
+    areAllFoldersCollapsed,
     createTab,
     updateTab,
     deleteTab,
@@ -258,6 +269,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleToggleFolderExpand = toggleFolderExpand;
   const handleExpandAllFolders = expandAllFolders;
   const handleCollapseAllFolders = collapseAllFolders;
+
+  useEffect(() => {
+    onFoldersCollapseStateChange?.({
+      areAllCollapsed: areAllFoldersCollapsed,
+      totalFolders: data.folders.length,
+    });
+  }, [areAllFoldersCollapsed, data.folders.length, onFoldersCollapseStateChange]);
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -1432,6 +1450,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       collapseAllFolders: (spaceId: string) => {
         handleCollapseAllFolders(spaceId);
       },
+      expandAllFoldersAcrossAllSpaces: () => {
+        expandAllFoldersAcrossAllSpaces();
+      },
+      collapseAllFoldersAcrossAllSpaces: () => {
+        collapseAllFoldersAcrossAllSpaces();
+      },
+      toggleAllFoldersAcrossAllSpaces: () => {
+        return toggleAllFoldersAcrossAllSpaces();
+      },
+      areAllFoldersCollapsed: () => areAllFoldersCollapsed,
       getArchiveCollectionId: () => data.raindropArchiveCollectionId,
     }),
     [
@@ -1446,6 +1474,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       setActiveSpace,
       handleExpandAllFolders,
       handleCollapseAllFolders,
+      expandAllFoldersAcrossAllSpaces,
+      collapseAllFoldersAcrossAllSpaces,
+      toggleAllFoldersAcrossAllSpaces,
+      areAllFoldersCollapsed,
     ]
   );
 

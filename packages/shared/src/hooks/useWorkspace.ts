@@ -857,6 +857,36 @@ export function useWorkspace() {
     setAllFoldersExpanded(spaceId, false);
   }, [setAllFoldersExpanded]);
 
+  const setAllFoldersExpandedAcrossAllSpaces = useCallback((isExpanded: boolean) => {
+    saveWorkspaceData((prev) => {
+      if (!prev.folders || prev.folders.length === 0) return prev;
+
+      prev.folders.forEach((folder) => {
+        setLocalFolderExpanded(folder.id, isExpanded);
+      });
+
+      return {
+        ...prev,
+        folders: prev.folders.map((f) => ({ ...f, isExpanded })),
+      };
+    });
+  }, [saveWorkspaceData]);
+
+  const expandAllFoldersAcrossAllSpaces = useCallback(() => {
+    setAllFoldersExpandedAcrossAllSpaces(true);
+  }, [setAllFoldersExpandedAcrossAllSpaces]);
+
+  const collapseAllFoldersAcrossAllSpaces = useCallback(() => {
+    setAllFoldersExpandedAcrossAllSpaces(false);
+  }, [setAllFoldersExpandedAcrossAllSpaces]);
+
+  const toggleAllFoldersAcrossAllSpaces = useCallback(() => {
+    const allCollapsed = data.folders.length > 0 && data.folders.every((f) => f.isExpanded === false);
+    const nextExpanded = allCollapsed ? true : false;
+    setAllFoldersExpandedAcrossAllSpaces(nextExpanded);
+    return nextExpanded;
+  }, [data.folders, setAllFoldersExpandedAcrossAllSpaces]);
+
   const deleteFolder = useCallback((id: string, recursive: boolean = true) => {
     saveWorkspaceData((prev) => {
       const descendantIds = recursive ? getDescendantFolderIds(id, prev.folders) : new Set<string>();
@@ -3862,6 +3892,11 @@ export function useWorkspace() {
     setAllFoldersExpanded,
     expandAllFolders,
     collapseAllFolders,
+    setAllFoldersExpandedAcrossAllSpaces,
+    expandAllFoldersAcrossAllSpaces,
+    collapseAllFoldersAcrossAllSpaces,
+    toggleAllFoldersAcrossAllSpaces,
+    areAllFoldersCollapsed: data.folders.length > 0 && data.folders.every((f) => f.isExpanded === false),
     // Tab operations
     createTab,
     updateTab,
