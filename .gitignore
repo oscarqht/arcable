@@ -63,3 +63,4 @@ Desktop.ini
 .turbo/
 .cache/
 .parcel-cache/
+.worktrees
