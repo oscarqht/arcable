@@ -165,9 +165,17 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   const scheduleGroupPopoverClose = (delay = 80) => {
+    const activeDrag = getActiveDrag();
+    if (activeDrag && activeDrag.parentGroupId) {
+      return;
+    }
     clearGroupLeaveTimer();
     const effectiveDelay = isMouseOutsidePageRef.current ? 150 : delay;
     groupLeaveTimerRef.current = setTimeout(() => {
+      const currentActiveDrag = getActiveDrag();
+      if (currentActiveDrag && currentActiveDrag.parentGroupId) {
+        return;
+      }
       if (!isMouseOverGroupRef.current && !isMouseOverGroupPopoverRef.current) {
         setGroupPopoverTab(null);
       }
@@ -176,6 +184,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   useEffect(() => {
     const handleMouseLeavePage = () => {
+      const activeDrag = getActiveDrag();
+      if (activeDrag) {
+        return;
+      }
       isMouseOutsidePageRef.current = true;
       setHoveredTabId(null);
       setHoveredWidgetId(null);
@@ -401,7 +413,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       : widgets.some((w) => w.id === (activeDrag as any)?.id);
 
     let pos: 'before' | 'after' | 'inside' = 'after';
-    if ((isTargetTab || isTargetWidget) && (isSourceTab || isSourceWidget) && onMergeFavouriteTabs) {
+    if ((isTargetTab || isTargetWidget) && (isSourceTab || isSourceWidget) && onMergeFavouriteTabs && !activeDrag?.parentGroupId) {
       if (relX < width * 0.35) {
         pos = 'before';
       } else if (relX > width * 0.65) {
@@ -441,7 +453,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
       if (!sourceId || sourceId === targetId) return;
 
-      if (pos === 'inside') {
+      if (pos === 'inside' && !activeDrag?.parentGroupId) {
         const isTarget = tabs.some((t) => t.id === targetId) || shelfWidgets.some((w) => w.id === targetId);
         const isSource = tabs.some((t) => t.id === sourceId) || widgets.some((w) => w.id === sourceId);
         if (isTarget && isSource && onMergeFavouriteTabs) {
@@ -460,6 +472,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         onReorderFavouriteItem(sourceId, targetId, effectivePos);
       } else if (onReorderFavouriteTabs) {
         onReorderFavouriteTabs(sourceId, targetId, effectivePos);
+      }
+      if (activeDrag?.parentGroupId) {
+        clearGroupLeaveTimer();
+        isMouseOverGroupRef.current = null;
+        isMouseOverGroupPopoverRef.current = false;
+        setGroupPopoverTab(null);
       }
     } catch {} finally {
       endDrag();
@@ -2010,7 +2028,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           }}
           onMouseLeave={() => {
             isMouseOverGroupPopoverRef.current = false;
-            scheduleGroupPopoverClose(80);
+            const activeDrag = getActiveDrag();
+            if (!activeDrag || activeDrag.parentGroupId !== activePopoverGroupTab.id) {
+              scheduleGroupPopoverClose(80);
+            }
           }}
           theme={shelfTheme}
         />

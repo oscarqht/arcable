@@ -2563,22 +2563,82 @@ export function useWorkspace() {
       if (targetIdx < 0) return;
 
       const sourceWidget = (data.widgets || []).find((w) => w.id === sourceId);
+      const sourceGroupTab = data.tabs.find(
+        (t) => Boolean(t.favourite) && t.urlVariants?.some((v) => v.id === sourceId)
+      );
       let moved: FavItem;
       let extractedFromGroupId: string | undefined = undefined;
+      let extractedVariantTab: Tab | undefined = undefined;
 
       if (sourceIdx < 0 && sourceWidget && sourceWidget.parentGroupId) {
-        // Dragged out of a group onto the root shelf!
+        // Dragged a widget out of a group onto the root shelf!
         extractedFromGroupId = sourceWidget.parentGroupId;
         moved = { id: sourceWidget.id, type: 'widget', createdAt: sourceWidget.createdAt };
+      } else if (sourceIdx < 0 && sourceGroupTab) {
+        // Dragged a tab variant out of a group onto the root shelf!
+        extractedFromGroupId = sourceGroupTab.id;
+        const variant = sourceGroupTab.urlVariants?.find((v) => v.id === sourceId);
+        if (!variant) return;
+
+        const newTabId = generateId('tab');
+        const matchingFavIcon =
+          variant.favIconUrl ||
+          data.tabs.find((t) => t.url === variant.url && t.favIconUrl)?.favIconUrl ||
+          data.tmpTabs?.find((t) => t.url === variant.url && t.favIconUrl)?.favIconUrl;
+
+        extractedVariantTab = {
+          id: newTabId,
+          url: variant.url,
+          customTitle: variant.name,
+          favIconUrl: matchingFavIcon,
+          customEmojiIcon: variant.customEmojiIcon,
+          pinned: false,
+          favourite: true,
+          parentSpaceId: sourceGroupTab.parentSpaceId,
+          parentFolderId: sourceGroupTab.parentFolderId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        moved = { id: extractedVariantTab.id, type: 'tab', createdAt: extractedVariantTab.createdAt };
       } else if (sourceIdx >= 0) {
         [moved] = allItems.splice(sourceIdx, 1);
       } else {
         return;
       }
 
-      const newTargetIdx = allItems.findIndex((i) => i.id === targetId);
-      const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
-      allItems.splice(insertIdx, 0, moved);
+      // Check if the parent group has now become empty (0 items remaining)
+      let isParentGroupEmpty = false;
+      const parentGroupTab = extractedFromGroupId
+        ? data.tabs.find((t) => t.id === extractedFromGroupId)
+        : undefined;
+
+      if (extractedFromGroupId && parentGroupTab) {
+        const remainingVariants = (parentGroupTab.urlVariants || []).filter((v) =>
+          extractedVariantTab ? v.id !== sourceId && Boolean(v.url) : Boolean(v.url)
+        );
+        const remainingWidgets = (data.widgets || []).filter((w) =>
+          w.parentGroupId === extractedFromGroupId && (sourceWidget ? w.id !== sourceId : true)
+        );
+        isParentGroupEmpty = remainingVariants.length === 0 && remainingWidgets.length === 0;
+      }
+
+      if (isParentGroupEmpty && extractedFromGroupId) {
+        const groupIdxInAll = allItems.findIndex((i) => i.id === extractedFromGroupId);
+        if (groupIdxInAll >= 0) {
+          if (targetId === extractedFromGroupId) {
+            allItems.splice(groupIdxInAll, 1, moved);
+          } else {
+            allItems.splice(groupIdxInAll, 1);
+            const newTargetIdx = allItems.findIndex((i) => i.id === targetId);
+            const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+            allItems.splice(insertIdx, 0, moved);
+          }
+        }
+      } else {
+        const newTargetIdx = allItems.findIndex((i) => i.id === targetId);
+        const insertIdx = position === 'before' ? newTargetIdx : newTargetIdx + 1;
+        allItems.splice(insertIdx, 0, moved);
+      }
 
       if (!extractedFromGroupId && allItems.every((item, index) => item.id === originalOrder[index])) return;
 
@@ -2587,19 +2647,52 @@ export function useWorkspace() {
         orderMap.set(item.id, (idx + 1) * 1000);
       });
 
-      // Update tabs (and clean up groupItemOrder if extracted from a group)
-      const updatedTabs = data.tabs.map((t) => {
+      if (extractedVariantTab) {
+        extractedVariantTab.order = orderMap.get(extractedVariantTab.id);
+        savePendingOperation(createWorkspaceOperation('TAB_CREATE', extractedVariantTab.id, extractedVariantTab));
+      }
+
+      let baseTabs = data.tabs;
+      if (extractedVariantTab) {
+        baseTabs = [...baseTabs, extractedVariantTab];
+      }
+      if (isParentGroupEmpty && extractedFromGroupId) {
+        const numericSourceId = /^\d+$/.test(extractedFromGroupId) ? Number(extractedFromGroupId) : undefined;
+        savePendingOperation(
+          createWorkspaceOperation('TAB_DELETE', extractedFromGroupId, {
+            raindropId: parentGroupTab?.raindropId || numericSourceId,
+            collectionId: data.raindropRootCollectionId,
+          })
+        );
+        baseTabs = baseTabs.filter((t) => t.id !== extractedFromGroupId);
+      }
+
+      // Update tabs (and clean up groupItemOrder/variants if extracted from a group)
+      const updatedTabs = baseTabs.map((t) => {
         const newOrder = orderMap.get(t.id);
         let updatedTab = t;
-        if (extractedFromGroupId && t.id === extractedFromGroupId) {
+        if (extractedFromGroupId && t.id === extractedFromGroupId && !isParentGroupEmpty) {
           const nextOrder = (t.groupItemOrder || []).filter((e) => e.id !== sourceId);
+          const nextVariants = (t.urlVariants || []).filter((v) =>
+            extractedVariantTab ? v.id !== sourceId && Boolean(v.url) : Boolean(v.url)
+          );
+          const nextDefaultVariantId = nextVariants[0]?.id || undefined;
+          const nextUrl = nextVariants[0]?.url || t.url;
           updatedTab = {
             ...updatedTab,
+            urlVariants: nextVariants.length > 0 ? nextVariants : undefined,
+            defaultVariantId: nextDefaultVariantId,
+            url: nextUrl,
             groupItemOrder: nextOrder.length > 0 ? nextOrder : undefined,
+            updatedAt: Date.now(),
           };
           savePendingOperation(
             createWorkspaceOperation('TAB_UPDATE', t.id, {
+              urlVariants: updatedTab.urlVariants || null,
+              defaultVariantId: updatedTab.defaultVariantId || null,
+              url: updatedTab.url,
               groupItemOrder: updatedTab.groupItemOrder || null,
+              updatedAt: updatedTab.updatedAt,
             })
           );
         }
@@ -2607,13 +2700,19 @@ export function useWorkspace() {
           return {
             ...updatedTab,
             order: newOrder,
-            updatedAt: t.id === sourceId || t.order !== newOrder ? Date.now() : t.updatedAt,
+            updatedAt:
+              t.id === sourceId ||
+              (extractedVariantTab && t.id === extractedVariantTab.id) ||
+              t.order !== newOrder
+                ? Date.now()
+                : updatedTab.updatedAt,
           };
         }
         return updatedTab;
       });
 
       updatedTabs.forEach((t) => {
+        if (extractedVariantTab && t.id === extractedVariantTab.id) return;
         const oldTab = data.tabs.find((orig) => orig.id === t.id);
         if (oldTab && oldTab.order !== t.order) {
           savePendingOperation(
@@ -2637,7 +2736,7 @@ export function useWorkspace() {
         return w;
       });
 
-      if (extractedFromGroupId) {
+      if (extractedFromGroupId && sourceWidget) {
         savePendingOperation(
           createWorkspaceOperation('WIDGET_UPDATE', sourceId, {
             parentGroupId: null,
@@ -2662,7 +2761,7 @@ export function useWorkspace() {
         widgets: updatedWidgets,
       }));
     },
-    [data.tabs, data.widgets, saveWorkspaceData]
+    [data.tabs, data.widgets, data.tmpTabs, data.raindropRootCollectionId, saveWorkspaceData]
   );
 
   const reorderFavouriteTabs = useCallback(
@@ -3685,6 +3784,86 @@ export function useWorkspace() {
     [saveWorkspaceData]
   );
 
+  const extractVariantFromGroup = useCallback(
+    (groupTabId: string, variantId: string, targetOrder?: number) => {
+      saveWorkspaceData((prev) => {
+        const groupTab = prev.tabs.find((t) => t.id === groupTabId);
+        if (!groupTab || !groupTab.urlVariants) return prev;
+        const variant = groupTab.urlVariants.find((v) => v.id === variantId);
+        if (!variant) return prev;
+
+        const remainingVariants = groupTab.urlVariants.filter((v) => v.id !== variantId && Boolean(v.url));
+        const remainingWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === groupTabId);
+        const isGroupEmpty = remainingVariants.length === 0 && remainingWidgets.length === 0;
+
+        const newTabId = generateId('tab');
+        const matchingFavIcon =
+          variant.favIconUrl ||
+          prev.tabs.find((t) => t.url === variant.url && t.favIconUrl)?.favIconUrl ||
+          prev.tmpTabs?.find((t) => t.url === variant.url && t.favIconUrl)?.favIconUrl;
+
+        const newOrder = targetOrder !== undefined ? targetOrder : (groupTab.order ? groupTab.order + 10 : 0);
+
+        const newTab: Tab = {
+          id: newTabId,
+          url: variant.url,
+          customTitle: variant.name,
+          favIconUrl: matchingFavIcon,
+          customEmojiIcon: variant.customEmojiIcon,
+          pinned: false,
+          favourite: Boolean(groupTab.favourite),
+          parentSpaceId: groupTab.parentSpaceId,
+          parentFolderId: groupTab.parentFolderId,
+          order: newOrder,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTab.id, newTab));
+
+        let updatedTabs = prev.tabs;
+        if (isGroupEmpty) {
+          const numericSourceId = /^\d+$/.test(groupTab.id) ? Number(groupTab.id) : undefined;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_DELETE', groupTab.id, {
+              raindropId: groupTab.raindropId || numericSourceId,
+              collectionId: prev.raindropRootCollectionId,
+            })
+          );
+          updatedTabs = updatedTabs.filter((t) => t.id !== groupTabId);
+        } else {
+          const nextOrder = (groupTab.groupItemOrder || []).filter((e) => e.id !== variantId);
+          const nextDefaultVariantId = remainingVariants[0]?.id || undefined;
+          const nextUrl = remainingVariants[0]?.url || groupTab.url;
+          const updatedGroupTab: Tab = {
+            ...groupTab,
+            urlVariants: remainingVariants.length > 0 ? remainingVariants : undefined,
+            defaultVariantId: nextDefaultVariantId,
+            url: nextUrl,
+            groupItemOrder: nextOrder.length > 0 ? nextOrder : undefined,
+            updatedAt: Date.now(),
+          };
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
+              urlVariants: updatedGroupTab.urlVariants || null,
+              defaultVariantId: updatedGroupTab.defaultVariantId || null,
+              url: updatedGroupTab.url,
+              groupItemOrder: updatedGroupTab.groupItemOrder || null,
+              updatedAt: updatedGroupTab.updatedAt,
+            })
+          );
+          updatedTabs = updatedTabs.map((t) => (t.id === groupTabId ? updatedGroupTab : t));
+        }
+
+        return {
+          ...prev,
+          tabs: [...updatedTabs, newTab],
+        };
+      });
+    },
+    [saveWorkspaceData]
+  );
+
   const resetToDefault = useCallback(() => {
     clearStoredPendingOperations();
     saveWorkspaceData(DEFAULT_WORKSPACE);
@@ -3930,6 +4109,7 @@ export function useWorkspace() {
     ungroupTab,
     moveWidgetToGroup,
     extractWidgetFromGroup,
+    extractVariantFromGroup,
     // Bulk/utility
     resetToDefault,
     importWorkspaceData,
