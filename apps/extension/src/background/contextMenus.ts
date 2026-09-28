@@ -12,6 +12,7 @@ import {
 } from './clipboard';
 
 export const SCREENSHOT_MENU_IDS = {
+  TOOL_PARENT: 'arcable_tool_parent',
   TAKE_SCREENSHOT: 'arcable_take_screenshot',
   CAPTURE_FULL_PAGE: 'arcable_capture_full_page',
 } as const;
@@ -85,15 +86,23 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
     // 1. Create Copy context menu items
     createCopyContextMenuItems(CONTEXTS);
 
-    // 2. Always create top-level screenshot context menu items
+    // 2. Create Tool parent menu and screenshot items
+    chrome.contextMenus.create({
+      id: SCREENSHOT_MENU_IDS.TOOL_PARENT,
+      title: '🛠️ Tool',
+      contexts: CONTEXTS,
+    });
+
     chrome.contextMenus.create({
       id: SCREENSHOT_MENU_IDS.TAKE_SCREENSHOT,
+      parentId: SCREENSHOT_MENU_IDS.TOOL_PARENT,
       title: '📸 Take Screenshot',
       contexts: CONTEXTS,
     });
 
     chrome.contextMenus.create({
       id: SCREENSHOT_MENU_IDS.CAPTURE_FULL_PAGE,
+      parentId: SCREENSHOT_MENU_IDS.TOOL_PARENT,
       title: '📜 Capture Full Page',
       contexts: CONTEXTS,
     });
