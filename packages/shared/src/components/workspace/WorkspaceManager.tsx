@@ -1386,7 +1386,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       const activeInfo = await getActiveBrowserTabInfo(onCaptureCurrentTab);
       if (!activeInfo?.url) return;
 
-      const updates = computeTabUrlReplacement(tab, activeInfo.url, targetVariantId, activeInfo.favIconUrl);
+      const updates = computeTabUrlReplacement(
+        tab,
+        activeInfo.url,
+        targetVariantId,
+        activeInfo.favIconUrl,
+        activeInfo.title
+      );
       updateTab(tab.id, updates);
     },
     [customOnReplaceTabUrl, onCaptureCurrentTab, updateTab]
