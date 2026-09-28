@@ -82,11 +82,17 @@ export interface SpaceCardProps {
   onMoveSiblingItem?: (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => void;
   onReorderSiblingItem?: (params: {
     sourceId: string;
-    sourceType: 'folder' | 'tab';
+    sourceType: 'folder' | 'tab' | 'favTab';
     targetId: string;
     targetType: 'folder' | 'tab';
     position: 'before' | 'after' | 'inside';
+    parentGroupId?: string;
   }) => void;
+  onDropFavTabToSpace?: (
+    sourceId: string,
+    spaceId: string,
+    parentGroupId?: string
+  ) => void;
   onReorderPinnedTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   onMoveSpace?: (spaceId: string, direction: 'left' | 'right') => void;
   onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
@@ -144,6 +150,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
   onToggleFavouriteTab,
   onMoveSiblingItem,
   onReorderSiblingItem,
+  onDropFavTabToSpace,
   onReorderPinnedTabs,
   onMoveSpace,
   onReplaceTabUrl,
@@ -474,7 +481,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
         }}
         onClick={toggleCollapse}
         onDragOver={(e) => {
-          if (isDragAcceptable(e, ['tmpTab'])) {
+          if (isDragAcceptable(e, ['tmpTab', 'favTab'])) {
             e.preventDefault();
             e.stopPropagation();
             setHeaderDropActive(true);
@@ -484,17 +491,21 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
           setHeaderDropActive(false);
         }}
         onDrop={(e) => {
-          if (!isDragAcceptable(e, ['tmpTab'])) return;
+          if (!isDragAcceptable(e, ['tmpTab', 'favTab'])) return;
           e.preventDefault();
           e.stopPropagation();
           setHeaderDropActive(false);
           try {
             const raw = e.dataTransfer.getData('application/json');
             const activeDrag = getActiveDrag();
-            const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
-            if (!parsed || !parsed.id || parsed.type !== 'tmpTab') return;
-            const tab = (parsed.tmpTab || parsed) as TmpTab;
-            onMoveTmpTabToSpace?.(tab, space.id);
+            const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
+            if (!parsed || !parsed.id) return;
+            if (parsed.type === 'tmpTab') {
+              const tab = (parsed.tmpTab || parsed) as TmpTab;
+              onMoveTmpTabToSpace?.(tab, space.id);
+            } else if (parsed.type === 'favTab') {
+              onDropFavTabToSpace?.(parsed.id, space.id, parsed.parentGroupId);
+            }
           } catch {} finally {
             endDrag();
           }
@@ -632,7 +643,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
               {/* Folders & Tabs Hierarchy (Interleaved Siblings) */}
               <div
                 onDragOver={(e) => {
-                  if (isDragAcceptable(e, ['tmpTab'])) {
+                  if (isDragAcceptable(e, ['tmpTab', 'favTab'])) {
                     e.preventDefault();
                     e.stopPropagation();
                     setRootDropActive(true);
@@ -642,17 +653,21 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                   setRootDropActive(false);
                 }}
                 onDrop={(e) => {
-                  if (!isDragAcceptable(e, ['tmpTab'])) return;
+                  if (!isDragAcceptable(e, ['tmpTab', 'favTab'])) return;
                   e.preventDefault();
                   e.stopPropagation();
                   setRootDropActive(false);
                   try {
                     const raw = e.dataTransfer.getData('application/json');
                     const activeDrag = getActiveDrag();
-                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
-                    if (!parsed || !parsed.id || parsed.type !== 'tmpTab') return;
-                    const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
-                    onDropTmpTab?.(tmpTab, undefined, undefined, undefined, space.id);
+                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
+                    if (!parsed || !parsed.id) return;
+                    if (parsed.type === 'tmpTab') {
+                      const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+                      onDropTmpTab?.(tmpTab, undefined, undefined, undefined, space.id);
+                    } else if (parsed.type === 'favTab') {
+                      onDropFavTabToSpace?.(parsed.id, space.id, parsed.parentGroupId);
+                    }
                   } catch {} finally {
                     endDrag();
                   }
@@ -774,7 +789,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                         try {
                           const raw = e.dataTransfer.getData('application/json');
                           const activeDrag = getActiveDrag();
-                          const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+                          const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
                           if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
                           // Folders must never be dropped onto or below tab items
                           if (parsed.type === 'folder') return;
@@ -790,10 +805,11 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
 
                           onReorderSiblingItem?.({
                             sourceId: parsed.id,
-                            sourceType: parsed.type as 'folder' | 'tab',
+                            sourceType: parsed.type as 'folder' | 'tab' | 'favTab',
                             targetId: targetTab.id,
                             targetType: 'tab',
                             position: pos,
+                            parentGroupId: parsed.parentGroupId,
                           });
                         } catch {}
                       }}

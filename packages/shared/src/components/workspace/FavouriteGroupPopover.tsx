@@ -9,6 +9,7 @@ import {
   WorkspaceWidget,
   WidgetStyle,
   WidgetSize,
+  TmpTab,
 } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { SpaceThemeTokens } from '../../utils/spaceTheme';
@@ -21,7 +22,7 @@ import {
   MinusIcon,
   TrashIcon,
 } from '../Icons';
-import { startDrag, endDrag } from '../../utils/dragState';
+import { startDrag, endDrag, getActiveDrag, isDragAcceptable } from '../../utils/dragState';
 import { WidgetTileContent, buildClockInfo, NOTE_COLORS } from './widgets';
 
 export interface FavouriteGroupPopoverProps {
@@ -47,6 +48,18 @@ export interface FavouriteGroupPopoverProps {
     sourceItemId: string,
     targetItemId: string,
     position: 'before' | 'after'
+  ) => void;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    groupTabId: string,
+    targetVariantId?: string,
+    position?: 'before' | 'after'
+  ) => void;
+  onDropNormalTab?: (
+    tabId: string,
+    groupTabId: string,
+    targetVariantId?: string,
+    position?: 'before' | 'after'
   ) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -95,6 +108,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   highlightedTabId,
   onCloseAssociatedTab,
   onReorderVariant,
+  onDropTmpTab,
+  onDropNormalTab,
   onMouseEnter,
   onMouseLeave,
   theme,
@@ -104,6 +119,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('after');
+  const [isDraggedOutOfPopover, setIsDraggedOutOfPopover] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -163,28 +179,67 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     return list;
   }, [groupTab.groupItemOrder, variants, childWidgets]);
 
+  // Track dragging out of popover
+  useEffect(() => {
+    if (!draggedItemId) {
+      setIsDraggedOutOfPopover(false);
+      return;
+    }
+
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (!popoverRef.current) return;
+      if (e.clientX === 0 && e.clientY === 0) return;
+
+      const rect = popoverRef.current.getBoundingClientRect();
+      const margin = 12;
+      const isOutside =
+        e.clientX < rect.left - margin ||
+        e.clientX > rect.right + margin ||
+        e.clientY < rect.top - margin ||
+        e.clientY > rect.bottom + margin;
+
+      setIsDraggedOutOfPopover(isOutside);
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver);
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+    };
+  }, [draggedItemId]);
+
   const handleDragStart = (e: React.DragEvent, id: string, type: 'tab' | 'widget') => {
     e.stopPropagation();
     setDraggedItemId(id);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', id);
     // Allow dragging out of popover onto the root Favourite Shelf
-    startDrag(e, { id, type: type === 'widget' ? 'widget' : 'favTab' });
+    startDrag(e, {
+      id,
+      type: type === 'widget' ? 'widget' : 'favTab',
+      parentGroupId: groupTab.id,
+    });
   };
 
-  const handleDragOver = (e: React.DragEvent, targetId: string) => {
-    if (!draggedItemId || draggedItemId === targetId) return;
+  const handleDragOver = (e: React.DragEvent, targetId?: string) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
+      return;
+    }
+    const activeDrag = getActiveDrag();
+    const activeId = draggedItemId || activeDrag?.id;
+    if (activeId && targetId && activeId === targetId) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = e.clientX - rect.left;
-    const pos = relX < rect.width / 2 ? 'before' : 'after';
+    if (targetId) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const pos = relX < rect.width / 2 ? 'before' : 'after';
 
-    if (dragOverItemId !== targetId || dropPosition !== pos) {
-      setDragOverItemId(targetId);
-      setDropPosition(pos);
+      if (dragOverItemId !== targetId || dropPosition !== pos) {
+        setDragOverItemId(targetId);
+        setDropPosition(pos);
+      }
     }
   };
 
@@ -201,24 +256,51 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     }
   };
 
-  const handleDrop = (e: React.DragEvent, targetId: string) => {
+  const handleDrop = (e: React.DragEvent, targetId?: string) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = draggedItemId;
+    const activeDrag = getActiveDrag();
+    const raw = e.dataTransfer.getData('application/json');
+    let parsed: any = activeDrag;
+    if (!parsed && raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {}
+    }
     const pos = dropPosition;
     setDraggedItemId(null);
     setDragOverItemId(null);
+    setIsDraggedOutOfPopover(false);
     endDrag();
 
-    if (sourceId && sourceId !== targetId && onReorderVariant) {
+    if (parsed?.type === 'tmpTab') {
+      const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+      onDropTmpTab?.(tmpTab, groupTab.id, targetId, pos);
+      return;
+    }
+    if (parsed?.type === 'tab') {
+      onDropNormalTab?.(parsed.id, groupTab.id, targetId, pos);
+      return;
+    }
+
+    const sourceId = draggedItemId || activeDrag?.id;
+    if (sourceId && targetId && sourceId !== targetId && onReorderVariant) {
       onReorderVariant(groupTab.id, sourceId, targetId, pos);
     }
   };
 
   const handleDragEnd = () => {
+    const wasOutOfPopover = isDraggedOutOfPopover;
     setDraggedItemId(null);
     setDragOverItemId(null);
+    setIsDraggedOutOfPopover(false);
     endDrag();
+    if (wasOutOfPopover) {
+      onClose();
+    }
   };
 
   // Click outside and Escape key to close popover or add menu
@@ -226,6 +308,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     if (!isOpen) return;
 
     const handlePointerDown = (e: MouseEvent) => {
+      if (draggedItemId || getActiveDrag()) return;
       if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
         setIsAddMenuOpen(false);
       }
@@ -250,7 +333,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
       window.removeEventListener('mousedown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose, isAddMenuOpen]);
+  }, [isOpen, onClose, isAddMenuOpen, draggedItemId]);
 
   if (!isOpen || !anchorRect || typeof document === 'undefined') return null;
 
@@ -290,9 +373,27 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
         overflow: 'hidden',
         boxSizing: 'border-box',
         animation: 'fadeIn 0.12s ease',
+        opacity: isDraggedOutOfPopover ? 0 : 1,
+        pointerEvents: isDraggedOutOfPopover ? 'none' : 'auto',
+        visibility: isDraggedOutOfPopover ? 'hidden' : 'visible',
+        transition: 'opacity 0.12s ease',
       }}
       onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseLeave={() => {
+        if (draggedItemId || (getActiveDrag() && getActiveDrag()?.parentGroupId === groupTab.id)) {
+          return;
+        }
+        onMouseLeave?.();
+      }}
+      onDragOver={(e) => {
+        if (isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onDrop={(e) => {
+        handleDrop(e);
+      }}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}
@@ -638,7 +739,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
           </div>
         ) : (
           items.map((item) => {
-            const isDragged = draggedItemId === item.id;
+            const isDragged = (draggedItemId || getActiveDrag()?.id) === item.id;
             const isDragOver = dragOverItemId === item.id;
             const isHovered = hoveredItemId === item.id;
 

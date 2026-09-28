@@ -12,6 +12,8 @@ import {
   BackupRestoreModal,
   LogInIcon,
   LogOutIcon,
+  FolderIcon,
+  FolderOpenIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme } from '@arcable/shared/hooks';
 import {
@@ -31,6 +33,10 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
+  const [foldersCollapseState, setFoldersCollapseState] = useState<{ areAllCollapsed: boolean; totalFolders: number }>({
+    areAllCollapsed: false,
+    totalFolders: 0,
+  });
   // Raindrop Auth State
   const [authState, setAuthState] = useState<RaindropAuthState>({
     isAuthenticated: false,
@@ -323,6 +329,59 @@ export default function HomePage() {
               <span className="header-btn-text">Space</span>
             </button>
 
+            {/* Toggle Collapse/Expand All Folders Button */}
+            <button
+              type="button"
+              className="header-action-btn"
+              onClick={() => {
+                if (workspaceRef.current?.toggleAllFoldersAcrossAllSpaces) {
+                  const nextExpanded = workspaceRef.current.toggleAllFoldersAcrossAllSpaces();
+                  setFoldersCollapseState((prev) => ({
+                    ...prev,
+                    areAllCollapsed: !nextExpanded,
+                  }));
+                }
+              }}
+              disabled={!authState.isAuthenticated || foldersCollapseState.totalFolders === 0}
+              title={
+                !authState.isAuthenticated || foldersCollapseState.totalFolders === 0
+                  ? 'No folders to collapse or expand'
+                  : foldersCollapseState.areAllCollapsed
+                  ? 'Expand all folders in all spaces'
+                  : 'Collapse all folders in all spaces'
+              }
+              aria-label={
+                foldersCollapseState.areAllCollapsed
+                  ? 'Expand all folders in all spaces'
+                  : 'Collapse all folders in all spaces'
+              }
+              style={{
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: !authState.isAuthenticated || foldersCollapseState.totalFolders === 0 ? 'not-allowed' : 'pointer',
+                opacity: !authState.isAuthenticated || foldersCollapseState.totalFolders === 0 ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
+              }}
+            >
+              {foldersCollapseState.areAllCollapsed ? (
+                <FolderOpenIcon size={14} />
+              ) : (
+                <FolderIcon size={14} />
+              )}
+              <span className="header-btn-text">
+                {foldersCollapseState.areAllCollapsed ? 'Expand' : 'Collapse'}
+              </span>
+            </button>
 
             {/* Backup & Restore Button */}
             <button
@@ -508,6 +567,7 @@ export default function HomePage() {
           onSearchRaindrop={authState.isAuthenticated ? handleSearchRaindrop : undefined}
           autoSync={Boolean(authState.isAuthenticated && raindropHydrated)}
           onSyncStateChange={setIsWorkspaceSyncing}
+          onFoldersCollapseStateChange={setFoldersCollapseState}
         />
         )}
       </main>

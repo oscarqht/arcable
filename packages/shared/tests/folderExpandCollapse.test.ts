@@ -93,4 +93,30 @@ workFolderIds.forEach((id) => {
   );
 });
 
+console.log('Testing across-all-spaces collapse and expand...');
+
+// Test collapse all across all spaces
+folders.forEach((f) => {
+  setLocalFolderExpanded(f.id, false);
+});
+folders.forEach((f) => {
+  assert(getLocalFolderExpanded(f.id, true) === false, `Folder ${f.id} should be collapsed across all spaces`);
+});
+
+// Check areAllFoldersCollapsed calculation logic
+const allCollapsedCheck = folders.length > 0 && folders.every((f) => getLocalFolderExpanded(f.id, true) === false);
+assert(allCollapsedCheck === true, 'All folders should be detected as collapsed');
+
+// Test expand all across all spaces
+folders.forEach((f) => {
+  setLocalFolderExpanded(f.id, true);
+});
+folders.forEach((f) => {
+  assert(getLocalFolderExpanded(f.id, true) === true, `Folder ${f.id} should be expanded across all spaces`);
+  assert(!storage.has(`${FOLDER_COLLAPSE_STORAGE_PREFIX}${f.id}`), `Storage key for ${f.id} should be cleared`);
+});
+
+const noneCollapsedCheck = folders.length > 0 && folders.every((f) => getLocalFolderExpanded(f.id, true) === false);
+assert(noneCollapsedCheck === false, 'Folders should not be detected as all collapsed');
+
 console.log('All folder expand/collapse tests passed successfully!');

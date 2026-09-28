@@ -34,7 +34,7 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
-import { cleanUrl, areUrlsMatching } from '../../utils/format';
+import { cleanUrl, areUrlsMatching, generateId } from '../../utils/format';
 import { computeTabUrlReplacement, getActiveBrowserTabInfo } from '../../utils/tabUtils';
 import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
 import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
@@ -69,6 +69,10 @@ export interface WorkspaceManagerHandle {
   setActiveSpace?: (spaceId: string) => void;
   expandAllFolders?: (spaceId: string) => void;
   collapseAllFolders?: (spaceId: string) => void;
+  expandAllFoldersAcrossAllSpaces?: () => void;
+  collapseAllFoldersAcrossAllSpaces?: () => void;
+  toggleAllFoldersAcrossAllSpaces?: () => boolean;
+  areAllFoldersCollapsed?: () => boolean;
   getArchiveCollectionId?: () => number | undefined;
 }
 
@@ -129,6 +133,7 @@ export interface WorkspaceManagerProps {
   defaultViewMode?: 'grid' | 'focused';
   onActiveSpaceChange?: (activeSpace: Space | null) => void;
   onThemeChange?: (themeTokens: SpaceThemeTokens) => void;
+  onFoldersCollapseStateChange?: (state: { areAllCollapsed: boolean; totalFolders: number }) => void;
   onSyncRaindrop?: (params: {
     localState: ArcableWorkspaceData;
     deviceId: string;
@@ -187,6 +192,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       defaultViewMode = 'grid',
       onActiveSpaceChange,
       onThemeChange,
+      onFoldersCollapseStateChange,
       onSyncRaindrop,
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
@@ -215,6 +221,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     setAllFoldersExpanded,
     expandAllFolders,
     collapseAllFolders,
+    setAllFoldersExpandedAcrossAllSpaces,
+    expandAllFoldersAcrossAllSpaces,
+    collapseAllFoldersAcrossAllSpaces,
+    toggleAllFoldersAcrossAllSpaces,
+    areAllFoldersCollapsed,
     createTab,
     updateTab,
     deleteTab,
@@ -258,6 +269,13 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const handleToggleFolderExpand = toggleFolderExpand;
   const handleExpandAllFolders = expandAllFolders;
   const handleCollapseAllFolders = collapseAllFolders;
+
+  useEffect(() => {
+    onFoldersCollapseStateChange?.({
+      areAllCollapsed: areAllFoldersCollapsed,
+      totalFolders: data.folders.length,
+    });
+  }, [areAllFoldersCollapsed, data.folders.length, onFoldersCollapseStateChange]);
 
   const virtualSyncedSpace: Space = useMemo(
     () => ({
@@ -1432,6 +1450,16 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       collapseAllFolders: (spaceId: string) => {
         handleCollapseAllFolders(spaceId);
       },
+      expandAllFoldersAcrossAllSpaces: () => {
+        expandAllFoldersAcrossAllSpaces();
+      },
+      collapseAllFoldersAcrossAllSpaces: () => {
+        collapseAllFoldersAcrossAllSpaces();
+      },
+      toggleAllFoldersAcrossAllSpaces: () => {
+        return toggleAllFoldersAcrossAllSpaces();
+      },
+      areAllFoldersCollapsed: () => areAllFoldersCollapsed,
       getArchiveCollectionId: () => data.raindropArchiveCollectionId,
     }),
     [
@@ -1446,6 +1474,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       setActiveSpace,
       handleExpandAllFolders,
       handleCollapseAllFolders,
+      expandAllFoldersAcrossAllSpaces,
+      collapseAllFoldersAcrossAllSpaces,
+      toggleAllFoldersAcrossAllSpaces,
+      areAllFoldersCollapsed,
     ]
   );
 
@@ -1733,6 +1765,384 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     ]
   );
 
+  const handleDropTmpTabIntoFavourite = useCallback(
+    (
+      tmpTab: TmpTab,
+      targetId?: string,
+      position?: 'before' | 'after' | 'inside',
+      groupTabId?: string
+    ) => {
+      const liveTmpTab =
+        filteredTmpTabs.find((t) => t.id === tmpTab?.id) ||
+        (data.tmpTabs || []).find((t) => t.id === tmpTab?.id) ||
+        filteredTmpTabs.find((t) => t.url && tmpTab?.url && areUrlsMatching(t.url, tmpTab.url)) ||
+        (data.tmpTabs || []).find((t) => t.url && tmpTab?.url && areUrlsMatching(t.url, tmpTab.url));
+
+      const resolvedTmpTab: TmpTab = {
+        ...tmpTab,
+        ...(liveTmpTab || {}),
+        url: tmpTab?.url || liveTmpTab?.url || '',
+        browserTabId: liveTmpTab?.browserTabId ?? tmpTab?.browserTabId,
+        windowId: liveTmpTab?.windowId ?? tmpTab?.windowId,
+        deviceId: liveTmpTab?.deviceId ?? tmpTab?.deviceId,
+        deviceName: liveTmpTab?.deviceName ?? tmpTab?.deviceName,
+        deviceType: liveTmpTab?.deviceType ?? tmpTab?.deviceType,
+      };
+
+      // Case A: Inside a group popover (groupTabId provided)
+      if (groupTabId) {
+        const groupTab = data.tabs.find((t) => t.id === groupTabId);
+        if (!groupTab) return;
+
+        const newVariantId = generateId('tab-var');
+        const newVariant: TabUrlVariant = {
+          id: newVariantId,
+          url: resolvedTmpTab.url,
+          name: resolvedTmpTab.customTitle || resolvedTmpTab.title || 'Tab',
+          favIconUrl: resolvedTmpTab.favIconUrl,
+        };
+
+        const existingVariants = groupTab.urlVariants || [];
+        const nextVariants = [...existingVariants];
+        let targetIdx = targetId ? nextVariants.findIndex((v) => v.id === targetId) : -1;
+        if (targetIdx < 0) {
+          nextVariants.push(newVariant);
+        } else {
+          const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+          nextVariants.splice(insertIdx, 0, newVariant);
+        }
+
+        const nextOrder = [...(groupTab.groupItemOrder || [])];
+        const orderTargetIdx = targetId ? nextOrder.findIndex((o) => o.id === targetId) : -1;
+        if (orderTargetIdx < 0) {
+          nextOrder.push({ id: newVariantId, type: 'tab' });
+        } else {
+          const insertIdx = position === 'before' ? orderTargetIdx : orderTargetIdx + 1;
+          nextOrder.splice(insertIdx, 0, { id: newVariantId, type: 'tab' });
+        }
+
+        updateTab(groupTabId, {
+          urlVariants: nextVariants,
+          groupItemOrder: nextOrder,
+        });
+
+        deleteTmpTab(resolvedTmpTab.id);
+        const pseudoTab: Tab = {
+          ...groupTab,
+          id: newVariantId,
+          url: resolvedTmpTab.url,
+          customTitle: newVariant.name,
+          favIconUrl: newVariant.favIconUrl,
+        };
+        onTabPromoted?.(pseudoTab, resolvedTmpTab);
+        return;
+      }
+
+      // Case B: Dropped onto center of target item on shelf (position === 'inside')
+      if (targetId && position === 'inside') {
+        const targetTab = data.tabs.find((t) => t.id === targetId);
+        const targetWidget = (data.widgets || []).find((w) => w.id === targetId);
+
+        if (targetTab) {
+          const newVariantId = generateId('tab-var');
+          const newVariant: TabUrlVariant = {
+            id: newVariantId,
+            url: resolvedTmpTab.url,
+            name: resolvedTmpTab.customTitle || resolvedTmpTab.title || 'Tab',
+            favIconUrl: resolvedTmpTab.favIconUrl,
+          };
+
+          const existingVariants: TabUrlVariant[] =
+            targetTab.urlVariants && targetTab.urlVariants.length > 0
+              ? [...targetTab.urlVariants]
+              : [
+                  {
+                    id: generateId('tab-var'),
+                    url: targetTab.url,
+                    name: targetTab.customTitle || 'Tab 1',
+                    favIconUrl: targetTab.favIconUrl,
+                    customEmojiIcon: targetTab.customEmojiIcon,
+                  },
+                ];
+
+          existingVariants.push(newVariant);
+
+          const groupItemOrder: { id: string; type: 'tab' | 'widget' }[] =
+            targetTab.groupItemOrder && targetTab.groupItemOrder.length > 0
+              ? [...targetTab.groupItemOrder, { id: newVariantId, type: 'tab' as const }]
+              : existingVariants.map((v) => ({ id: v.id, type: 'tab' as const }));
+
+          updateTab(targetId, {
+            isGroup: true,
+            urlVariants: existingVariants,
+            groupItemOrder,
+          });
+
+          deleteTmpTab(resolvedTmpTab.id);
+          const pseudoTab: Tab = {
+            ...targetTab,
+            id: newVariantId,
+            url: resolvedTmpTab.url,
+            customTitle: newVariant.name,
+            favIconUrl: newVariant.favIconUrl,
+          };
+          onTabPromoted?.(pseudoTab, resolvedTmpTab);
+          return;
+        }
+
+        if (targetWidget) {
+          const groupTabId = generateId('tab');
+          const variantTabId = generateId('tab-var');
+          const variantTab: TabUrlVariant = {
+            id: variantTabId,
+            url: resolvedTmpTab.url,
+            name: resolvedTmpTab.customTitle || resolvedTmpTab.title || 'Tab',
+            favIconUrl: resolvedTmpTab.favIconUrl,
+          };
+
+          const newGroupTab: Tab = {
+            id: groupTabId,
+            url: resolvedTmpTab.url,
+            customTitle: 'Group',
+            favourite: true,
+            pinned: false,
+            order: targetWidget.order ?? 0,
+            isGroup: true,
+            urlVariants: [variantTab],
+            defaultVariantId: variantTabId,
+            groupItemOrder: [
+              { id: targetWidget.id, type: 'widget' },
+              { id: variantTabId, type: 'tab' },
+            ],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+
+          createTab(newGroupTab);
+          updateWidget(targetWidget.id, { parentGroupId: groupTabId });
+          deleteTmpTab(resolvedTmpTab.id);
+          onTabPromoted?.(newGroupTab, resolvedTmpTab);
+          return;
+        }
+      }
+
+      // Case C: Dropped before/after shelf item or onto shelf background / + button
+      const sortedShelfItems: { id: string; order?: number }[] = [
+        ...favouriteTabs.map((t) => ({ id: t.id, order: t.order })),
+        ...widgets.filter((w) => !w.parentGroupId).map((w) => ({ id: w.id, order: w.order })),
+      ].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      let targetOrder = 1000;
+      if (targetId && (position === 'before' || position === 'after')) {
+        const targetIdx = sortedShelfItems.findIndex((item) => item.id === targetId);
+        if (targetIdx >= 0) {
+          if (position === 'before') {
+            const prevOrder = targetIdx > 0 ? (sortedShelfItems[targetIdx - 1].order ?? 0) : 0;
+            const nextOrder = sortedShelfItems[targetIdx].order ?? 1000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          } else {
+            const prevOrder = sortedShelfItems[targetIdx].order ?? 0;
+            const nextOrder =
+              targetIdx < sortedShelfItems.length - 1
+                ? (sortedShelfItems[targetIdx + 1].order ?? prevOrder + 2000)
+                : prevOrder + 2000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          }
+        }
+      } else {
+        const lastOrder = sortedShelfItems.length > 0 ? (sortedShelfItems[sortedShelfItems.length - 1].order ?? 0) : 0;
+        targetOrder = lastOrder + 1000;
+      }
+
+      const newTab = createTab({
+        url: resolvedTmpTab.url,
+        customTitle: resolvedTmpTab.customTitle || resolvedTmpTab.title || '',
+        favIconUrl: resolvedTmpTab.favIconUrl,
+        favourite: true,
+        pinned: false,
+        order: targetOrder,
+      });
+
+      deleteTmpTab(resolvedTmpTab.id);
+      onTabPromoted?.(newTab, resolvedTmpTab);
+    },
+    [
+      filteredTmpTabs,
+      data.tmpTabs,
+      data.tabs,
+      data.widgets,
+      favouriteTabs,
+      widgets,
+      updateTab,
+      deleteTmpTab,
+      onTabPromoted,
+      createTab,
+      updateWidget,
+    ]
+  );
+
+  const handleDropNormalTabIntoFavourite = useCallback(
+    (
+      tabId: string,
+      targetId?: string,
+      position?: 'before' | 'after' | 'inside',
+      groupTabId?: string
+    ) => {
+      const sourceTab = data.tabs.find((t) => t.id === tabId);
+      if (!sourceTab) return;
+
+      // Case A: Inside a group popover (groupTabId provided)
+      if (groupTabId) {
+        const groupTab = data.tabs.find((t) => t.id === groupTabId);
+        if (!groupTab || groupTab.id === tabId) return;
+
+        const newVariantId = generateId('tab-var');
+        const newVariant: TabUrlVariant = {
+          id: newVariantId,
+          url: sourceTab.url,
+          name: sourceTab.customTitle || 'Tab',
+          favIconUrl: sourceTab.favIconUrl,
+          customEmojiIcon: sourceTab.customEmojiIcon,
+        };
+
+        const existingVariants = groupTab.urlVariants || [];
+        const nextVariants = [...existingVariants];
+        let targetIdx = targetId ? nextVariants.findIndex((v) => v.id === targetId) : -1;
+        if (targetIdx < 0) {
+          nextVariants.push(newVariant);
+        } else {
+          const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+          nextVariants.splice(insertIdx, 0, newVariant);
+        }
+
+        const nextOrder = [...(groupTab.groupItemOrder || [])];
+        const orderTargetIdx = targetId ? nextOrder.findIndex((o) => o.id === targetId) : -1;
+        if (orderTargetIdx < 0) {
+          nextOrder.push({ id: newVariantId, type: 'tab' });
+        } else {
+          const insertIdx = position === 'before' ? orderTargetIdx : orderTargetIdx + 1;
+          nextOrder.splice(insertIdx, 0, { id: newVariantId, type: 'tab' });
+        }
+
+        updateTab(groupTabId, {
+          urlVariants: nextVariants,
+          groupItemOrder: nextOrder,
+        });
+
+        deleteTab(sourceTab.id);
+        return;
+      }
+
+      // Case B: Dropped onto center of target item on shelf (position === 'inside')
+      if (targetId && position === 'inside' && targetId !== tabId) {
+        mergeTabsIntoGroup(tabId, targetId);
+        return;
+      }
+
+      // Case C: Dropped before/after shelf item or onto shelf background / + button
+      const sortedShelfItems: { id: string; order?: number }[] = [
+        ...favouriteTabs.map((t) => ({ id: t.id, order: t.order })),
+        ...widgets.filter((w) => !w.parentGroupId).map((w) => ({ id: w.id, order: w.order })),
+      ]
+        .filter((item) => item.id !== tabId)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      let targetOrder = 1000;
+      if (targetId && (position === 'before' || position === 'after')) {
+        const targetIdx = sortedShelfItems.findIndex((item) => item.id === targetId);
+        if (targetIdx >= 0) {
+          if (position === 'before') {
+            const prevOrder = targetIdx > 0 ? (sortedShelfItems[targetIdx - 1].order ?? 0) : 0;
+            const nextOrder = sortedShelfItems[targetIdx].order ?? 1000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          } else {
+            const prevOrder = sortedShelfItems[targetIdx].order ?? 0;
+            const nextOrder =
+              targetIdx < sortedShelfItems.length - 1
+                ? (sortedShelfItems[targetIdx + 1].order ?? prevOrder + 2000)
+                : prevOrder + 2000;
+            targetOrder = (prevOrder + nextOrder) / 2;
+          }
+        }
+      } else {
+        const lastOrder = sortedShelfItems.length > 0 ? (sortedShelfItems[sortedShelfItems.length - 1].order ?? 0) : 0;
+        targetOrder = lastOrder + 1000;
+      }
+
+      updateTab(tabId, {
+        favourite: true,
+        pinned: false,
+        parentSpaceId: undefined,
+        parentFolderId: undefined,
+        order: targetOrder,
+      });
+    },
+    [data.tabs, favouriteTabs, widgets, updateTab, deleteTab, mergeTabsIntoGroup]
+  );
+
+  const handleDropFavTabToSpace = useCallback(
+    (sourceId: string, spaceId: string, parentGroupId?: string) => {
+      if (parentGroupId) {
+        const parentGroupTab = data.tabs.find((t) => t.id === parentGroupId);
+        const groupVariant = parentGroupTab?.urlVariants?.find((v) => v.id === sourceId);
+        if (!parentGroupTab || !groupVariant) return;
+
+        const siblings = getSortedSiblings(data.folders, data.tabs, spaceId, undefined);
+        const tabSiblings = siblings.filter((s: WorkspaceSiblingItem): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+        const lastOrder = tabSiblings.length > 0 ? tabSiblings[tabSiblings.length - 1].order : 0;
+        const targetOrder = lastOrder + 1000;
+
+        createTab({
+          url: groupVariant.url,
+          customTitle: groupVariant.name,
+          favIconUrl: groupVariant.favIconUrl,
+          customEmojiIcon: groupVariant.customEmojiIcon,
+          parentSpaceId: spaceId,
+          parentFolderId: undefined,
+          pinned: false,
+          favourite: false,
+          order: targetOrder,
+        });
+
+        const remainingVariants = (parentGroupTab.urlVariants || []).filter((v) => v.id !== sourceId);
+        const remainingWidgets = (data.widgets || []).filter((w) => w.parentGroupId === parentGroupId);
+        const isGroupEmpty = remainingVariants.length === 0 && remainingWidgets.length === 0;
+
+        if (isGroupEmpty) {
+          deleteTab(parentGroupId);
+        } else {
+          const nextOrder = (parentGroupTab.groupItemOrder || []).filter((e) => e.id !== sourceId);
+          const nextDefaultVariantId = remainingVariants[0]?.id;
+          const nextUrl = remainingVariants[0]?.url || parentGroupTab.url;
+          updateTab(parentGroupId, {
+            urlVariants: remainingVariants,
+            defaultVariantId: nextDefaultVariantId,
+            url: nextUrl,
+            groupItemOrder: nextOrder,
+          });
+        }
+        return;
+      }
+
+      const sourceTab = data.tabs.find((t) => t.id === sourceId);
+      if (!sourceTab) return;
+
+      const siblings = getSortedSiblings(data.folders, data.tabs, spaceId, undefined);
+      const tabSiblings = siblings.filter((s: WorkspaceSiblingItem): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+      const lastOrder = tabSiblings.length > 0 ? tabSiblings[tabSiblings.length - 1].order : 0;
+      const targetOrder = lastOrder + 1000;
+
+      updateTab(sourceId, {
+        favourite: false,
+        pinned: false,
+        parentSpaceId: spaceId,
+        parentFolderId: undefined,
+        order: targetOrder,
+      });
+    },
+    [data.tabs, data.folders, data.widgets, createTab, deleteTab, updateTab]
+  );
+
   const handleOpenNewFolderModal = (spaceId?: string, parentFolderId?: string) => {
 
     setEditingFolder(null);
@@ -1953,6 +2363,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         onReorderFavouriteTabs={reorderFavouriteTabs}
         onReorderGroupVariants={reorderGroupVariants}
         onActivateGroup={onActivateGroup}
+        onDropTmpTab={handleDropTmpTabIntoFavourite}
+        onDropNormalTab={handleDropNormalTabIntoFavourite}
         onReplaceTabUrl={handleReplaceWithCurrentUrl}
         raindropRootCollectionId={data.raindropRootCollectionId}
       />
@@ -2454,6 +2866,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                   onMoveSiblingItem={moveSiblingItem}
                   onReorderSiblingItem={reorderSiblingItem}
                   onDropTmpTab={handleDropTmpTabIntoFolder}
+                  onDropFavTabToSpace={handleDropFavTabToSpace}
                   onReorderPinnedTabs={reorderPinnedTabs}
                   onMoveSpace={moveSpace}
                   onReplaceTabUrl={handleReplaceWithCurrentUrl}
@@ -2604,6 +3017,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
                       onDropTmpTab={handleDropTmpTabIntoFolder}
+                      onDropFavTabToSpace={handleDropFavTabToSpace}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                       onReplaceTabUrl={handleReplaceWithCurrentUrl}
@@ -2785,6 +3199,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                       onMoveSiblingItem={moveSiblingItem}
                       onReorderSiblingItem={reorderSiblingItem}
                       onDropTmpTab={handleDropTmpTabIntoFolder}
+                      onDropFavTabToSpace={handleDropFavTabToSpace}
                       onReorderPinnedTabs={reorderPinnedTabs}
                       onMoveSpace={moveSpace}
                       onReplaceTabUrl={handleReplaceWithCurrentUrl}
