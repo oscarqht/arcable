@@ -23,7 +23,9 @@ export function isBlankNewTabUrl(url: string | null | undefined): boolean {
     trimmed.startsWith('chrome://newtab') ||
     trimmed.startsWith('edge://newtab') ||
     trimmed.startsWith('about:newtab') ||
-    trimmed.startsWith('about:home')
+    trimmed.startsWith('about:home') ||
+    trimmed.startsWith('about:zen') ||
+    trimmed.startsWith('chrome://zen')
   );
 }
 

@@ -9,7 +9,7 @@ import {
   isBlankNewTabUrl,
   isMobileDevice,
 } from '@arcable/shared/utils';
-import { browser, isAndroidPlatform } from './browser';
+import { browser, isAndroidPlatform, isFirefox } from './browser';
 import { reconcileTmpTabs } from './tmpTabDiff';
 import {
   forgetBrowserTab,
@@ -54,8 +54,26 @@ class TabTracker {
   private lastActiveSpaceId: string | null = null;
   private lastActiveBrowserTabIdByWindow: Map<number, number> = new Map();
   private lastActiveTabSpaceByWindow: Map<number, string> = new Map();
+  private previousActiveBrowserTabIdByWindow: Map<number, number> = new Map();
+  private previousActiveTabSpaceByWindow: Map<number, string> = new Map();
   private recentlyClosedTabs: Map<number, { spaceId: string | null; timestamp: number; windowId?: number }> = new Map();
   private pendingTabSpaces: Map<number, string> = new Map();
+
+  private setLastActiveBrowserTabId(winId: number, tabId: number): void {
+    const prev = this.lastActiveBrowserTabIdByWindow.get(winId);
+    if (prev !== undefined && prev !== tabId) {
+      this.previousActiveBrowserTabIdByWindow.set(winId, prev);
+    }
+    this.lastActiveBrowserTabIdByWindow.set(winId, tabId);
+  }
+
+  private setLastActiveTabSpace(winId: number, spaceId: string): void {
+    const prev = this.lastActiveTabSpaceByWindow.get(winId);
+    if (prev !== undefined && prev !== spaceId) {
+      this.previousActiveTabSpaceByWindow.set(winId, prev);
+    }
+    this.lastActiveTabSpaceByWindow.set(winId, spaceId);
+  }
 
   constructor() {
     this.setupListeners();
@@ -747,8 +765,8 @@ class TabTracker {
         const tabId = assignedBlankTab.id;
         this.pendingTabSpaces.set(tabId, spaceId);
         if (resolvedWinId !== undefined) {
-          this.lastActiveBrowserTabIdByWindow.set(resolvedWinId, tabId);
-          this.lastActiveTabSpaceByWindow.set(resolvedWinId, spaceId);
+          this.setLastActiveBrowserTabId(resolvedWinId, tabId);
+          this.setLastActiveTabSpace(resolvedWinId, spaceId);
           this.setActiveSpaceForWindow(resolvedWinId, spaceId);
           await rememberActiveTabForSpace(resolvedWinId, spaceId, tabId);
         }
@@ -784,8 +802,8 @@ class TabTracker {
         const tabId = unassignedBlankTab.id;
         this.pendingTabSpaces.set(tabId, spaceId);
         if (resolvedWinId !== undefined) {
-          this.lastActiveBrowserTabIdByWindow.set(resolvedWinId, tabId);
-          this.lastActiveTabSpaceByWindow.set(resolvedWinId, spaceId);
+          this.setLastActiveBrowserTabId(resolvedWinId, tabId);
+          this.setLastActiveTabSpace(resolvedWinId, spaceId);
           this.setActiveSpaceForWindow(resolvedWinId, spaceId);
           await rememberActiveTabForSpace(resolvedWinId, spaceId, tabId);
         }
@@ -804,17 +822,34 @@ class TabTracker {
       }
 
       try {
-        const createProps: any = { active: true, url: 'chrome://newtab' };
+        const createProps: any = { active: true };
+        if (!isFirefox()) {
+          createProps.url = 'chrome://newtab';
+        }
         if (resolvedWinId !== undefined) {
           createProps.windowId = resolvedWinId;
         }
-        const newTab = await (tabsApi as any).create(createProps);
+
+        let newTab: any;
+        try {
+          newTab = await (tabsApi as any).create(createProps);
+        } catch (createErr) {
+          // If browser rejected explicit url (e.g. Zen Browser / Firefox with restricted internal URL),
+          // retry by omitting url completely so browser opens native default new tab page
+          if (createProps.url) {
+            delete createProps.url;
+            newTab = await (tabsApi as any).create(createProps);
+          } else {
+            throw createErr;
+          }
+        }
+
         if (newTab && newTab.id !== undefined) {
           const win = newTab.windowId ?? resolvedWinId;
           this.pendingTabSpaces.set(newTab.id, spaceId);
           if (win !== undefined) {
-            this.lastActiveBrowserTabIdByWindow.set(win, newTab.id);
-            this.lastActiveTabSpaceByWindow.set(win, spaceId);
+            this.setLastActiveBrowserTabId(win, newTab.id);
+            this.setLastActiveTabSpace(win, spaceId);
             this.setActiveSpaceForWindow(win, spaceId);
             await rememberActiveTabForSpace(win, spaceId, newTab.id);
           }
@@ -1333,9 +1368,12 @@ class TabTracker {
         }
 
         const isBlankNewTab =
+          isBlankNewTabUrl(currentUrl) ||
           currentUrl.startsWith('chrome://newtab') ||
           currentUrl.startsWith('about:newtab') ||
           currentUrl.startsWith('edge://newtab') ||
+          currentUrl.startsWith('about:zen') ||
+          currentUrl.startsWith('chrome://zen') ||
           currentUrl === 'about:blank';
 
         const currentDevId = this.cachedDeviceId || 'dev';
@@ -1925,7 +1963,12 @@ class TabTracker {
             closedSpaceId = this.pendingTabSpaces.get(tabId) || null;
           }
           if (!closedSpaceId && winId !== undefined) {
-            closedSpaceId = this.lastActiveTabSpaceByWindow.get(winId) || null;
+            closedSpaceId =
+              (this.lastActiveBrowserTabIdByWindow.get(winId) === tabId
+                ? this.lastActiveTabSpaceByWindow.get(winId)
+                : this.previousActiveTabSpaceByWindow.get(winId)) ||
+              this.lastActiveTabSpaceByWindow.get(winId) ||
+              null;
           }
         } catch {}
 
@@ -1963,6 +2006,54 @@ class TabTracker {
             await this.saveTmpTabs(updatedTmp);
           }
         });
+
+        // Check if the closed tab was active or belonged to the active space in this window.
+        // In browsers like Zen Browser / Firefox, tabs.onActivated may fire before onRemoved,
+        // or onActivated might not catch the tab close if the tab was still closing.
+        // If the space is now empty, ensure a blank tab is opened to prevent unexpected space switch.
+        if (!isMobileDevice() && !removeInfo?.isWindowClosing && closedSpaceId && winId !== undefined) {
+          const currentWindowSpace = this.lastActiveTabSpaceByWindow.get(winId) || this.resolveActiveSpaceIdForWindow(winId);
+          const wasActiveTab =
+            this.lastActiveBrowserTabIdByWindow.get(winId) === tabId ||
+            this.previousActiveBrowserTabIdByWindow.get(winId) === tabId;
+          const wasActiveSpace =
+            currentWindowSpace === closedSpaceId ||
+            this.previousActiveTabSpaceByWindow.get(winId) === closedSpaceId;
+
+          if (wasActiveTab || wasActiveSpace) {
+            const folders = this.getStoredWorkspaceFolders();
+            const tabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+            const associations = await this.getAssociations();
+            const tmpTabs = await this.getTmpTabs();
+
+            const nearest = findNearestOpenTabInSpace(
+              closedSpaceId,
+              { browserTabId: tabId },
+              folders,
+              tabs,
+              associations,
+              tmpTabs,
+              winId
+            );
+
+            if (nearest) {
+              if (nearest.browserTabId !== this.lastActiveBrowserTabIdByWindow.get(winId)) {
+                try {
+                  this.setLastActiveBrowserTabId(winId, nearest.browserTabId);
+                  this.setLastActiveTabSpace(winId, closedSpaceId);
+                  this.setActiveSpaceForWindow(winId, closedSpaceId);
+                  await (tabsApi as any).update(nearest.browserTabId, { active: true });
+                } catch (err) {
+                  console.warn('[TabTracker] Could not activate nearest tab in space from onRemoved:', err);
+                }
+              }
+            } else {
+              // No open tabs remain in this space:
+              // Ensure or reuse single blank tab in this space to prevent unexpected space switch
+              await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
+            }
+          }
+        }
 
         setTimeout(() => {
           this.closingTabIds.delete(tabId);
@@ -2012,6 +2103,9 @@ class TabTracker {
           if (prevTabId !== undefined && this.recentlyClosedTabs.has(prevTabId)) {
             closedSpaceId = this.recentlyClosedTabs.get(prevTabId)!.spaceId;
           }
+          if (!closedSpaceId && prevTabId !== undefined) {
+            closedSpaceId = this.pendingTabSpaces.get(prevTabId) || null;
+          }
           if (!closedSpaceId && winId !== undefined) {
             closedSpaceId = this.lastActiveTabSpaceByWindow.get(winId) || this.resolveActiveSpaceIdForWindow(winId);
           }
@@ -2040,8 +2134,8 @@ class TabTracker {
                     this.closingTabIds.delete(prevTabId);
                   }
                   if (winId !== undefined) {
-                    this.lastActiveBrowserTabIdByWindow.set(winId, nearest.browserTabId);
-                    this.lastActiveTabSpaceByWindow.set(winId, closedSpaceId);
+                    this.setLastActiveBrowserTabId(winId, nearest.browserTabId);
+                    this.setLastActiveTabSpace(winId, closedSpaceId);
                     this.setActiveSpaceForWindow(winId, closedSpaceId);
                   }
                   await (tabsApi as any).update(nearest.browserTabId, { active: true });
@@ -2126,13 +2220,13 @@ class TabTracker {
 
         // Update tracking for window
         if (winId !== undefined) {
-          this.lastActiveBrowserTabIdByWindow.set(winId, activeInfo.tabId);
+          this.setLastActiveBrowserTabId(winId, activeInfo.tabId);
           const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
           const resolvedSpace = activatedTabItemId
             ? resolveSpaceIdForTabItem(activatedTabItemId, workspaceTabs, memoryTmpTabs)
             : (!isMobileDevice() && closedSpaceId && causedByClose ? closedSpaceId : null);
           if (resolvedSpace) {
-            this.lastActiveTabSpaceByWindow.set(winId, resolvedSpace);
+            this.setLastActiveTabSpace(winId, resolvedSpace);
             this.setActiveSpaceForWindow(winId, resolvedSpace);
           } else if (isMobileDevice() && causedByClose) {
             this.lastActiveTabSpaceByWindow.delete(winId);
