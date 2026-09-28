@@ -14,6 +14,7 @@ import {
   NoteConfig,
   WeatherConfig,
   SearchConfig,
+  TmpTab,
 } from '../../types/workspace';
 import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
@@ -89,6 +90,18 @@ export interface FavouriteTabsShelfProps {
   onReorderFavouriteTabs?: (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => void;
   onReorderGroupVariants?: (groupTabId: string, sourceVariantId: string, targetVariantId: string, position: 'before' | 'after') => void;
   onActivateGroup?: (groupTab: Tab) => boolean | Promise<boolean>;
+  onDropTmpTab?: (
+    tmpTab: TmpTab,
+    targetId?: string,
+    position?: 'before' | 'after' | 'inside',
+    groupTabId?: string
+  ) => void;
+  onDropNormalTab?: (
+    tabId: string,
+    targetId?: string,
+    position?: 'before' | 'after' | 'inside',
+    groupTabId?: string
+  ) => void;
   /** Raindrop collection that contains global favourites. */
   raindropRootCollectionId?: number;
   themeStyles?: SpaceThemeTokens;
@@ -129,6 +142,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onReorderFavouriteTabs,
   onReorderGroupVariants,
   onActivateGroup,
+  onDropTmpTab,
+  onDropNormalTab,
   raindropRootCollectionId,
   themeStyles,
 }) => {
@@ -390,7 +405,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent, id: string) => {
-    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem'])) {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
       return;
     }
     const activeDrag = getActiveDrag();
@@ -406,14 +421,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     const isTargetTab = tabs.some((t) => t.id === id);
     const isTargetWidget = shelfWidgets.some((w) => w.id === id);
     const isSourceTab = activeDrag
-      ? activeDrag.type === 'favTab' || activeDrag.type === 'tab'
+      ? activeDrag.type === 'favTab' || activeDrag.type === 'tab' || activeDrag.type === 'tmpTab'
       : tabs.some((t) => t.id === (activeDrag as any)?.id);
     const isSourceWidget = activeDrag
       ? activeDrag.type === 'widget'
       : widgets.some((w) => w.id === (activeDrag as any)?.id);
 
     let pos: 'before' | 'after' | 'inside' = 'after';
-    if ((isTargetTab || isTargetWidget) && (isSourceTab || isSourceWidget) && onMergeFavouriteTabs && !activeDrag?.parentGroupId) {
+    if ((isTargetTab || isTargetWidget) && (isSourceTab || isSourceWidget) && (onMergeFavouriteTabs || onDropTmpTab || onDropNormalTab) && !activeDrag?.parentGroupId) {
       if (relX < width * 0.35) {
         pos = 'before';
       } else if (relX > width * 0.65) {
@@ -435,7 +450,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent, targetId: string) => {
-    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem'])) {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
       setDragOverTabId(null);
       setDropPosition(null);
       endDrag();
@@ -450,8 +465,24 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     try {
       const raw = e.dataTransfer.getData('application/json');
       const activeDrag = getActiveDrag();
-      const sourceId = activeDrag?.id || (raw ? (JSON.parse(raw) as { id: string }).id : null);
+      let parsed: any = activeDrag;
+      if (!parsed && raw) {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {}
+      }
+      const sourceId = parsed?.id;
       if (!sourceId || sourceId === targetId) return;
+
+      if (parsed?.type === 'tmpTab') {
+        const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+        onDropTmpTab?.(tmpTab, targetId, pos);
+        return;
+      }
+      if (parsed?.type === 'tab') {
+        onDropNormalTab?.(sourceId, targetId, pos);
+        return;
+      }
 
       if (pos === 'inside' && !activeDrag?.parentGroupId) {
         const isTarget = tabs.some((t) => t.id === targetId) || shelfWidgets.some((w) => w.id === targetId);
@@ -480,6 +511,58 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         setGroupPopoverTab(null);
       }
     } catch {} finally {
+      endDrag();
+    }
+  };
+
+  const handleShelfContainerDragOver = (e: React.DragEvent) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleShelfContainerDrop = (e: React.DragEvent) => {
+    if (!isDragAcceptable(e, ['favTab', 'widget', 'favItem', 'tmpTab', 'tab'])) {
+      endDrag();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const activeDrag = getActiveDrag();
+    const raw = e.dataTransfer.getData('application/json');
+    let parsed: any = activeDrag;
+    if (!parsed && raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {}
+    }
+    const sourceId = parsed?.id;
+    if (!sourceId) {
+      endDrag();
+      return;
+    }
+
+    try {
+      if (parsed?.type === 'tmpTab') {
+        const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
+        onDropTmpTab?.(tmpTab);
+        return;
+      }
+      if (parsed?.type === 'tab') {
+        onDropNormalTab?.(sourceId);
+        return;
+      }
+
+      if (onReorderFavouriteItem && shelfItems.length > 0) {
+        const lastItem = shelfItems[shelfItems.length - 1];
+        if (lastItem.id !== sourceId) {
+          onReorderFavouriteItem(sourceId, lastItem.id, 'after');
+        }
+      }
+    } finally {
       endDrag();
     }
   };
@@ -560,6 +643,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   return (
     <div
       className="favourite-tabs-shelf"
+      onDragOver={handleShelfContainerDragOver}
+      onDrop={handleShelfContainerDrop}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -1298,12 +1383,15 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           // Render Widget Item
           const widget = item.widget;
           const isWidgetHovered = hoveredWidgetId === widget.id;
+          const isDroppingInside = isDragTarget && dropPosition === 'inside';
 
           const noteColorConfig = widget.style === 'note'
             ? NOTE_COLORS.find((c) => c.key === (widget.config as NoteConfig)?.colorTheme) || NOTE_COLORS[0]
             : null;
 
-          const widgetBg = noteColorConfig
+          const widgetBg = isDroppingInside
+            ? (shelfTheme.isDark ? 'rgba(59, 130, 246, 0.22)' : 'rgba(59, 130, 246, 0.15)')
+            : noteColorConfig
             ? (shelfTheme.isDark ? noteColorConfig.bgDark : noteColorConfig.bgLight)
             : isWidgetHovered
             ? shelfTheme.actionHoverBg
@@ -1311,7 +1399,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             ? 'rgba(0, 0, 0, 0.22)'
             : 'rgba(255, 255, 255, 0.48)';
 
-          const widgetBorder = noteColorConfig
+          const widgetBorder = isDroppingInside
+            ? `1.5px dashed ${shelfTheme.primaryColor}`
+            : noteColorConfig
             ? (shelfTheme.isDark ? `1px solid ${noteColorConfig.borderDark}` : `1px solid ${noteColorConfig.borderLight}`)
             : isWidgetHovered
             ? (shelfTheme.isDark ? '1px solid rgba(255, 255, 255, 0.35)' : '1px solid rgba(0, 0, 0, 0.25)')
@@ -1448,6 +1538,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           ref={addButtonRef}
           type="button"
           onClick={handleToggleAddMenu}
+          onDragOver={handleShelfContainerDragOver}
+          onDrop={handleShelfContainerDrop}
           title="Add favourite tab or widget"
           aria-label="Add favourite tab or widget"
           aria-haspopup="menu"
@@ -2020,6 +2112,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           highlightedTabId={highlightedTabId}
           onCloseAssociatedTab={onCloseAssociatedTab}
           onReorderVariant={onReorderGroupVariants}
+          onDropTmpTab={(tmpTab, gId, targetVarId, pos) => onDropTmpTab?.(tmpTab, targetVarId, pos, gId)}
+          onDropNormalTab={(tId, gId, targetVarId, pos) => onDropNormalTab?.(tId, targetVarId, pos, gId)}
           onUngroup={onUngroupTab}
           onMouseEnter={() => {
             isMouseOutsidePageRef.current = false;

@@ -69,10 +69,11 @@ export interface FolderItemProps {
   onMoveSiblingItem?: (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => void;
   onReorderSiblingItem?: (params: {
     sourceId: string;
-    sourceType: 'folder' | 'tab';
+    sourceType: 'folder' | 'tab' | 'favTab';
     targetId: string;
     targetType: 'folder' | 'tab';
     position: 'before' | 'after' | 'inside';
+    parentGroupId?: string;
   }) => void;
   onDropTmpTab?: (
     tmpTab: TmpTab,
@@ -586,8 +587,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    // Only accept folder, tab, or tmpTab items! Spaces or shelf tabs MUST NOT light up folders
-    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab'])) {
+    // Only accept folder, tab, tmpTab, or favTab items! Spaces MUST NOT light up folders
+    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab', 'favTab'])) {
       return;
     }
     const activeDrag = getActiveDrag();
@@ -598,12 +599,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     e.stopPropagation();
 
     // Folders are always sorted on top of tabs in the same level.
-    // When dragging a tab or tmpTab item over a folder, only allow dropping inside the folder.
+    // When dragging a tab, tmpTab, or favTab item over a folder, only allow dropping inside the folder.
     // Dragging tabs to above or below a folder as a sibling is prohibited.
     const isTabDrag =
       activeDrag?.type === 'tab' ||
       activeDrag?.type === 'tmpTab' ||
-      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab'])) && !isDragAcceptable(e, ['folder']));
+      activeDrag?.type === 'favTab' ||
+      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab']) || isDragAcceptable(e, ['favTab'])) && !isDragAcceptable(e, ['folder']));
 
     if (isTabDrag) {
       setDropIndicator('inside');
@@ -628,7 +630,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab'])) {
+    if (!isDragAcceptable(e, ['folder', 'tab', 'tmpTab', 'favTab'])) {
       setDropIndicator(null);
       endDrag();
       return;
@@ -639,13 +641,14 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     const isTabDrag =
       activeDrag?.type === 'tab' ||
       activeDrag?.type === 'tmpTab' ||
-      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab'])) && !isDragAcceptable(e, ['folder']));
+      activeDrag?.type === 'favTab' ||
+      ((isDragAcceptable(e, ['tab']) || isDragAcceptable(e, ['tmpTab']) || isDragAcceptable(e, ['favTab'])) && !isDragAcceptable(e, ['folder']));
     const currentIndicator = isTabDrag ? 'inside' : (dropIndicator || 'inside');
     setDropIndicator(null);
 
     try {
       const raw = e.dataTransfer.getData('application/json');
-      const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+      const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
       if (!parsed || !parsed.id || parsed.id === folder.id) return;
 
       if (parsed.type === 'tmpTab') {
@@ -654,14 +657,15 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         return;
       }
 
-      const effectivePosition = parsed.type === 'tab' ? 'inside' : currentIndicator;
+      const effectivePosition = (parsed.type === 'tab' || parsed.type === 'favTab') ? 'inside' : currentIndicator;
 
       onReorderSiblingItem?.({
         sourceId: parsed.id,
-        sourceType: parsed.type as 'folder' | 'tab',
+        sourceType: parsed.type as 'folder' | 'tab' | 'favTab',
         targetId: folder.id,
         targetType: 'folder',
         position: effectivePosition,
+        parentGroupId: parsed.parentGroupId,
       });
     } catch {} finally {
       endDrag();
@@ -1331,7 +1335,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   try {
                     const raw = e.dataTransfer.getData('application/json');
                     const activeDrag = getActiveDrag();
-                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+                    const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
                     if (!parsed || !parsed.id || parsed.id === targetTab.id) return;
                     // Folders must never be dropped onto or below tab items
                     if (parsed.type === 'folder') return;
@@ -1348,10 +1352,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
 
                     onReorderSiblingItem?.({
                       sourceId: parsed.id,
-                      sourceType: 'tab',
+                      sourceType: parsed.type as 'tab' | 'favTab',
                       targetId: targetTab.id,
                       targetType: 'tab',
                       position: pos,
+                      parentGroupId: parsed.parentGroupId,
                     });
                   } catch {}
                 }}
@@ -1363,7 +1368,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
           {isExpanded && totalItemCount === 0 && (
             <div
               onDragOver={(e) => {
-                if (isDragAcceptable(e, ['tab', 'tmpTab'])) {
+                if (isDragAcceptable(e, ['tab', 'tmpTab', 'favTab'])) {
                   e.preventDefault();
                   e.stopPropagation();
                   setDropIndicator('inside');
@@ -1373,25 +1378,26 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 setDropIndicator(null);
               }}
               onDrop={(e) => {
-                if (!isDragAcceptable(e, ['tab', 'tmpTab'])) return;
+                if (!isDragAcceptable(e, ['tab', 'tmpTab', 'favTab'])) return;
                 e.preventDefault();
                 e.stopPropagation();
                 setDropIndicator(null);
                 try {
                   const raw = e.dataTransfer.getData('application/json');
                   const activeDrag = getActiveDrag();
-                  const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab'; [key: string]: any }) : null);
+                  const parsed = activeDrag || (raw ? (JSON.parse(raw) as { id: string; type: 'folder' | 'tab' | 'tmpTab' | 'favTab'; [key: string]: any }) : null);
                   if (!parsed || !parsed.id) return;
                   if (parsed.type === 'tmpTab') {
                     const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
                     onDropTmpTab?.(tmpTab, folder.id);
-                  } else if (parsed.type === 'tab') {
+                  } else if (parsed.type === 'tab' || parsed.type === 'favTab') {
                     onReorderSiblingItem?.({
                       sourceId: parsed.id,
-                      sourceType: 'tab',
+                      sourceType: parsed.type as 'tab' | 'favTab',
                       targetId: folder.id,
                       targetType: 'folder',
                       position: 'inside',
+                      parentGroupId: parsed.parentGroupId,
                     });
                   }
                 } catch {} finally {

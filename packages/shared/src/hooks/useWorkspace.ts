@@ -1740,13 +1740,15 @@ export function useWorkspace() {
     }));
   }, [saveWorkspaceData]);
 
-  const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string, order?: number) => {
+  const promoteTmpTab = useCallback((tmpTab: TmpTab, targetSpaceId?: string, targetFolderId?: string, order?: number, isFavourite?: boolean) => {
     const savedTab = createTab({
       url: tmpTab.url,
       customTitle: tmpTab.customTitle || tmpTab.title,
       favIconUrl: tmpTab.favIconUrl,
-      parentSpaceId: targetSpaceId || activeSpace?.id,
-      parentFolderId: targetFolderId,
+      parentSpaceId: isFavourite ? undefined : (targetSpaceId || activeSpace?.id),
+      parentFolderId: isFavourite ? undefined : targetFolderId,
+      favourite: isFavourite,
+      pinned: false,
       order,
     });
 
@@ -2045,12 +2047,13 @@ export function useWorkspace() {
   const reorderSiblingItem = useCallback(
     (params: {
       sourceId: string;
-      sourceType: 'folder' | 'tab';
+      sourceType: 'folder' | 'tab' | 'favTab';
       targetId: string;
       targetType: 'folder' | 'tab';
       position: 'before' | 'after' | 'inside';
+      parentGroupId?: string;
     }) => {
-      const { sourceId, sourceType, targetId, targetType, position } = params;
+      const { sourceId, sourceType, targetId, targetType, position, parentGroupId } = params;
       if (sourceId === targetId) return;
 
       // Items and folders are grouped separately in the same level (items/tabs first, then folders).
@@ -2060,13 +2063,17 @@ export function useWorkspace() {
       }
 
       // 2. Prevent dragging tab items to before or after folders (only dropping inside a folder is allowed).
-      if (sourceType === 'tab' && targetType === 'folder' && position !== 'inside') {
+      if ((sourceType === 'tab' || sourceType === 'favTab') && targetType === 'folder' && position !== 'inside') {
         return;
       }
 
       const sourceFolder = sourceType === 'folder' ? data.folders.find((f) => f.id === sourceId) : undefined;
-      const sourceTab = sourceType === 'tab' ? data.tabs.find((t) => t.id === sourceId) : undefined;
-      if (!sourceFolder && !sourceTab) return;
+      const sourceTab = (sourceType === 'tab' || sourceType === 'favTab') ? data.tabs.find((t) => t.id === sourceId) : undefined;
+      const effectiveParentGroupId = parentGroupId || (sourceType === 'favTab' ? data.tabs.find((t) => Boolean(t.favourite) && t.urlVariants?.some((v) => v.id === sourceId))?.id : undefined);
+      const parentGroupTab = effectiveParentGroupId ? data.tabs.find((t) => t.id === effectiveParentGroupId) : undefined;
+      const groupVariant = parentGroupTab?.urlVariants?.find((v) => v.id === sourceId);
+
+      if (!sourceFolder && !sourceTab && !groupVariant) return;
 
       const targetFolder = targetType === 'folder' ? data.folders.find((f) => f.id === targetId) : undefined;
       const targetTab = targetType === 'tab' ? data.tabs.find((t) => t.id === targetId) : undefined;
@@ -2093,7 +2100,74 @@ export function useWorkspace() {
         const maxOrder = childSiblings.reduce((max, s) => Math.max(max, s.order), 0);
         const newOrder = maxOrder + 1000;
 
-        if (sourceType === 'tab') {
+        if (groupVariant && parentGroupTab && effectiveParentGroupId) {
+          const newTabId = generateId('tab');
+          const matchingFavIcon =
+            groupVariant.favIconUrl ||
+            data.tabs.find((t) => t.url === groupVariant.url && t.favIconUrl)?.favIconUrl ||
+            data.tmpTabs?.find((t) => t.url === groupVariant.url && t.favIconUrl)?.favIconUrl;
+
+          const newTab: Tab = {
+            id: newTabId,
+            url: groupVariant.url,
+            customTitle: groupVariant.name,
+            favIconUrl: matchingFavIcon,
+            customEmojiIcon: groupVariant.customEmojiIcon,
+            parentSpaceId: targetFolder.parentSpaceId,
+            parentFolderId: targetFolder.id,
+            pinned: false,
+            favourite: false,
+            order: newOrder,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+
+          savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTabId, newTab));
+
+          const remainingVariants = (parentGroupTab.urlVariants || []).filter((v) => v.id !== sourceId);
+          const remainingWidgets = (data.widgets || []).filter((w) => w.parentGroupId === effectiveParentGroupId);
+          const isGroupEmpty = remainingVariants.length === 0 && remainingWidgets.length === 0;
+
+          if (isGroupEmpty) {
+            savePendingOperation(createWorkspaceOperation('TAB_DELETE', effectiveParentGroupId, {}));
+          } else {
+            const nextOrder = (parentGroupTab.groupItemOrder || []).filter((e) => e.id !== sourceId);
+            const nextDefaultVariantId = remainingVariants[0]?.id;
+            const nextUrl = remainingVariants[0]?.url || parentGroupTab.url;
+            savePendingOperation(
+              createWorkspaceOperation('TAB_UPDATE', effectiveParentGroupId, {
+                urlVariants: remainingVariants,
+                defaultVariantId: nextDefaultVariantId,
+                url: nextUrl,
+                groupItemOrder: nextOrder,
+              })
+            );
+          }
+
+          saveWorkspaceData((prev) => ({
+            ...prev,
+            tabs: [
+              ...prev.tabs
+                .filter((t) => (!isGroupEmpty || t.id !== effectiveParentGroupId))
+                .map((t) =>
+                  !isGroupEmpty && t.id === effectiveParentGroupId
+                    ? {
+                        ...t,
+                        urlVariants: remainingVariants,
+                        defaultVariantId: remainingVariants[0]?.id,
+                        url: remainingVariants[0]?.url || t.url,
+                        groupItemOrder: (t.groupItemOrder || []).filter((e) => e.id !== sourceId),
+                        updatedAt: Date.now(),
+                      }
+                    : t
+                ),
+              newTab,
+            ],
+          }));
+          return;
+        }
+
+        if (sourceType === 'tab' || sourceType === 'favTab') {
           const currentTab = data.tabs.find((t) => t.id === sourceId);
           let uniqueTitle: string | undefined;
           let nextVariants = currentTab?.urlVariants;
@@ -2226,6 +2300,103 @@ export function useWorkspace() {
       );
 
       const updatedOrderMap = new Map<string, number>();
+
+      if (groupVariant && parentGroupTab && effectiveParentGroupId) {
+        const newTabId = generateId('tab');
+        const matchingFavIcon =
+          groupVariant.favIconUrl ||
+          data.tabs.find((t) => t.url === groupVariant.url && t.favIconUrl)?.favIconUrl ||
+          data.tmpTabs?.find((t) => t.url === groupVariant.url && t.favIconUrl)?.favIconUrl;
+
+        const dummyTab: Tab = {
+          id: newTabId,
+          url: groupVariant.url,
+          customTitle: groupVariant.name,
+          favIconUrl: matchingFavIcon,
+          customEmojiIcon: groupVariant.customEmojiIcon,
+          parentSpaceId,
+          parentFolderId: parentFolderId || undefined,
+          pinned: false,
+          favourite: false,
+          order: 0,
+        };
+
+        const sourceItem = { type: 'tab' as const, data: dummyTab, id: newTabId, order: 0 };
+        const tabSiblings = siblings.filter((s): s is WorkspaceSiblingItem & { type: 'tab' } => s.type === 'tab');
+        let targetIdx = tabSiblings.findIndex((s) => s.id === targetId);
+        if (targetIdx < 0) {
+          targetIdx = position === 'before' ? 0 : tabSiblings.length;
+        }
+        const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+        tabSiblings.splice(Math.max(0, Math.min(insertIdx, tabSiblings.length)), 0, sourceItem);
+        tabSiblings.forEach((s, idx) => {
+          updatedOrderMap.set(s.id, (idx + 1) * 1000);
+        });
+
+        const newOrder = updatedOrderMap.get(newTabId) ?? 1000;
+        const newTab: Tab = {
+          ...dummyTab,
+          order: newOrder,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        savePendingOperation(createWorkspaceOperation('TAB_CREATE', newTabId, newTab));
+
+        data.tabs.forEach((t) => {
+          const updatedOrd = updatedOrderMap.get(t.id);
+          if (updatedOrd !== undefined && updatedOrd !== t.order) {
+            savePendingOperation(createWorkspaceOperation('TAB_UPDATE', t.id, { order: updatedOrd }));
+          }
+        });
+
+        const remainingVariants = (parentGroupTab.urlVariants || []).filter((v) => v.id !== sourceId);
+        const remainingWidgets = (data.widgets || []).filter((w) => w.parentGroupId === effectiveParentGroupId);
+        const isGroupEmpty = remainingVariants.length === 0 && remainingWidgets.length === 0;
+
+        if (isGroupEmpty) {
+          savePendingOperation(createWorkspaceOperation('TAB_DELETE', effectiveParentGroupId, {}));
+        } else {
+          const nextOrder = (parentGroupTab.groupItemOrder || []).filter((e) => e.id !== sourceId);
+          const nextDefaultVariantId = remainingVariants[0]?.id;
+          const nextUrl = remainingVariants[0]?.url || parentGroupTab.url;
+          savePendingOperation(
+            createWorkspaceOperation('TAB_UPDATE', effectiveParentGroupId, {
+              urlVariants: remainingVariants,
+              defaultVariantId: nextDefaultVariantId,
+              url: nextUrl,
+              groupItemOrder: nextOrder,
+            })
+          );
+        }
+
+        saveWorkspaceData((prev) => ({
+          ...prev,
+          tabs: [
+            ...prev.tabs
+              .filter((t) => (!isGroupEmpty || t.id !== effectiveParentGroupId))
+              .map((t) => {
+                if (!isGroupEmpty && t.id === effectiveParentGroupId) {
+                  return {
+                    ...t,
+                    urlVariants: remainingVariants,
+                    defaultVariantId: remainingVariants[0]?.id,
+                    url: remainingVariants[0]?.url || t.url,
+                    groupItemOrder: (t.groupItemOrder || []).filter((e) => e.id !== sourceId),
+                    updatedAt: Date.now(),
+                  };
+                }
+                const ord = updatedOrderMap.get(t.id);
+                if (ord !== undefined && ord !== t.order) {
+                  return { ...t, order: ord, updatedAt: Date.now() };
+                }
+                return t;
+              }),
+            newTab,
+          ],
+        }));
+        return;
+      }
 
       if (sourceType === 'folder') {
         const sourceItem = { type: 'folder' as const, data: sourceFolder!, id: sourceId, order: 0 };
