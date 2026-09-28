@@ -20,9 +20,11 @@ export function computeTabUrlReplacement(
   tab: Tab,
   newUrl: string,
   targetVariantId?: string,
-  newFavIconUrl?: string
+  newFavIconUrl?: string,
+  newTitle?: string
 ): Partial<Omit<Tab, 'id'>> {
   const trimmedUrl = newUrl.trim();
+  const trimmedTitle = newTitle?.trim();
   const variants = tab.urlVariants;
 
   if (variants && variants.length > 0) {
@@ -47,6 +49,7 @@ export function computeTabUrlReplacement(
             ...v,
             url: trimmedUrl,
             favIconUrl: newFavIconUrl || v.favIconUrl,
+            name: v.name || trimmedTitle || v.name,
           }
         : v
     );
@@ -62,6 +65,7 @@ export function computeTabUrlReplacement(
         ? {
             url: trimmedUrl,
             ...(newFavIconUrl ? { favIconUrl: newFavIconUrl } : {}),
+            ...(!tab.customTitle && trimmedTitle ? { customTitle: trimmedTitle } : {}),
           }
         : {}),
     };
@@ -70,6 +74,7 @@ export function computeTabUrlReplacement(
   return {
     url: trimmedUrl,
     ...(newFavIconUrl ? { favIconUrl: newFavIconUrl } : {}),
+    ...(!tab.customTitle && trimmedTitle ? { customTitle: trimmedTitle } : {}),
   };
 }
 

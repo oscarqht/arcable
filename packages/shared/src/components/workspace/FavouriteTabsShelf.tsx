@@ -27,7 +27,7 @@ import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
-import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { ActionDropdown, ActionDropdownItem, ActionDropdownHandle } from './ActionDropdown';
 import { FavouriteGroupPopover, renderMiniWidgetIcon } from './FavouriteGroupPopover';
 import {
   StarIcon,
@@ -244,6 +244,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   }, []);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
   const [openMenuTabId, setOpenMenuTabId] = useState<string | null>(null);
+  const actionDropdownRefs = useRef<Record<string, ActionDropdownHandle | null>>({});
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside' | null>(null);
@@ -1051,6 +1052,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     }
                   }
                 }}
+                onContextMenu={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button, input, a, [role="button"]')) {
+                    return;
+                  }
+                  e.preventDefault();
+                  actionDropdownRefs.current[tab.id]?.open({ x: e.clientX, y: e.clientY });
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1333,49 +1342,53 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 )}
 
                 {/* ... menu button on item's top right corner */}
-                {isMenuVisible && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '3px',
-                      right: '3px',
-                      zIndex: 10,
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    right: '3px',
+                    zIndex: 10,
+                    opacity: isMenuVisible ? 1 : 0,
+                    pointerEvents: isMenuVisible ? 'auto' : 'none',
+                    transition: 'opacity 0.12s ease',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ActionDropdown
+                    ref={(el) => {
+                      actionDropdownRefs.current[tab.id] = el;
                     }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <ActionDropdown
-                      items={menuItems}
-                      isDarkTheme={shelfTheme.isDark}
-                      visible={true}
-                      buttonTitle="Tab options"
-                      align="right"
-                      size="sm"
-                      triggerIcon={<MoreHorizontalIcon size={14} />}
-                      hoverBg={shelfTheme.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'}
-                      buttonStyle={{
-                        width: '20px',
-                        height: '20px',
-                        padding: 0,
-                        borderRadius: '6px',
-                        backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
-                        border: `1px solid ${shelfTheme.borderColor}`,
-                        boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-                        color: shelfTheme.textColor,
-                      }}
-                      onOpenChange={(isOpen) => {
-                        if (isOpen) {
-                          setOpenMenuTabId(tab.id);
-                          setMenuVisibleTabId(tab.id);
-                        } else {
-                          setOpenMenuTabId(null);
-                          if (hoveredTabId !== tab.id) {
-                            setMenuVisibleTabId(null);
-                          }
+                    items={menuItems}
+                    isDarkTheme={shelfTheme.isDark}
+                    visible={isMenuVisible}
+                    buttonTitle="Tab options"
+                    align="right"
+                    size="sm"
+                    triggerIcon={<MoreHorizontalIcon size={14} />}
+                    hoverBg={shelfTheme.isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'}
+                    buttonStyle={{
+                      width: '20px',
+                      height: '20px',
+                      padding: 0,
+                      borderRadius: '6px',
+                      backgroundColor: shelfTheme.isDark ? '#1e293b' : '#ffffff',
+                      border: `1px solid ${shelfTheme.borderColor}`,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+                      color: shelfTheme.textColor,
+                    }}
+                    onOpenChange={(isOpen) => {
+                      if (isOpen) {
+                        setOpenMenuTabId(tab.id);
+                        setMenuVisibleTabId(tab.id);
+                      } else {
+                        setOpenMenuTabId(null);
+                        if (hoveredTabId !== tab.id) {
+                          setMenuVisibleTabId(null);
                         }
-                      }}
-                    />
-                  </div>
-                )}
+                      }
+                    }}
+                  />
+                </div>
               </div>
             );
           }

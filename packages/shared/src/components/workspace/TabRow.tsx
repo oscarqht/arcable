@@ -11,7 +11,7 @@ import { getLastMousePos, CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
-import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { ActionDropdown, ActionDropdownItem, ActionDropdownHandle } from './ActionDropdown';
 import { CopyLinkButton } from './CopyLinkButton';
 import {
   CopyIcon,
@@ -128,6 +128,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | null>(null);
   const actionDropdownContainerRef = React.useRef<HTMLDivElement>(null);
+  const actionDropdownRef = React.useRef<ActionDropdownHandle>(null);
 
   useEffect(() => {
     const handleClear = () => {
@@ -452,7 +453,7 @@ export const TabRow: React.FC<TabRowProps> = ({
           return;
         }
         e.preventDefault();
-        actionDropdownContainerRef.current?.querySelector('button')?.click();
+        actionDropdownRef.current?.open({ x: e.clientX, y: e.clientY });
       }}
       style={{
         display: 'flex',
@@ -659,6 +660,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         {/* Action Dropdown (...) button on hover */}
         <div ref={actionDropdownContainerRef} style={{ display: 'inline-flex' }}>
           <ActionDropdown
+            ref={actionDropdownRef}
             items={tabMenuItems}
             isDarkTheme={effectiveDark}
             visible={showActions}

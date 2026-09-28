@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreHorizontalIcon, ChevronRightIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -14,6 +14,12 @@ export interface ActionDropdownItem {
   disabled?: boolean;
   dividerAfter?: boolean;
   children?: ActionDropdownItem[];
+}
+
+export interface ActionDropdownHandle {
+  open: (cursorCoords?: { x: number; y: number }) => void;
+  close: () => void;
+  toggle: (cursorCoords?: { x: number; y: number }) => void;
 }
 
 export interface ActionDropdownProps {
@@ -38,22 +44,27 @@ interface MenuCoords {
   maxHeight?: number;
 }
 
-export const ActionDropdown: React.FC<ActionDropdownProps> = ({
-  items,
-  isDarkTheme,
-  visible = true,
-  buttonTitle = 'More actions',
-  triggerIcon,
-  align = 'right',
-  size = 'sm',
-  hoverBg,
-  buttonStyle,
-  className,
-  onOpenChange,
-}) => {
-  const { isDark: isSystemDark } = useSystemTheme();
-  const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
-  const [isOpen, setIsOpen] = useState(false);
+export const ActionDropdown = React.forwardRef<ActionDropdownHandle, ActionDropdownProps>(
+  (
+    {
+      items,
+      isDarkTheme,
+      visible = true,
+      buttonTitle = 'More actions',
+      triggerIcon,
+      align = 'right',
+      size = 'sm',
+      hoverBg,
+      buttonStyle,
+      className,
+      onOpenChange,
+    },
+    ref
+  ) => {
+    const { isDark: isSystemDark } = useSystemTheme();
+    const effectiveDark = isDarkTheme !== undefined ? isDarkTheme : isSystemDark;
+    const [isOpen, setIsOpen] = useState(false);
+    const [contextCoords, setContextCoords] = useState<{ x: number; y: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
   const [menuCoords, setMenuCoords] = useState<MenuCoords | null>(null);
@@ -91,12 +102,8 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
   }, [isOpen, clearSubmenuTimer]);
 
   // Calculate and update menu fixed position relative to viewport
-  const updatePosition = useCallback(() => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-
-    // If trigger element has 0 size or is completely hidden
-    if (rect.width === 0 && rect.height === 0) return;
+  const updatePosition = useCallback((coords?: { x: number; y: number } | null) => {
+    const point = coords !== undefined ? coords : contextCoords;
 
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
@@ -104,6 +111,24 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
     const menuEl = menuRef.current;
     const menuHeight = menuEl ? menuEl.offsetHeight : (activeItems.length * 36 + 16);
     const menuWidth = menuEl ? menuEl.offsetWidth : 210;
+
+    if (point) {
+      const fitsBelow = point.y + menuHeight + 8 <= viewportHeight;
+      const top = fitsBelow ? point.y : Math.max(8, point.y - menuHeight);
+      const fitsRight = point.x + menuWidth + 8 <= viewportWidth;
+      const left = fitsRight ? point.x : Math.max(8, viewportWidth - menuWidth - 8);
+      const maxHeight = Math.max(140, viewportHeight - top - 12);
+
+      setPlacement(fitsBelow ? 'bottom' : 'top');
+      setMenuCoords({ top, left, maxHeight });
+      return;
+    }
+
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+
+    // If trigger element has 0 size or is completely hidden
+    if (rect.width === 0 && rect.height === 0) return;
 
     const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
@@ -143,7 +168,37 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
 
     setPlacement(newPlacement);
     setMenuCoords({ top, bottom, left, right, maxHeight });
-  }, [align, activeItems.length]);
+  }, [align, activeItems.length, contextCoords]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: (cursorCoords) => {
+        setContextCoords(cursorCoords || null);
+        setIsOpen(true);
+        requestAnimationFrame(() => {
+          updatePosition(cursorCoords || null);
+        });
+      },
+      close: () => {
+        setIsOpen(false);
+        setContextCoords(null);
+      },
+      toggle: (cursorCoords) => {
+        if (isOpen) {
+          setIsOpen(false);
+          setContextCoords(null);
+        } else {
+          setContextCoords(cursorCoords || null);
+          setIsOpen(true);
+          requestAnimationFrame(() => {
+            updatePosition(cursorCoords || null);
+          });
+        }
+      },
+    }),
+    [isOpen, updatePosition]
+  );
 
   const updateSubmenuPosition = useCallback((itemId: string) => {
     const itemEl = itemRefs.current[itemId];
@@ -262,6 +317,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
       ) {
         setIsOpen(false);
         setActiveSubmenuId(null);
+        setContextCoords(null);
       }
     };
 
@@ -271,6 +327,7 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
           setActiveSubmenuId(null);
         } else {
           setIsOpen(false);
+          setContextCoords(null);
         }
       }
     };
@@ -627,7 +684,8 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
-          updatePosition();
+          setContextCoords(null);
+          updatePosition(null);
           setIsOpen((prev) => !prev);
         }}
         title={buttonTitle}
@@ -669,4 +727,6 @@ export const ActionDropdown: React.FC<ActionDropdownProps> = ({
       {submenuContent}
     </div>
   );
-};
+});
+
+ActionDropdown.displayName = 'ActionDropdown';

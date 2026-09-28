@@ -11,7 +11,7 @@ import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
-import { ActionDropdown, ActionDropdownItem } from './ActionDropdown';
+import { ActionDropdown, ActionDropdownItem, ActionDropdownHandle } from './ActionDropdown';
 import {
   PinIcon,
   PlusIcon,
@@ -86,6 +86,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   }, []);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+  const actionDropdownRefs = React.useRef<Record<string, ActionDropdownHandle | null>>({});
 
   if (tabs.length === 0) {
     return null;
@@ -249,6 +250,14 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   }
                 }
               }}
+              onContextMenu={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest('button, input, a, [role="button"]')) {
+                  return;
+                }
+                e.preventDefault();
+                actionDropdownRefs.current[tab.id]?.open({ x: e.clientX, y: e.clientY });
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -407,6 +416,9 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     onClick: () => onDeleteTab(tab.id),
                   },
                 ]}
+                ref={(el) => {
+                  actionDropdownRefs.current[tab.id] = el;
+                }}
                 isDarkTheme={effectiveDark}
                 visible={isMobile || isHovered}
                 hoverBg={itemHoverBg}

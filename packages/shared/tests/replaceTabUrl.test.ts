@@ -177,3 +177,69 @@ test('buildReplaceWithCurrentUrlMenuItem: tab with multiple variants renders sec
   item.children![2].onClick?.({} as any);
   assert.equal(chosenVariantId, 'var_slide');
 });
+
+test('computeTabUrlReplacement: updates customTitle if tab had no customTitle', () => {
+  const tab: Tab = {
+    id: 'tab_no_custom_title',
+    url: 'https://old.org',
+    pinned: false,
+  };
+
+  const updates = computeTabUrlReplacement(
+    tab,
+    'https://new.org',
+    undefined,
+    'https://new.org/favicon.ico',
+    'New Page Title'
+  );
+
+  assert.equal(updates.url, 'https://new.org');
+  assert.equal(updates.favIconUrl, 'https://new.org/favicon.ico');
+  assert.equal(updates.customTitle, 'New Page Title');
+});
+
+test('computeTabUrlReplacement: preserves customTitle if tab already has customTitle set', () => {
+  const tab: Tab = {
+    id: 'tab_with_custom_title',
+    url: 'https://old.org',
+    customTitle: 'My Custom Note',
+    pinned: false,
+  };
+
+  const updates = computeTabUrlReplacement(
+    tab,
+    'https://new.org',
+    undefined,
+    'https://new.org/favicon.ico',
+    'New Page Title'
+  );
+
+  assert.equal(updates.url, 'https://new.org');
+  assert.equal(updates.favIconUrl, 'https://new.org/favicon.ico');
+  // customTitle should NOT be in the returned updates (preserving the existing one)
+  assert.equal(updates.customTitle, undefined);
+});
+
+test('computeTabUrlReplacement: variants update name if variant had no name', () => {
+  const tab: Tab = {
+    id: 'tab_var_no_name',
+    url: 'https://old.org',
+    pinned: false,
+    urlVariants: [
+      { id: 'v1', name: '', url: 'https://old.org' },
+    ],
+  };
+
+  const updates = computeTabUrlReplacement(
+    tab,
+    'https://new.org',
+    'v1',
+    undefined,
+    'Updated Variant Name'
+  );
+
+  assert.ok(updates.urlVariants);
+  assert.equal(updates.urlVariants[0].name, 'Updated Variant Name');
+  assert.equal(updates.urlVariants[0].url, 'https://new.org');
+});
+
