@@ -58,6 +58,21 @@ class TabTracker {
   private previousActiveTabSpaceByWindow: Map<number, string> = new Map();
   private recentlyClosedTabs: Map<number, { spaceId: string | null; timestamp: number; windowId?: number }> = new Map();
   private pendingTabSpaces: Map<number, string> = new Map();
+  public programmaticCleanupTabIds: Set<number> = new Set();
+
+  public getLastActiveTabSpace(winId?: number): string | undefined {
+    if (winId !== undefined && winId > 0) {
+      return this.lastActiveTabSpaceByWindow.get(winId) || this.windowActiveSpaces.get(winId);
+    }
+    return this.lastActiveSpaceId || undefined;
+  }
+
+  public getLastActiveBrowserTabId(winId?: number): number | undefined {
+    if (winId !== undefined && winId > 0) {
+      return this.lastActiveBrowserTabIdByWindow.get(winId);
+    }
+    return undefined;
+  }
 
   private setLastActiveBrowserTabId(winId: number, tabId: number): void {
     const prev = this.lastActiveBrowserTabIdByWindow.get(winId);
@@ -584,7 +599,10 @@ class TabTracker {
     spaceId?: string,
     windowId?: number
   ): void {
-    const targetSpaceId = spaceId || this.resolveActiveSpaceIdForWindow(windowId);
+    const targetSpaceId =
+      spaceId ||
+      this.pendingTabSpaces.get(browserTabId) ||
+      this.resolveActiveSpaceIdForWindow(windowId);
     if (targetSpaceId) {
       this.pendingTabSpaces.set(browserTabId, targetSpaceId);
     }
@@ -695,6 +713,7 @@ class TabTracker {
 
       for (const tabId of blankTabsToClose) {
         if (windowTabs.length - blankTabsToClose.length < 1) break;
+        this.programmaticCleanupTabIds.add(tabId);
         this.closingTabIds.add(tabId);
         this.pendingTabSpaces.delete(tabId);
         void forgetBrowserTab(tabId);
@@ -711,8 +730,8 @@ class TabTracker {
 
   /**
    * Ensures an empty space has an active blank "new tab" placeholder.
-   * If an existing blank tab for this space already exists in the window, it is activated and reused.
-   * If an unassigned blank tab exists in the window, it is adopted.
+   * Empty spaces share the same browser tab per window.
+   * If any blank tab exists in this window, it is adopted and activated.
    * Otherwise, creates a new blank tab for this space.
    */
   public async ensureOrReuseBlankTabForSpace(
@@ -752,32 +771,6 @@ class TabTracker {
           ? await getRememberedActiveTabForSpace(resolvedWinId, spaceId)
           : null;
 
-      // 1. Candidate 1: Check if an open tab in this window is already a blank tab assigned to spaceId
-      const assignedBlankTab = windowTabs.find((bt) => {
-        if (bt.id === undefined || this.closingTabIds.has(bt.id)) return false;
-        const isBlank = isBlankNewTabUrl(bt.url || bt.pendingUrl);
-        if (!isBlank) return false;
-        const assignedSpace = this.pendingTabSpaces.get(bt.id);
-        return assignedSpace === spaceId || bt.id === rememberedTabId;
-      });
-
-      if (assignedBlankTab && assignedBlankTab.id !== undefined) {
-        const tabId = assignedBlankTab.id;
-        this.pendingTabSpaces.set(tabId, spaceId);
-        if (resolvedWinId !== undefined) {
-          this.setLastActiveBrowserTabId(resolvedWinId, tabId);
-          this.setLastActiveTabSpace(resolvedWinId, spaceId);
-          this.setActiveSpaceForWindow(resolvedWinId, spaceId);
-          await rememberActiveTabForSpace(resolvedWinId, spaceId, tabId);
-        }
-        if (!assignedBlankTab.active && typeof tabsApi.update === 'function') {
-          await (tabsApi as any).update(tabId, { active: true }).catch(() => {});
-        }
-        return tabId;
-      }
-
-      // 2. Candidate 2: Check if there is an unassigned blank tab in this window
-      // that does not belong to any other space and is not a tracked tmp tab or workspace tab
       const associations = await this.getAssociations();
       const associatedTabIds = new Set(
         Object.values(associations)
@@ -790,16 +783,27 @@ class TabTracker {
           .filter((id): id is number => id !== undefined)
       );
 
-      const unassignedBlankTab = windowTabs.find((bt) => {
+      // Find any candidate blank tab in this window that is not closing and not associated with a saved/tmp tab
+      const candidateBlankTabs = windowTabs.filter((bt) => {
         if (bt.id === undefined || this.closingTabIds.has(bt.id)) return false;
         if (!isBlankNewTabUrl(bt.url || bt.pendingUrl)) return false;
         if (associatedTabIds.has(bt.id) || tmpTabIds.has(bt.id)) return false;
-        const space = this.pendingTabSpaces.get(bt.id);
-        return !space || space === spaceId;
+        return true;
       });
 
-      if (unassignedBlankTab && unassignedBlankTab.id !== undefined) {
-        const tabId = unassignedBlankTab.id;
+      // Priority:
+      // 1. Remembered blank tab for this space
+      // 2. Already active blank tab in window
+      // 3. Tab previously assigned to this space
+      // 4. Any other candidate blank tab in this window
+      const chosenBlankTab =
+        candidateBlankTabs.find((bt) => bt.id === rememberedTabId) ||
+        candidateBlankTabs.find((bt) => bt.active) ||
+        candidateBlankTabs.find((bt) => this.pendingTabSpaces.get(bt.id) === spaceId) ||
+        candidateBlankTabs[0];
+
+      if (chosenBlankTab && chosenBlankTab.id !== undefined) {
+        const tabId = chosenBlankTab.id;
         this.pendingTabSpaces.set(tabId, spaceId);
         if (resolvedWinId !== undefined) {
           this.setLastActiveBrowserTabId(resolvedWinId, tabId);
@@ -807,7 +811,7 @@ class TabTracker {
           this.setActiveSpaceForWindow(resolvedWinId, spaceId);
           await rememberActiveTabForSpace(resolvedWinId, spaceId, tabId);
         }
-        if (!unassignedBlankTab.active && typeof tabsApi.update === 'function') {
+        if (!chosenBlankTab.active && typeof tabsApi.update === 'function') {
           await (tabsApi as any).update(tabId, { active: true }).catch(() => {});
         }
         return tabId;
@@ -867,9 +871,10 @@ class TabTracker {
   }
 
   /**
-   * Cleans up redundant blank tabs across spaces during sync.
-   * - If a space has real tabs, closes inactive blank tabs for that space.
-   * - If an empty space has multiple blank tabs, keeps at most one and closes extras.
+   * Cleans up redundant blank tabs across the window.
+   * Maintains at most 1 shared blank tab per window.
+   * If multiple blank tabs exist (e.g. user pressed Cmd+T while a shared tab was open),
+   * keeps the active blank tab (or the last one if none are active) and closes extra inactive blank tabs.
    */
   public async cleanupSurplusBlankTabs(windowId?: number): Promise<void> {
     const tabsApi =
@@ -897,66 +902,43 @@ class TabTracker {
 
       if (allTabs.length <= 1) return;
 
-      // Identify spaces that have real open tabs
       const associations = await this.getAssociations();
-      const openAssocTabIds = new Set(
+      const associatedTabIds = new Set(
         Object.values(associations)
           .map((a) => a?.browserTabId)
           .filter((id): id is number => id !== undefined)
       );
+      const tmpTabIds = new Set(
+        memoryTmpTabs
+          .map((t) => t.browserTabId)
+          .filter((id): id is number => id !== undefined)
+      );
 
-      const spacesWithRealTabs = new Set<string>();
+      const blankTabs = allTabs.filter((bt) => {
+        if (bt.id === undefined || this.closingTabIds.has(bt.id)) return false;
+        if (!isBlankNewTabUrl(bt.url || bt.pendingUrl)) return false;
+        if (associatedTabIds.has(bt.id) || tmpTabIds.has(bt.id)) return false;
+        return true;
+      });
 
-      // Check workspace tabs
-      const workspaceTabs =
-        this.currentWorkspaceTabs.length > 0
-          ? this.currentWorkspaceTabs
-          : this.getStoredWorkspaceTabs();
-      for (const t of workspaceTabs) {
-        if (t.parentSpaceId && !t.favourite) {
-          const assoc = associations[t.id];
-          if (assoc?.browserTabId && openAssocTabIds.has(assoc.browserTabId)) {
-            spacesWithRealTabs.add(t.parentSpaceId);
-          }
-        }
-      }
+      // Maintain at most 1 blank tab per window
+      if (blankTabs.length <= 1) return;
 
-      // Check tmp tabs with valid HTTP urls
-      for (const t of memoryTmpTabs) {
-        if (t.spaceId && t.browserTabId && isValidHttpUrl(t.url)) {
-          spacesWithRealTabs.add(t.spaceId);
-        }
-      }
+      // Keep active blank tab if one is active, otherwise keep the last one
+      const activeBlankTab = blankTabs.find((bt) => bt.active);
+      const blankTabToKeep = activeBlankTab || blankTabs[blankTabs.length - 1];
 
       const tabsToClose: number[] = [];
-      const emptySpaceBlankTabCount = new Map<string, number>();
-
-      for (const bt of allTabs) {
-        if (bt.id === undefined || this.closingTabIds.has(bt.id)) continue;
-        if (!isBlankNewTabUrl(bt.url || bt.pendingUrl)) continue;
-
-        const assignedSpace = this.pendingTabSpaces.get(bt.id);
-        if (!assignedSpace) continue;
-
-        if (spacesWithRealTabs.has(assignedSpace)) {
-          // Space has real tabs: close inactive blank tabs
-          if (!bt.active) {
-            tabsToClose.push(bt.id);
-          }
-        } else {
-          // Empty space: allow at most 1 blank tab
-          const count = emptySpaceBlankTabCount.get(assignedSpace) || 0;
-          if (count >= 1 && !bt.active) {
-            tabsToClose.push(bt.id);
-          } else {
-            emptySpaceBlankTabCount.set(assignedSpace, count + 1);
-          }
+      for (const bt of blankTabs) {
+        if (bt.id !== blankTabToKeep.id && !bt.active) {
+          tabsToClose.push(bt.id);
         }
       }
 
       let remaining = allTabs.length;
       for (const tabId of tabsToClose) {
         if (remaining <= 1) break;
+        this.programmaticCleanupTabIds.add(tabId);
         this.closingTabIds.add(tabId);
         this.pendingTabSpaces.delete(tabId);
         void forgetBrowserTab(tabId);
@@ -1631,6 +1613,12 @@ class TabTracker {
         const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
         const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, memoryTmpTabs);
         if (spaceId) {
+          this.pendingTabSpaces.set(newTabId, spaceId);
+          if (windowId > 0) {
+            this.setLastActiveBrowserTabId(windowId, newTabId);
+            this.setLastActiveTabSpace(windowId, spaceId);
+            this.setActiveSpaceForWindow(windowId, spaceId);
+          }
           void this.cleanupBlankTabsForSpace(spaceId, windowId, newTabId);
         }
       }
@@ -2007,50 +1995,54 @@ class TabTracker {
           }
         });
 
-        // Check if the closed tab was active or belonged to the active space in this window.
+        // Check if the closed tab was active in this window.
         // In browsers like Zen Browser / Firefox, tabs.onActivated may fire before onRemoved,
         // or onActivated might not catch the tab close if the tab was still closing.
         // If the space is now empty, ensure a blank tab is opened to prevent unexpected space switch.
         if (!isMobileDevice() && !removeInfo?.isWindowClosing && closedSpaceId && winId !== undefined) {
-          const currentWindowSpace = this.lastActiveTabSpaceByWindow.get(winId) || this.resolveActiveSpaceIdForWindow(winId);
-          const wasActiveTab =
-            this.lastActiveBrowserTabIdByWindow.get(winId) === tabId ||
-            this.previousActiveBrowserTabIdByWindow.get(winId) === tabId;
-          const wasActiveSpace =
-            currentWindowSpace === closedSpaceId ||
-            this.previousActiveTabSpaceByWindow.get(winId) === closedSpaceId;
+          if (this.programmaticCleanupTabIds.has(tabId)) {
+            this.programmaticCleanupTabIds.delete(tabId);
+          } else {
+            const currentWindowSpace = this.lastActiveTabSpaceByWindow.get(winId) || this.resolveActiveSpaceIdForWindow(winId);
+            const wasActiveTab =
+              this.lastActiveBrowserTabIdByWindow.get(winId) === tabId ||
+              this.previousActiveBrowserTabIdByWindow.get(winId) === tabId;
+            const wasActiveSpace =
+              currentWindowSpace === closedSpaceId ||
+              this.previousActiveTabSpaceByWindow.get(winId) === closedSpaceId;
 
-          if (wasActiveTab || wasActiveSpace) {
-            const folders = this.getStoredWorkspaceFolders();
-            const tabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
-            const associations = await this.getAssociations();
-            const tmpTabs = await this.getTmpTabs();
+            if (wasActiveTab || wasActiveSpace) {
+              const folders = this.getStoredWorkspaceFolders();
+              const tabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+              const associations = await this.getAssociations();
+              const tmpTabs = await this.getTmpTabs();
 
-            const nearest = findNearestOpenTabInSpace(
-              closedSpaceId,
-              { browserTabId: tabId },
-              folders,
-              tabs,
-              associations,
-              tmpTabs,
-              winId
-            );
+              const nearest = findNearestOpenTabInSpace(
+                closedSpaceId,
+                { browserTabId: tabId },
+                folders,
+                tabs,
+                associations,
+                tmpTabs,
+                winId
+              );
 
-            if (nearest) {
-              if (nearest.browserTabId !== this.lastActiveBrowserTabIdByWindow.get(winId)) {
-                try {
-                  this.setLastActiveBrowserTabId(winId, nearest.browserTabId);
-                  this.setLastActiveTabSpace(winId, closedSpaceId);
-                  this.setActiveSpaceForWindow(winId, closedSpaceId);
-                  await (tabsApi as any).update(nearest.browserTabId, { active: true });
-                } catch (err) {
-                  console.warn('[TabTracker] Could not activate nearest tab in space from onRemoved:', err);
+              if (nearest) {
+                if (wasActiveTab && nearest.browserTabId !== this.lastActiveBrowserTabIdByWindow.get(winId)) {
+                  try {
+                    this.setLastActiveBrowserTabId(winId, nearest.browserTabId);
+                    this.setLastActiveTabSpace(winId, closedSpaceId);
+                    this.setActiveSpaceForWindow(winId, closedSpaceId);
+                    await (tabsApi as any).update(nearest.browserTabId, { active: true });
+                  } catch (err) {
+                    console.warn('[TabTracker] Could not activate nearest tab in space from onRemoved:', err);
+                  }
                 }
+              } else if (wasActiveSpace) {
+                // No open tabs remain in this space, and this space was active in this window:
+                // Ensure or reuse single blank tab in this space to prevent unexpected space switch
+                await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
               }
-            } else {
-              // No open tabs remain in this space:
-              // Ensure or reuse single blank tab in this space to prevent unexpected space switch
-              await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
             }
           }
         }
@@ -2077,7 +2069,13 @@ class TabTracker {
 
         // Check if the previous tab was closed
         if (prevTabId !== undefined && prevTabId !== activeInfo.tabId) {
-          if (this.closingTabIds.has(prevTabId) || this.recentlyClosedTabs.has(prevTabId)) {
+          if (
+            this.programmaticCleanupTabIds.has(prevTabId) ||
+            this.pendingTabSpaces.has(activeInfo.tabId) ||
+            this.pendingInitialTitles.has(activeInfo.tabId)
+          ) {
+            causedByClose = false;
+          } else if (this.closingTabIds.has(prevTabId) || this.recentlyClosedTabs.has(prevTabId)) {
             causedByClose = true;
           } else {
             try {

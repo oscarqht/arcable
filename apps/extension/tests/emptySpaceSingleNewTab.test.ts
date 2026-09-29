@@ -112,7 +112,7 @@ async function runTests() {
   tabTracker.registerInitialTmpTab(500, 'https://example.com/solo', 'Solo Tab', 'space-solo', 1);
 
   // Tab 600 is open in 'space-other'
-  createdTabs.push({ id: 600, windowId: 1, active: false });
+  createdTabs.push({ id: 600, url: 'https://example.com/other', windowId: 1, active: false });
   tabTracker.registerInitialTmpTab(600, 'https://example.com/other', 'Other Tab', 'space-other', 1);
 
   // User closes Tab 500

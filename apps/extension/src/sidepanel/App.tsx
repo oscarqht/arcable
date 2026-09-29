@@ -33,6 +33,7 @@ import {
   forgetActiveTabForSpace,
   forgetBrowserTab,
   findNearestOpenTabInSpace,
+  getOpenTabsInSpaceOrder,
 } from './spaceTabTracker';
 export { resolveSidepanelActiveSpaceId };
 
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
   const workspaceFoldersRef = useRef<Folder[]>(getStoredWorkspaceFolders());
   const previousSpaceIdRef = useRef<string | null>(null);
   const isInitialSpaceMountRef = useRef<boolean>(true);
+  const isProgrammaticSpaceChangeRef = useRef<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -228,7 +230,11 @@ export const App: React.FC = () => {
         if (resolved.tabs) workspaceTabsRef.current = resolved.tabs;
         if (resolved.folders) workspaceFoldersRef.current = resolved.folders;
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: resolved }));
+        isProgrammaticSpaceChangeRef.current = true;
         workspaceRef.current?.applySnapshot?.(resolved);
+        setTimeout(() => {
+          isProgrammaticSpaceChangeRef.current = false;
+        }, 150);
         setRaindropHydrated(true);
       }
     }).catch((error) => {
@@ -288,10 +294,15 @@ export const App: React.FC = () => {
         if (spaceId) {
           const currentSpace = workspaceRef.current.getActiveSpace?.();
           if (currentSpace?.id !== spaceId) {
+            isProgrammaticSpaceChangeRef.current = true;
             workspaceRef.current.setActiveSpace?.(spaceId);
           }
         }
+        isProgrammaticSpaceChangeRef.current = true;
         workspaceRef.current.revealAndHighlightTab(tabItemId);
+        setTimeout(() => {
+          isProgrammaticSpaceChangeRef.current = false;
+        }, 150);
       }
       if (tabItemId && details?.browserTabId) {
         const winId = details.windowId ?? currentWindowIdRef.current;
@@ -377,8 +388,15 @@ export const App: React.FC = () => {
         };
         window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
         window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
+        isProgrammaticSpaceChangeRef.current = true;
         workspaceRef.current?.applySnapshot?.(merged);
-        if (merged.activeSpaceId) workspaceRef.current?.setActiveSpace?.(merged.activeSpaceId);
+        if (merged.activeSpaceId) {
+          isProgrammaticSpaceChangeRef.current = true;
+          workspaceRef.current?.setActiveSpace?.(merged.activeSpaceId);
+        }
+        setTimeout(() => {
+          isProgrammaticSpaceChangeRef.current = false;
+        }, 150);
       }
       // Perform initial tab tracking sync once local snapshot is processed
       syncTabsWithTracker();
@@ -422,7 +440,11 @@ export const App: React.FC = () => {
                 const workspace = JSON.parse(raw);
                 const resolvedId = resolveSidepanelActiveSpaceId(workspace.spaces, newId, workspace.activeSpaceId);
                 if (resolvedId && resolvedId !== currentlyActiveId) {
+                  isProgrammaticSpaceChangeRef.current = true;
                   workspaceRef.current?.setActiveSpace?.(resolvedId);
+                  setTimeout(() => {
+                    isProgrammaticSpaceChangeRef.current = false;
+                  }, 150);
                 }
               }
             } catch {}
@@ -462,7 +484,11 @@ export const App: React.FC = () => {
           };
           window.localStorage.setItem('arcable_workspace_data', JSON.stringify(merged));
           window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: merged }));
+          isProgrammaticSpaceChangeRef.current = true;
           workspaceRef.current?.applySnapshot?.(merged);
+          setTimeout(() => {
+            isProgrammaticSpaceChangeRef.current = false;
+          }, 150);
           syncTabsWithTracker();
         }
       }
@@ -658,9 +684,21 @@ export const App: React.FC = () => {
       return;
     }
 
+    if (isProgrammaticSpaceChangeRef.current) {
+      isProgrammaticSpaceChangeRef.current = false;
+      previousSpaceIdRef.current = nextSpaceId || null;
+      return;
+    }
+
     if (nextSpaceId && nextSpaceId !== previousSpaceIdRef.current) {
       previousSpaceIdRef.current = nextSpaceId;
       const winId = currentWindowIdRef.current;
+      const currentTabSpace = winId !== null && winId !== undefined ? tabTracker.getLastActiveTabSpace(winId) : undefined;
+      // If current active browser tab in this window already belongs to nextSpaceId, do not switch tabs!
+      if (currentTabSpace === nextSpaceId) {
+        return;
+      }
+
       const lookupAssoc = (id: string) => {
         const assoc = tabAssociationsRef.current[id];
         if (assoc) return assoc;
@@ -678,7 +716,21 @@ export const App: React.FC = () => {
       const onSpaceActivated = (activated: boolean) => {
         if (!activated && !isMobileDevice()) {
           const wId = currentWindowIdRef.current || winId;
-          void tabTracker.ensureOrReuseBlankTabForSpace(nextSpaceId, wId ?? undefined);
+          const workspaceTabs = workspaceTabsRef.current.length > 0 ? workspaceTabsRef.current : getStoredWorkspaceTabs();
+          const folders = workspaceFoldersRef.current.length > 0 ? workspaceFoldersRef.current : getStoredWorkspaceFolders();
+          const openTabs = getOpenTabsInSpaceOrder(
+            nextSpaceId,
+            folders,
+            workspaceTabs,
+            tabAssociationsRef.current,
+            tmpTabsRef.current,
+            wId ?? undefined
+          );
+          if (openTabs.length === 0) {
+            void tabTracker.ensureOrReuseBlankTabForSpace(nextSpaceId, wId ?? undefined);
+          } else if (openTabs.length > 0 && openTabs[0].browserTabId !== undefined) {
+            void tabTracker.activateTab(openTabs[0].browserTabId, wId ?? undefined);
+          }
         }
       };
       if (winId !== null && winId !== undefined) {
@@ -705,6 +757,11 @@ export const App: React.FC = () => {
         if (newTab && newTab.id !== undefined) {
           const assignedSpaceId = tmpTabInfo?.spaceId || previousSpaceIdRef.current || getStoredLastSpaceId() || undefined;
           tabTracker.registerInitialTmpTab(newTab.id, url, tmpTabInfo?.title, assignedSpaceId, newTab.windowId);
+          if (assignedSpaceId && newTab.windowId) {
+            tabTracker.setActiveSpaceForWindow(newTab.windowId, assignedSpaceId);
+            void rememberActiveTabForSpace(newTab.windowId, assignedSpaceId, newTab.id);
+            void tabTracker.cleanupBlankTabsForSpace(assignedSpaceId, newTab.windowId, newTab.id);
+          }
         }
         return;
       } catch (e) {
@@ -768,6 +825,11 @@ export const App: React.FC = () => {
             await tabTracker.setTmpTabCustomTitle(newTab.id, url, customTitle);
           } else if (initialTitle) {
             tabTracker.registerInitialTmpTab(newTab.id, url, initialTitle, assignedSpaceId, newTab.windowId);
+          }
+          if (assignedSpaceId && newTab.windowId) {
+            tabTracker.setActiveSpaceForWindow(newTab.windowId, assignedSpaceId);
+            void rememberActiveTabForSpace(newTab.windowId, assignedSpaceId, newTab.id);
+            void tabTracker.cleanupBlankTabsForSpace(assignedSpaceId, newTab.windowId, newTab.id);
           }
         }
         return;
