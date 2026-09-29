@@ -11,6 +11,7 @@ import {
   SPACE_LAST_ACTIVE_TAB_KEY,
   getOpenTabsInSpaceOrder,
   findNearestOpenTabInSpace,
+  findBestTabOnClose,
 } from '../src/sidepanel/spaceTabTracker';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -441,6 +442,149 @@ async function runTests() {
     nearestAfterReplacement !== null && nearestAfterReplacement.browserTabId === 100,
     'After replacement tab is created, findNearestOpenTabInSpace should find the new tab'
   );
+
+  // Test 12: findBestTabOnClose (Mixed MRU + Tie Breaking)
+  const mruTabs: Tab[] = [
+    { id: 'fav-1', title: 'Fav 1', url: 'https://fav1.com', favourite: true, order: 0 },
+    { id: 'fav-2', title: 'Fav 2', url: 'https://fav2.com', favourite: true, order: 1 },
+    { id: 'space-t1', title: 'Tab 1', url: 'https://t1.com', parentSpaceId: 'space-mru' },
+    { id: 'space-t2', title: 'Tab 2', url: 'https://t2.com', parentSpaceId: 'space-mru' },
+    { id: 'space-t3', title: 'Tab 3', url: 'https://t3.com', parentSpaceId: 'space-mru' },
+  ];
+  const mruAssocs = {
+    'fav-1': { browserTabId: 201, windowId: 1 },
+    'fav-2': { browserTabId: 202, windowId: 1 },
+    'space-t1': { browserTabId: 211, windowId: 1 },
+    'space-t2': { browserTabId: 212, windowId: 1 },
+    'space-t3': { browserTabId: 213, windowId: 1 },
+  };
+
+  // 12a: Space tab has higher MRU than favorite tab -> Space tab wins
+  {
+    const timestamps: Record<string, number> = {
+      'fav-1': 100,
+      'space-t1': 500,
+      'space-t3': 200,
+    };
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'space-t2', browserTabId: 212 }, // closing tab 2
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1,
+      (itemId) => (itemId ? timestamps[itemId] || 0 : 0)
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'space-t1', `Expected space-t1 to win on higher MRU, got ${best.tabItemId}`);
+  }
+
+  // 12b: Favorite tab has higher MRU than space tab -> Favorite tab wins
+  {
+    const timestamps: Record<string, number> = {
+      'fav-1': 1000,
+      'space-t1': 500,
+      'space-t3': 200,
+    };
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'space-t2', browserTabId: 212 }, // closing tab 2
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1,
+      (itemId) => (itemId ? timestamps[itemId] || 0 : 0)
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'fav-1', `Expected favorite fav-1 to win on higher MRU, got ${best.tabItemId}`);
+    assert(best.isFavorite === true, 'isFavorite should be true');
+  }
+
+  // 12c: Tie breaking (equal MRU): in-space tab wins over favorite tab
+  {
+    const timestamps: Record<string, number> = {
+      'fav-1': 500,
+      'space-t3': 500,
+    };
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'space-t2', browserTabId: 212 },
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1,
+      (itemId) => (itemId ? timestamps[itemId] || 0 : 0)
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'space-t3', `Expected space tab to beat favorite tab on tie, got ${best.tabItemId}`);
+  }
+
+  // 12d: In-space positional tie-break: closing tab 2 -> tab 3 (downward) beats tab 1 (upward)
+  {
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'space-t2', browserTabId: 212 },
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'space-t3', `Expected downward tab space-t3 to win on tie-break, got ${best.tabItemId}`);
+  }
+
+  // 12e: Closing bottom space tab -> falls back upward to space-t2
+  {
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'space-t3', browserTabId: 213 },
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'space-t2', `Expected upward tab space-t2 when closing bottom tab, got ${best.tabItemId}`);
+  }
+
+  // 12f: Closing an active favorite tab -> activates mixed MRU among active space tabs and remaining favorites
+  {
+    const timestamps: Record<string, number> = {
+      'fav-2': 300,
+      'space-t2': 800,
+    };
+    const best = findBestTabOnClose(
+      'space-mru',
+      { tabItemId: 'fav-1', browserTabId: 201 }, // closing fav-1
+      [],
+      mruTabs,
+      mruAssocs,
+      [],
+      1,
+      (itemId) => (itemId ? timestamps[itemId] || 0 : 0)
+    );
+    assert(best !== null, 'best should not be null');
+    assert(best.tabItemId === 'space-t2', `Expected space-t2 to win over fav-2 on higher MRU, got ${best.tabItemId}`);
+  }
+
+  // 12g: When all tabs in space and favorites are closed -> returns null
+  {
+    const best = findBestTabOnClose(
+      'space-empty',
+      { tabItemId: 'space-alone', browserTabId: 999 },
+      [],
+      [{ id: 'space-alone', title: 'Alone', url: 'https://alone.com', parentSpaceId: 'space-empty' }],
+      { 'space-alone': { browserTabId: 999, windowId: 1 } },
+      [],
+      1
+    );
+    assert(best === null, 'Expected null when no open space tabs or favorite tabs remain');
+  }
 
   console.log('All spaceTabTracker tests passed successfully!');
 }

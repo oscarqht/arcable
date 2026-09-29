@@ -33,6 +33,7 @@ import {
   forgetActiveTabForSpace,
   forgetBrowserTab,
   findNearestOpenTabInSpace,
+  findBestTabOnClose,
   getOpenTabsInSpaceOrder,
   findBestOpenFavoriteTab,
 } from './spaceTabTracker';
@@ -286,35 +287,29 @@ export const App: React.FC = () => {
     // Tab activation listener (when user selects a browser tab)
     const unsubActivated = tabTracker.onTabItemActivated((tabItemId, details) => {
       clearMousePos();
-      setHighlightedTabId(tabItemId);
-      if (tabItemId && workspaceRef.current && !details?.causedByClose) {
-        const workspaceTabs = workspaceTabsRef.current.length > 0
-          ? workspaceTabsRef.current
-          : getStoredWorkspaceTabs();
-        const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, tmpTabsRef.current);
-        if (spaceId) {
-          const currentSpace = workspaceRef.current.getActiveSpace?.();
-          if (currentSpace?.id !== spaceId) {
-            isProgrammaticSpaceChangeRef.current = true;
-            workspaceRef.current.setActiveSpace?.(spaceId);
-          }
+      const workspaceTabs = workspaceTabsRef.current.length > 0
+        ? workspaceTabsRef.current
+        : getStoredWorkspaceTabs();
+      const isFav = tabItemId
+        ? workspaceTabs.some((t) => Boolean(t.favourite) && (t.id === tabItemId || t.urlVariants?.some((v) => v.id === tabItemId)))
+        : false;
+      const tabSpaceId = tabItemId ? resolveSpaceIdForTabItem(tabItemId, workspaceTabs, tmpTabsRef.current) : null;
+      const currentSpace = workspaceRef.current?.getActiveSpace?.();
+      const isTabInCurrentSpace = Boolean(tabSpaceId && currentSpace?.id === tabSpaceId);
+
+      if (tabItemId && (isTabInCurrentSpace || isFav)) {
+        setHighlightedTabId(tabItemId);
+        if (workspaceRef.current) {
+          workspaceRef.current.revealAndHighlightTab(tabItemId);
         }
-        isProgrammaticSpaceChangeRef.current = true;
-        workspaceRef.current.revealAndHighlightTab(tabItemId);
-        setTimeout(() => {
-          isProgrammaticSpaceChangeRef.current = false;
-        }, 150);
+      } else {
+        setHighlightedTabId(null);
       }
+
       if (tabItemId && details?.browserTabId) {
         const winId = details.windowId ?? currentWindowIdRef.current;
-        if (winId !== null && winId !== undefined) {
-          const workspaceTabs = workspaceTabsRef.current.length > 0
-            ? workspaceTabsRef.current
-            : getStoredWorkspaceTabs();
-          const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, tmpTabsRef.current);
-          if (spaceId) {
-            void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, tabItemId);
-          }
+        if (winId !== null && winId !== undefined && tabSpaceId) {
+          void rememberActiveTabForSpace(winId, tabSpaceId, details.browserTabId, tabItemId);
         }
       }
     });
@@ -322,17 +317,24 @@ export const App: React.FC = () => {
     // Check currently active tab item on mount (highlight only, do not force space switch)
     tabTracker.getActiveTabDetails().then((details) => {
       if (details.tabItemId) {
-        setHighlightedTabId(details.tabItemId);
+        const workspaceTabs = workspaceTabsRef.current.length > 0
+          ? workspaceTabsRef.current
+          : getStoredWorkspaceTabs();
+        const isFav = workspaceTabs.some((t) => Boolean(t.favourite) && (t.id === details.tabItemId || t.urlVariants?.some((v) => v.id === details.tabItemId)));
+        const tabSpaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs, tmpTabsRef.current);
+        const currentSpace = workspaceRef.current?.getActiveSpace?.();
+        const isTabInCurrentSpace = Boolean(tabSpaceId && currentSpace?.id === tabSpaceId);
+
+        if (isTabInCurrentSpace || isFav) {
+          setHighlightedTabId(details.tabItemId);
+        } else {
+          setHighlightedTabId(null);
+        }
+
         if (details.browserTabId) {
           const winId = details.windowId ?? currentWindowIdRef.current;
-          if (winId !== null && winId !== undefined) {
-            const workspaceTabs = workspaceTabsRef.current.length > 0
-              ? workspaceTabsRef.current
-              : getStoredWorkspaceTabs();
-            const spaceId = resolveSpaceIdForTabItem(details.tabItemId, workspaceTabs, tmpTabsRef.current);
-            if (spaceId) {
-              void rememberActiveTabForSpace(winId, spaceId, details.browserTabId, details.tabItemId);
-            }
+          if (winId !== null && winId !== undefined && tabSpaceId) {
+            void rememberActiveTabForSpace(winId, tabSpaceId, details.browserTabId, details.tabItemId);
           }
         }
       }
@@ -1056,30 +1058,21 @@ export const App: React.FC = () => {
         const spaceId = tab.spaceId || resolveSpaceIdForTabItem(tab.id, workspaceTabs, tmpTabsRef.current) || workspaceRef.current?.getActiveSpace?.()?.id || previousSpaceIdRef.current || getStoredLastSpaceId();
 
         if (isCurrentlyActive && spaceId) {
-          const nearest = findNearestOpenTabInSpace(
+          const bestTab = findBestTabOnClose(
             spaceId,
             { tabItemId: tab.id, browserTabId: tab.browserTabId },
             folders,
             workspaceTabs,
             tabAssociationsRef.current,
             tmpTabsRef.current,
-            currentWinId ?? undefined
+            currentWinId ?? undefined,
+            (itemId, bId) => tabTracker.getLastActivatedTime(itemId, bId)
           );
 
-          if (nearest) {
-            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
-            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
-              windowId: currentWinId ?? undefined,
-              excludeClosingBrowserTabId: tab.browserTabId,
-              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
-              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
-            });
-            if (bestFav) {
-              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
-            } else if (!isMobileDevice()) {
-              await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
-            }
+          if (bestTab) {
+            await tabTracker.activateTab(bestTab.browserTabId, bestTab.windowId);
+          } else if (!isMobileDevice()) {
+            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
       } catch (e) {
@@ -1127,30 +1120,21 @@ export const App: React.FC = () => {
           const closingSet = new Set(browserTabIds);
           const remainingTmpTabs = tmpTabsRef.current.filter((t) => t.browserTabId === undefined || !closingSet.has(t.browserTabId));
 
-          const nearest = findNearestOpenTabInSpace(
+          const bestTab = findBestTabOnClose(
             targetSpaceId,
             { browserTabId: activeTab.id },
             folders,
             workspaceTabs,
             tabAssociationsRef.current,
             remainingTmpTabs,
-            currentWinId ?? undefined
+            currentWinId ?? undefined,
+            (itemId, bId) => tabTracker.getLastActivatedTime(itemId, bId)
           );
 
-          if (nearest) {
-            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
-            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
-              windowId: currentWinId ?? undefined,
-              excludeClosingBrowserTabId: activeTab.id,
-              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
-              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
-            });
-            if (bestFav) {
-              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
-            } else if (!isMobileDevice()) {
-              await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
-            }
+          if (bestTab) {
+            await tabTracker.activateTab(bestTab.browserTabId, bestTab.windowId);
+          } else if (!isMobileDevice()) {
+            await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
           }
         } else if (!isMobileDevice()) {
           // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
@@ -1263,30 +1247,21 @@ export const App: React.FC = () => {
         const spaceId = resolveSpaceIdForTabItem(tabId, workspaceTabs, tmpTabsRef.current) || workspaceRef.current?.getActiveSpace?.()?.id || previousSpaceIdRef.current || getStoredLastSpaceId();
 
         if (isCurrentlyActive && spaceId) {
-          const nearest = findNearestOpenTabInSpace(
+          const bestTab = findBestTabOnClose(
             spaceId,
             { tabItemId: tabId, browserTabId: assoc.browserTabId },
             folders,
             workspaceTabs,
             tabAssociationsRef.current,
             tmpTabsRef.current,
-            currentWinId ?? undefined
+            currentWinId ?? undefined,
+            (itemId, bId) => tabTracker.getLastActivatedTime(itemId, bId)
           );
 
-          if (nearest) {
-            await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else {
-            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
-              windowId: currentWinId ?? undefined,
-              excludeClosingBrowserTabId: assoc.browserTabId,
-              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
-              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
-            });
-            if (bestFav) {
-              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
-            } else if (!isMobileDevice()) {
-              await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
-            }
+          if (bestTab) {
+            await tabTracker.activateTab(bestTab.browserTabId, bestTab.windowId);
+          } else if (!isMobileDevice()) {
+            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
           }
         }
       } catch (e) {
