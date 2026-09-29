@@ -1126,6 +1126,9 @@ export function useWorkspace() {
             }
           }
           const defaultVar = cleanedVariants[0];
+          if (normalizedUpdates.favIconUrl !== undefined && defaultVar) {
+            defaultVar.favIconUrl = normalizedUpdates.favIconUrl;
+          }
           normalizedUpdates.urlVariants = cleanedVariants;
           normalizedUpdates.defaultVariantId = defaultVar?.id;
           if (defaultVar?.url) {
@@ -1135,6 +1138,11 @@ export function useWorkspace() {
           normalizedUpdates.urlVariants = undefined;
           normalizedUpdates.defaultVariantId = undefined;
         }
+      } else if (normalizedUpdates.favIconUrl !== undefined && currentTab.urlVariants && currentTab.urlVariants.length > 0) {
+        const defId = currentTab.defaultVariantId || currentTab.urlVariants[0]?.id;
+        normalizedUpdates.urlVariants = currentTab.urlVariants.map((v) =>
+          v.id === defId ? { ...v, favIconUrl: normalizedUpdates.favIconUrl } : v
+        );
       }
 
       if (normalizedUpdates.url) {
@@ -1245,6 +1253,7 @@ export function useWorkspace() {
       }
       if ('defaultVariantId' in normalizedUpdates) opPayload.defaultVariantId = normalizedUpdates.defaultVariantId ?? null;
       if (normalizedUpdates.url) opPayload.url = normalizedUpdates.url;
+      if ('favIconUrl' in updates || updated.favIconUrl !== currentTab.favIconUrl) opPayload.favIconUrl = updated.favIconUrl ?? null;
       if ('customEmojiIcon' in updates) opPayload.customEmojiIcon = updated.customEmojiIcon ?? null;
       if ('customTitle' in updates || updated.customTitle !== currentTab.customTitle) opPayload.customTitle = updated.customTitle ?? null;
       if ('parentFolderId' in updates || isLocationChanged) opPayload.parentFolderId = updated.parentFolderId ?? null;

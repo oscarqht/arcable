@@ -838,7 +838,7 @@ export async function syncIncrementalOperations(
     const payload = {
       title: mainBookmarkTitle,
       link: defaultVar ? defaultVar.url : tab.url,
-      cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
+      cover: tab.favIconUrl || (defaultVar && defaultVar.favIconUrl),
       note: tabNote,
       collection: { $id: parentId },
       order: defaultVarOrder,
@@ -2894,7 +2894,7 @@ export async function syncWorkspaceWithRaindrop(
       const payload = {
         title: mainBookmarkTitle,
         link: defaultVar ? defaultVar.url : tab.url,
-        cover: (defaultVar && defaultVar.favIconUrl) || tab.favIconUrl,
+        cover: tab.favIconUrl || (defaultVar && defaultVar.favIconUrl),
         note: tabNote,
         collection: { $id: parentId },
         order: defaultVarOrder,
@@ -2905,7 +2905,8 @@ export async function syncWorkspaceWithRaindrop(
       const linkChanged = existing !== undefined && existing.link !== payload.link;
       const noteChanged = existing !== undefined && (existing.note || '') !== payload.note;
       const collectionChanged = existing !== undefined && existing.collectionId !== parentId;
-      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || noteChanged || collectionChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
+      const coverChanged = existing !== undefined && (existing.cover || '') !== (payload.cover || '');
+      const shouldUpdate = Boolean(existing) && (changedIds.has(tab.id) || orderChanged || titleChanged || linkChanged || noteChanged || collectionChanged || coverChanged || (tab.updatedAt || 0) > timestamp(existing?.lastUpdate));
 
       const secondaryVariants = getTabSecondaryVariants(tab);
 

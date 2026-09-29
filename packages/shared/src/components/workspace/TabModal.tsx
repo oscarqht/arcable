@@ -123,7 +123,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
         setCoverQuery('');
-        setCoverUrl(tab.favIconUrl);
+        setCoverUrl(tab.favIconUrl || tab.urlVariants?.[0]?.favIconUrl);
         setFavourite(Boolean(tab.favourite));
         setParentSpaceId(tab.parentSpaceId || defaultSpaceId || orderedSpaces[0]?.id || '');
         setParentFolderId(tab.parentFolderId || '');
@@ -376,10 +376,11 @@ export const TabModal: React.FC<TabModalProps> = ({
         url: finalDefaultUrl,
         urlVariants:
           validVariants.length > 0
-            ? validVariants.map((v) => ({
+            ? validVariants.map((v, idx) => ({
                 ...v,
                 name: v.name.trim() || 'Variant',
                 url: v.url.trim(),
+                favIconUrl: idx === 0 ? coverUrl : v.favIconUrl,
               }))
             : undefined,
         defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
@@ -388,7 +389,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: firstVarName || undefined,
         customEmojiIcon: undefined,
-        favIconUrl: defVariant?.favIconUrl || coverUrl,
+        favIconUrl: coverUrl,
         pinned: false,
         favourite,
       });
@@ -866,9 +867,35 @@ export const TabModal: React.FC<TabModalProps> = ({
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>
-              Tab Cover
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                Tab Cover
+              </label>
+              {coverUrl && (
+                <button
+                  type="button"
+                  onClick={() => setCoverUrl(undefined)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isDark ? '#94a3b8' : '#64748b',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                  }}
+                >
+                  Remove cover
+                </button>
+              )}
+            </div>
+            {coverUrl && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Current:</span>
+                <div style={{ width: '36px', height: '36px', padding: '4px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img src={coverUrl} alt="Current cover" width="26" height="26" referrerPolicy="no-referrer" style={{ width: '26px', height: '26px', objectFit: 'contain', display: 'block' }} />
+                </div>
+              </div>
+            )}
             <input
               type="search"
               value={coverQuery}
