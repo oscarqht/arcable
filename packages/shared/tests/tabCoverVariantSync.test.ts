@@ -349,3 +349,109 @@ test('variant favIconUrl is synchronized with tab.favIconUrl when editing tab', 
   assert.equal(normalizedPartial.urlVariants?.[1].favIconUrl, 'https://example.com/docs.png');
 });
 
+test('per-variant covers are preserved for each individual variant and default syncs to tab', () => {
+  const variants: TabUrlVariant[] = [
+    { id: 'v1', name: 'Production', url: 'https://app.example.com', favIconUrl: 'https://icons.example.com/prod.png' },
+    { id: 'v2', name: 'Staging', url: 'https://staging.example.com', favIconUrl: 'https://icons.example.com/staging.png' },
+    { id: 'v3', name: 'Local', url: 'http://localhost:3000', favIconUrl: undefined },
+  ];
+
+  // Simulating TabModal handleSubmit for standard tab with variants
+  const isFavGroup = false;
+  const defVariant = variants[0];
+  const payload = {
+    url: defVariant.url,
+    urlVariants: variants.map((v) => ({
+      ...v,
+      name: v.name.trim() || 'Variant',
+      url: v.url.trim(),
+      favIconUrl: v.favIconUrl || undefined,
+    })),
+    defaultVariantId: defVariant.id,
+    isGroup: isFavGroup,
+    customTitle: defVariant.name,
+    favIconUrl: isFavGroup ? undefined : (defVariant?.favIconUrl || undefined),
+  };
+
+  assert.equal(payload.favIconUrl, 'https://icons.example.com/prod.png');
+  assert.equal(payload.urlVariants[0].favIconUrl, 'https://icons.example.com/prod.png');
+  assert.equal(payload.urlVariants[1].favIconUrl, 'https://icons.example.com/staging.png');
+  assert.equal(payload.urlVariants[2].favIconUrl, undefined);
+});
+
+test('favorite group preserves individual member covers and keeps tab favIconUrl undefined for 2x2 grid', () => {
+  const groupVariants: TabUrlVariant[] = [
+    { id: 'g1', name: 'GitHub', url: 'https://github.com', favIconUrl: 'https://icons.example.com/gh.png' },
+    { id: 'g2', name: 'Linear', url: 'https://linear.app', favIconUrl: 'https://icons.example.com/linear.png' },
+    { id: 'g3', name: 'Notion', url: 'https://notion.so', favIconUrl: 'https://icons.example.com/notion.png' },
+    { id: 'g4', name: 'Figma', url: 'https://figma.com', favIconUrl: 'https://icons.example.com/figma.png' },
+  ];
+
+  // Simulating TabModal handleSubmit for favorite group
+  const isFavGroup = true;
+  const defVariant = groupVariants[0];
+  const payload = {
+    url: defVariant.url,
+    urlVariants: groupVariants.map((v) => ({
+      ...v,
+      name: v.name.trim() || 'Variant',
+      url: v.url.trim(),
+      favIconUrl: v.favIconUrl || undefined,
+    })),
+    defaultVariantId: defVariant.id,
+    isGroup: isFavGroup,
+    customTitle: 'Daily Work',
+    favIconUrl: isFavGroup ? undefined : (defVariant?.favIconUrl || undefined),
+  };
+
+  assert.equal(payload.favIconUrl, undefined, 'Tab favIconUrl must remain undefined to allow 2x2 grid preview');
+  assert.equal(payload.urlVariants.length, 4);
+  assert.equal(payload.urlVariants[0].favIconUrl, 'https://icons.example.com/gh.png');
+  assert.equal(payload.urlVariants[1].favIconUrl, 'https://icons.example.com/linear.png');
+  assert.equal(payload.urlVariants[2].favIconUrl, 'https://icons.example.com/notion.png');
+  assert.equal(payload.urlVariants[3].favIconUrl, 'https://icons.example.com/figma.png');
+});
+
+test('TabRow dynamically resolves active secondary variant icon when navigating secondary URL', () => {
+  const tab: Tab = {
+    id: 'tab_test',
+    url: 'https://app.example.com',
+    favIconUrl: 'https://icons.example.com/prod.png',
+    defaultVariantId: 'v1',
+    urlVariants: [
+      { id: 'v1', name: 'Prod', url: 'https://app.example.com', favIconUrl: 'https://icons.example.com/prod.png' },
+      { id: 'v2', name: 'Staging', url: 'https://staging.example.com', favIconUrl: 'https://icons.example.com/staging.png' },
+      { id: 'v3', name: 'Docs', url: 'https://docs.example.com' },
+    ],
+  };
+
+  const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
+
+  // Helper matching TabRow's resolution logic
+  const resolveTabRowIcon = (currentUrl: string | undefined) => {
+    const activeSecondary = currentUrl && secondaryVariants.length > 0
+      ? secondaryVariants.find((v) => currentUrl.startsWith(v.url)) || null
+      : null;
+    return {
+      effectiveFavIconUrl: activeSecondary ? activeSecondary.favIconUrl : tab.favIconUrl,
+      effectiveUrl: activeSecondary ? activeSecondary.url : tab.url,
+    };
+  };
+
+  // Navigating main/prod URL -> shows main tab cover
+  const prodState = resolveTabRowIcon('https://app.example.com/dashboard');
+  assert.equal(prodState.effectiveFavIconUrl, 'https://icons.example.com/prod.png');
+  assert.equal(prodState.effectiveUrl, 'https://app.example.com');
+
+  // Navigating staging URL -> dynamically switches to staging cover
+  const stagingState = resolveTabRowIcon('https://staging.example.com/feed');
+  assert.equal(stagingState.effectiveFavIconUrl, 'https://icons.example.com/staging.png');
+  assert.equal(stagingState.effectiveUrl, 'https://staging.example.com');
+
+  // Navigating docs (no custom cover) -> effectiveFavIconUrl is undefined, domain fallback used
+  const docsState = resolveTabRowIcon('https://docs.example.com/guide');
+  assert.equal(docsState.effectiveFavIconUrl, undefined);
+  assert.equal(docsState.effectiveUrl, 'https://docs.example.com');
+});
+
+

@@ -158,6 +158,21 @@ export const TabRow: React.FC<TabRowProps> = ({
   const secondaryVariants = tab.urlVariants && tab.urlVariants.length > 1 ? tab.urlVariants.slice(1) : [];
   const hasVariants = secondaryVariants.length > 0;
 
+  const activeSecondaryVariant = useMemo(() => {
+    if (!currentUrl || secondaryVariants.length === 0) return null;
+    return secondaryVariants.find((v) => areUrlsMatching(currentUrl, v.url)) || null;
+  }, [currentUrl, secondaryVariants]);
+
+  const effectiveFavIconUrl = activeSecondaryVariant
+    ? activeSecondaryVariant.favIconUrl
+    : tab.favIconUrl;
+  const effectiveCustomEmojiIcon = activeSecondaryVariant
+    ? activeSecondaryVariant.customEmojiIcon
+    : tab.customEmojiIcon;
+  const effectiveFaviconUrl = activeSecondaryVariant
+    ? activeSecondaryVariant.url
+    : resolvedUrl;
+
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (tab.url) {
@@ -517,9 +532,9 @@ export const TabRow: React.FC<TabRowProps> = ({
           }}
         >
           <TabFavicon
-            url={resolvedUrl}
-            favIconUrl={tab.favIconUrl}
-            customEmojiIcon={tab.customEmojiIcon}
+            url={effectiveFaviconUrl}
+            favIconUrl={effectiveFavIconUrl}
+            customEmojiIcon={effectiveCustomEmojiIcon}
             size={18}
             emojiSize={18}
             isDarkTheme={isDarkTheme}

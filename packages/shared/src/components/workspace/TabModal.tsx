@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
 import { Button } from '../Button';
-import { StarIcon } from '../Icons';
+import { StarIcon, GlobeIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getDomain, getFolderPath, getTreeOrderedFolders, getSiblingTabs, findTabTitleConflict } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 import { generateId } from '../../utils/format';
+import { TabFavicon } from './TabFavicon';
 
 interface UrlInputProps {
   value: string;
@@ -37,6 +39,285 @@ const UrlInput: React.FC<UrlInputProps> = ({
         required={required}
         autoFocus={autoFocus}
       />
+  );
+};
+
+interface VariantCoverPopoverProps {
+  variant: TabUrlVariant;
+  buttonElement: HTMLElement | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectCover: (coverUrl: string | undefined) => void;
+  raindropToken?: string;
+  onSearchCovers?: (query: string) => Promise<string[]>;
+  isDark: boolean;
+}
+
+const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
+  variant,
+  buttonElement,
+  isOpen,
+  onClose,
+  onSelectCover,
+  raindropToken,
+  onSearchCovers,
+  isDark,
+}) => {
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<string[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && buttonElement) {
+      const rect = buttonElement.getBoundingClientRect();
+      const popoverWidth = 280;
+      const left = Math.max(12, Math.min(window.innerWidth - popoverWidth - 12, rect.left));
+      const top = Math.min(window.innerHeight - 300, rect.bottom + 6);
+      setCoords({ top, left });
+    }
+  }, [isOpen, buttonElement]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery('');
+      setResults([]);
+      setIsSearching(false);
+      setError(null);
+      return;
+    }
+
+    if ((!raindropToken && !onSearchCovers) || query.trim().length < 2) {
+      setResults([]);
+      setIsSearching(false);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = onSearchCovers
+          ? await onSearchCovers(query)
+          : await searchRaindropCollectionCovers(raindropToken!, query);
+        if (!cancelled) {
+          setResults(res.slice(0, 60));
+          setError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setResults([]);
+          setError('Could not search covers.');
+        }
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, query, raindropToken, onSearchCovers]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node) &&
+        buttonElement &&
+        !buttonElement.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose, buttonElement]);
+
+  if (!isOpen || !coords || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      style={{
+        position: 'fixed',
+        top: `${coords.top}px`,
+        left: `${coords.left}px`,
+        width: '280px',
+        backgroundColor: isDark ? '#1e293b' : '#ffffff',
+        borderRadius: '12px',
+        border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+        boxShadow: isDark
+          ? '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.4)'
+          : '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
+        padding: '12px',
+        zIndex: 100000,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+          Variant Cover
+        </span>
+        {variant.favIconUrl && (
+          <button
+            type="button"
+            onClick={() => {
+              onSelectCover(undefined);
+              onClose();
+            }}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              fontSize: '11px',
+              color: '#ef4444',
+              cursor: 'pointer',
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >
+            Remove cover
+          </button>
+        )}
+      </div>
+
+      {variant.favIconUrl && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '4px 6px',
+            backgroundColor: isDark ? '#0f172a' : '#f1f5f9',
+            borderRadius: '6px',
+          }}
+        >
+          <img
+            src={variant.favIconUrl}
+            alt=""
+            width="18"
+            height="18"
+            referrerPolicy="no-referrer"
+            style={{ width: '18px', height: '18px', objectFit: 'contain', borderRadius: '3px', display: 'block' }}
+          />
+          <span style={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#64748b' }}>
+            Custom cover set
+          </span>
+        </div>
+      )}
+
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={!raindropToken && !onSearchCovers ? 'Set Raindrop token to search covers' : 'Search covers...'}
+        disabled={!raindropToken && !onSearchCovers}
+        autoFocus
+        style={{
+          width: '100%',
+          padding: '7px 10px',
+          borderRadius: '6px',
+          border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+          backgroundColor: isDark ? '#0f172a' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          fontSize: '12px',
+          boxSizing: 'border-box',
+          outline: 'none',
+        }}
+      />
+
+      {isSearching && (
+        <div style={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#64748b', textAlign: 'center', padding: '8px 0' }}>
+          Searching covers...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: '11px', color: '#ef4444', textAlign: 'center' }}>
+          {error}
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: '6px',
+            maxHeight: '160px',
+            overflowY: 'auto',
+            padding: '2px',
+          }}
+        >
+          {results.map((cover, idx) => (
+            <button
+              key={`${cover}-${idx}`}
+              type="button"
+              onClick={() => {
+                onSelectCover(cover);
+                onClose();
+              }}
+              style={{
+                width: '100%',
+                aspectRatio: '1',
+                padding: '4px',
+                borderRadius: '6px',
+                border: `1px solid ${variant.favIconUrl === cover ? (isDark ? '#38bdf8' : '#0284c7') : (isDark ? '#334155' : '#e2e8f0')}`,
+                backgroundColor: variant.favIconUrl === cover ? (isDark ? 'rgba(2, 132, 199, 0.25)' : '#e0f2fe') : (isDark ? '#0f172a' : '#ffffff'),
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.1s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+            >
+              <img
+                src={cover}
+                alt=""
+                width="24"
+                height="24"
+                referrerPolicy="no-referrer"
+                style={{ width: '24px', height: '24px', objectFit: 'contain', display: 'block', borderRadius: '3px' }}
+              />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {query.trim().length >= 2 && !isSearching && results.length === 0 && !error && (
+        <div style={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#64748b', textAlign: 'center', padding: '6px 0' }}>
+          No covers found.
+        </div>
+      )}
+    </div>,
+    document.body
   );
 };
 
@@ -110,6 +391,8 @@ export const TabModal: React.FC<TabModalProps> = ({
   const [draggedVariantId, setDraggedVariantId] = useState<string | null>(null);
   const [variantDropIndicator, setVariantDropIndicator] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
   const [defaultVariantId, setDefaultVariantId] = useState<string>('');
+  const [activeVariantCoverId, setActiveVariantCoverId] = useState<string | null>(null);
+  const variantButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const prevIsOpenRef = React.useRef(false);
   const prevTabIdRef = React.useRef<string | null | undefined>(undefined);
@@ -119,6 +402,7 @@ export const TabModal: React.FC<TabModalProps> = ({
     const tabChanged = isOpen && tab?.id !== prevTabIdRef.current;
 
     if (isNewlyOpened || tabChanged) {
+      setActiveVariantCoverId(null);
       if (tab) {
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
@@ -227,6 +511,10 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const isVariantsMode = showVariants && variants.length > 0;
   const firstVariantName = isVariantsMode ? (variants[0]?.name || '') : '';
+  const activeCoverVariant = useMemo(
+    () => variants.find((v) => v.id === activeVariantCoverId) || null,
+    [variants, activeVariantCoverId]
+  );
 
   const currentSiblingTabs = useMemo(() => {
     if (!existingTabs) return [];
@@ -296,6 +584,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         id: firstId,
         name: initialFirstName,
         url: currentUrlVal || '',
+        favIconUrl: coverUrl,
       },
       {
         id: secondId,
@@ -315,6 +604,9 @@ export const TabModal: React.FC<TabModalProps> = ({
   };
 
   const handleRemoveVariantRow = (idToRemove: string) => {
+    if (activeVariantCoverId === idToRemove) {
+      setActiveVariantCoverId(null);
+    }
     setVariants((prev) => {
       const next = prev.filter((v) => v.id !== idToRemove);
       if (next.length === 0) {
@@ -353,6 +645,10 @@ export const TabModal: React.FC<TabModalProps> = ({
     if (def && def.name) {
       setCustomTitle(def.name);
     }
+    if (def && def.favIconUrl) {
+      setCoverUrl(def.favIconUrl);
+    }
+    setActiveVariantCoverId(null);
     setShowVariants(false);
     setVariants([]);
     setDefaultVariantId('');
@@ -376,11 +672,11 @@ export const TabModal: React.FC<TabModalProps> = ({
         url: finalDefaultUrl,
         urlVariants:
           validVariants.length > 0
-            ? validVariants.map((v, idx) => ({
+            ? validVariants.map((v) => ({
                 ...v,
                 name: v.name.trim() || 'Variant',
                 url: v.url.trim(),
-                favIconUrl: idx === 0 ? coverUrl : v.favIconUrl,
+                favIconUrl: v.favIconUrl || undefined,
               }))
             : undefined,
         defaultVariantId: validVariants.length > 0 && defVariant ? defVariant.id : undefined,
@@ -389,7 +685,7 @@ export const TabModal: React.FC<TabModalProps> = ({
         parentFolderId: favourite ? undefined : parentFolderId || undefined,
         customTitle: firstVarName || undefined,
         customEmojiIcon: undefined,
-        favIconUrl: coverUrl,
+        favIconUrl: isFavGroup ? undefined : (defVariant?.favIconUrl || undefined),
         pinned: false,
         favourite,
       });
@@ -635,6 +931,54 @@ export const TabModal: React.FC<TabModalProps> = ({
                         )}
                       </div>
 
+                      {/* Cover Icon Button */}
+                      <button
+                        type="button"
+                        ref={(el) => {
+                          variantButtonRefs.current[v.id] = el;
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveVariantCoverId((curr) => (curr === v.id ? null : v.id));
+                        }}
+                        title={v.favIconUrl ? 'Custom cover selected (click to change or remove)' : 'Choose cover icon'}
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          border: `1px solid ${v.favIconUrl ? (isDark ? '#38bdf8' : '#0284c7') : (isDark ? '#475569' : '#cbd5e1')}`,
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          padding: 0,
+                          flexShrink: 0,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {v.favIconUrl ? (
+                          <img
+                            src={v.favIconUrl}
+                            alt=""
+                            width="16"
+                            height="16"
+                            referrerPolicy="no-referrer"
+                            style={{ width: '16px', height: '16px', objectFit: 'contain', borderRadius: '2px', display: 'block' }}
+                          />
+                        ) : v.url ? (
+                          <TabFavicon
+                            url={v.url}
+                            size={16}
+                            globeIconSize={14}
+                            isDarkTheme={isDark}
+                            showDomainFallback={true}
+                          />
+                        ) : (
+                          <GlobeIcon size={14} color={isDark ? '#64748b' : '#94a3b8'} />
+                        )}
+                      </button>
+
                       {/* Name input */}
                       <input
                         type="text"
@@ -740,6 +1084,23 @@ export const TabModal: React.FC<TabModalProps> = ({
               >
                 <span>+</span> Add another variant
               </button>
+
+              {activeCoverVariant && (
+                <VariantCoverPopover
+                  variant={activeCoverVariant}
+                  buttonElement={variantButtonRefs.current[activeCoverVariant.id] || null}
+                  isOpen={Boolean(activeVariantCoverId)}
+                  onClose={() => setActiveVariantCoverId(null)}
+                  onSelectCover={(cover) => {
+                    setVariants((prev) =>
+                      prev.map((item) => (item.id === activeCoverVariant.id ? { ...item, favIconUrl: cover } : item))
+                    );
+                  }}
+                  raindropToken={raindropToken}
+                  onSearchCovers={onSearchCovers}
+                  isDark={isDark}
+                />
+              )}
             </div>
           )}
 
@@ -866,58 +1227,60 @@ export const TabModal: React.FC<TabModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
-                Tab Cover
-              </label>
+          {!isVariantsMode && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>
+                  Tab Cover
+                </label>
+                {coverUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCoverUrl(undefined)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: isDark ? '#94a3b8' : '#64748b',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                    }}
+                  >
+                    Remove cover
+                  </button>
+                )}
+              </div>
               {coverUrl && (
-                <button
-                  type="button"
-                  onClick={() => setCoverUrl(undefined)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: isDark ? '#94a3b8' : '#64748b',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    padding: '2px 4px',
-                  }}
-                >
-                  Remove cover
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Current:</span>
+                  <div style={{ width: '36px', height: '36px', padding: '4px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <img src={coverUrl} alt="Current cover" width="26" height="26" referrerPolicy="no-referrer" style={{ width: '26px', height: '26px', objectFit: 'contain', display: 'block' }} />
+                  </div>
+                </div>
+              )}
+              <input
+                type="search"
+                value={coverQuery}
+                onChange={(e) => setCoverQuery(e.target.value)}
+                placeholder="Search Raindrop covers"
+                disabled={!raindropToken && !onSearchCovers}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
+              />
+              {!raindropToken && !onSearchCovers ? (
+                <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search tab covers.</p>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop tab cover search results">
+                  {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
+                  {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
+                  {!isSearchingCovers && coverResults.map((cover) => (
+                    <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this tab cover" aria-label="Use this tab cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
+                      <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
-            {coverUrl && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Current:</span>
-                <div style={{ width: '36px', height: '36px', padding: '4px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img src={coverUrl} alt="Current cover" width="26" height="26" referrerPolicy="no-referrer" style={{ width: '26px', height: '26px', objectFit: 'contain', display: 'block' }} />
-                </div>
-              </div>
-            )}
-            <input
-              type="search"
-              value={coverQuery}
-              onChange={(e) => setCoverQuery(e.target.value)}
-              placeholder="Search Raindrop covers"
-              disabled={!raindropToken && !onSearchCovers}
-              style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
-            />
-            {!raindropToken && !onSearchCovers ? (
-              <p style={{ margin: '6px 0 0', fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Connect Raindrop to search tab covers.</p>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', minHeight: '40px' }} aria-label="Raindrop tab cover search results">
-                {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
-                {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
-                {!isSearchingCovers && coverResults.map((cover) => (
-                  <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this tab cover" aria-label="Use this tab cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
-                    <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
 
           <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
