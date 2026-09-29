@@ -5,7 +5,7 @@ import { TabAssociationMap, AudibleTab, MediaControlAction } from '../../types/t
 import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
 import { areUrlsMatching } from '../../utils/format';
-import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag, recordDragDrop } from '../../utils/dragState';
 import {
   handleDraggableMouseDown,
   shouldAllowDrag,
@@ -136,7 +136,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
-  const [canDragHeader, setCanDragHeader] = useState(false);
 
   const [showHoverPopup, setShowHoverPopup] = useState(false);
   const [popupCoords, setPopupCoords] = useState<{
@@ -581,7 +580,6 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   ]);
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (!shouldAllowDrag(e)) return;
     e.stopPropagation();
     clearHoverTimer();
     clearCloseTimer();
@@ -675,18 +673,26 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         position: effectivePosition,
         parentGroupId: parsed.parentGroupId,
       });
+      recordDragDrop();
     } catch {} finally {
       endDrag();
     }
   };
 
   const handleDragEnd = (e?: React.DragEvent) => {
-    setCanDragHeader(false);
     if (e) {
-      handleDraggableDragEnd(e);
+      handleDraggableDragEnd(e, {
+        onClick: () => {
+          clearHoverTimer();
+          clearCloseTimer();
+          setShowHoverPopup(false);
+          onToggleExpand(folder.id);
+        },
+      });
+    } else {
+      endDrag();
     }
     setDropIndicator(null);
-    endDrag();
   };
 
   const hoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)';
@@ -1047,12 +1053,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       {/* Folder Header Row */}
       <div
         ref={headerRef}
-        draggable={canDragHeader}
-        onMouseDown={(e) => {
-          handleDraggableMouseDown(e, {
-            onThresholdMet: () => setCanDragHeader(true),
-          });
-        }}
+        draggable={true}
+        onMouseDown={handleDraggableMouseDown}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

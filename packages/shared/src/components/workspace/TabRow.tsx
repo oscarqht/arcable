@@ -6,7 +6,7 @@ import { Tab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
-import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag, recordDragDrop } from '../../utils/dragState';
 import { useDraggableWithThreshold } from '../../utils/dragThreshold';
 import { getLastMousePos, CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
@@ -402,6 +402,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     if (onDropItem) {
       onDropItem(e, tab);
     }
+    recordDragDrop();
     endDrag();
   };
 
@@ -414,7 +415,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   };
 
   const {
-    canDrag,
+    draggable: isDraggable,
     handleMouseDown: handleDraggableMouseDown,
     handleDragStart: handleDraggableDragStart,
     handleDragEnd: handleDraggableDragEnd,
@@ -438,7 +439,7 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   return (
     <div
-      draggable={canDrag}
+      draggable={isDraggable}
       onMouseDown={handleDraggableMouseDown}
       onDragStart={handleDraggableDragStart}
       onDragOver={handleDragOver}

@@ -213,7 +213,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   };
 
   const {
-    canDrag,
+    draggable: isDraggable,
     handleMouseDown: handleDraggableMouseDown,
     handleDragStart: handleDraggableDragStart,
     handleDragEnd: handleDraggableDragEnd,
@@ -311,7 +311,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   return (
     <div
       ref={rowRef}
-      draggable={canDrag}
+      draggable={isDraggable}
       onMouseDown={handleDraggableMouseDown}
       onDragStart={handleDraggableDragStart}
       onDragEnd={handleDraggableDragEnd}

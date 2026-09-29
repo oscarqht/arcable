@@ -20,7 +20,7 @@ import { TabAssociationMap, AudibleTab } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
-import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { startDrag, endDrag, isDragAcceptable, getActiveDrag, recordDragDrop } from '../../utils/dragState';
 import {
   handleDraggableMouseDown,
   shouldAllowDrag,
@@ -254,7 +254,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside' | null>(null);
-  const [draggableItemId, setDraggableItemId] = useState<string | null>(null);
 
   const activePopoverGroupTab = useMemo(() => {
     if (!groupPopoverTab) return null;
@@ -401,7 +400,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   }, [tabs, shelfWidgets]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
-    if (!shouldAllowDrag(e)) return;
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
@@ -519,6 +517,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         isMouseOverGroupPopoverRef.current = false;
         setGroupPopoverTab(null);
       }
+      recordDragDrop();
     } catch {} finally {
       endDrag();
     }
@@ -558,10 +557,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       if (parsed?.type === 'tmpTab') {
         const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
         onDropTmpTab?.(tmpTab);
+        recordDragDrop();
         return;
       }
       if (parsed?.type === 'tab') {
         onDropNormalTab?.(sourceId);
+        recordDragDrop();
         return;
       }
 
@@ -569,6 +570,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         const lastItem = shelfItems[shelfItems.length - 1];
         if (lastItem.id !== sourceId) {
           onReorderFavouriteItem(sourceId, lastItem.id, 'after');
+          recordDragDrop();
         }
       }
     } finally {
@@ -576,14 +578,32 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     }
   };
 
-  const handleDragEnd = (e?: React.DragEvent) => {
-    setDraggableItemId(null);
+  const handleDragEnd = (e?: React.DragEvent, tab?: Tab) => {
     if (e) {
-      handleDraggableDragEnd(e);
+      handleDraggableDragEnd(e, {
+        onClick: async (mouseEv) => {
+          if (!tab) return;
+          if (tab.isGroup) {
+            if (onActivateGroup) {
+              const activated = await onActivateGroup(tab);
+              if (activated) {
+                clearGroupLeaveTimer();
+                isMouseOverGroupRef.current = null;
+                isMouseOverGroupPopoverRef.current = false;
+                setGroupPopoverTab(null);
+              }
+            }
+          } else if (tab.url && onOpenTab) {
+            const inNewTab = Boolean(mouseEv?.shiftKey || mouseEv?.ctrlKey || mouseEv?.metaKey);
+            onOpenTab(tab.url, tab.id, { inNewTab, event: mouseEv });
+          }
+        },
+      });
+    } else {
+      endDrag();
     }
     setDragOverTabId(null);
     setDropPosition(null);
-    endDrag();
   };
 
   const handleItemMouseEnter = (tabId: string) => {
@@ -1006,17 +1026,13 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             return (
               <div
                 key={tab.id}
-                draggable={draggableItemId === tab.id}
-                onMouseDown={(e) => {
-                  handleDraggableMouseDown(e, {
-                    onThresholdMet: () => setDraggableItemId(tab.id),
-                  });
-                }}
+                draggable={true}
+                onMouseDown={handleDraggableMouseDown}
                 onDragStart={(e) => handleDragStart(e, tab.id)}
                 onDragOver={(e) => handleDragOver(e, tab.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, tab.id)}
-                onDragEnd={handleDragEnd}
+                onDragEnd={(e) => handleDragEnd(e, tab)}
                 onMouseEnter={(e) => {
                   handleItemMouseEnter(tab.id);
                   if (isGroup) {
@@ -1469,12 +1485,8 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             <div
               key={widget.id}
               id={`shelf-widget-${widget.id}`}
-              draggable={draggableItemId === widget.id}
-              onMouseDown={(e) => {
-                handleDraggableMouseDown(e, {
-                  onThresholdMet: () => setDraggableItemId(widget.id),
-                });
-              }}
+              draggable={true}
+              onMouseDown={handleDraggableMouseDown}
               onDragStart={(e) => handleDragStart(e, widget.id)}
               onDragOver={(e) => handleDragOver(e, widget.id)}
               onDragLeave={handleDragLeave}

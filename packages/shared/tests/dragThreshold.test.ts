@@ -6,12 +6,13 @@ import {
   handleDraggableDragEnd,
   shouldAllowClick,
 } from '../src/utils/dragThreshold';
-import { startDrag, endDrag } from '../src/utils/dragState';
+import { startDrag, endDrag, getActiveDrag, recordDragDrop, isDragAcceptable } from '../src/utils/dragState';
 
-// Minimal polyfill for DOM element in Node test environment if needed
+// Minimal polyfill for DOM element in Node test environment
 class MockElement {
   dataset: Record<string, string> = {};
   attributes: Record<string, string> = {};
+  draggable: boolean = true;
   parentElement: MockElement | null = null;
   tagName: string;
 
@@ -51,7 +52,7 @@ class MockElement {
 // Global window mock for event listeners
 const windowListeners: Record<string, Array<Function>> = {};
 (global as any).window = {
-  addEventListener: (event: string, handler: Function) => {
+  addEventListener: (event: string, handler: Function, opts?: any) => {
     windowListeners[event] = windowListeners[event] || [];
     windowListeners[event].push(handler);
   },
@@ -71,13 +72,13 @@ function triggerWindowEvent(name: string, eventObj: any) {
 console.log('Running dragThreshold unit tests...');
 
 // Test 1: DEFAULT_DRAG_THRESHOLD
-assert.strictEqual(DEFAULT_DRAG_THRESHOLD, 5, 'Default drag threshold should be 5 pixels');
-console.log('✓ Test 1: DEFAULT_DRAG_THRESHOLD is 5px');
+assert.strictEqual(DEFAULT_DRAG_THRESHOLD, 6, 'Default drag threshold should be 6 pixels');
+console.log('✓ Test 1: DEFAULT_DRAG_THRESHOLD is 6px');
 
-// Test 2: Micro-movements (< 5px) do not trigger drag threshold
+// Test 2: Elements remain draggable={true} by default so native dragstart works
 {
   const container = new MockElement('div');
-  let thresholdMetCalled = false;
+  container.draggable = true;
 
   const mockMouseDownEvent: any = {
     button: 0,
@@ -87,134 +88,149 @@ console.log('✓ Test 1: DEFAULT_DRAG_THRESHOLD is 5px');
     target: container,
   };
 
-  handleDraggableMouseDown(mockMouseDownEvent, {
-    threshold: 5,
-    onThresholdMet: () => {
-      thresholdMetCalled = true;
-    },
-  });
-
-  assert.strictEqual(container.dataset.dragStartX, '100');
-  assert.strictEqual(container.dataset.dragStartY, '100');
-  assert.strictEqual(container.dataset.dragThresholdMet, 'false');
-  assert.strictEqual(container.getAttribute('draggable'), null);
-
-  // Micro-jitter: 3px move
-  triggerWindowEvent('mousemove', { clientX: 102, clientY: 102 }); // dist ~ 2.82px
-  assert.strictEqual(thresholdMetCalled, false, 'Threshold should not be met for micro jitter');
-  assert.strictEqual(container.getAttribute('draggable'), null);
-
-  // Attempting dragstart before threshold is rejected
-  let defaultPrevented = false;
-  const mockDragEvent: any = {
-    clientX: 102,
-    clientY: 102,
-    currentTarget: container,
-    preventDefault: () => {
-      defaultPrevented = true;
-    },
-  };
-  const allowed = shouldAllowDrag(mockDragEvent, { threshold: 5 });
-  assert.strictEqual(allowed, false, 'Drag should not be allowed for micro movements');
-  assert.strictEqual(defaultPrevented, true, 'Default must be prevented');
-
-  // Mouse up concludes without drag
-  triggerWindowEvent('mouseup', {});
-  // shouldAllowClick should be true
-  const mockClickEvent: any = {
-    currentTarget: container,
-    preventDefault: () => {},
-    stopPropagation: () => {},
-  };
-  assert.strictEqual(shouldAllowClick(mockClickEvent), true, 'Click should be allowed when no drag occurred');
-  console.log('✓ Test 2: Micro-movements (< 5px) prevent drag and allow click');
+  handleDraggableMouseDown(mockMouseDownEvent);
+  assert.strictEqual(container.draggable, true, 'Element must remain draggable={true} on mousedown');
+  console.log('✓ Test 2: Draggable state is preserved at mousedown');
 }
 
-// Test 3: Intentional movement (>= 5px) activates draggable and allows drag
+// Test 3: Micro-jitter (< 6px) is rejected by drop targets (isDragAcceptable = false)
 {
-  const container = new MockElement('div');
-  let thresholdMetCalled = false;
-
-  const mockMouseDownEvent: any = {
-    button: 0,
+  endDrag();
+  const mockDragEvent: any = {
     clientX: 100,
     clientY: 100,
-    currentTarget: container,
-    target: container,
-  };
-
-  handleDraggableMouseDown(mockMouseDownEvent, {
-    threshold: 5,
-    onThresholdMet: () => {
-      thresholdMetCalled = true;
+    dataTransfer: {
+      setData: () => {},
+      effectAllowed: 'move',
     },
-  });
-
-  // Move 6px horizontally
-  triggerWindowEvent('mousemove', { clientX: 106, clientY: 100 });
-  assert.strictEqual(thresholdMetCalled, true, 'onThresholdMet should be invoked when threshold >= 5px is reached');
-  assert.strictEqual(container.getAttribute('draggable'), 'true', 'draggable="true" should be set dynamically');
-  assert.strictEqual(container.dataset.dragThresholdMet, 'true');
-
-  const mockDragEvent: any = {
-    clientX: 106,
-    clientY: 100,
-    currentTarget: container,
-    preventDefault: () => {},
   };
-  const allowed = shouldAllowDrag(mockDragEvent, { threshold: 5 });
-  assert.strictEqual(allowed, true, 'Drag should be allowed when threshold is reached');
 
-  // When drag ends, wasDragging is set to suppress trailing click
+  startDrag(mockDragEvent, { id: 'tab-1', type: 'tab' });
+  const active = getActiveDrag();
+  assert.ok(active, 'Drag should be active');
+  assert.strictEqual(active?.hasMovedPastThreshold, false, 'hasMovedPastThreshold should be false initially');
+
+  // Move 2px (micro-jitter)
+  const mockMoveEvent: any = {
+    clientX: 102,
+    clientY: 101,
+  };
+  const acceptable = isDragAcceptable(mockMoveEvent, ['tab']);
+  assert.strictEqual(acceptable, false, 'Micro movement (< 6px) must NOT be acceptable as a drag target');
+  console.log('✓ Test 3: Micro-jitter (< 6px) rejected by drop targets');
+}
+
+// Test 4: Intentional movement (>= 6px) activates threshold and allows drops
+{
+  const mockMoveEvent: any = {
+    clientX: 107,
+    clientY: 107,
+  };
+  const acceptable = isDragAcceptable(mockMoveEvent, ['tab']);
+  assert.strictEqual(acceptable, true, 'Movement >= 6px must be acceptable as a drag target');
+  const active = getActiveDrag();
+  assert.strictEqual(active?.hasMovedPastThreshold, true, 'hasMovedPastThreshold should now be true');
+  console.log('✓ Test 4: Movement >= 6px meets threshold and enables drop targets');
+}
+
+// Test 5: Micro-click recovery: if drag ended without threshold met and without dropping, onClick fallback fires
+{
+  endDrag();
+  const container = new MockElement('div');
+  const mockStartEvent: any = {
+    clientX: 100,
+    clientY: 100,
+    dataTransfer: {
+      setData: () => {},
+      effectAllowed: 'move',
+    },
+  };
+  startDrag(mockStartEvent, { id: 'tab-click', type: 'tab' });
+
+  let clickFired = false;
   const mockDragEndEvent: any = {
     currentTarget: container,
   };
-  handleDraggableDragEnd(mockDragEndEvent);
-  assert.strictEqual(container.getAttribute('draggable'), null, 'draggable attribute should be cleaned up');
-  assert.strictEqual(container.dataset.wasDragging, 'true', 'wasDragging flag should be set on drag end');
+
+  handleDraggableDragEnd(mockDragEndEvent, {
+    onClick: () => {
+      clickFired = true;
+    },
+  });
+
+  assert.strictEqual(clickFired, true, 'Micro-drag click fallback should execute tab onClick');
+  console.log('✓ Test 5: Micro-jitter drag triggers click recovery');
+}
+
+// Test 6: Intentional drag suppresses trailing clicks
+{
+  endDrag();
+  const container = new MockElement('div');
+  const mockStartEvent: any = {
+    clientX: 100,
+    clientY: 100,
+    dataTransfer: {
+      setData: () => {},
+      effectAllowed: 'move',
+    },
+  };
+  startDrag(mockStartEvent, { id: 'tab-drag', type: 'tab' });
+
+  // Move 10px
+  isDragAcceptable({ clientX: 110, clientY: 110 } as any, ['tab']);
+  recordDragDrop();
+
+  let clickFired = false;
+  const mockDragEndEvent: any = {
+    currentTarget: container,
+  };
+
+  handleDraggableDragEnd(mockDragEndEvent, {
+    onClick: () => {
+      clickFired = true;
+    },
+  });
+
+  assert.strictEqual(clickFired, false, 'Click must NOT fire when a real drag occurred');
+  assert.strictEqual(container.dataset.wasDragging, 'true', 'wasDragging flag must be set');
 
   let clickPrevented = false;
-  let clickStopped = false;
   const mockClickEvent: any = {
     currentTarget: container,
     preventDefault: () => {
       clickPrevented = true;
     },
-    stopPropagation: () => {
-      clickStopped = true;
-    },
+    stopPropagation: () => {},
   };
-  const clickAllowed = shouldAllowClick(mockClickEvent);
-  assert.strictEqual(clickAllowed, false, 'Trailing click after a drag must be suppressed');
+
+  const allowed = shouldAllowClick(mockClickEvent);
+  assert.strictEqual(allowed, false, 'Trailing click should be blocked');
   assert.strictEqual(clickPrevented, true);
-  assert.strictEqual(clickStopped, true);
-  console.log('✓ Test 3: Intentional movement (>= 5px) activates drag and suppresses trailing click');
+  console.log('✓ Test 6: Intentional drag suppresses trailing click');
 }
 
-// Test 4: Inner interactive elements (e.g. close tab button) bypass drag initialization
+// Test 7: Inner interactive elements (e.g. close tab button) temporarily disable draggable
 {
   const container = new MockElement('div');
+  container.draggable = true;
   const closeBtn = new MockElement('button');
   closeBtn.parentElement = container;
 
-  let thresholdMetCalled = false;
   const mockMouseDownEvent: any = {
     button: 0,
     clientX: 100,
     clientY: 100,
     currentTarget: container,
-    target: closeBtn, // user clicked the inner close button!
+    target: closeBtn, // user clicked the inner close button
   };
 
-  handleDraggableMouseDown(mockMouseDownEvent, {
-    threshold: 5,
-    onThresholdMet: () => {
-      thresholdMetCalled = true;
-    },
-  });
+  handleDraggableMouseDown(mockMouseDownEvent);
+  assert.strictEqual(container.draggable, false, 'Draggable should be disabled when clicking inner button');
 
-  assert.strictEqual(container.dataset.dragStartX, undefined, 'Drag should not be initiated when clicking inner button');
-  console.log('✓ Test 4: Inner button click bypasses drag initialization');
+  // After mouse up, draggable is restored
+  triggerWindowEvent('mouseup', {});
+  assert.strictEqual(container.draggable, true, 'Draggable should be restored on mouseup');
+  console.log('✓ Test 7: Inner button clicks bypass drag and restore draggable');
 }
 
 console.log('All dragThreshold tests PASSED successfully!');

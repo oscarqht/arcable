@@ -14,7 +14,7 @@ import {
 } from '../../utils/treeUtils';
 import { getSpaceThemeStyles, getSpaceNoiseOverlayStyle } from '../../utils/spaceTheme';
 import { getSortedSiblings, setLocalFolderExpanded } from '../../hooks/useWorkspace';
-import { isDragAcceptable, getActiveDrag, endDrag } from '../../utils/dragState';
+import { isDragAcceptable, getActiveDrag, endDrag, recordDragDrop } from '../../utils/dragState';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
@@ -506,6 +506,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
             } else if (parsed.type === 'favTab') {
               onDropFavTabToSpace?.(parsed.id, space.id, parsed.parentGroupId);
             }
+            recordDragDrop();
           } catch {} finally {
             endDrag();
           }
@@ -668,6 +669,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                     } else if (parsed.type === 'favTab') {
                       onDropFavTabToSpace?.(parsed.id, space.id, parsed.parentGroupId);
                     }
+                    recordDragDrop();
                   } catch {} finally {
                     endDrag();
                   }
@@ -800,6 +802,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                           if (parsed.type === 'tmpTab') {
                             const tmpTab = (parsed.tmpTab || parsed) as TmpTab;
                             onDropTmpTab?.(tmpTab, undefined, pos, targetTab.id, space.id);
+                            recordDragDrop();
                             return;
                           }
 
@@ -811,6 +814,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({
                             position: pos,
                             parentGroupId: parsed.parentGroupId,
                           });
+                          recordDragDrop();
                         } catch {}
                       }}
                     />

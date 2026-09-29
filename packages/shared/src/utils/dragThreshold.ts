@@ -1,17 +1,16 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { endDrag, getActiveDrag } from './dragState';
+import React, { useRef, useCallback } from 'react';
+import { endDrag, getActiveDrag, DEFAULT_DRAG_THRESHOLD } from './dragState';
 
-export const DEFAULT_DRAG_THRESHOLD = 5; // pixels
+export { DEFAULT_DRAG_THRESHOLD };
 
 export interface DraggableMouseDownOptions {
-  threshold?: number;
   disabled?: boolean;
-  onThresholdMet?: (el: HTMLElement) => void;
 }
 
 /**
- * Attaches a distance threshold to an element before allowing HTML5 dragstart to initiate.
- * Prevents accidental drag initialization during normal mouse clicks with micro-jitter.
+ * Attaches to onMouseDown on a draggable element.
+ * If the user clicked an interactive child element (e.g. close button, dropdown menu),
+ * temporarily disables draggable for that click so buttons fire immediately without drag.
  */
 export function handleDraggableMouseDown(
   e: React.MouseEvent<any>,
@@ -21,110 +20,114 @@ export function handleDraggableMouseDown(
   const el = e.currentTarget as HTMLElement;
   const target = e.target as HTMLElement | null;
 
-  // Do not initiate drag if user clicked an interactive child element (buttons, inputs, links, etc.)
+  // Record start time & pos for click recovery if needed
+  el.dataset.dragMouseDownTime = String(Date.now());
+  el.dataset.dragMouseDownX = String(e.clientX);
+  el.dataset.dragMouseDownY = String(e.clientY);
+
   const interactive = target?.closest('button, input, textarea, select, a, [role="button"], [data-no-drag]');
   if (interactive && interactive !== el && el.contains(interactive)) {
-    return;
+    el.draggable = false;
+    const restore = () => {
+      el.draggable = true;
+      window.removeEventListener('mouseup', restore);
+    };
+    window.addEventListener('mouseup', restore, { once: true });
+  } else {
+    el.draggable = true;
   }
-
-  const startX = e.clientX;
-  const startY = e.clientY;
-  const threshold = options?.threshold ?? DEFAULT_DRAG_THRESHOLD;
-
-  el.dataset.dragStartX = String(startX);
-  el.dataset.dragStartY = String(startY);
-  el.dataset.dragThresholdMet = 'false';
-  el.removeAttribute('draggable');
-
-  const cleanup = () => {
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
-    window.removeEventListener('blur', cleanup);
-  };
-
-  const onMouseMove = (moveEvent: MouseEvent) => {
-    const dist = Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY);
-    if (dist >= threshold) {
-      el.dataset.dragThresholdMet = 'true';
-      el.setAttribute('draggable', 'true');
-      options?.onThresholdMet?.(el);
-      cleanup();
-    }
-  };
-
-  const onMouseUp = () => {
-    cleanup();
-    setTimeout(() => {
-      delete el.dataset.dragStartX;
-      delete el.dataset.dragStartY;
-      delete el.dataset.dragThresholdMet;
-      if (!getActiveDrag()) {
-        el.removeAttribute('draggable');
-      }
-    }, 60);
-  };
-
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
-  window.addEventListener('blur', cleanup);
 }
 
 /**
- * Checks if the drag should be allowed based on distance traveled since mousedown.
+ * Checks if a drag event is acceptable.
+ * Drop targets should use isDragAcceptable from dragState.ts.
  */
 export function shouldAllowDrag(
   e: React.DragEvent<any>,
-  options?: { threshold?: number }
+  _options?: { threshold?: number }
 ): boolean {
-  const el = e.currentTarget as HTMLElement;
-  if (!el || !el.dataset) return true;
-  if (el.dataset.dragThresholdMet === 'true') {
-    return true;
-  }
-  const startX = el.dataset.dragStartX ? Number(el.dataset.dragStartX) : null;
-  const startY = el.dataset.dragStartY ? Number(el.dataset.dragStartY) : null;
-  if (startX !== null && startY !== null) {
-    const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
-    const threshold = options?.threshold ?? DEFAULT_DRAG_THRESHOLD;
-    if (dist < threshold) {
-      e.preventDefault();
-      return false;
+  // If activeDrag exists and has threshold info, verify it
+  const activeDrag = getActiveDrag();
+  if (activeDrag && activeDrag.hasMovedPastThreshold === false) {
+    if (e.clientX && e.clientY && activeDrag.startX !== undefined && activeDrag.startY !== undefined) {
+      const dist = Math.hypot(e.clientX - activeDrag.startX, e.clientY - activeDrag.startY);
+      if (dist >= (activeDrag.threshold ?? DEFAULT_DRAG_THRESHOLD)) {
+        activeDrag.hasMovedPastThreshold = true;
+      }
     }
+    return activeDrag.hasMovedPastThreshold;
   }
   return true;
 }
 
 /**
- * Cleans up drag threshold attributes and suppresses trailing clicks immediately after drag ends.
+ * Handles onDragEnd for draggable elements.
+ * If Chromium converted a click with micro-jitter into a dragstart, but no drop target was hit
+ * and movement was within threshold, invokes the click fallback so clicks are never swallowed.
  */
-export function handleDraggableDragEnd(e: React.DragEvent<any>): void {
+export function handleDraggableDragEnd(
+  e: React.DragEvent<any>,
+  options?: { onClick?: (e: any) => void }
+): void {
   const el = e.currentTarget as HTMLElement;
-  if (!el || !el.dataset) {
-    endDrag();
-    return;
+  const activeDrag = getActiveDrag();
+
+  const wasDropped = activeDrag?.dropped ?? false;
+  const hasMovedPastThreshold = activeDrag?.hasMovedPastThreshold ?? false;
+
+  const startMs = el?.dataset?.dragMouseDownTime ? Number(el.dataset.dragMouseDownTime) : (activeDrag?.startTime ?? 0);
+  const elapsed = startMs > 0 ? Date.now() - startMs : 1000;
+
+  if (el?.dataset) {
+    delete el.dataset.dragMouseDownTime;
+    delete el.dataset.dragMouseDownX;
+    delete el.dataset.dragMouseDownY;
   }
-  delete el.dataset.dragStartX;
-  delete el.dataset.dragStartY;
-  delete el.dataset.dragThresholdMet;
-  el.removeAttribute('draggable');
-  el.dataset.wasDragging = 'true';
+
+  const isMicroClick = !wasDropped && !hasMovedPastThreshold && elapsed < 400;
+
   endDrag();
-  setTimeout(() => {
-    delete el.dataset.wasDragging;
-  }, 80);
+
+  if (isMicroClick) {
+    // Chromium suppressed the native click event due to micro-movement.
+    // Recover user click intent:
+    if (el) {
+      el.dataset.lastAutoClickTime = String(Date.now());
+    }
+    options?.onClick?.(e);
+  } else {
+    if (el?.dataset) {
+      el.dataset.wasDragging = 'true';
+      setTimeout(() => {
+        delete el.dataset.wasDragging;
+      }, 100);
+    }
+  }
 }
 
 /**
- * Checks if a click event should be permitted or if it was the conclusion of a drag gesture.
+ * Checks if a native click event should be permitted or if it was the conclusion of a real drag.
  */
 export function shouldAllowClick(e: React.MouseEvent<any>): boolean {
   const el = e.currentTarget as HTMLElement;
   if (!el || !el.dataset) return true;
+
   if (el.dataset.wasDragging === 'true' || Boolean(getActiveDrag())) {
     e.preventDefault();
     e.stopPropagation();
     return false;
   }
+
+  // Prevent double click if handleDraggableDragEnd already triggered click
+  if (el.dataset.lastAutoClickTime) {
+    const elapsed = Date.now() - Number(el.dataset.lastAutoClickTime);
+    if (elapsed < 350) {
+      e.preventDefault();
+      e.stopPropagation();
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -137,7 +140,10 @@ export interface UseDraggableWithThresholdOptions {
 }
 
 /**
- * React hook for draggable items with built-in sensitivity / threshold handling.
+ * React hook for draggable items.
+ * Keeps draggable={true} so browser native dragging works smoothly when dragging to reorder/organize,
+ * while preventing inner buttons from dragging and recovering clicks if trackpad micro-jitter
+ * caused Chromium to suppress native click events.
  */
 export function useDraggableWithThreshold({
   enabled = true,
@@ -146,47 +152,54 @@ export function useDraggableWithThreshold({
   onDragEnd,
   onClick,
 }: UseDraggableWithThresholdOptions = {}) {
-  const [canDrag, setCanDrag] = useState(false);
-  const elementRef = useRef<HTMLElement | null>(null);
+  const dragStartTimeRef = useRef(0);
   const wasDraggingRef = useRef(false);
+  const lastClickTimeRef = useRef(0);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<any>) => {
-      if (!enabled) return;
-      elementRef.current = e.currentTarget as HTMLElement;
-      handleDraggableMouseDown(e, {
-        threshold,
-        disabled: !enabled,
-        onThresholdMet: () => {
-          setCanDrag(true);
-        },
-      });
+      if (!enabled || e.button !== 0) return;
+      handleDraggableMouseDown(e, { disabled: !enabled });
+      dragStartTimeRef.current = Date.now();
     },
-    [enabled, threshold]
+    [enabled]
   );
 
   const handleDragStart = useCallback(
     (e: React.DragEvent<any>) => {
-      if (!enabled || !shouldAllowDrag(e, { threshold })) {
+      if (!enabled) {
         e.preventDefault();
         return;
       }
-      wasDraggingRef.current = true;
+      dragStartTimeRef.current = Date.now();
       onDragStart?.(e);
     },
-    [enabled, threshold, onDragStart]
+    [enabled, onDragStart]
   );
 
   const handleDragEnd = useCallback(
     (e: React.DragEvent<any>) => {
-      setCanDrag(false);
-      handleDraggableDragEnd(e);
+      const activeDrag = getActiveDrag();
+      const wasDropped = activeDrag?.dropped ?? false;
+      const hasMovedPastThreshold = activeDrag?.hasMovedPastThreshold ?? false;
+      const elapsed = Date.now() - dragStartTimeRef.current;
+
+      const isMicroClick = !wasDropped && !hasMovedPastThreshold && elapsed < 400;
+
+      endDrag();
       onDragEnd?.(e);
-      setTimeout(() => {
-        wasDraggingRef.current = false;
-      }, 80);
+
+      if (isMicroClick) {
+        lastClickTimeRef.current = Date.now();
+        onClick?.(e as any);
+      } else {
+        wasDraggingRef.current = true;
+        setTimeout(() => {
+          wasDraggingRef.current = false;
+        }, 100);
+      }
     },
-    [onDragEnd]
+    [onDragEnd, onClick]
   );
 
   const handleClick = useCallback(
@@ -196,17 +209,22 @@ export function useDraggableWithThreshold({
         e.stopPropagation();
         return;
       }
+      if (Date.now() - lastClickTimeRef.current < 350) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      lastClickTimeRef.current = Date.now();
       onClick?.(e);
     },
     [onClick]
   );
 
   return {
-    canDrag,
+    draggable: enabled,
     handleMouseDown,
     handleDragStart,
     handleDragEnd,
     handleClick,
-    elementRef,
   };
 }
