@@ -1228,7 +1228,7 @@ function bindCropDragInteraction(editor) {
         editor.selectNone();
         editor.setCurrentTool('select.idle');
       },
-      { history: 'ignore', ignoreShapeLock: true }
+      { history: 'record', ignoreShapeLock: true }
     );
 
     editorState.isCroppingScreenshot = false;
