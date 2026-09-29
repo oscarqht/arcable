@@ -411,6 +411,138 @@ export function findBestOpenFavoriteTab(
   return openFavorites[0];
 }
 
+export interface BestTabOnCloseResult {
+  tabItemId: string;
+  browserTabId: number;
+  windowId?: number;
+  isFavorite: boolean;
+}
+
+/**
+ * Finds the best tab to activate when an active tab closes, adhering to mixed MRU logic:
+ * 1. Collects all open tabs in the space (pinned, folder/workspace tabs, tmp tabs) and all open favorite tabs.
+ * 2. Filters out the closing tab.
+ * 3. Compares all remaining candidates by MRU (most recently used, via getLastActivatedTime).
+ * 4. Tie-breaking (for equal/0 timestamps):
+ *    - In-space tabs take precedence over favorite tabs.
+ *    - In-space tabs prefer positional order relative to the closing tab (next below, then above).
+ *    - Favorite tabs prefer shelf order.
+ * 5. Returns null if no open tabs remain in this space or favorites shelf (caller fallbacks to blank tab).
+ */
+export function findBestTabOnClose(
+  spaceId: string,
+  closingTab: { tabItemId?: string; browserTabId?: number },
+  folders: Folder[],
+  tabs: Tab[],
+  tabAssociations: Record<string, { browserTabId?: number; windowId?: number } | undefined>,
+  tmpTabs: TmpTab[],
+  windowId?: number,
+  getLastActivatedTime?: (tabItemId?: string, browserTabId?: number) => number
+): BestTabOnCloseResult | null {
+  const openSpaceTabs = getOpenTabsInSpaceOrder(
+    spaceId,
+    folders,
+    tabs,
+    tabAssociations,
+    tmpTabs,
+    windowId
+  );
+
+  const openFavorites = getOpenFavoriteTabs(
+    tabs,
+    tabAssociations,
+    windowId
+  );
+
+  const isClosing = (candidate: { tabItemId?: string; browserTabId?: number }) => {
+    if (closingTab.browserTabId !== undefined && candidate.browserTabId === closingTab.browserTabId) {
+      return true;
+    }
+    if (closingTab.tabItemId && candidate.tabItemId === closingTab.tabItemId) {
+      return true;
+    }
+    return false;
+  };
+
+  const closingSpaceIndex = openSpaceTabs.findIndex(isClosing);
+
+  const remainingSpaceTabs = openSpaceTabs.filter((t) => !isClosing(t));
+  const remainingFavorites = openFavorites.filter((t) => !isClosing(t));
+
+  if (remainingSpaceTabs.length === 0 && remainingFavorites.length === 0) {
+    return null;
+  }
+
+  interface ScoredCandidate {
+    tabItemId: string;
+    browserTabId: number;
+    windowId?: number;
+    isFavorite: boolean;
+    mruTime: number;
+    tieBreakRank: number;
+  }
+
+  const candidates: ScoredCandidate[] = [];
+
+  // Positional ordering for space tabs:
+  // If closing tab was found in space: prefer next downward (+1, +2...), then upward (above).
+  // Otherwise top-to-bottom.
+  for (const t of remainingSpaceTabs) {
+    const originalIndex = openSpaceTabs.findIndex((orig) => orig.browserTabId === t.browserTabId);
+    let positionalRank = 0;
+    if (closingSpaceIndex !== -1) {
+      if (originalIndex > closingSpaceIndex) {
+        positionalRank = originalIndex - closingSpaceIndex;
+      } else {
+        positionalRank = 10000 + (closingSpaceIndex - originalIndex);
+      }
+    } else {
+      positionalRank = originalIndex;
+    }
+
+    const mruTime = getLastActivatedTime ? getLastActivatedTime(t.tabItemId, t.browserTabId) : 0;
+    candidates.push({
+      tabItemId: t.tabItemId,
+      browserTabId: t.browserTabId,
+      windowId: t.windowId,
+      isFavorite: false,
+      mruTime,
+      tieBreakRank: positionalRank,
+    });
+  }
+
+  // Shelf ordering for favorites:
+  for (let i = 0; i < remainingFavorites.length; i++) {
+    const f = remainingFavorites[i];
+    const mruTime = getLastActivatedTime ? getLastActivatedTime(f.tabItemId, f.browserTabId) : 0;
+    candidates.push({
+      tabItemId: f.tabItemId,
+      browserTabId: f.browserTabId,
+      windowId: f.windowId,
+      isFavorite: true,
+      mruTime,
+      tieBreakRank: 20000 + i,
+    });
+  }
+
+  candidates.sort((a, b) => {
+    // 1. Highest MRU time first
+    if (a.mruTime !== b.mruTime) {
+      return b.mruTime - a.mruTime;
+    }
+    // 2. Tie-break rank (in-space positional first, then favorites)
+    return a.tieBreakRank - b.tieBreakRank;
+  });
+
+  const best = candidates[0];
+  return {
+    tabItemId: best.tabItemId,
+    browserTabId: best.browserTabId,
+    windowId: best.windowId,
+    isFavorite: best.isFavorite,
+  };
+}
+
 /**
  * Remember the active browser tab for a specific space in a specific browser window.
  * Saves both numeric browserTabId and the workspace tabItemId to survive reloads & restarts.
