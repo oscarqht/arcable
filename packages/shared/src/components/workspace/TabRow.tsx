@@ -164,7 +164,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   }, [currentUrl, secondaryVariants]);
 
   const effectiveFavIconUrl = activeSecondaryVariant
-    ? activeSecondaryVariant.favIconUrl
+    ? (activeSecondaryVariant.favIconUrl || tab.favIconUrl)
     : tab.favIconUrl;
   const effectiveCustomEmojiIcon = activeSecondaryVariant
     ? activeSecondaryVariant.customEmojiIcon

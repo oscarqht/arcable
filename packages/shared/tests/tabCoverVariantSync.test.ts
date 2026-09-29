@@ -4,6 +4,9 @@ import {
   syncWorkspaceWithRaindrop,
   syncIncrementalOperations,
   ARCABLE_VARIANT_DELIMITER,
+  attachGroupMetaToNote,
+  encodeRaindropTitle,
+  decodeRaindropTitle,
 } from '../src/utils/raindropSync';
 import type {
   Tab,
@@ -433,7 +436,7 @@ test('TabRow dynamically resolves active secondary variant icon when navigating 
       ? secondaryVariants.find((v) => currentUrl.startsWith(v.url)) || null
       : null;
     return {
-      effectiveFavIconUrl: activeSecondary ? activeSecondary.favIconUrl : tab.favIconUrl,
+      effectiveFavIconUrl: activeSecondary ? (activeSecondary.favIconUrl || tab.favIconUrl) : tab.favIconUrl,
       effectiveUrl: activeSecondary ? activeSecondary.url : tab.url,
     };
   };
@@ -448,10 +451,155 @@ test('TabRow dynamically resolves active secondary variant icon when navigating 
   assert.equal(stagingState.effectiveFavIconUrl, 'https://icons.example.com/staging.png');
   assert.equal(stagingState.effectiveUrl, 'https://staging.example.com');
 
-  // Navigating docs (no custom cover) -> effectiveFavIconUrl is undefined, domain fallback used
+  // Navigating docs (no custom cover) -> falls back to main tab cover
   const docsState = resolveTabRowIcon('https://docs.example.com/guide');
-  assert.equal(docsState.effectiveFavIconUrl, undefined);
+  assert.equal(docsState.effectiveFavIconUrl, 'https://icons.example.com/prod.png');
   assert.equal(docsState.effectiveUrl, 'https://docs.example.com');
+});
+
+test('modifying the icon of a tab item with url variants saves and does not revert after sync', async () => {
+  // Existing tab in workspace with URL variants where default variant originally had no separate favIconUrl
+  const existingTab: Tab = {
+    id: 'tab_sync_1',
+    raindropId: 2001,
+    url: 'https://example.com/main',
+    favIconUrl: 'https://icons.example.com/old_icon.png',
+    customTitle: 'App',
+    defaultVariantId: 'var_1',
+    parentSpaceId: 'space_work',
+    urlVariants: [
+      { id: 'var_1', name: 'Main', url: 'https://example.com/main' },
+      { id: 'var_2', name: 'Docs', url: 'https://example.com/docs' },
+    ],
+  };
+
+  // 1. Simulating TabModal initialization
+  const initialCover = existingTab.favIconUrl || existingTab.urlVariants?.[0]?.favIconUrl;
+  assert.equal(initialCover, 'https://icons.example.com/old_icon.png');
+
+  const rawVariants = existingTab.urlVariants!.map((v) => ({ ...v }));
+  if (rawVariants[0] && !rawVariants[0].favIconUrl && initialCover) {
+    rawVariants[0].favIconUrl = initialCover;
+  }
+  assert.equal(rawVariants[0].favIconUrl, 'https://icons.example.com/old_icon.png');
+
+  // 2. User modifies the icon to a new cover (via Tab Cover or Variant Cover popover)
+  const newCover = 'https://icons.example.com/brand_new_icon.png';
+  let coverUrl: string | undefined = newCover;
+  rawVariants[0].favIconUrl = newCover;
+
+  // 3. Simulating TabModal handleSubmit
+  const defVariant = rawVariants[0];
+  const effectiveDefCover = defVariant?.favIconUrl || coverUrl || undefined;
+  const isFavGroup = false;
+
+  const onSavePayload = {
+    url: defVariant.url.trim(),
+    urlVariants: rawVariants.map((v, idx) => ({
+      ...v,
+      name: v.name.trim() || 'Variant',
+      url: v.url.trim(),
+      favIconUrl: idx === 0 ? effectiveDefCover : (v.favIconUrl || undefined),
+    })),
+    defaultVariantId: defVariant.id,
+    isGroup: isFavGroup,
+    parentSpaceId: existingTab.parentSpaceId,
+    parentFolderId: undefined,
+    customTitle: defVariant.name || undefined,
+    customEmojiIcon: undefined,
+    favIconUrl: isFavGroup ? undefined : effectiveDefCover,
+    pinned: false,
+    favourite: false,
+  };
+
+  assert.equal(onSavePayload.favIconUrl, newCover);
+  assert.equal(onSavePayload.urlVariants[0].favIconUrl, newCover);
+
+  // 4. Simulating updateTab normalization in useWorkspace
+  const normalizedUpdates = { ...onSavePayload };
+  const cleanedVariants = normalizedUpdates.urlVariants.map((v) => ({
+    id: v.id,
+    name: v.name.trim(),
+    url: v.url,
+    favIconUrl: v.favIconUrl,
+  }));
+  const defaultVar = cleanedVariants[0];
+  if (normalizedUpdates.favIconUrl !== undefined && defaultVar) {
+    defaultVar.favIconUrl = normalizedUpdates.favIconUrl;
+  } else if (defaultVar?.favIconUrl && normalizedUpdates.favIconUrl === undefined && !normalizedUpdates.isGroup) {
+    normalizedUpdates.favIconUrl = defaultVar.favIconUrl;
+  }
+  normalizedUpdates.urlVariants = cleanedVariants;
+
+  const updatedTab: Tab = {
+    ...existingTab,
+    ...normalizedUpdates,
+    updatedAt: Date.now(),
+  };
+
+  assert.equal(updatedTab.favIconUrl, newCover);
+  assert.equal(updatedTab.urlVariants![0].favIconUrl, newCover);
+
+  // 5. Simulating Raindrop sync - verify bookmark payload sends new cover
+  const tabNote = attachGroupMetaToNote(existingTab.note, updatedTab);
+  const rawTitle = updatedTab.customTitle || updatedTab.url;
+  const encodedTabTitle = encodeRaindropTitle(rawTitle);
+  const mainBookmarkTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(defaultVar?.name || 'Default')}`;
+
+  const syncPayload = {
+    title: mainBookmarkTitle,
+    link: defaultVar ? defaultVar.url : updatedTab.url,
+    cover: updatedTab.favIconUrl || (defaultVar && defaultVar.favIconUrl),
+    note: tabNote,
+    collection: { $id: 123 },
+    order: 0,
+    sort: 0,
+  };
+
+  assert.equal(syncPayload.cover, newCover, 'Raindrop payload MUST have newCover to update remote bookmark');
+
+  // 6. Simulating remote items store update and subsequent reconstruction
+  const remoteItems = [
+    {
+      _id: 2001,
+      title: syncPayload.title,
+      link: syncPayload.link,
+      cover: syncPayload.cover,
+      collectionId: 123,
+      sort: 0,
+      order: 0,
+    },
+    {
+      _id: 2002,
+      title: `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}Docs`,
+      link: 'https://example.com/docs',
+      cover: syncPayload.cover,
+      collectionId: 123,
+      sort: 1,
+      order: 1,
+    },
+  ];
+
+  const primaryItem = remoteItems[0];
+  const reconstructedVariants = remoteItems.map((v) => {
+    const vTitle = decodeRaindropTitle(v.title || '');
+    const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
+    const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
+    return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
+  });
+
+  const reconstructedTab: Tab = {
+    id: String(primaryItem._id),
+    raindropId: primaryItem._id,
+    url: reconstructedVariants[0]?.url || primaryItem.link,
+    urlVariants: reconstructedVariants,
+    defaultVariantId: reconstructedVariants[0]?.id,
+    customTitle: 'App',
+    favIconUrl: reconstructedVariants[0]?.favIconUrl || primaryItem.cover,
+  };
+
+  assert.equal(reconstructedTab.favIconUrl, newCover, 'Reconstructed tab preserves new cover and does NOT revert');
+  assert.equal(reconstructedTab.urlVariants![0].favIconUrl, newCover);
 });
 
 

@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useRef, useCallback } from 'react';
 import { endDrag, getActiveDrag, DEFAULT_DRAG_THRESHOLD } from './dragState';
 

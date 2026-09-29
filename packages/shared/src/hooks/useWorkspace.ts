@@ -1128,6 +1128,8 @@ export function useWorkspace() {
           const defaultVar = cleanedVariants[0];
           if (normalizedUpdates.favIconUrl !== undefined && defaultVar) {
             defaultVar.favIconUrl = normalizedUpdates.favIconUrl;
+          } else if (defaultVar?.favIconUrl && normalizedUpdates.favIconUrl === undefined && !normalizedUpdates.isGroup) {
+            normalizedUpdates.favIconUrl = defaultVar.favIconUrl;
           }
           normalizedUpdates.urlVariants = cleanedVariants;
           normalizedUpdates.defaultVariantId = defaultVar?.id;
