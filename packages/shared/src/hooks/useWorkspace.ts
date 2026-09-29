@@ -2557,7 +2557,12 @@ export function useWorkspace() {
               pinned: t.pinned,
               favourite: t.favourite,
               order: t.order,
-              ...(t.customTitle !== oldTab.customTitle ? { customTitle: t.customTitle, urlVariants: t.urlVariants } : {}),
+              customTitle: t.customTitle,
+              url: t.url,
+              favIconUrl: t.favIconUrl,
+              urlVariants: t.urlVariants,
+              defaultVariantId: t.defaultVariantId,
+              isGroup: t.isGroup,
             })
           );
         }

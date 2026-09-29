@@ -1014,6 +1014,74 @@ export function mergeIncrementalSyncSnapshot(
   const syncedCustomCode = new Map((synced.customCodeRules || []).map((rule) => [rule.id, rule]));
   const syncedRunCode = new Map((synced.runCodeInPageRules || []).map((rule) => [rule.id, rule]));
 
+  const mergedTabs = current.tabs.map((tab) => {
+    const syncedTab =
+      syncedTabs.get(tab.id) ||
+      (tab.raindropId ? syncedTabs.get(String(tab.raindropId)) : undefined);
+    if (!syncedTab) return tab;
+    const remoteId = syncedTab.raindropId || tab.raindropId;
+
+    let nextVariants = tab.urlVariants;
+    let nextDefaultVariantId = tab.defaultVariantId;
+
+    if (syncedTab.urlVariants && syncedTab.urlVariants.length > 0) {
+      if (tab.urlVariants && tab.urlVariants.length > 0) {
+        nextVariants = tab.urlVariants.map((v, idx) => {
+          const matchedSynced =
+            syncedTab.urlVariants?.find((sv) => sv.id === v.id) ||
+            syncedTab.urlVariants?.find(
+              (sv) => sv.url && v.url && sv.url.trim().toLowerCase() === v.url.trim().toLowerCase()
+            ) ||
+            syncedTab.urlVariants?.find(
+              (sv) => sv.name && v.name && sv.name.trim().toLowerCase() === v.name.trim().toLowerCase()
+            ) ||
+            (syncedTab.urlVariants && syncedTab.urlVariants.length === tab.urlVariants?.length
+              ? syncedTab.urlVariants[idx]
+              : undefined);
+          if (matchedSynced && matchedSynced.id) {
+            return {
+              ...v,
+              id: matchedSynced.id,
+              favIconUrl: v.favIconUrl || matchedSynced.favIconUrl,
+              name: v.name || matchedSynced.name,
+            };
+          }
+          return v;
+        });
+
+        if (syncedTab.defaultVariantId) {
+          const defIndex = tab.urlVariants.findIndex((v) => v.id === tab.defaultVariantId);
+          if (defIndex !== -1 && nextVariants[defIndex]) {
+            nextDefaultVariantId = nextVariants[defIndex].id;
+          } else {
+            nextDefaultVariantId = syncedTab.defaultVariantId;
+          }
+        }
+      } else {
+        nextVariants = syncedTab.urlVariants;
+        nextDefaultVariantId = syncedTab.defaultVariantId;
+      }
+    }
+
+    return {
+      ...tab,
+      ...(remoteId ? { raindropId: remoteId } : {}),
+      ...(nextVariants ? { urlVariants: nextVariants } : {}),
+      ...(nextDefaultVariantId ? { defaultVariantId: nextDefaultVariantId } : {}),
+      favIconUrl: tab.favIconUrl || syncedTab.favIconUrl,
+      customTitle: tab.customTitle || syncedTab.customTitle,
+      note: tab.note || syncedTab.note,
+    };
+  });
+
+  const currentTabIds = new Set(current.tabs.map((t) => t.id));
+  const currentRaindropIds = new Set(
+    current.tabs.map((t) => (t.raindropId ? String(t.raindropId) : '')).filter(Boolean)
+  );
+  const newSyncedTabs = synced.tabs.filter(
+    (st) => !currentTabIds.has(st.id) && (!st.raindropId || !currentRaindropIds.has(String(st.raindropId)))
+  );
+
   return {
     ...current,
     raindropRootCollectionId: synced.raindropRootCollectionId ?? current.raindropRootCollectionId,
@@ -1035,13 +1103,15 @@ export function mergeIncrementalSyncSnapshot(
       const remoteId = syncedFolders.get(folder.id)?.raindropId;
       return remoteId ? { ...folder, raindropId: remoteId } : folder;
     }),
-    tabs: current.tabs.map((tab) => {
-      const remoteId = syncedTabs.get(tab.id)?.raindropId;
-      return remoteId ? { ...tab, raindropId: remoteId } : tab;
-    }),
+    tabs: [...mergedTabs, ...newSyncedTabs],
     widgets: (current.widgets || []).map((widget) => {
-      const remoteId = syncedWidgets.get(widget.id)?.raindropId;
-      return remoteId ? { ...widget, raindropId: remoteId } : widget;
+      const syncedWidget = syncedWidgets.get(widget.id);
+      const remoteId = syncedWidget?.raindropId;
+      return {
+        ...widget,
+        ...(remoteId ? { raindropId: remoteId } : {}),
+        ...(syncedWidget?.parentGroupId ? { parentGroupId: syncedWidget.parentGroupId } : {}),
+      };
     }),
     customCodeRules: (current.customCodeRules || []).map((rule) => {
       const remoteId = syncedCustomCode.get(rule.id)?.raindropId;

@@ -580,7 +580,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const handleEnableVariants = () => {
     const currentUrlVal = url.trim();
-    const firstId = 'var_' + Date.now() + '_1';
+    const firstId = tab?.raindropId ? String(tab.raindropId) : (tab?.id || 'var_' + Date.now() + '_1');
     const secondId = 'var_' + Date.now() + '_2';
     const initialFirstName = customTitle.trim() || getDomain(currentUrlVal) || 'Default';
     const initialVariants: TabUrlVariant[] = [
@@ -636,6 +636,9 @@ export const TabModal: React.FC<TabModalProps> = ({
       next.splice(targetIndex, 0, dragged);
       if (next[0]?.id) {
         setDefaultVariantId(next[0].id);
+        if (next[0].favIconUrl) {
+          setCoverUrl(next[0].favIconUrl);
+        }
       }
       return next;
     });

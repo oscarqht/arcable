@@ -892,12 +892,19 @@ export async function syncIncrementalOperations(
         };
       }
 
+      const usedVariantRemoteIds = new Set<number>([mainRemoteId]);
+
       tabUpdates.push({ entityId, remoteId: mainRemoteId, payload, targetOrder: defaultVarOrder });
       secondaryVariants.forEach((variant, vIdx) => {
         const variantOrder = getTabVariantOrder(tab, variant.id, 1 + vIdx, targetOrder);
         let varRemoteId = numericRaindropId(variant.id);
-        if (varRemoteId === mainRemoteId) {
+        if (defaultVarRemoteId && defaultVarRemoteId !== origRemoteId && varRemoteId === mainRemoteId) {
           varRemoteId = origRemoteId;
+        } else if (varRemoteId && usedVariantRemoteIds.has(varRemoteId)) {
+          varRemoteId = undefined;
+        }
+        if (varRemoteId) {
+          usedVariantRemoteIds.add(varRemoteId);
         }
         const varTitle = `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(variant.name || 'Variant')}`;
         if (varRemoteId) {
@@ -986,28 +993,52 @@ export async function syncIncrementalOperations(
       ...latestSnapshot,
       tabs: latestSnapshot.tabs.map((candidate) => {
         const createdId = createdIds.get(candidate.id);
+        const effectiveRaindropId = createdId || candidate.raindropId;
         const nextVariants = candidate.urlVariants?.map((v) => {
           const varKey = `${candidate.id}:::variant:::${v.id}`;
           const varCreatedId = createdIds.get(varKey);
           if (varCreatedId) {
             return { ...v, id: String(varCreatedId) };
           }
-          if (createdId && (v.id === candidate.defaultVariantId || v.url === candidate.url)) {
-            return { ...v, id: String(createdId) };
+          if (effectiveRaindropId && (v.id === candidate.defaultVariantId || v.url === candidate.url)) {
+            return { ...v, id: String(effectiveRaindropId) };
           }
           return v;
         });
-        const nextDefaultVariantId = createdId && candidate.defaultVariantId === candidate.urlVariants?.[0]?.id
-          ? String(createdId)
-          : candidate.defaultVariantId;
+
+        let nextDefaultVariantId = candidate.defaultVariantId;
+        if (effectiveRaindropId && (candidate.defaultVariantId === candidate.urlVariants?.[0]?.id || !candidate.defaultVariantId)) {
+          nextDefaultVariantId = nextVariants?.[0]?.id || String(effectiveRaindropId);
+        } else if (candidate.defaultVariantId) {
+          const matchedVar = nextVariants?.find((v, idx) => candidate.urlVariants?.[idx]?.id === candidate.defaultVariantId);
+          if (matchedVar) {
+            nextDefaultVariantId = matchedVar.id;
+          }
+        }
+
         return {
           ...candidate,
-          ...(createdId ? { raindropId: createdId } : {}),
+          ...(effectiveRaindropId ? { raindropId: effectiveRaindropId } : {}),
           ...(nextVariants ? { urlVariants: nextVariants } : {}),
           ...(nextDefaultVariantId ? { defaultVariantId: nextDefaultVariantId } : {}),
         };
       }),
     };
+
+    // If variant bookmarks were created or mapped, update the group note on the primary bookmark in Raindrop
+    for (const tab of latestSnapshot.tabs) {
+      if (tab.raindropId && tab.urlVariants && tab.urlVariants.length > 1) {
+        const updatedNote = attachGroupMetaToNote(tab.note, tab);
+        if (updatedNote !== tab.note) {
+          try {
+            await updateRaindropItem(token, tab.raindropId, { note: updatedNote });
+            tab.note = updatedNote;
+          } catch (e) {
+            console.warn('Failed to update group note with new variant IDs:', e);
+          }
+        }
+      }
+    }
   }
 
   const retainedRemoteIds = new Set<number>();
@@ -2286,12 +2317,42 @@ export function reconstructWorkspace(
       }
     }
 
+    const findMetaName = (id: string, url: string, fallback: string) => {
+      if (!groupMeta?.variants) return fallback;
+      const match = groupMeta.variants.find(
+        (mv) => (mv.id && mv.id === id) || (mv.url && mv.url.trim().toLowerCase() === url.trim().toLowerCase())
+      );
+      return match?.name || fallback;
+    };
+
     let urlVariants: TabUrlVariant[] = finalItems.map((v) => {
       const vTitle = decodeRaindropTitle(v.title || '');
       const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
       const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
-      return { id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover };
+      return {
+        id: String(v._id),
+        name: findMetaName(String(v._id), v.link, variantName),
+        url: v.link,
+        favIconUrl: v.cover,
+      };
     });
+
+    if (groupMeta?.variants && groupMeta.variants.length > 0) {
+      const getRank = (v: TabUrlVariant) => {
+        const idxById = groupMeta.variants!.findIndex((mv) => mv.id && mv.id === v.id);
+        if (idxById !== -1) return idxById;
+        const idxByUrl = groupMeta.variants!.findIndex(
+          (mv) => mv.url && mv.url.trim().toLowerCase() === v.url.trim().toLowerCase()
+        );
+        if (idxByUrl !== -1) return idxByUrl;
+        const idxByName = groupMeta.variants!.findIndex(
+          (mv) => mv.name && mv.name.trim().toLowerCase() === v.name.trim().toLowerCase()
+        );
+        if (idxByName !== -1) return idxByName;
+        return 9999;
+      };
+      urlVariants.sort((a, b) => getRank(a) - getRank(b));
+    }
 
     if (groupMeta?.groupItemOrder && groupMeta.groupItemOrder.length > 0) {
       const orderMap = new Map<string, number>();
@@ -2308,7 +2369,22 @@ export function reconstructWorkspace(
     }
 
     if (groupMeta?.defaultVariantId) {
-      const defIdx = urlVariants.findIndex((v) => v.id === groupMeta.defaultVariantId);
+      let defIdx = urlVariants.findIndex((v) => v.id === groupMeta.defaultVariantId);
+      if (defIdx === -1 && groupMeta.variants) {
+        const metaDef = groupMeta.variants.find((mv) => mv.id === groupMeta.defaultVariantId);
+        if (metaDef) {
+          defIdx = urlVariants.findIndex(
+            (v) =>
+              (metaDef.url && v.url && v.url.trim().toLowerCase() === metaDef.url.trim().toLowerCase()) ||
+              (metaDef.name && v.name && v.name.trim().toLowerCase() === metaDef.name.trim().toLowerCase())
+          );
+        }
+      }
+      if (defIdx === -1 && groupMeta.firstName) {
+        defIdx = urlVariants.findIndex(
+          (v) => v.name && v.name.trim().toLowerCase() === groupMeta.firstName!.trim().toLowerCase()
+        );
+      }
       if (defIdx > 0) {
         const [def] = urlVariants.splice(defIdx, 1);
         urlVariants.unshift(def);
@@ -2344,7 +2420,7 @@ export function reconstructWorkspace(
       groupItemOrder: isGroup ? groupMeta?.groupItemOrder : undefined,
       pinned: false,
       favourite: favourite || undefined,
-      customTitle: baseTitle,
+      customTitle: groupMeta?.firstName || baseTitle,
       favIconUrl: urlVariants[0]?.favIconUrl || primaryItem.cover,
       note: groupNote || undefined,
       parentFolderId,
