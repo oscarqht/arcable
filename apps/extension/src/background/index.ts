@@ -33,6 +33,7 @@ import {
   searchRaindropCollectionCovers,
   getRaindropRequestFailureDetails,
   isValidHttpUrl,
+  replayOperations,
 } from '@arcable/shared/utils';
 
 import {
@@ -637,6 +638,9 @@ browser.runtime.onMessage.addListener(
             }));
 
           let stateToSync = payload?.localState || identitySnapshot;
+          if (!payload?.localState && stateToSync && combinedPendingOps.length > 0) {
+            stateToSync = replayOperations(stateToSync, combinedPendingOps);
+          }
           if (stateToSync) {
             // Also filter deletions from the localState tmpTabs supplied by the UI
             const filteredStateTmpTabs = (stateToSync.tmpTabs || []).filter(
@@ -915,6 +919,9 @@ async function triggerBackgroundSync(pendingOpsRequired: boolean = false): Promi
     const localRunRules = storedData[RUN_CODE_IN_PAGE_STORAGE_KEY] as RunCodeRule[] | undefined;
     const pendingOps = (storedData.arcable_pending_ops as WorkspaceOperation[]) || [];
     if (pendingOpsRequired && pendingOps.length === 0) return;
+    if (localState && pendingOps.length > 0) {
+      localState = replayOperations(localState, pendingOps);
+    }
     const syncedOpIds = new Set(pendingOps.map((op) => op.id));
 
     const deviceId = await getOrCreateExtensionDeviceId();

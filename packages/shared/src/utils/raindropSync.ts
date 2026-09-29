@@ -1041,6 +1041,83 @@ export async function syncIncrementalOperations(
     }
   }
 
+  const deletedTabEntityIds = new Set<string>();
+  const deletedTabRemoteIds = new Set<number>();
+  const tabDeleteOps: Array<{
+    entityId: string;
+    remoteId?: number;
+    variantRaindropIds: number[];
+    collectionId?: number;
+  }> = [];
+
+  for (const [key, operations] of groups) {
+    if (!key.startsWith('tab:') || !operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
+    if (operations.some((operation) => operation.type === 'TAB_CREATE' || operation.type === 'TAB_ARCHIVE')) continue;
+    const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'TAB_DELETE')!;
+    const entityId = deleteOperation.entityId;
+    deletedTabEntityIds.add(entityId);
+
+    const existingTab = latestSnapshot.tabs.find((candidate) => candidate.id === entityId);
+    const remoteId =
+      Number(deleteOperation.payload?.raindropId) ||
+      numericRaindropId(deleteOperation.entityId) ||
+      (existingTab ? remoteEntityId(existingTab) : undefined);
+
+    if (remoteId) {
+      deletedTabRemoteIds.add(remoteId);
+    }
+
+    const variantRaindropIds: number[] = [];
+    if (Array.isArray(deleteOperation.payload?.variantRaindropIds)) {
+      for (const vid of deleteOperation.payload.variantRaindropIds) {
+        const numId = numericRaindropId(vid);
+        if (numId) {
+          variantRaindropIds.push(numId);
+          deletedTabRemoteIds.add(numId);
+        }
+      }
+    }
+    // Also if the tab exists in latestSnapshot, collect any remote variant IDs from it
+    if (existingTab?.urlVariants) {
+      for (const v of existingTab.urlVariants) {
+        const vId = numericRaindropId(v.id);
+        if (vId && !variantRaindropIds.includes(vId)) {
+          variantRaindropIds.push(vId);
+          deletedTabRemoteIds.add(vId);
+        }
+      }
+    }
+
+    if (!remoteId && variantRaindropIds.length === 0) {
+      continue;
+    }
+
+    const collectionId =
+      Number(deleteOperation.payload?.collectionId) ||
+      (existingTab?.parentFolderId ? collectionIds.get(existingTab.parentFolderId) : undefined) ||
+      (existingTab?.parentSpaceId ? collectionIds.get(existingTab.parentSpaceId) : undefined);
+
+    tabDeleteOps.push({
+      entityId,
+      remoteId,
+      variantRaindropIds,
+      collectionId,
+    });
+  }
+
+  // Prune deleted tabs from latestSnapshot.tabs BEFORE computing retainedRemoteIds
+  if (deletedTabEntityIds.size > 0 || deletedTabRemoteIds.size > 0) {
+    latestSnapshot = {
+      ...latestSnapshot,
+      tabs: latestSnapshot.tabs.filter((t) => {
+        if (deletedTabEntityIds.has(t.id)) return false;
+        const rId = remoteEntityId(t);
+        if (rId && deletedTabRemoteIds.has(rId)) return false;
+        return true;
+      }),
+    };
+  }
+
   const retainedRemoteIds = new Set<number>();
   for (const tab of latestSnapshot.tabs || []) {
     const rId = remoteEntityId(tab);
@@ -1053,33 +1130,23 @@ export async function syncIncrementalOperations(
     }
   }
 
-  for (const [key, operations] of groups) {
-    if (!key.startsWith('tab:') || !operations.some((operation) => operation.type === 'TAB_DELETE')) continue;
-    if (operations.some((operation) => operation.type === 'TAB_CREATE' || operation.type === 'TAB_ARCHIVE')) continue;
-    const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'TAB_DELETE')!;
-    const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
-    if (!remoteId && (!Array.isArray(deleteOperation.payload?.variantRaindropIds) || deleteOperation.payload.variantRaindropIds.length === 0)) {
-      continue;
-    }
-    const collectionId = Number(deleteOperation.payload?.collectionId);
-
+  for (const { remoteId, variantRaindropIds, collectionId } of tabDeleteOps) {
     const deleteIds: number[] = [];
     if (remoteId && !retainedRemoteIds.has(remoteId)) deleteIds.push(remoteId);
-    if (Array.isArray(deleteOperation.payload?.variantRaindropIds)) {
-      for (const vid of deleteOperation.payload.variantRaindropIds) {
-        const numId = numericRaindropId(vid);
-        if (numId && !retainedRemoteIds.has(numId) && !deleteIds.includes(numId)) {
+    if (variantRaindropIds) {
+      for (const numId of variantRaindropIds) {
+        if (!retainedRemoteIds.has(numId) && !deleteIds.includes(numId)) {
           deleteIds.push(numId);
         }
       }
     }
 
-    if (Number.isSafeInteger(collectionId) && collectionId > 0) {
-      const ids = batchDeletes.get(collectionId) || [];
+    if (Number.isSafeInteger(collectionId) && collectionId! > 0) {
+      const ids = batchDeletes.get(collectionId!) || [];
       for (const id of deleteIds) {
         if (!ids.includes(id)) ids.push(id);
       }
-      batchDeletes.set(collectionId, ids);
+      batchDeletes.set(collectionId!, ids);
     } else {
       for (const id of deleteIds) {
         if (!individualDeletes.includes(id)) individualDeletes.push(id);
@@ -1097,14 +1164,30 @@ export async function syncIncrementalOperations(
     if (!deleted) throw new Error(`Failed to delete Raindrop bookmark ${remoteId}.`);
   }
 
+  const deletedFolderEntityIds = new Set<string>();
+  const deletedFolderRemoteIds = new Set<number>();
   for (const [key, operations] of groups) {
     if (!key.startsWith('folder:') || !operations.some((operation) => operation.type === 'FOLDER_DELETE')) continue;
     if (operations.some((operation) => operation.type === 'FOLDER_CREATE' || operation.type === 'FOLDER_ARCHIVE')) continue;
     const deleteOperation = [...operations].reverse().find((operation) => operation.type === 'FOLDER_DELETE')!;
+    deletedFolderEntityIds.add(deleteOperation.entityId);
     const remoteId = Number(deleteOperation.payload?.raindropId) || numericRaindropId(deleteOperation.entityId);
+    if (remoteId) deletedFolderRemoteIds.add(remoteId);
     if (!remoteId) throw new Error(`Folder ${deleteOperation.entityId} has no Raindrop ID for incremental delete.`);
     const deleted = await deleteRaindropCollection(token, remoteId);
     if (!deleted) throw new Error(`Failed to delete Raindrop folder ${remoteId}.`);
+  }
+  if (deletedFolderEntityIds.size > 0 || deletedFolderRemoteIds.size > 0) {
+    latestSnapshot = {
+      ...latestSnapshot,
+      folders: latestSnapshot.folders.filter((f) => {
+        if (deletedFolderEntityIds.has(f.id)) return false;
+        const rId = remoteEntityId(f);
+        if (rId && deletedFolderRemoteIds.has(rId)) return false;
+        return true;
+      }),
+      tabs: latestSnapshot.tabs.filter((t) => !t.parentFolderId || !deletedFolderEntityIds.has(t.parentFolderId)),
+    };
   }
 
   // Process Archive Operations
@@ -2420,7 +2503,7 @@ export function reconstructWorkspace(
       groupItemOrder: isGroup ? groupMeta?.groupItemOrder : undefined,
       pinned: false,
       favourite: favourite || undefined,
-      customTitle: groupMeta?.firstName || baseTitle,
+      customTitle: baseTitle || groupMeta?.firstName,
       favIconUrl: urlVariants[0]?.favIconUrl || primaryItem.cover,
       note: groupNote || undefined,
       parentFolderId,

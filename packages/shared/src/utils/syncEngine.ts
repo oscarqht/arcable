@@ -633,7 +633,23 @@ export function applyOperation(
 
     case 'TAB_DELETE':
     case 'TAB_ARCHIVE': {
-      cloned.tabs = cloned.tabs.filter((t) => t.id !== op.entityId);
+      const parseNum = (val: unknown) => {
+        if (val === undefined || val === null) return undefined;
+        const n = Number(val);
+        return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+      };
+      const targetRemoteId = parseNum(op.payload?.raindropId) || parseNum(op.entityId);
+      const variantRemoteIds = Array.isArray(op.payload?.variantRaindropIds)
+        ? new Set(op.payload.variantRaindropIds.map((v: any) => parseNum(v)).filter(Boolean))
+        : null;
+
+      cloned.tabs = cloned.tabs.filter((t) => {
+        if (t.id === op.entityId) return false;
+        const tabRemoteId = t.raindropId || parseNum(t.id);
+        if (targetRemoteId && tabRemoteId === targetRemoteId) return false;
+        if (variantRemoteIds && tabRemoteId && variantRemoteIds.has(tabRemoteId)) return false;
+        return true;
+      });
       break;
     }
 
@@ -1074,14 +1090,6 @@ export function mergeIncrementalSyncSnapshot(
     };
   });
 
-  const currentTabIds = new Set(current.tabs.map((t) => t.id));
-  const currentRaindropIds = new Set(
-    current.tabs.map((t) => (t.raindropId ? String(t.raindropId) : '')).filter(Boolean)
-  );
-  const newSyncedTabs = synced.tabs.filter(
-    (st) => !currentTabIds.has(st.id) && (!st.raindropId || !currentRaindropIds.has(String(st.raindropId)))
-  );
-
   return {
     ...current,
     raindropRootCollectionId: synced.raindropRootCollectionId ?? current.raindropRootCollectionId,
@@ -1103,7 +1111,7 @@ export function mergeIncrementalSyncSnapshot(
       const remoteId = syncedFolders.get(folder.id)?.raindropId;
       return remoteId ? { ...folder, raindropId: remoteId } : folder;
     }),
-    tabs: [...mergedTabs, ...newSyncedTabs],
+    tabs: mergedTabs,
     widgets: (current.widgets || []).map((widget) => {
       const syncedWidget = syncedWidgets.get(widget.id);
       const remoteId = syncedWidget?.raindropId;
