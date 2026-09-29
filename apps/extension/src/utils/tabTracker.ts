@@ -17,6 +17,8 @@ import {
   findNearestOpenTabInSpace,
   rememberActiveTabForSpace,
   getRememberedActiveTabForSpace,
+  findBestOpenFavoriteTab,
+  OpenFavoriteTabInfo,
 } from '../sidepanel/spaceTabTracker';
 
 const SESSION_KEY = 'arcable_tab_associations';
@@ -88,6 +90,37 @@ class TabTracker {
       this.previousActiveTabSpaceByWindow.set(winId, prev);
     }
     this.lastActiveTabSpaceByWindow.set(winId, spaceId);
+  }
+
+  private lastActiveFavoriteBrowserTabIdByWindow: Map<number, number> = new Map();
+  private lastActiveFavoriteTabItemIdByWindow: Map<number, string> = new Map();
+
+  public getLastActiveFavoriteBrowserTabId(winId?: number): number | undefined {
+    if (winId !== undefined && winId > 0) {
+      return this.lastActiveFavoriteBrowserTabIdByWindow.get(winId);
+    }
+    return undefined;
+  }
+
+  public getLastActiveFavoriteTabItemId(winId?: number): string | undefined {
+    if (winId !== undefined && winId > 0) {
+      return this.lastActiveFavoriteTabItemIdByWindow.get(winId);
+    }
+    return undefined;
+  }
+
+  public setLastActiveFavorite(winId: number, browserTabId: number, tabItemId?: string): void {
+    this.lastActiveFavoriteBrowserTabIdByWindow.set(winId, browserTabId);
+    if (tabItemId) {
+      this.lastActiveFavoriteTabItemIdByWindow.set(winId, tabItemId);
+    }
+  }
+
+  public clearLastActiveFavorite(winId: number, browserTabId?: number): void {
+    if (browserTabId === undefined || this.lastActiveFavoriteBrowserTabIdByWindow.get(winId) === browserTabId) {
+      this.lastActiveFavoriteBrowserTabIdByWindow.delete(winId);
+      this.lastActiveFavoriteTabItemIdByWindow.delete(winId);
+    }
   }
 
   constructor() {
@@ -1937,17 +1970,21 @@ class TabTracker {
         try {
           const associations = await this.getAssociations();
           const assoc = Object.entries(associations).find(([_, info]) => info.browserTabId === tabId);
+          let isFavoriteTab = false;
           if (assoc) {
             const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
-            closedSpaceId = resolveSpaceIdForTabItem(assoc[0], workspaceTabs, memoryTmpTabs);
+            isFavoriteTab = workspaceTabs.some((t) => Boolean(t.favourite) && (t.id === assoc[0] || t.urlVariants?.some((v) => v.id === assoc[0])));
+            if (!isFavoriteTab) {
+              closedSpaceId = resolveSpaceIdForTabItem(assoc[0], workspaceTabs, memoryTmpTabs);
+            }
           }
-          if (!closedSpaceId) {
+          if (!closedSpaceId && !isFavoriteTab) {
             const matchTmp = memoryTmpTabs.find((t) => t.browserTabId === tabId);
             if (matchTmp?.spaceId) {
               closedSpaceId = matchTmp.spaceId;
             }
           }
-          if (!closedSpaceId) {
+          if (!closedSpaceId && !isFavoriteTab) {
             closedSpaceId = this.pendingTabSpaces.get(tabId) || null;
           }
           if (!closedSpaceId && winId !== undefined) {
@@ -1956,6 +1993,7 @@ class TabTracker {
                 ? this.lastActiveTabSpaceByWindow.get(winId)
                 : this.previousActiveTabSpaceByWindow.get(winId)) ||
               this.lastActiveTabSpaceByWindow.get(winId) ||
+              this.resolveActiveSpaceIdForWindow(winId) ||
               null;
           }
         } catch {}
@@ -1970,6 +2008,10 @@ class TabTracker {
           timestamp: Date.now(),
           windowId: winId,
         });
+
+        if (winId !== undefined) {
+          this.clearLastActiveFavorite(winId, tabId);
+        }
 
         await this.runWithLock(async () => {
           const associations = await this.getAssociations();
@@ -2038,10 +2080,33 @@ class TabTracker {
                     console.warn('[TabTracker] Could not activate nearest tab in space from onRemoved:', err);
                   }
                 }
-              } else if (wasActiveSpace) {
-                // No open tabs remain in this space, and this space was active in this window:
-                // Ensure or reuse single blank tab in this space to prevent unexpected space switch
-                await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
+              } else {
+                // No open tabs remain in this space:
+                // Check if any favorite tabs are open!
+                const bestFav = findBestOpenFavoriteTab(tabs, associations, {
+                  windowId: winId,
+                  excludeClosingBrowserTabId: tabId,
+                  preferredBrowserTabId: this.lastActiveFavoriteBrowserTabIdByWindow.get(winId),
+                  preferredTabItemId: this.lastActiveFavoriteTabItemIdByWindow.get(winId),
+                });
+
+                if (bestFav) {
+                  if (wasActiveTab && bestFav.browserTabId !== this.lastActiveBrowserTabIdByWindow.get(winId)) {
+                    try {
+                      this.setLastActiveBrowserTabId(winId, bestFav.browserTabId);
+                      this.setLastActiveTabSpace(winId, closedSpaceId);
+                      this.setActiveSpaceForWindow(winId, closedSpaceId);
+                      this.setLastActiveFavorite(winId, bestFav.browserTabId, bestFav.tabItemId);
+                      await (tabsApi as any).update(bestFav.browserTabId, { active: true });
+                    } catch (err) {
+                      console.warn('[TabTracker] Could not activate open favorite tab from onRemoved:', err);
+                    }
+                  }
+                } else if (!isMobileDevice() && wasActiveSpace) {
+                  // No open tabs remain in this space or favorites shelf, and this space was active in this window:
+                  // Ensure or reuse single blank tab in this space to prevent unexpected space switch
+                  await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
+                }
               }
             }
           }
@@ -2144,15 +2209,43 @@ class TabTracker {
               }
             } else {
               // No open tabs remain in this space:
-              if (prevTabId !== undefined) {
-                this.recentlyClosedTabs.delete(prevTabId);
-                this.closingTabIds.delete(prevTabId);
-              }
-              if (!isMobileDevice()) {
-                // On desktop, ensure or reuse single blank tab in this space!
-                const targetTabId = await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
-                if (targetTabId !== undefined) {
-                  return; // Next onActivated event will fire for targetTabId
+              const bestFav = findBestOpenFavoriteTab(tabs, associations, {
+                windowId: winId,
+                excludeClosingBrowserTabId: prevTabId,
+                preferredBrowserTabId: winId !== undefined ? this.lastActiveFavoriteBrowserTabIdByWindow.get(winId) : undefined,
+                preferredTabItemId: winId !== undefined ? this.lastActiveFavoriteTabItemIdByWindow.get(winId) : undefined,
+              });
+
+              if (bestFav) {
+                if (bestFav.browserTabId !== activeInfo.tabId) {
+                  try {
+                    if (prevTabId !== undefined) {
+                      this.recentlyClosedTabs.delete(prevTabId);
+                      this.closingTabIds.delete(prevTabId);
+                    }
+                    if (winId !== undefined) {
+                      this.setLastActiveBrowserTabId(winId, bestFav.browserTabId);
+                      this.setLastActiveTabSpace(winId, closedSpaceId);
+                      this.setActiveSpaceForWindow(winId, closedSpaceId);
+                      this.setLastActiveFavorite(winId, bestFav.browserTabId, bestFav.tabItemId);
+                    }
+                    await (tabsApi as any).update(bestFav.browserTabId, { active: true });
+                    return; // Next onActivated event will fire for bestFav.browserTabId
+                  } catch (err) {
+                    console.warn('[TabTracker] Could not activate open favorite tab:', err);
+                  }
+                }
+              } else {
+                if (prevTabId !== undefined) {
+                  this.recentlyClosedTabs.delete(prevTabId);
+                  this.closingTabIds.delete(prevTabId);
+                }
+                if (!isMobileDevice()) {
+                  // On desktop, ensure or reuse single blank tab in this space!
+                  const targetTabId = await this.ensureOrReuseBlankTabForSpace(closedSpaceId, winId);
+                  if (targetTabId !== undefined) {
+                    return; // Next onActivated event will fire for targetTabId
+                  }
                 }
               }
             }
@@ -2220,13 +2313,19 @@ class TabTracker {
         if (winId !== undefined) {
           this.setLastActiveBrowserTabId(winId, activeInfo.tabId);
           const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
+          const isFav = activatedTabItemId
+            ? workspaceTabs.some((t) => Boolean(t.favourite) && (t.id === activatedTabItemId || t.urlVariants?.some((v) => v.id === activatedTabItemId)))
+            : false;
+          if (isFav) {
+            this.setLastActiveFavorite(winId, activeInfo.tabId, activatedTabItemId || undefined);
+          }
           const resolvedSpace = activatedTabItemId
-            ? resolveSpaceIdForTabItem(activatedTabItemId, workspaceTabs, memoryTmpTabs)
+            ? (resolveSpaceIdForTabItem(activatedTabItemId, workspaceTabs, memoryTmpTabs) || (isFav && closedSpaceId ? closedSpaceId : null))
             : (!isMobileDevice() && closedSpaceId && causedByClose ? closedSpaceId : null);
           if (resolvedSpace) {
             this.setLastActiveTabSpace(winId, resolvedSpace);
             this.setActiveSpaceForWindow(winId, resolvedSpace);
-          } else if (isMobileDevice() && causedByClose) {
+          } else if (isMobileDevice() && causedByClose && !isFav) {
             this.lastActiveTabSpaceByWindow.delete(winId);
           }
         }

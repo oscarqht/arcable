@@ -314,6 +314,103 @@ export function findNearestOpenTabInSpace(
   return null;
 }
 
+export interface OpenFavoriteTabInfo {
+  tabItemId: string;
+  browserTabId: number;
+  windowId?: number;
+}
+
+/**
+ * Returns all currently open browser tabs belonging to the favorites shelf in order.
+ * Handles both standalone favorite tabs and individual variants of favorite groups.
+ */
+export function getOpenFavoriteTabs(
+  tabs: Tab[],
+  tabAssociations: Record<string, { browserTabId?: number; windowId?: number } | undefined>,
+  windowId?: number,
+  excludeClosingBrowserTabId?: number
+): OpenFavoriteTabInfo[] {
+  if (!Array.isArray(tabs)) return [];
+
+  const result: OpenFavoriteTabInfo[] = [];
+  const seenBrowserTabIds = new Set<number>();
+
+  const addIfOpen = (tabItemId: string, browserTabId: number | undefined, tabWinId: number | undefined) => {
+    if (browserTabId === undefined || browserTabId <= 0) return;
+    if (excludeClosingBrowserTabId !== undefined && browserTabId === excludeClosingBrowserTabId) return;
+    if (windowId !== undefined && tabWinId !== undefined && tabWinId > 0 && tabWinId !== windowId) return;
+    if (seenBrowserTabIds.has(browserTabId)) return;
+    seenBrowserTabIds.add(browserTabId);
+    result.push({
+      tabItemId,
+      browserTabId,
+      windowId: tabWinId,
+    });
+  };
+
+  const favouriteTabs = tabs
+    .filter((t) => Boolean(t.favourite))
+    .sort((a, b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+
+  for (const t of favouriteTabs) {
+    const isFavoriteGroup = Boolean(t.favourite && (t.isGroup || (t.urlVariants && t.urlVariants.length > 1)));
+    if (isFavoriteGroup && t.urlVariants && t.urlVariants.length > 0) {
+      for (const variant of t.urlVariants) {
+        const assoc = tabAssociations[variant.id];
+        if (assoc?.browserTabId) {
+          addIfOpen(variant.id, assoc.browserTabId, assoc.windowId);
+        }
+      }
+    } else {
+      const assoc = tabAssociations[t.id];
+      if (assoc?.browserTabId) {
+        addIfOpen(t.id, assoc.browserTabId, assoc.windowId);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Finds the best open favorite tab to activate.
+ * Prefers the most recently active favorite tab (if open and matches criteria);
+ * otherwise falls back to the first open favorite tab in shelf order.
+ */
+export function findBestOpenFavoriteTab(
+  tabs: Tab[],
+  tabAssociations: Record<string, { browserTabId?: number; windowId?: number } | undefined>,
+  options?: {
+    windowId?: number;
+    excludeClosingBrowserTabId?: number;
+    preferredBrowserTabId?: number;
+    preferredTabItemId?: string;
+  }
+): OpenFavoriteTabInfo | null {
+  const openFavorites = getOpenFavoriteTabs(
+    tabs,
+    tabAssociations,
+    options?.windowId,
+    options?.excludeClosingBrowserTabId
+  );
+
+  if (openFavorites.length === 0) {
+    return null;
+  }
+
+  if (options?.preferredBrowserTabId !== undefined) {
+    const match = openFavorites.find((f) => f.browserTabId === options.preferredBrowserTabId);
+    if (match) return match;
+  }
+
+  if (options?.preferredTabItemId !== undefined) {
+    const match = openFavorites.find((f) => f.tabItemId === options.preferredTabItemId);
+    if (match) return match;
+  }
+
+  return openFavorites[0];
+}
+
 /**
  * Remember the active browser tab for a specific space in a specific browser window.
  * Saves both numeric browserTabId and the workspace tabItemId to survive reloads & restarts.

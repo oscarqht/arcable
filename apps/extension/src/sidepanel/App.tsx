@@ -34,6 +34,7 @@ import {
   forgetBrowserTab,
   findNearestOpenTabInSpace,
   getOpenTabsInSpaceOrder,
+  findBestOpenFavoriteTab,
 } from './spaceTabTracker';
 export { resolveSidepanelActiveSpaceId };
 
@@ -1067,8 +1068,18 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else if (!isMobileDevice()) {
-            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
+          } else {
+            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
+              windowId: currentWinId ?? undefined,
+              excludeClosingBrowserTabId: tab.browserTabId,
+              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
+              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
+            });
+            if (bestFav) {
+              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
+            } else if (!isMobileDevice()) {
+              await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
+            }
           }
         }
       } catch (e) {
@@ -1128,8 +1139,18 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else if (!isMobileDevice()) {
-            await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
+          } else {
+            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
+              windowId: currentWinId ?? undefined,
+              excludeClosingBrowserTabId: activeTab.id,
+              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
+              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
+            });
+            if (bestFav) {
+              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
+            } else if (!isMobileDevice()) {
+              await tabTracker.ensureOrReuseBlankTabForSpace(targetSpaceId, currentWinId ?? undefined);
+            }
           }
         } else if (!isMobileDevice()) {
           // If clearing closes the last open tab in the window, open a new blank tab so the window stays open
@@ -1254,8 +1275,18 @@ export const App: React.FC = () => {
 
           if (nearest) {
             await tabTracker.activateTab(nearest.browserTabId, nearest.windowId);
-          } else if (!isMobileDevice()) {
-            await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
+          } else {
+            const bestFav = findBestOpenFavoriteTab(workspaceTabs, tabAssociationsRef.current, {
+              windowId: currentWinId ?? undefined,
+              excludeClosingBrowserTabId: assoc.browserTabId,
+              preferredBrowserTabId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteBrowserTabId(currentWinId) : undefined,
+              preferredTabItemId: currentWinId !== undefined && currentWinId !== null ? tabTracker.getLastActiveFavoriteTabItemId(currentWinId) : undefined,
+            });
+            if (bestFav) {
+              await tabTracker.activateTab(bestFav.browserTabId, bestFav.windowId);
+            } else if (!isMobileDevice()) {
+              await tabTracker.ensureOrReuseBlankTabForSpace(spaceId, currentWinId ?? undefined);
+            }
           }
         }
       } catch (e) {
