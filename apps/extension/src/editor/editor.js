@@ -127,6 +127,7 @@ const editorState = {
   stylePreferencesSaveTimer: null,
   decorationPreferences: { ...DEFAULT_DECORATION_PREFERENCES },
   decorationPreferencesSaveTimer: null,
+  lastSyncedScreenshotShapeState: null,
 };
 
 const h = createElement;
@@ -842,6 +843,108 @@ function hasScreenshotCropChanged() {
 }
 
 /**
+ * @typedef {Object} ScreenshotShapeSnapshot
+ * @property {string | null} crop
+ * @property {number} w
+ * @property {number} h
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @param {any} [shape]
+ * @returns {ScreenshotShapeSnapshot | null}
+ */
+function getScreenshotShapeSnapshot(shape = getScreenshotShape()) {
+  if (!shape) return null;
+  return {
+    crop: shape.props?.crop ? JSON.stringify(shape.props.crop) : null,
+    w: Number(shape.props?.w) || 0,
+    h: Number(shape.props?.h) || 0,
+    x: Number(shape.x) || 0,
+    y: Number(shape.y) || 0,
+  };
+}
+
+/**
+ * @param {ScreenshotShapeSnapshot | null} a
+ * @param {ScreenshotShapeSnapshot | null} b
+ * @returns {boolean}
+ */
+function hasScreenshotShapeSnapshotChanged(a, b) {
+  if (!a && !b) return false;
+  if (!a || !b) return true;
+  return (
+    a.crop !== b.crop ||
+    Math.abs(a.w - b.w) > 0.5 ||
+    Math.abs(a.h - b.h) > 0.5 ||
+    Math.abs(a.x - b.x) > 0.5 ||
+    Math.abs(a.y - b.y) > 0.5
+  );
+}
+
+/**
+ * Intercepts undo/redo calls to detect when a crop action was undone or redone,
+ * and zooms the image to fit the updated bounds.
+ *
+ * @param {any} editor
+ * @returns {() => void}
+ */
+function bindScreenshotCropUndoRedo(editor) {
+  if (!editor) return () => {};
+
+  const originalEditorUndo = typeof editor.undo === 'function' ? editor.undo.bind(editor) : null;
+  const originalEditorRedo = typeof editor.redo === 'function' ? editor.redo.bind(editor) : null;
+  const originalHistoryUndo = typeof editor.history?.undo === 'function' ? editor.history.undo.bind(editor.history) : null;
+  const originalHistoryRedo = typeof editor.history?.redo === 'function' ? editor.history.redo.bind(editor.history) : null;
+
+  let isHandlingUndoRedo = false;
+
+  const wrapAction = (fn) => {
+    if (!fn) return undefined;
+    return (...args) => {
+      if (isHandlingUndoRedo) {
+        return fn(...args);
+      }
+      isHandlingUndoRedo = true;
+      try {
+        const before = getScreenshotShapeSnapshot();
+        const result = fn(...args);
+        const after = getScreenshotShapeSnapshot();
+        if (hasScreenshotShapeSnapshotChanged(before, after)) {
+          updateScreenshotExportBounds();
+          fitScreenshotToViewport();
+          editorState.lastSyncedScreenshotShapeState = after;
+        }
+        return result;
+      } finally {
+        isHandlingUndoRedo = false;
+      }
+    };
+  };
+
+  if (originalEditorUndo) {
+    editor.undo = wrapAction(originalEditorUndo);
+  }
+  if (originalEditorRedo) {
+    editor.redo = wrapAction(originalEditorRedo);
+  }
+  if (originalHistoryUndo) {
+    editor.history.undo = wrapAction(originalHistoryUndo);
+  }
+  if (originalHistoryRedo) {
+    editor.history.redo = wrapAction(originalHistoryRedo);
+  }
+
+  return () => {
+    if (originalEditorUndo) editor.undo = originalEditorUndo;
+    if (originalEditorRedo) editor.redo = originalEditorRedo;
+    if (originalHistoryUndo && editor.history) editor.history.undo = originalHistoryUndo;
+    if (originalHistoryRedo && editor.history) editor.history.redo = originalHistoryRedo;
+  };
+}
+
+/**
  * @param {boolean} locked
  * @returns {void}
  */
@@ -883,6 +986,20 @@ function syncScreenshotCropState() {
 
   if (editorState.isCroppingScreenshot && !active) {
     finishScreenshotCrop({ preserveTool: true });
+    return;
+  }
+
+  if (!active && !editorState.isCroppingScreenshot) {
+    const currentSnapshot = getScreenshotShapeSnapshot();
+    if (
+      editorState.lastSyncedScreenshotShapeState &&
+      hasScreenshotShapeSnapshotChanged(editorState.lastSyncedScreenshotShapeState, currentSnapshot)
+    ) {
+      editorState.lastSyncedScreenshotShapeState = currentSnapshot;
+      fitScreenshotToViewport();
+    } else if (!editorState.lastSyncedScreenshotShapeState && currentSnapshot) {
+      editorState.lastSyncedScreenshotShapeState = currentSnapshot;
+    }
   }
 }
 
@@ -1237,6 +1354,9 @@ function bindCropDragInteraction(editor) {
     updateScreenshotExportBounds();
     fitScreenshotToViewport();
     editorState.cropInitialState = null;
+    if (typeof getScreenshotShapeSnapshot === 'function') {
+      editorState.lastSyncedScreenshotShapeState = getScreenshotShapeSnapshot(getScreenshotShape());
+    }
   }
 
   window.addEventListener('pointerdown', onPointerDown, { capture: true });
@@ -1394,6 +1514,7 @@ function insertScreenshot(editor, screenshot) {
       w: screenshot.width,
       h: screenshot.height,
     };
+  editorState.lastSyncedScreenshotShapeState = getScreenshotShapeSnapshot(editor.getShape(shapeId));
 
   fitScreenshotToViewport({ immediate: true });
 }
@@ -1469,6 +1590,7 @@ function finishScreenshotCrop(options = {}) {
     fitScreenshotToViewport();
   }
   editorState.cropInitialState = null;
+  editorState.lastSyncedScreenshotShapeState = getScreenshotShapeSnapshot();
 }
 
 /**
@@ -1758,11 +1880,13 @@ function ScreenshotEditorApp({ screenshot }) {
       insertScreenshot(editor, screenshot);
       const disposeAnnotationStylePreferences = bindAnnotationStylePreferences(editor);
       const disposeScreenshotCropState = bindScreenshotCropState(editor);
+      const disposeCropUndoRedo = bindScreenshotCropUndoRedo(editor);
       const disposeCropDrag = bindCropDragInteraction(editor);
       hideStatus();
       return () => {
         disposeAnnotationStylePreferences();
         disposeScreenshotCropState();
+        disposeCropUndoRedo();
         disposeCropDrag();
       };
     },
