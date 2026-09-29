@@ -13,3 +13,4 @@ export * from './mouseTracker';
 export * from './zenGradientGenerator';
 export * from './tabUtils';
 export * from './markdown';
+export * from './dragThreshold';

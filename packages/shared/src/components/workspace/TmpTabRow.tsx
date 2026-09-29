@@ -6,6 +6,7 @@ import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
 import { getDomain, isValidHttpUrl } from '../../utils/treeUtils';
 import { startDrag, endDrag } from '../../utils/dragState';
+import { useDraggableWithThreshold } from '../../utils/dragThreshold';
 import {
   isElementUnderCursor,
   updateLastMousePos,
@@ -171,7 +172,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     setEditTitle(tab.customTitle || tab.title || '');
   };
 
-  const handleDragStart = (e: React.DragEvent) => {
+  const handleDragStartInternal = (e: React.DragEvent) => {
     if (isEditing) {
       e.preventDefault();
       return;
@@ -190,12 +191,11 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     });
   };
 
-  const handleDragEnd = () => {
+  const handleDragEndInternal = () => {
     setIsDragging(false);
-    endDrag();
   };
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClickInternal = (e: React.MouseEvent) => {
     if (isEditing) return;
     e.preventDefault();
     if (tab.url) {
@@ -211,6 +211,19 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
       }
     }
   };
+
+  const {
+    canDrag,
+    handleMouseDown: handleDraggableMouseDown,
+    handleDragStart: handleDraggableDragStart,
+    handleDragEnd: handleDraggableDragEnd,
+    handleClick: handleDraggableClick,
+  } = useDraggableWithThreshold({
+    enabled: !isEditing,
+    onDragStart: handleDragStartInternal,
+    onDragEnd: handleDragEndInternal,
+    onClick: handleClickInternal,
+  });
 
   // Color tokens
   const associatedBg = effectiveDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)';
@@ -298,9 +311,10 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   return (
     <div
       ref={rowRef}
-      draggable={!isEditing}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
+      draggable={canDrag}
+      onMouseDown={handleDraggableMouseDown}
+      onDragStart={handleDraggableDragStart}
+      onDragEnd={handleDraggableDragEnd}
       onMouseEnter={() => {
         const mousePos = getLastMousePos();
         if (mousePos.x >= 0 && mousePos.y >= 0) {
@@ -314,7 +328,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
         }
       }}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={handleClick}
+      onClick={handleDraggableClick}
       style={{
         display: 'flex',
         alignItems: 'center',

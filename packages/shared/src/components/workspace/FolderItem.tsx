@@ -6,6 +6,12 @@ import { getSortedSiblings } from '../../hooks/useWorkspace';
 import { getAllFolderTabUrls, isTabInFolder, hasAnyTabInFolder } from '../../utils/treeUtils';
 import { areUrlsMatching } from '../../utils/format';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import {
+  handleDraggableMouseDown,
+  shouldAllowDrag,
+  handleDraggableDragEnd,
+  shouldAllowClick,
+} from '../../utils/dragThreshold';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { TabRow } from './TabRow';
@@ -130,6 +136,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<'before' | 'after' | 'inside' | null>(null);
+  const [canDragHeader, setCanDragHeader] = useState(false);
 
   const [showHoverPopup, setShowHoverPopup] = useState(false);
   const [popupCoords, setPopupCoords] = useState<{
@@ -574,6 +581,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   ]);
 
   const handleDragStart = (e: React.DragEvent) => {
+    if (!shouldAllowDrag(e)) return;
     e.stopPropagation();
     clearHoverTimer();
     clearCloseTimer();
@@ -672,7 +680,11 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = (e?: React.DragEvent) => {
+    setCanDragHeader(false);
+    if (e) {
+      handleDraggableDragEnd(e);
+    }
     setDropIndicator(null);
     endDrag();
   };
@@ -1035,7 +1047,12 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       {/* Folder Header Row */}
       <div
         ref={headerRef}
-        draggable
+        draggable={canDragHeader}
+        onMouseDown={(e) => {
+          handleDraggableMouseDown(e, {
+            onThresholdMet: () => setCanDragHeader(true),
+          });
+        }}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -1044,7 +1061,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
         onMouseEnter={handleMouseEnterHeader}
         onMouseMove={handleMouseMoveHeader}
         onMouseLeave={handleMouseLeaveHeader}
-        onClick={() => {
+        onClick={(e) => {
+          if (!shouldAllowClick(e)) return;
           clearHoverTimer();
           clearCloseTimer();
           setShowHoverPopup(false);

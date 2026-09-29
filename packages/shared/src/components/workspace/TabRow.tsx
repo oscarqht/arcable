@@ -7,6 +7,7 @@ import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl, areUrlsMatching } from '../../utils/format';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import { useDraggableWithThreshold } from '../../utils/dragThreshold';
 import { getLastMousePos, CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -350,7 +351,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     onDelete,
   ]);
 
-  const handleDragStart = (e: React.DragEvent) => {
+  const handleDragStartInternal = (e: React.DragEvent) => {
     e.stopPropagation();
     startDrag(e, {
       id: tab.id,
@@ -404,13 +405,26 @@ export const TabRow: React.FC<TabRowProps> = ({
     endDrag();
   };
 
-  const handleDragEnd = (e: React.DragEvent) => {
+  const handleDragEndInternal = (e: React.DragEvent) => {
     setDropIndicator(null);
     endDrag();
     if (onDragEndItem) {
       onDragEndItem(e);
     }
   };
+
+  const {
+    canDrag,
+    handleMouseDown: handleDraggableMouseDown,
+    handleDragStart: handleDraggableDragStart,
+    handleDragEnd: handleDraggableDragEnd,
+    handleClick: handleDraggableClick,
+  } = useDraggableWithThreshold({
+    enabled: draggable,
+    onDragStart: handleDragStartInternal,
+    onDragEnd: handleDragEndInternal,
+    onClick: handleClick,
+  });
 
   // Color tokens
   const associatedBg = effectiveDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.075)';
@@ -424,12 +438,13 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   return (
     <div
-      draggable={draggable}
-      onDragStart={handleDragStart}
+      draggable={canDrag}
+      onMouseDown={handleDraggableMouseDown}
+      onDragStart={handleDraggableDragStart}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onDragEnd={handleDragEnd}
+      onDragEnd={handleDraggableDragEnd}
       onMouseEnter={() => {
         const mousePos = getLastMousePos();
         if (mousePos.x >= 0 && mousePos.y >= 0) {
@@ -446,7 +461,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         setIsHovered(false);
         setDropIndicator(null);
       }}
-      onClick={handleClick}
+      onClick={handleDraggableClick}
       onContextMenu={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest('button, input, a, [role="button"]')) {

@@ -23,6 +23,12 @@ import {
   TrashIcon,
 } from '../Icons';
 import { startDrag, endDrag, getActiveDrag, isDragAcceptable } from '../../utils/dragState';
+import {
+  handleDraggableMouseDown,
+  shouldAllowDrag,
+  handleDraggableDragEnd,
+  shouldAllowClick,
+} from '../../utils/dragThreshold';
 import { WidgetTileContent, buildClockInfo, NOTE_COLORS } from './widgets';
 
 export interface FavouriteGroupPopoverProps {
@@ -118,6 +124,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+  const [draggableVariantId, setDraggableVariantId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after'>('after');
   const [isDraggedOutOfPopover, setIsDraggedOutOfPopover] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -208,6 +215,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   }, [draggedItemId]);
 
   const handleDragStart = (e: React.DragEvent, id: string, type: 'tab' | 'widget') => {
+    if (!shouldAllowDrag(e)) return;
     e.stopPropagation();
     setDraggedItemId(id);
     e.dataTransfer.effectAllowed = 'move';
@@ -292,7 +300,11 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = (e?: React.DragEvent) => {
+    setDraggableVariantId(null);
+    if (e) {
+      handleDraggableDragEnd(e);
+    }
     const wasOutOfPopover = isDraggedOutOfPopover;
     setDraggedItemId(null);
     setDragOverItemId(null);
@@ -761,13 +773,21 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
               <button
                 key={item.id}
                 type="button"
-                draggable={Boolean(onReorderVariant)}
+                draggable={Boolean(onReorderVariant) && draggableVariantId === item.id}
+                onMouseDown={(e) => {
+                  if (Boolean(onReorderVariant)) {
+                    handleDraggableMouseDown(e, {
+                      onThresholdMet: () => setDraggableVariantId(item.id),
+                    });
+                  }
+                }}
                 onDragStart={(e) => handleDragStart(e, item.id, 'tab')}
                 onDragOver={(e) => handleDragOver(e, item.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, item.id)}
                 onDragEnd={handleDragEnd}
                 onClick={(e) => {
+                  if (!shouldAllowClick(e)) return;
                   e.stopPropagation();
                   const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                   onOpenItem(v, { inNewTab, event: e });
@@ -962,13 +982,21 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
             <button
               key={item.id}
               type="button"
-              draggable={Boolean(onReorderVariant)}
+              draggable={Boolean(onReorderVariant) && draggableVariantId === item.id}
+              onMouseDown={(e) => {
+                if (Boolean(onReorderVariant)) {
+                  handleDraggableMouseDown(e, {
+                    onThresholdMet: () => setDraggableVariantId(item.id),
+                  });
+                }
+              }}
               onDragStart={(e) => handleDragStart(e, item.id, 'widget')}
               onDragOver={(e) => handleDragOver(e, item.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, item.id)}
               onDragEnd={handleDragEnd}
               onClick={(e) => {
+                if (!shouldAllowClick(e)) return;
                 e.stopPropagation();
                 const rect = e.currentTarget.getBoundingClientRect();
                 if (onOpenWidget) {

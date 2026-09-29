@@ -50,6 +50,7 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
           key={currentSrc}
           src={currentSrc}
           alt=""
+          draggable={false}
           style={{
             width: `${size}px`,
             height: `${size}px`,

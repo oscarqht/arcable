@@ -7,6 +7,12 @@ import { cleanUrl } from '../../utils/format';
 import { buildReplaceWithCurrentUrlMenuItem } from '../../utils/tabUtils';
 import { getDomain } from '../../utils/treeUtils';
 import { startDrag, endDrag, isDragAcceptable, getActiveDrag } from '../../utils/dragState';
+import {
+  handleDraggableMouseDown,
+  shouldAllowDrag,
+  handleDraggableDragEnd,
+  shouldAllowClick,
+} from '../../utils/dragThreshold';
 import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { TabFavicon } from './TabFavicon';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -86,6 +92,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   }, []);
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+  const [draggableTabId, setDraggableTabId] = useState<string | null>(null);
   const actionDropdownRefs = React.useRef<Record<string, ActionDropdownHandle | null>>({});
 
   if (tabs.length === 0) {
@@ -93,6 +100,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   }
 
   const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    if (!shouldAllowDrag(e)) return;
     startDrag(e, { id: tabId, type: 'pinnedTab' });
   };
 
@@ -143,7 +151,11 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
     }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = (e?: React.DragEvent) => {
+    setDraggableTabId(null);
+    if (e) {
+      handleDraggableDragEnd(e);
+    }
     setDragOverTabId(null);
     setDropPosition(null);
     endDrag();
@@ -222,7 +234,12 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
           return (
             <div
               key={tab.id}
-              draggable
+              draggable={draggableTabId === tab.id}
+              onMouseDown={(e) => {
+                handleDraggableMouseDown(e, {
+                  onThresholdMet: () => setDraggableTabId(tab.id),
+                });
+              }}
               onDragStart={(e) => handleDragStart(e, tab.id)}
               onDragOver={(e) => handleDragOver(e, tab.id)}
               onDragLeave={handleDragLeave}
@@ -237,6 +254,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 }
               }}
               onClick={(e) => {
+                if (!shouldAllowClick(e)) return;
                 if (tab.url) {
                   const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                   if (onOpenTab) {
