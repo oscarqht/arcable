@@ -48,13 +48,21 @@ import {
 } from './contextMenus';
 import { handleScreenshotCapture } from './screenshot';
 import { handleCopyOperation } from './clipboard';
-import { checkUserScriptsAvailable, openExtensionDetailsPage } from '../utils/browser';
+import {
+  checkUserScriptsAvailable,
+  openExtensionDetailsPage,
+  isInternalOrExtensionUrl,
+  LAST_ACTIVE_WEB_TAB_STORAGE_KEY,
+  getPreviousActiveTab,
+} from '../utils/browser';
+import { initAutoPipBackground } from './autoPip';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
-// Initialize user scripts and context menu listeners
+// Initialize user scripts, context menu, and auto-PiP listeners
 initRunCodeBackgroundListeners();
 initContextMenuListeners();
+initAutoPipBackground();
 
 // Initialize keyboard shortcut commands (manifest commands)
 if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
@@ -505,8 +513,8 @@ browser.runtime.onMessage.addListener(
 
         const input = (message.payload || {}) as RaindropCreateItemInput;
 
-        // Fallback: if coverDataUrl wasn't provided, attempt to capture active tab screenshot
-        if (!input.coverDataUrl && !input.cover?.startsWith('data:')) {
+        // Fallback: if coverDataUrl wasn't provided and pleaseParse wasn't requested, attempt to capture active tab screenshot
+        if (!input.pleaseParse && !input.coverDataUrl && !input.cover?.startsWith('data:')) {
           try {
             if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.captureVisibleTab) {
               const fallbackCover = await new Promise<string | undefined>((resolve) => {
@@ -532,6 +540,16 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: bookmark };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to create bookmark' };
+        }
+      }
+
+      // Query previous active web tab (useful in mobile browser environment)
+      case 'GET_PREVIOUS_ACTIVE_TAB': {
+        try {
+          const prevTab = await getPreviousActiveTab((message.payload as any)?.trackerPreviousTabId);
+          return { success: true, data: prevTab };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Failed to get previous active tab' };
         }
       }
 
@@ -1130,6 +1148,17 @@ void syncSidePanelBehavior();
 
 // Handle extension toolbar action click (instantly open side panel on desktop, or open side panel page on mobile)
 function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
+  if (tab?.url && !isInternalOrExtensionUrl(tab.url)) {
+    void browser.storage.local.set({
+      [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
+        id: tab.id,
+        windowId: tab.windowId,
+        url: tab.url,
+        title: tab.title || tab.url,
+        lastAccessed: Date.now(),
+      },
+    });
+  }
   // Firefox Desktop: sidebarAction.open()
   if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
     try {
@@ -1177,3 +1206,41 @@ if (browser.action && browser.action.onClicked) {
 } else if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
   chrome.action.onClicked.addListener(handleActionClick);
 }
+
+// Track active web tabs so that mobile browser (which runs the sidepanel in an active tab)
+// can reliably identify and save the previously active web page to Raindrop.
+if (typeof browser !== 'undefined' && browser.tabs?.onActivated) {
+  browser.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await browser.tabs.get(activeInfo.tabId);
+      if (tab?.url && !isInternalOrExtensionUrl(tab.url)) {
+        void browser.storage.local.set({
+          [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
+            id: tab.id,
+            windowId: tab.windowId,
+            url: tab.url,
+            title: tab.title || tab.url,
+            lastAccessed: Date.now(),
+          },
+        });
+      }
+    } catch {}
+  });
+}
+
+if (typeof browser !== 'undefined' && browser.tabs?.onUpdated) {
+  browser.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && tab.active && tab.url && !isInternalOrExtensionUrl(tab.url)) {
+      void browser.storage.local.set({
+        [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
+          id: tab.id,
+          windowId: tab.windowId,
+          url: tab.url,
+          title: tab.title || tab.url,
+          lastAccessed: Date.now(),
+        },
+      });
+    }
+  });
+}
+

@@ -1,8 +1,12 @@
 import browser from 'webextension-polyfill';
 import { initCustomCodeInjector } from './custom-js-css';
 import { initOAuthBridge } from './oauth-bridge';
+import { initAutoPip, requestAutoPiP, exitAutoPiP } from './autoPip';
 
 console.log('[Arcable Extension] Content script loaded on:', window.location.href);
+
+// Initialize auto Picture-in-Picture listeners
+initAutoPip();
 
 // Firefox fallback: the dedicated document_start OAuth script is not always
 // available after the provider redirects back to the login page. The page
@@ -323,6 +327,14 @@ browser.runtime.onMessage.addListener((message: any, _sender: browser.Runtime.Me
     const action = message.action as 'prev' | 'next' | 'playPause' | 'play' | 'pause';
     const handled = executeMediaAction(action);
     return Promise.resolve({ success: true, handled });
+  }
+
+  if (message.type === 'AUTO_PIP_ENTER') {
+    return requestAutoPiP().then((entered) => ({ success: true, entered }));
+  }
+
+  if (message.type === 'AUTO_PIP_EXIT') {
+    return exitAutoPiP().then((exited) => ({ success: true, exited }));
   }
 
   return undefined;

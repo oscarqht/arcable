@@ -19,6 +19,86 @@ export async function getActiveTab(): Promise<browser.Tabs.Tab | undefined> {
 }
 
 /**
+ * Checks whether a URL is an internal or extension URL (e.g. side panel, popup, options, chrome://, etc.)
+ */
+export function isInternalOrExtensionUrl(url?: string): boolean {
+  if (!url) return true;
+  return (
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('moz-extension://') ||
+    url.startsWith('extension://') ||
+    url.startsWith('chrome://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.includes('/sidepanel/index.html') ||
+    url.includes('/options/index.html') ||
+    url.includes('/popup/index.html')
+  );
+}
+
+export interface StoredActiveWebTab {
+  id?: number;
+  windowId?: number;
+  url: string;
+  title?: string;
+  favIconUrl?: string;
+  lastAccessed?: number;
+}
+
+export const LAST_ACTIVE_WEB_TAB_STORAGE_KEY = 'arcable_last_active_web_tab';
+
+/**
+ * Retrieves the previous active web tab (skipping extension/internal pages like the side panel).
+ * Useful in mobile browser environments where the side panel is rendered in an active browser tab.
+ */
+export async function getPreviousActiveTab(trackerPreviousTabId?: number): Promise<browser.Tabs.Tab | StoredActiveWebTab | undefined> {
+  // 1. Check if tracker-provided previous tab ID is available and valid
+  if (trackerPreviousTabId !== undefined && trackerPreviousTabId > 0) {
+    try {
+      const tab = await browser.tabs.get(trackerPreviousTabId);
+      if (tab && tab.url && !isInternalOrExtensionUrl(tab.url)) {
+        return tab;
+      }
+    } catch {}
+  }
+
+  // 2. Check storage for the last tracked web tab
+  try {
+    const stored = await browser.storage.local.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
+    const lastWebTab = stored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
+    if (lastWebTab?.id) {
+      try {
+        const liveTab = await browser.tabs.get(lastWebTab.id);
+        if (liveTab && liveTab.url && !isInternalOrExtensionUrl(liveTab.url)) {
+          return liveTab;
+        }
+      } catch {}
+    }
+    if (lastWebTab?.url && !isInternalOrExtensionUrl(lastWebTab.url)) {
+      return lastWebTab;
+    }
+  } catch {}
+
+  // 3. Fallback: Query all tabs, filter out extension/internal URLs, and sort by lastAccessed descending
+  try {
+    const allTabs = await browser.tabs.query({});
+    const candidateTabs = (allTabs || []).filter((t) => t.url && !isInternalOrExtensionUrl(t.url));
+    if (candidateTabs.length > 0) {
+      candidateTabs.sort((a, b) => {
+        const timeA = (a as any).lastAccessed || 0;
+        const timeB = (b as any).lastAccessed || 0;
+        return timeB - timeA;
+      });
+      return candidateTabs[0];
+    }
+  } catch (err) {
+    console.warn('[Arcable] Failed to query tabs for previous active tab:', err);
+  }
+
+  return undefined;
+}
+
+/**
  * Captures a screenshot of the visible area of the active tab.
  * Returns a data URL (e.g. "data:image/jpeg;base64,...") or null if capture fails.
  */

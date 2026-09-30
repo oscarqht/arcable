@@ -79,6 +79,16 @@ class TabTracker {
     return undefined;
   }
 
+  public getPreviousActiveBrowserTabId(winId?: number): number | undefined {
+    if (winId !== undefined && winId > 0) {
+      return this.previousActiveBrowserTabIdByWindow.get(winId);
+    }
+    for (const prevId of this.previousActiveBrowserTabIdByWindow.values()) {
+      if (prevId) return prevId;
+    }
+    return undefined;
+  }
+
   private setLastActiveBrowserTabId(winId: number, tabId: number): void {
     const prev = this.lastActiveBrowserTabIdByWindow.get(winId);
     if (prev !== undefined && prev !== tabId) {

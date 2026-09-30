@@ -23,6 +23,7 @@ import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
+import { STORAGE_KEY_AUTO_PIP } from '../background/autoPip';
 import packageJson from '../../package.json';
 
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
@@ -55,6 +56,9 @@ export const App: React.FC = () => {
   // Custom code prefill pattern (from popup/sidepanel quick trigger)
   const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
 
+  // Auto Picture-in-Picture state (default enabled)
+  const [autoPipEnabled, setAutoPipEnabled] = useState(true);
+
   // Zen Browser state
   const [isZen, setIsZen] = useState(false);
   const [hasCopiedZenCommand, setHasCopiedZenCommand] = useState(false);
@@ -85,6 +89,19 @@ export const App: React.FC = () => {
       showToast('Failed to copy command to clipboard', 'warning');
     }
   }, [activeZenCommand, zenPlatform, showToast]);
+
+  const handleToggleAutoPip = useCallback(async (enabled: boolean) => {
+    try {
+      await browser.storage.local.set({ [STORAGE_KEY_AUTO_PIP]: enabled });
+      setAutoPipEnabled(enabled);
+      showToast(
+        enabled ? 'Auto Picture-in-Picture enabled' : 'Auto Picture-in-Picture disabled',
+        'info'
+      );
+    } catch {
+      showToast('Failed to update Auto Picture-in-Picture setting', 'warning');
+    }
+  }, [showToast]);
 
   useEffect(() => {
     void isZenBrowser().then((val) => {
@@ -120,18 +137,25 @@ export const App: React.FC = () => {
     // 1. Load Raindrop auth state
     fetchAuthState();
 
-    // 2. Load sync info from storage
+    // 2. Load sync info and preferences from storage
     browser.storage.local.get([
       'arcable_last_synced_at',
+      STORAGE_KEY_AUTO_PIP,
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
+      }
+      if (res[STORAGE_KEY_AUTO_PIP] !== undefined) {
+        setAutoPipEnabled(res[STORAGE_KEY_AUTO_PIP] !== false);
       }
     });
 
     // 3. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
+        if (changes[STORAGE_KEY_AUTO_PIP]) {
+          setAutoPipEnabled(changes[STORAGE_KEY_AUTO_PIP].newValue !== false);
+        }
         if (changes.arcable_raindrop_auth) {
           const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
           if (newAuth && newAuth.isAuthenticated) {
@@ -956,6 +980,75 @@ export const App: React.FC = () => {
 }`}</pre>
                     </div>
                   )}
+                </div>
+              </div>
+            </Card>
+
+            <Card
+              title="Media & Playback"
+              subtitle="Configure automatic Picture-in-Picture and background media behaviors."
+              style={{ borderRadius: '16px', padding: '24px' }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '16px',
+                    padding: '14px 16px',
+                    borderRadius: '12px',
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '15px' }}>📺</span>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                        Auto Picture-in-Picture on tab switch
+                      </span>
+                      <Badge variant={autoPipEnabled ? 'success' : 'default'}>
+                        {autoPipEnabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
+                    <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: 0, lineHeight: 1.5 }}>
+                      Automatically pops out playing videos into a floating window when navigating away from the tab, and restores them inline when you return. Closing the floating window while away pauses the video.
+                    </p>
+                  </div>
+
+                  <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={autoPipEnabled}
+                      onChange={(e) => void handleToggleAutoPip(e.target.checked)}
+                      style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
+                    />
+                    <div
+                      style={{
+                        width: '44px',
+                        height: '24px',
+                        backgroundColor: autoPipEnabled ? '#0284c7' : (isDark ? '#334155' : '#cbd5e1'),
+                        borderRadius: '9999px',
+                        position: 'relative',
+                        transition: 'background-color 0.2s ease',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '2px',
+                          left: autoPipEnabled ? '22px' : '2px',
+                          width: '20px',
+                          height: '20px',
+                          backgroundColor: '#ffffff',
+                          borderRadius: '9999px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                          transition: 'left 0.2s ease',
+                        }}
+                      />
+                    </div>
+                  </label>
                 </div>
               </div>
             </Card>

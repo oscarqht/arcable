@@ -22,7 +22,14 @@ import {
   resolveRaindropArchiveCollectionId,
   isMobileDevice,
 } from '@arcable/shared/utils';
-import { browser, getActiveTab, captureActiveTabScreenshot, isAndroidPlatform } from '../utils/browser';
+import {
+  browser,
+  getActiveTab,
+  captureActiveTabScreenshot,
+  isAndroidPlatform,
+  getPreviousActiveTab,
+  isInternalOrExtensionUrl,
+} from '../utils/browser';
 import { tabTracker } from '../utils/tabTracker';
 import { audioTracker } from '../utils/audioTracker';
 import { shouldPersistSidepanelSpaceId, resolveSidepanelActiveSpaceId, VIRTUAL_SYNCED_TABS_SPACE_ID } from './spaceSelection';
@@ -1332,29 +1339,61 @@ export const App: React.FC = () => {
       browser.runtime.openOptionsPage();
       throw new Error('Please connect your Raindrop.io account first in Settings.');
     }
-    const tab = await getActiveTab();
-    if (!tab || !tab.url) {
-      throw new Error('No active tab URL detected.');
+
+    const isMobile = isMobileDevice() || (await isAndroidPlatform().catch(() => false));
+
+    let tabToSave: { id?: number; windowId?: number; url?: string; title?: string } | undefined;
+    let skipScreenshot = false;
+
+    if (isMobile) {
+      // In mobile browser, the side panel page itself is rendered inside an active browser tab.
+      // Save the previous active web tab instead and skip client-side screenshot, passing pleaseParse to Raindrop.
+      const prevTrackerTabId = tabTracker.getPreviousActiveBrowserTabId();
+      tabToSave = await getPreviousActiveTab(prevTrackerTabId);
+      skipScreenshot = true;
+    } else {
+      const activeTab = await getActiveTab();
+      if (activeTab && isInternalOrExtensionUrl(activeTab.url)) {
+        // Fallback: if running in a standalone tab on desktop where the active tab is the extension page itself
+        const prevTrackerTabId = tabTracker.getPreviousActiveBrowserTabId(activeTab.windowId);
+        tabToSave = await getPreviousActiveTab(prevTrackerTabId);
+        skipScreenshot = true;
+      } else {
+        tabToSave = activeTab;
+      }
+    }
+
+    if (!tabToSave || !tabToSave.url) {
+      throw new Error(isMobile ? 'No previous active tab URL detected.' : 'No active tab URL detected.');
     }
 
     let coverDataUrl: string | undefined;
-    try {
-      const screenshot = await captureActiveTabScreenshot(tab.windowId);
-      if (screenshot) {
-        coverDataUrl = screenshot;
+    if (!skipScreenshot) {
+      try {
+        const screenshot = await captureActiveTabScreenshot(tabToSave.windowId);
+        if (screenshot) {
+          coverDataUrl = screenshot;
+        }
+      } catch (e) {
+        console.warn('[Arcable] Failed to capture active tab screenshot for cover:', e);
       }
-    } catch (e) {
-      console.warn('[Arcable] Failed to capture active tab screenshot for cover:', e);
+    }
+
+    const payload: any = {
+      link: tabToSave.url,
+      title: tabToSave.title || tabToSave.url,
+      collectionId: -1,
+    };
+
+    if (skipScreenshot) {
+      payload.pleaseParse = {};
+    } else if (coverDataUrl) {
+      payload.coverDataUrl = coverDataUrl;
     }
 
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SAVE_BOOKMARK',
-      payload: {
-        link: tab.url,
-        title: tab.title || tab.url,
-        collectionId: -1,
-        coverDataUrl,
-      },
+      payload,
     });
     if (!res || !res.success) {
       throw new Error(res?.error || 'Failed to save bookmark to Raindrop');
