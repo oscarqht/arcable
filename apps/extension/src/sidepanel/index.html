@@ -87,19 +87,15 @@
       * {
         box-sizing: border-box;
       }
+      /* Hide scrollbars (so they don't shrink the layout) but keep scrolling */
+      * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
       ::-webkit-scrollbar {
-        width: 5px;
-        height: 5px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background-color: rgba(148, 163, 184, 0.35);
-        border-radius: 9999px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(148, 163, 184, 0.6);
+        display: none;
+        width: 0;
+        height: 0;
       }
       @keyframes spin {
         from {
