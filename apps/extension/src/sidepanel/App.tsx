@@ -694,8 +694,12 @@ export const App: React.FC = () => {
     }
 
     if (nextSpaceId && nextSpaceId !== previousSpaceIdRef.current) {
+      const prevSpaceId = previousSpaceIdRef.current;
       previousSpaceIdRef.current = nextSpaceId;
       const winId = currentWindowIdRef.current;
+      if (prevSpaceId) {
+        void tabTracker.cleanupBlankTabsForSpace(prevSpaceId, winId ?? undefined);
+      }
       const currentTabSpace = winId !== null && winId !== undefined ? tabTracker.getLastActiveTabSpace(winId) : undefined;
       // If current active browser tab in this window already belongs to nextSpaceId, do not switch tabs!
       if (currentTabSpace === nextSpaceId) {
@@ -743,6 +747,9 @@ export const App: React.FC = () => {
           if (win?.id !== undefined) {
             currentWindowIdRef.current = win.id;
             tabTracker.setActiveSpaceForWindow(win.id, nextSpaceId);
+            if (prevSpaceId) {
+              void tabTracker.cleanupBlankTabsForSpace(prevSpaceId, win.id);
+            }
             void activateRememberedTabForSpace(win.id, nextSpaceId, undefined, lookupAssoc).then(onSpaceActivated);
           }
         }).catch(() => {});
