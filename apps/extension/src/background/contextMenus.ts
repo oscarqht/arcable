@@ -4,6 +4,7 @@ import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
 import { openExtensionDetailsPage } from '../utils/browser';
 import { handleScreenshotCapture } from './screenshot';
+import { DOWNLOAD_MARKDOWN_MENU_ID, handleMarkdownDownload } from './markdownDownload';
 import {
   createCopyContextMenuItems,
   isCopyMenuItem,
@@ -107,6 +108,13 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
       contexts: CONTEXTS,
     });
 
+    chrome.contextMenus.create({
+      id: DOWNLOAD_MARKDOWN_MENU_ID,
+      parentId: SCREENSHOT_MENU_IDS.TOOL_PARENT,
+      title: '📥 Download as Markdown',
+      contexts: CONTEXTS,
+    });
+
     // 3. Create Run Code items if matching rules exist for this page
     if (matchingRules.length > 0) {
       chrome.contextMenus.create({
@@ -156,6 +164,13 @@ export function initContextMenuListeners(): void {
     if (info.menuItemId === SCREENSHOT_MENU_IDS.CAPTURE_FULL_PAGE) {
       if (typeof tabId === 'number') {
         void handleScreenshotCapture(tabId, 'fullpage');
+      }
+      return;
+    }
+
+    if (info.menuItemId === DOWNLOAD_MARKDOWN_MENU_ID) {
+      if (typeof tabId === 'number') {
+        void handleMarkdownDownload(tabId);
       }
       return;
     }

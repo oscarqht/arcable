@@ -37,3 +37,17 @@ export function setCopySuccessBadge(): void {
 export function setCopyFailureBadge(): void {
   setActionBadge('❌', '#ef4444', 2000);
 }
+
+/**
+ * Set a success badge for Markdown download operations.
+ */
+export function setMarkdownSuccessBadge(): void {
+  setActionBadge('📥', '#10b981', 2000);
+}
+
+/**
+ * Set a failure badge for Markdown download operations.
+ */
+export function setMarkdownFailureBadge(): void {
+  setActionBadge('❌', '#ef4444', 2000);
+}
