@@ -1,5 +1,5 @@
 import { ungroupFavourite } from '../src/utils/ungroupFavourite';
-import { replayOperations } from '../src/utils/syncEngine';
+import { mergeIncrementalSyncSnapshot, replayOperations } from '../src/utils/syncEngine';
 import {
   ARCABLE_VARIANT_DELIMITER,
   attachGroupMetaToNote,
@@ -66,6 +66,9 @@ async function main(): Promise<void> {
         ...Array.from({ length: count }, (_, index) => `Member ${count - index - 1}`),
         ...(withWidgets ? ['child-a'] : []), 'After'];
       assert(JSON.stringify(shelfTitles(result)) === JSON.stringify(expected), 'Every member must replace the exact group slot in visible order');
+      const identityMerged = mergeIncrementalSyncSnapshot(result, base);
+      assert(!identityMerged.tabs.some((tab) => tab.isGroup || tab.urlVariants || tab.defaultVariantId || tab.groupItemOrder), 'Merging stale extension identities must not restore ungrouped variants');
+      assert(!identityMerged.widgets?.some((widget) => widget.parentGroupId), 'Merging stale extension identities must not reattach unpacked widgets');
       const replayed = replayOperations(base, operations);
       assert(JSON.stringify(shelfTitles(replayed)) === JSON.stringify(expected), 'Sync replay must preserve titles and all shelf positions');
       assert(!replayed.tabs.some((tab) => tab.isGroup || tab.urlVariants), 'Replay must clear all group metadata');
@@ -84,21 +87,27 @@ async function main(): Promise<void> {
   assert(cleanTitles.tabs.every((tab) => !tab.customTitle?.includes(ARCABLE_VARIANT_DELIMITER)), 'Ungrouped titles must not include the group delimiter');
 
   // Exercise actual upload and read-only hydration against an in-memory Raindrop API.
-  for (const { forceFullSync, remoteId, withWidgets } of [
-    { forceFullSync: false, remoteId: 101, withWidgets: false },
+  for (const { forceFullSync, remoteId, withWidgets, exactExample } of [
+    { forceFullSync: false, remoteId: 101, withWidgets: false, exactExample: true },
     { forceFullSync: false, remoteId: 103, withWidgets: true },
-    { forceFullSync: true, remoteId: 101, withWidgets: false },
+    { forceFullSync: true, remoteId: 101, withWidgets: false, exactExample: true },
     { forceFullSync: true, remoteId: 103, withWidgets: true },
   ]) {
-    const base = fixture(3, withWidgets);
+    const base = fixture(exactExample ? 2 : 3, withWidgets);
     base.tabs = base.tabs.filter((tab) => tab.favourite);
     base.spaces[0].raindropId = 10;
     const group = base.tabs[1];
     group.raindropId = remoteId;
+    if (exactExample) {
+      group.customTitle = 'G';
+      group.urlVariants!.forEach((variant, index) => { variant.name = index === 0 ? 'a' : 'b'; });
+      group.groupItemOrder = group.urlVariants!.map((variant) => ({ type: 'tab' as const, id: variant.id }));
+      group.note = attachGroupMetaToNote(group.note, group);
+    }
     let remoteItems: RaindropBookmarkItem[] = [
       { _id: 90, title: 'Before', link: 'https://before.test', collectionId: 1, order: 0, sort: 0 },
       ...group.urlVariants!.map((variant, index) => ({
-        _id: Number(variant.id), title: `Work${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
+        _id: Number(variant.id), title: `${group.customTitle}${ARCABLE_VARIANT_DELIMITER}${variant.name}`,
         link: variant.url, collectionId: 1, order: index + 1, sort: index + 1,
         note: Number(variant.id) === remoteId ? group.note : '',
       })),
@@ -142,9 +151,17 @@ async function main(): Promise<void> {
     const result = await syncWorkspaceWithRaindrop('test-token', {
       localState: replayOperations(base, operations), pendingOps: operations,
       replaceBaseline: forceFullSync,
+      identitySnapshot: base,
     });
     assert(result.success, `Upload must succeed: ${result.error}`);
-    assert(remoteItems.length === (withWidgets ? 7 : 5), 'Remote group must be replaced by ALL three members without orphans');
+    assert(!result.latestSnapshot?.tabs.some((tab) => tab.isGroup || tab.urlVariants), 'The extension sync result must not restore group variants');
+    assert(!result.latestSnapshot?.widgets?.some((widget) => widget.parentGroupId), 'The extension sync result must not restore widget parents');
+    assert(remoteItems.length === (exactExample ? 4 : withWidgets ? 7 : 5), 'Remote group must be replaced by ALL three members without orphans');
+    if (exactExample) {
+      assert(remoteItems.find((item) => item._id === 101)?.title === 'a', 'G ||| a must become a on the existing Raindrop bookmark');
+      assert(remoteItems.some((item) => item.title === 'b'), 'G ||| b must become b');
+      assert(remoteItems.find((item) => item._id === 101)?.note === 'Keep this note', 'Ungrouping must remove remote group metadata while retaining the user note');
+    }
     assert(remoteItems.every((item) => !item.title.includes(ARCABLE_VARIANT_DELIMITER)), 'Remote titles must be plain member titles');
     const reconstructed = reconstructWorkspace({ root, collections: [root], items: [...remoteItems].sort((a, b) => (a.order || 0) - (b.order || 0)) }, 'space-1');
     assert(JSON.stringify(shelfTitles(reconstructed)) === JSON.stringify(shelfTitles(local)), `A fresh reconstruction must preserve the complete favorite order (${forceFullSync}): ${JSON.stringify(shelfTitles(reconstructed))} vs ${JSON.stringify(shelfTitles(local))}`);
