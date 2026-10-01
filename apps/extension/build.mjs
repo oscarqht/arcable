@@ -143,6 +143,35 @@ async function buildTarget(browserName) {
     },
   });
 
+  // 3.6 Build Markdown Extractor (injected on demand, not a manifest content script)
+  await build({
+    configFile: false,
+    plugins: [react()],
+    resolve: {
+      alias: {
+        '@arcable/shared': resolve(__dirname, '../../packages/shared/src'),
+      },
+    },
+    build: {
+      outDir,
+      emptyOutDir: false,
+      lib: {
+        entry: resolve(__dirname, 'src/content/markdown-extractor.ts'),
+        name: 'MarkdownExtractor',
+        formats: ['iife'],
+        fileName: () => 'markdown-extractor.js',
+      },
+      rollupOptions: {
+        output: {
+          extend: true,
+        },
+      },
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(nodeEnv),
+    },
+  });
+
   // 4. Copy appropriate manifest
   const manifestSrc = resolve(__dirname, `manifest.${browserName}.json`);
   const manifestDest = resolve(outDir, 'manifest.json');
