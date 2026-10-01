@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Space, SpaceScheme, ZenThemeConfig, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
+import { ungroupFavourite } from '../utils/ungroupFavourite';
 import {
   createWorkspaceOperation,
   savePendingOperation,
@@ -3396,6 +3397,8 @@ export function useWorkspace() {
         const groupTab = prev.tabs.find((t) => t.id === tabId);
         if (!groupTab) return prev;
 
+        if (groupTab.favourite) return ungroupFavourite(prev, groupTab, savePendingOperation);
+
         const childWidgets = (prev.widgets || []).filter((w) => w.parentGroupId === tabId);
         const variants = groupTab.urlVariants || [];
 
@@ -3593,131 +3596,7 @@ export function useWorkspace() {
           nextTabsList.push(updatedFirstTab, ...newTabs);
         }
 
-        let updatedWidgets = prev.widgets || [];
-
-        if (groupTab.favourite) {
-          // Keep all children tabs and widgets at the EXACT place on the favourite shelf where the group was
-          type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
-          const favTabs: FavItem[] = getSortedTabs(prev.tabs.filter((t) => Boolean(t.favourite))).map((t) => ({
-            id: t.id,
-            type: 'tab' as const,
-            order: t.order,
-            createdAt: t.createdAt,
-          }));
-          const currentWidgets: FavItem[] = getSortedWidgets(prev.widgets || [])
-            .filter((w) => !w.parentGroupId)
-            .map((w) => ({
-              id: w.id,
-              type: 'widget' as const,
-              order: w.order,
-              createdAt: w.createdAt,
-            }));
-
-          const allItems: FavItem[] = [...favTabs, ...currentWidgets].sort((a, b) => {
-            if (a.order !== undefined && b.order !== undefined) {
-              if (a.order !== b.order) return a.order - b.order;
-              return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
-            }
-            if (a.order !== undefined) return -1;
-            if (b.order !== undefined) return 1;
-            return (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
-          });
-
-          // Replace the group entry at its exact index in allItems with [updatedFirstTab, ...newTabs, ...childWidgets]
-          const groupIdx = allItems.findIndex((item) => item.id === tabId);
-          const unpackedItems: FavItem[] = [
-            { id: updatedFirstTab.id, type: 'tab' as const },
-            ...newTabs.map((nt) => ({ id: nt.id, type: 'tab' as const })),
-            ...childWidgets.map((w) => ({ id: w.id, type: 'widget' as const })),
-          ];
-          if (groupIdx >= 0) {
-            allItems.splice(groupIdx, 1, ...unpackedItems);
-          } else {
-            allItems.push(...unpackedItems);
-          }
-
-          // Re-index all favourite items sequentially
-          const orderMap = new Map<string, number>();
-          allItems.forEach((item, idx) => {
-            orderMap.set(item.id, (idx + 1) * 1000);
-          });
-
-          // Update tab orders
-          const finalTabs = nextTabsList.map((t) => {
-            const newOrder = orderMap.get(t.id);
-            if (newOrder !== undefined) {
-              return { ...t, order: newOrder };
-            }
-            return t;
-          });
-
-          // Update widget orders & clear parentGroupId for childWidgets
-          updatedWidgets = (prev.widgets || []).map((w) => {
-            if (w.parentGroupId === tabId) {
-              const newOrder = orderMap.get(w.id);
-              savePendingOperation(
-                createWorkspaceOperation('WIDGET_UPDATE', w.id, {
-                  parentGroupId: null,
-                  order: newOrder,
-                })
-              );
-              return {
-                ...w,
-                parentGroupId: undefined,
-                order: newOrder !== undefined ? newOrder : w.order,
-                updatedAt: Date.now(),
-              };
-            }
-            const newOrder = orderMap.get(w.id);
-            if (newOrder !== undefined) {
-              return { ...w, order: newOrder };
-            }
-            return w;
-          });
-
-          // Save pending operations:
-          const firstTabFinal = finalTabs.find((t) => t.id === updatedFirstTab.id) || updatedFirstTab;
-          savePendingOperation(
-            createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
-              title: firstTabFinal.customTitle,
-              url: firstTabFinal.url,
-              favIconUrl: firstTabFinal.favIconUrl,
-              customEmojiIcon: firstTabFinal.customEmojiIcon,
-              urlVariants: null,
-              defaultVariantId: null,
-              groupItemOrder: null,
-              order: firstTabFinal.order,
-              deletedVariantIds: secondaryVariantIds.length > 0 ? secondaryVariantIds : undefined,
-            })
-          );
-
-          newTabs.forEach((nt) => {
-            const ntFinal = finalTabs.find((t) => t.id === nt.id) || nt;
-            savePendingOperation(createWorkspaceOperation('TAB_CREATE', ntFinal.id, ntFinal));
-          });
-
-          finalTabs.forEach((t) => {
-            if (t.id === groupTab.id || newTabs.some((nt) => nt.id === t.id)) return;
-            const oldTab = prev.tabs.find((orig) => orig.id === t.id);
-            if (oldTab && oldTab.order !== t.order) {
-              savePendingOperation(createWorkspaceOperation('TAB_UPDATE', t.id, { order: t.order }));
-            }
-          });
-
-          updatedWidgets.forEach((w) => {
-            if (w.parentGroupId === tabId) return;
-            const oldWidget = (prev.widgets || []).find((orig) => orig.id === w.id);
-            if (oldWidget && oldWidget.order !== w.order) {
-              savePendingOperation(createWorkspaceOperation('WIDGET_UPDATE', w.id, { order: w.order }));
-            }
-          });
-
-          return {
-            ...prev,
-            tabs: finalTabs,
-            widgets: updatedWidgets,
-          };
-        } else if (groupTab.pinned) {
+        if (groupTab.pinned) {
           // Pinned tabs
           const pinnedTabs = getSortedTabs(prev.tabs.filter((t) => t.pinned));
           const groupIdx = pinnedTabs.findIndex((t) => t.id === tabId);
