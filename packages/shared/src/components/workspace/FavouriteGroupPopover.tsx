@@ -30,6 +30,7 @@ import {
   shouldAllowClick,
 } from '../../utils/dragThreshold';
 import { WidgetTileContent, buildClockInfo, NOTE_COLORS } from './widgets';
+import { ConfirmModal } from './ConfirmModal';
 
 export interface FavouriteGroupPopoverProps {
   groupTab: Tab;
@@ -128,6 +129,11 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   const [isDraggedOutOfPopover, setIsDraggedOutOfPopover] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const [isUngroupConfirmOpen, setIsUngroupConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setIsUngroupConfirmOpen(false);
+  }, [isOpen]);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -336,6 +342,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     if (!isOpen) return;
 
     const handlePointerDown = (e: MouseEvent) => {
+      if (isUngroupConfirmOpen) return;
       if (draggedItemId || getActiveDrag()) return;
       if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
         setIsAddMenuOpen(false);
@@ -347,6 +354,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // ConfirmModal handles its own Escape
+        if (isUngroupConfirmOpen) return;
         if (isAddMenuOpen) {
           setIsAddMenuOpen(false);
         } else {
@@ -361,7 +370,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
       window.removeEventListener('mousedown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose, isAddMenuOpen, draggedItemId]);
+  }, [isOpen, onClose, isAddMenuOpen, draggedItemId, isUngroupConfirmOpen]);
 
   if (!isOpen || !anchorRect || typeof document === 'undefined') return null;
 
@@ -381,6 +390,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   );
 
   return createPortal(
+    <>
     <div
       ref={popoverRef}
       style={{
@@ -408,6 +418,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={() => {
+        // The ungroup confirm modal renders outside the popover; keep the popover open while it's shown
+        if (isUngroupConfirmOpen) return;
         if (draggedItemId || (getActiveDrag() && getActiveDrag()?.parentGroupId === groupTab.id)) {
           return;
         }
@@ -675,8 +687,8 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
             <button
               type="button"
               onClick={() => {
-                onUngroup(groupTab.id);
-                onClose();
+                onMouseEnter?.();
+                setIsUngroupConfirmOpen(true);
               }}
               title="Ungroup items"
               style={{
@@ -1196,7 +1208,26 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
         })
       )}
       </div>
-    </div>,
+    </div>
+    {onUngroup && (
+      <ConfirmModal
+        isOpen={isUngroupConfirmOpen}
+        title="Ungroup items?"
+        message={
+          <>
+            The items in <strong>{groupTitle}</strong> will be moved back to Favorites and the group will be removed.
+          </>
+        }
+        confirmLabel="Ungroup"
+        danger={false}
+        onConfirm={() => {
+          onUngroup(groupTab.id);
+          onClose();
+        }}
+        onClose={() => setIsUngroupConfirmOpen(false)}
+      />
+    )}
+    </>,
     document.body
   );
 };
