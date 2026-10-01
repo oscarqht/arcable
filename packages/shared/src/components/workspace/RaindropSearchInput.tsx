@@ -55,6 +55,7 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isSaveButtonFocused, setIsSaveButtonFocused] = useState(false);
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saveResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -430,25 +431,17 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
               height: compact ? '38px' : '42px',
               padding: compact ? '7px 36px 7px 38px' : '8px 40px 8px 44px',
               borderRadius: compact ? '14px' : '16px',
-              border: `1px solid ${
-                isInputFocused || shouldShowResults
-                  ? '#0284c7'
-                  : isDark
-                  ? '#243247'
-                  : '#cbd5e1'
-              }`,
-              backgroundColor: isDark ? '#151e2e' : '#ffffff',
-              color: isDark ? '#f8fafc' : '#0f172a',
+              border: 'none',
+              backgroundColor: isInputFocused
+                ? '#ffffff'
+                : isDark
+                ? 'rgba(21, 30, 46, 0.6)'
+                : 'rgba(255, 255, 255, 0.6)',
+              color: isInputFocused || !isDark ? '#0f172a' : '#f8fafc',
               fontSize: compact ? '13px' : '14px',
               outline: 'none',
               boxSizing: 'border-box',
-              boxShadow:
-                isInputFocused || shouldShowResults
-                  ? isDark
-                    ? '0 0 0 2px rgba(56, 189, 248, 0.25)'
-                    : '0 0 0 2px rgba(2, 132, 199, 0.15)'
-                  : 'none',
-              transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+              transition: 'background-color 0.15s ease, color 0.15s ease',
             }}
           />
 
@@ -512,7 +505,9 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
           <button
             type="button"
             onClick={handleSaveClick}
-            disabled={saveStatus === 'saving'}
+            onFocus={() => setIsSaveButtonFocused(true)}
+            onBlur={() => setIsSaveButtonFocused(false)}
+            aria-disabled={saveStatus === 'saving'}
             title="Save to Raindrop"
             aria-label="Save to Raindrop"
             style={{
@@ -520,31 +515,12 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
               height: compact ? '38px' : '42px',
               padding: 0,
               borderRadius: compact ? '14px' : '16px',
-              border: `1px solid ${
-                saveStatus === 'success'
-                  ? isDark
-                    ? 'rgba(34, 197, 94, 0.4)'
-                    : '#86efac'
-                  : saveStatus === 'error'
-                  ? isDark
-                    ? 'rgba(239, 68, 68, 0.4)'
-                    : '#fca5a5'
-                  : isDark
-                  ? '#243247'
-                  : '#cbd5e1'
-              }`,
-              backgroundColor:
-                saveStatus === 'success'
-                  ? isDark
-                    ? 'rgba(34, 197, 94, 0.15)'
-                    : '#f0fdf4'
-                  : saveStatus === 'error'
-                  ? isDark
-                    ? 'rgba(239, 68, 68, 0.15)'
-                    : '#fef2f2'
-                  : isDark
-                  ? '#151e2e'
-                  : '#ffffff',
+              border: 'none',
+              backgroundColor: isSaveButtonFocused
+                ? '#ffffff'
+                : isDark
+                ? 'rgba(21, 30, 46, 0.6)'
+                : 'rgba(255, 255, 255, 0.6)',
               color:
                 saveStatus === 'success'
                   ? isDark
@@ -563,8 +539,8 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
               cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
               flexShrink: 0,
               boxSizing: 'border-box',
-              boxShadow: isDark ? '0 1px 2px rgba(0, 0, 0, 0.2)' : '0 1px 2px rgba(0, 0, 0, 0.04)',
-              transition: 'all 0.15s ease',
+              outline: 'none',
+              transition: 'background-color 0.15s ease',
             }}
           >
             <span
