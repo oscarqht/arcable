@@ -1073,10 +1073,9 @@ export function mergeIncrementalSyncSnapshot(
             nextDefaultVariantId = syncedTab.defaultVariantId;
           }
         }
-      } else {
-        nextVariants = syncedTab.urlVariants;
-        nextDefaultVariantId = syncedTab.defaultVariantId;
       }
+      // Missing local variants can mean the user just ungrouped this tab.
+      // Recover IDs only for members still present, never restore removed members.
     }
 
     return {
@@ -1118,7 +1117,6 @@ export function mergeIncrementalSyncSnapshot(
       return {
         ...widget,
         ...(remoteId ? { raindropId: remoteId } : {}),
-        ...(syncedWidget?.parentGroupId ? { parentGroupId: syncedWidget.parentGroupId } : {}),
       };
     }),
     customCodeRules: (current.customCodeRules || []).map((rule) => {
