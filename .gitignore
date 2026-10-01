@@ -58,6 +58,7 @@ Desktop.ini
 .vscode/
 *.sublime-project
 *.sublime-workspace
+.raft/
 
 # Cache Directories
 .turbo/
