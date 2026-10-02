@@ -57,4 +57,11 @@ assert.match(
   'an uninitialized remote workspace hydration must retain local metadata in the manager\'s synchronous workspace reference'
 );
 
+assert.match(page, /isInitialLoading=\{isInitialLoading\}/,
+  'the web app must pass initial loading state to WorkspaceManager');
+assert.match(workspaceManager, /showInitialLoadingState = Boolean\(isInitialLoading && !hasCachedData\)/,
+  'the workspace manager must compute when to show the initial loading state');
+assert.match(workspaceManager, /aria-label="Loading from Raindrop"/,
+  'the workspace manager must render a centered loading spinner when loading initially without cached data');
+
 console.log('Web Raindrop sync parity tests passed.');

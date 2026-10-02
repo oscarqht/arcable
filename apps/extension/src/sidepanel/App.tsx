@@ -177,6 +177,9 @@ export const App: React.FC = () => {
   const [raindropToken, setRaindropToken] = useState<string | null>(null);
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
+  const [isInitialSyncing, setIsInitialSyncing] = useState(false);
+  const [initialSyncSettled, setInitialSyncSettled] = useState(false);
+  const isInitialLoading = Boolean(hasRaindropAuth && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
   const [currentDeviceId, setCurrentDeviceId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -225,10 +228,13 @@ export const App: React.FC = () => {
       initialRaindropHydrationRef.current = false;
       hasAppliedAuthoritativeSnapshotRef.current = false;
       setRaindropHydrated(false);
+      setIsInitialSyncing(false);
+      setInitialSyncSettled(false);
       return;
     }
     let cancelled = false;
     initialRaindropHydrationRef.current = true;
+    setIsInitialSyncing(true);
     void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((res: any) => {
       if (cancelled) return;
       if (res?.success && res.data && typeof window !== 'undefined') {
@@ -250,6 +256,10 @@ export const App: React.FC = () => {
       console.warn('[Arcable Sidepanel] Initial Raindrop tree fetch failed:', error);
     }).finally(() => {
       initialRaindropHydrationRef.current = false;
+      if (!cancelled) {
+        setIsInitialSyncing(false);
+        setInitialSyncSettled(true);
+      }
     });
     return () => { cancelled = true; };
   }, [hasRaindropAuth]);
@@ -1673,6 +1683,7 @@ export const App: React.FC = () => {
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSearchCollectionCovers={hasRaindropAuth ? handleSearchCollectionCovers : undefined}
           onSyncStateChange={setIsSyncing}
+          isInitialLoading={isInitialLoading}
         />
         )}
       </div>

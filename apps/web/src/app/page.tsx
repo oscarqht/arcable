@@ -36,6 +36,7 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
+  const [initialSyncSettled, setInitialSyncSettled] = useState(false);
   const [foldersCollapseState, setFoldersCollapseState] = useState<{ areAllCollapsed: boolean; totalFolders: number }>({
     areAllCollapsed: false,
     totalFolders: 0,
@@ -46,6 +47,7 @@ export default function HomePage() {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const isInitialLoading = Boolean(authState.isAuthenticated && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
 
   // Load auth status from API on mount
   useEffect(() => {
@@ -160,6 +162,7 @@ export default function HomePage() {
     if (!authState.isAuthenticated) {
       hasAutoFetchedRef.current = false;
       setRaindropHydrated(false);
+      setInitialSyncSettled(false);
       return;
     }
     if (hasAutoFetchedRef.current) return;
@@ -183,6 +186,7 @@ export default function HomePage() {
       })
       .finally(() => {
         setIsInitialSyncing(false);
+        setInitialSyncSettled(true);
       });
   }, [authState.isAuthenticated, handleFetchWorkspace]);
 
@@ -543,8 +547,9 @@ export default function HomePage() {
           margin: '20px auto',
           padding: '0 20px',
           boxSizing: 'border-box',
-          flex: authLoading || !authState.isAuthenticated ? 1 : undefined,
-          display: authLoading || !authState.isAuthenticated ? 'flex' : undefined,
+          flex: authLoading || !authState.isAuthenticated || isInitialLoading ? 1 : undefined,
+          display: authLoading || !authState.isAuthenticated || isInitialLoading ? 'flex' : undefined,
+          flexDirection: authLoading || !authState.isAuthenticated || isInitialLoading ? 'column' : undefined,
         }}
       >
         {authLoading ? (
@@ -680,6 +685,7 @@ export default function HomePage() {
           autoSync={Boolean(authState.isAuthenticated && raindropHydrated)}
           onSyncStateChange={setIsWorkspaceSyncing}
           onFoldersCollapseStateChange={setFoldersCollapseState}
+          isInitialLoading={isInitialLoading}
         />
         )}
       </main>

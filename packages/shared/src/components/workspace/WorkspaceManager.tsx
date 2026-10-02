@@ -139,7 +139,9 @@ export interface WorkspaceManagerProps {
     deviceId: string;
     pendingOps: WorkspaceOperation[];
   }) => Promise<SyncResult | void | any>;
+  isInitialLoading?: boolean;
 }
+
 
 
 export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, WorkspaceManagerProps>(
@@ -194,6 +196,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onThemeChange,
       onFoldersCollapseStateChange,
       onSyncRaindrop,
+      isInitialLoading = false,
     }: WorkspaceManagerProps,
     ref: React.Ref<WorkspaceManagerHandle>
   ) {
@@ -264,6 +267,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   // Always read and update the latest workspace instead of a render-time closure.
   const latestWorkspaceDataRef = useRef(data);
   latestWorkspaceDataRef.current = data;
+
+  const hasCachedData = useMemo(() => {
+    return (
+      sortedSpaces.length > 0 ||
+      favouriteTabs.length > 0 ||
+      widgets.length > 0 ||
+      data.tabs.length > 0 ||
+      data.folders.length > 0
+    );
+  }, [sortedSpaces.length, favouriteTabs.length, widgets.length, data.tabs.length, data.folders.length]);
+
+  const showInitialLoadingState = Boolean(isInitialLoading && !hasCachedData);
 
   const isMobile = useIsMobile();
   const handleToggleFolderExpand = toggleFolderExpand;
@@ -2325,58 +2340,60 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         flexDirection: 'column',
         gap: compact ? '8px' : '16px',
         width: '100%',
-        flex: compact ? '1 0 auto' : undefined,
-        minHeight: compact ? '100%' : undefined,
+        flex: compact ? '1 0 auto' : (showInitialLoadingState ? 1 : undefined),
+        minHeight: compact ? '100%' : (showInitialLoadingState ? '60vh' : undefined),
         paddingBottom: compact ? 'calc(150px + env(safe-area-inset-bottom, 0px))' : undefined,
         boxSizing: 'border-box',
       }}
     >
 
       {/* Global Favourite Tabs Shelf (Unified with Draggable Widgets) */}
-      <FavouriteTabsShelf
-        tabs={favouriteTabs}
-        widgets={widgets}
-        onAddWidget={addWidget}
-        onUpdateWidget={updateWidget}
-        onRemoveWidget={removeWidget}
-        tabAssociations={tabAssociations}
-        highlightedTabId={highlightedTabId}
-        themeStyles={activeSpaceTheme}
-        onOpenTab={handleOpenTabWithSearchClear}
-        onOpenVariant={handleOpenVariant}
-        onOpenTmpTab={handleOpenAsTmpTab}
-        onCloseAssociatedTab={onCloseAssociatedTab}
-        onResetDivertedUrl={onResetDivertedUrl}
-        audibleTabs={audibleTabs}
-        onToggleTabMute={onToggleTabMute}
-        onEditTab={(tab) => {
-          setIsTabGroupModal(Boolean(tab.urlVariants && tab.urlVariants.length > 1));
-          setEditingTab(tab);
-          setTargetSpaceIdForModal(tab.parentSpaceId);
-          setIsTabModalOpen(true);
-        }}
-        onDuplicateTab={(tab) => duplicateTab(tab.id)}
-        onArchiveTab={handleArchiveTab}
-        onDeleteTab={handleRequestDeleteTab}
-        onToggleFavouriteTab={toggleFavouriteTab}
-        onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true, false)}
-        onAddFavouriteGroup={() => handleOpenNewTabModal(undefined, undefined, false, true, true)}
-        onMergeFavouriteTabs={mergeTabsIntoGroup}
-        onUngroupTab={ungroupTab}
-        onMoveWidgetToGroup={moveWidgetToGroup}
-        onExtractWidgetFromGroup={extractWidgetFromGroup}
-        onReorderFavouriteItem={reorderFavouriteItem}
-        onReorderFavouriteTabs={reorderFavouriteTabs}
-        onReorderGroupVariants={reorderGroupVariants}
-        onActivateGroup={onActivateGroup}
-        onDropTmpTab={handleDropTmpTabIntoFavourite}
-        onDropNormalTab={handleDropNormalTabIntoFavourite}
-        onReplaceTabUrl={handleReplaceWithCurrentUrl}
-        raindropRootCollectionId={data.raindropRootCollectionId}
-      />
+      {!showInitialLoadingState && (
+        <FavouriteTabsShelf
+          tabs={favouriteTabs}
+          widgets={widgets}
+          onAddWidget={addWidget}
+          onUpdateWidget={updateWidget}
+          onRemoveWidget={removeWidget}
+          tabAssociations={tabAssociations}
+          highlightedTabId={highlightedTabId}
+          themeStyles={activeSpaceTheme}
+          onOpenTab={handleOpenTabWithSearchClear}
+          onOpenVariant={handleOpenVariant}
+          onOpenTmpTab={handleOpenAsTmpTab}
+          onCloseAssociatedTab={onCloseAssociatedTab}
+          onResetDivertedUrl={onResetDivertedUrl}
+          audibleTabs={audibleTabs}
+          onToggleTabMute={onToggleTabMute}
+          onEditTab={(tab) => {
+            setIsTabGroupModal(Boolean(tab.urlVariants && tab.urlVariants.length > 1));
+            setEditingTab(tab);
+            setTargetSpaceIdForModal(tab.parentSpaceId);
+            setIsTabModalOpen(true);
+          }}
+          onDuplicateTab={(tab) => duplicateTab(tab.id)}
+          onArchiveTab={handleArchiveTab}
+          onDeleteTab={handleRequestDeleteTab}
+          onToggleFavouriteTab={toggleFavouriteTab}
+          onAddFavouriteTab={() => handleOpenNewTabModal(undefined, undefined, false, true, false)}
+          onAddFavouriteGroup={() => handleOpenNewTabModal(undefined, undefined, false, true, true)}
+          onMergeFavouriteTabs={mergeTabsIntoGroup}
+          onUngroupTab={ungroupTab}
+          onMoveWidgetToGroup={moveWidgetToGroup}
+          onExtractWidgetFromGroup={extractWidgetFromGroup}
+          onReorderFavouriteItem={reorderFavouriteItem}
+          onReorderFavouriteTabs={reorderFavouriteTabs}
+          onReorderGroupVariants={reorderGroupVariants}
+          onActivateGroup={onActivateGroup}
+          onDropTmpTab={handleDropTmpTabIntoFavourite}
+          onDropNormalTab={handleDropNormalTabIntoFavourite}
+          onReplaceTabUrl={handleReplaceWithCurrentUrl}
+          raindropRootCollectionId={data.raindropRootCollectionId}
+        />
+      )}
 
       {/* Raindrop Search Input & Filter with Inline Results */}
-      {!hideSearchBar && (
+      {!hideSearchBar && !showInitialLoadingState && (
         <RaindropSearchInput
           raindropToken={raindropToken}
           hasRaindropAuth={hasRaindropAuth}
@@ -2390,8 +2407,61 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         />
       )}
 
+      {/* Centered Loading Spinner during Initial Hydration from Raindrop when cache is empty */}
+      {showInitialLoadingState && (
+        <div
+          role="status"
+          aria-label="Loading from Raindrop"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flex: 1,
+            width: '100%',
+            minHeight: compact ? '260px' : '360px',
+            padding: '48px 16px',
+            gap: '16px',
+            textAlign: 'center',
+            boxSizing: 'border-box',
+          }}
+        >
+          <style>{`@keyframes arcable-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          <div
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              border: `3px solid ${isDark ? 'rgba(56, 189, 248, 0.2)' : 'rgba(2, 132, 199, 0.15)'}`,
+              borderTopColor: isDark ? '#38bdf8' : '#0284c7',
+              animation: 'arcable-spin 0.8s linear infinite',
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span
+              style={{
+                fontSize: '15px',
+                fontWeight: 600,
+                color: isDark ? '#f1f5f9' : '#1e293b',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Loading from Raindrop...
+            </span>
+            <span
+              style={{
+                fontSize: '13px',
+                color: isDark ? '#94a3b8' : '#64748b',
+              }}
+            >
+              Fetching your spaces, collections, and bookmarks
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Main Dashboard Control Bar (Hidden in compact / sidepanel mode) */}
-      {!hideControlBar && !compact && (
+      {!hideControlBar && !compact && !showInitialLoadingState && (
         <div
           style={{
             display: 'flex',
@@ -2768,7 +2838,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
       {/* Content Area: Grid Mode vs Focused Mode */}
-      {viewMode === 'grid' && !compact ? (
+      {!showInitialLoadingState && (
+        viewMode === 'grid' && !compact ? (
         /* Synctable Multi-Card Responsive Grid */
         <>
           <div
@@ -3216,10 +3287,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             </div>
           </div>
         )
-      )}
+      ))}
 
       {/* Tmp Tabs List (Single instance in compact extension view, flows directly below the active card) */}
-      {compact && (() => {
+      {!showInitialLoadingState && compact && (() => {
         const currentSpaceTabs = activeSpace?.id === VIRTUAL_SYNCED_TABS_SPACE_ID
           ? filteredTmpTabs
           : spaceTmpTabs.get(activeSpace?.id || sortedSpaces[0]?.id || '') || [];
@@ -3251,7 +3322,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
 
       {/* Fixed Audible Tabs Floating Stack (Compact / Sidepanel mode) */}
-      {compact && audibleTabs && audibleTabs.length > 0 && (
+      {!showInitialLoadingState && compact && audibleTabs && audibleTabs.length > 0 && (
         <AudibleTabsWidget
           tabs={audibleTabs}
           isDarkTheme={isDark}
@@ -3262,7 +3333,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
       {/* Fixed Bottom Spaces Selector (Sidepanel / Compact mode: semi-transparent, 100% rounded corner, margins) */}
 
-      {compact && (
+      {!showInitialLoadingState && compact && (
         <div
           style={{
             position: 'fixed',

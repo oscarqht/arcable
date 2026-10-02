@@ -30,5 +30,7 @@ assert.doesNotMatch(onInstalled, /triggerBackgroundSync\(\)/,
   'extension install/update startup must not write the stale cache before hydration');
 assert.match(sidepanel, /hasAppliedAuthoritativeSnapshotRef\.current/,
   'the side panel must prevent an earlier asynchronous cache read from overwriting its fetched snapshot');
+assert.match(sidepanel, /isInitialLoading=\{isInitialLoading\}/,
+  'the side panel must pass initial loading state to WorkspaceManager');
 
 console.log('Extension initial Raindrop hydration tests passed.');
