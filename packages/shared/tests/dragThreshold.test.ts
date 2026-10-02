@@ -1,12 +1,11 @@
 import assert from 'node:assert';
 import {
-  DEFAULT_DRAG_THRESHOLD,
   handleDraggableMouseDown,
   shouldAllowDrag,
   handleDraggableDragEnd,
   shouldAllowClick,
 } from '../src/utils/dragThreshold';
-import { startDrag, endDrag, getActiveDrag, recordDragDrop, isDragAcceptable } from '../src/utils/dragState';
+import { startDrag, endDrag, getActiveDrag, recordDragDrop, isDragAcceptable, DEFAULT_DRAG_THRESHOLD } from '../src/utils/dragState';
 
 // Minimal polyfill for DOM element in Node test environment
 class MockElement {
