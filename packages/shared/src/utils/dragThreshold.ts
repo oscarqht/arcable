@@ -3,7 +3,6 @@
 import React, { useRef, useCallback } from 'react';
 import { endDrag, getActiveDrag, DEFAULT_DRAG_THRESHOLD } from './dragState';
 
-export { DEFAULT_DRAG_THRESHOLD };
 
 export interface DraggableMouseDownOptions {
   disabled?: boolean;
