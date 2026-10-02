@@ -10,6 +10,8 @@ import {
   SearchIcon,
   CloseIcon,
   BackupRestoreModal,
+  SettingsModal,
+  SettingsIcon,
   LogInIcon,
   LogOutIcon,
   FolderIcon,
@@ -30,6 +32,7 @@ export default function HomePage() {
   const [isWorkspaceSyncing, setIsWorkspaceSyncing] = useState(false);
   const isSyncing = isInitialSyncing || isWorkspaceSyncing;
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
@@ -73,7 +76,7 @@ export default function HomePage() {
             isAuthenticated: true,
             user: data.user,
             accessToken: data.token,
-            authType: 'oauth',
+            authType: data.authType || 'token',
           });
         } else {
           setAuthState({ isAuthenticated: false });
@@ -89,6 +92,35 @@ export default function HomePage() {
   const handleLoginWithOAuth = () => {
     setAuthError(null);
     window.location.href = '/api/auth/login';
+  };
+
+  const handleLoginWithToken = async (token: string) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to authenticate with Raindrop token.');
+      }
+      setAuthState({
+        isAuthenticated: true,
+        user: data.user,
+        accessToken: data.token,
+        authType: 'token',
+      });
+      setIsSettingsModalOpen(false);
+      return true;
+    } catch (err: any) {
+      setAuthError(err?.message || 'Token authentication failed.');
+      throw err;
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -411,6 +443,37 @@ export default function HomePage() {
               <span className="header-btn-text">Backup</span>
             </button>
 
+            {/* Settings Button */}
+            <button
+              type="button"
+              className="header-action-btn"
+              onClick={() => {
+                setAuthError(null);
+                setIsSettingsModalOpen(true);
+              }}
+              title="Settings"
+              aria-label="Settings"
+              style={{
+                border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                background: isDark ? '#151e2e' : '#ffffff',
+                color: isDark ? '#e2e8f0' : '#475569',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '5px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+                boxSizing: 'border-box',
+              }}
+            >
+              <SettingsIcon size={14} color={isDark ? '#e2e8f0' : '#475569'} />
+              <span className="header-btn-text">Settings</span>
+            </button>
+
             {authState.isAuthenticated ? (
               <button
                 type="button"
@@ -513,25 +576,74 @@ export default function HomePage() {
             <p style={{ margin: '0 0 20px', color: isDark ? '#94a3b8' : '#64748b', lineHeight: 1.5 }}>
               Connect your Raindrop account to view and sync your Arcable workspace.
             </p>
-            <button
-              type="button"
-              onClick={handleLoginWithOAuth}
-              style={{
-                border: 'none',
-                borderRadius: '8px',
-                padding: '10px 16px',
-                cursor: 'pointer',
-                background: isDark ? '#38bdf8' : '#0284c7',
-                color: isDark ? '#0b101b' : '#ffffff',
-                fontWeight: 700,
-              }}
-            >
-              Log in with Raindrop.io
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={handleLoginWithOAuth}
+                style={{
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  background: isDark ? '#38bdf8' : '#0284c7',
+                  color: isDark ? '#0b101b' : '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                }}
+              >
+                Log in with Raindrop.io
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthError(null);
+                  setIsSettingsModalOpen(true);
+                }}
+                style={{
+                  border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                  borderRadius: '8px',
+                  padding: '9px 16px',
+                  cursor: 'pointer',
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc',
+                  color: isDark ? '#e2e8f0' : '#475569',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                <SettingsIcon size={14} color={isDark ? '#e2e8f0' : '#475569'} />
+                Configure Raindrop API Token
+              </button>
+            </div>
+
             {authError && (
-              <p role="alert" style={{ margin: '16px 0 0', color: isDark ? '#fca5a5' : '#dc2626', fontSize: '13px' }}>
-                {authError}
-              </p>
+              <div style={{ marginTop: '16px' }}>
+                <p role="alert" style={{ margin: '0 0 8px', color: isDark ? '#fca5a5' : '#dc2626', fontSize: '13px' }}>
+                  {authError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthError(null);
+                    setIsSettingsModalOpen(true);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isDark ? '#38bdf8' : '#0284c7',
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    fontWeight: 500,
+                  }}
+                >
+                  Configure Raindrop Test API Token in Settings →
+                </button>
+              </div>
             )}
           </section>
         ) : (
@@ -576,6 +688,18 @@ export default function HomePage() {
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}
         onRestoreComplete={handleRestoreComplete}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        authState={authState}
+        onLoginWithToken={handleLoginWithToken}
+        onLoginWithOAuth={handleLoginWithOAuth}
+        onLogout={handleLogout}
+        isLoading={authLoading}
+        errorMessage={authError}
+        onClearError={() => setAuthError(null)}
       />
     </div>
   );

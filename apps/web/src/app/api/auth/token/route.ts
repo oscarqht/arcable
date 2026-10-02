@@ -44,3 +44,9 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE() {
+  const response = NextResponse.json({ success: true });
+  response.cookies.set(ACCESS_TOKEN_COOKIE, '', getAuthCookieOptions(0));
+  return response;
+}

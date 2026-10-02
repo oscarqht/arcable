@@ -31,5 +31,6 @@ export * from './workspace/BackupRestoreModal';
 export * from './workspace/ConfirmModal';
 export * from './workspace/VirtualSyncedSpaceCard';
 export * from './workspace/CopyLinkButton';
+export * from './workspace/SettingsModal';
 export * from './workspace/widgets';
 

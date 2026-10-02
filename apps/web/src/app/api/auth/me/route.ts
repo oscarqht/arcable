@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
   fetchRaindropUser,
   getAuthCookieOptions,
   getRaindropTokenFromEnv,
@@ -47,9 +48,13 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
+  const hasRefreshToken = Boolean(request.cookies.get(REFRESH_TOKEN_COOKIE)?.value);
+  const authType = hasRefreshToken ? 'oauth' : 'token';
+
   return NextResponse.json({
     isAuthenticated: true,
     user,
     token,
+    authType,
   });
 }
