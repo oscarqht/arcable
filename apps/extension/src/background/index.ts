@@ -56,6 +56,7 @@ import {
   getPreviousActiveTab,
 } from '../utils/browser';
 import { initAutoPipBackground } from './autoPip';
+import { initTabSwitcherBackground, handleTabSwitcherMessage, type TabSwitcherResponse } from './tabSwitcher';
 
 console.log('[Arcable Extension] Background service worker / script initialized.');
 
@@ -63,6 +64,7 @@ console.log('[Arcable Extension] Background service worker / script initialized.
 initRunCodeBackgroundListeners();
 initContextMenuListeners();
 initAutoPipBackground();
+initTabSwitcherBackground();
 
 // Initialize keyboard shortcut commands (manifest commands)
 if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
@@ -324,7 +326,9 @@ let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
-  async (rawMessage: any, sender: any): Promise<ExtensionResponse> => {
+  async (rawMessage: any, sender: any): Promise<ExtensionResponse | TabSwitcherResponse> => {
+    const switcherResponse = handleTabSwitcherMessage(rawMessage, sender);
+    if (switcherResponse) return switcherResponse;
     const message = rawMessage as ExtensionMessage;
 
     // Handle OAuth bridge event from content script

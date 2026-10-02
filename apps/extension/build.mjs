@@ -114,6 +114,21 @@ async function buildTarget(browserName) {
     },
   });
 
+  // Small, early keyboard listener, including focused child frames.
+  await build({
+    configFile: false,
+    build: {
+      outDir,
+      emptyOutDir: false,
+      lib: {
+        entry: resolve(__dirname, 'src/content/tab-switcher.ts'),
+        name: 'TabSwitcher',
+        formats: ['iife'],
+        fileName: () => 'tab-switcher.js',
+      },
+    },
+  });
+
   // 3.5 Build OAuth Bridge Content Script
   await build({
     configFile: false,
