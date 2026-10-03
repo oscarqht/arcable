@@ -57,6 +57,7 @@ import {
   StickyNotePopover,
   WeatherPopover,
   QuickSearchPopover,
+  DiagramPopover,
   NOTE_COLORS,
   WidgetTileContent,
   ClockInfo,
@@ -64,6 +65,7 @@ import {
 } from './widgets';
 import { getWeatherInterpretation } from '../../utils/weatherService';
 import { calculateCountdownStatus, createDefaultCountdownConfig } from '../../utils/countdown';
+import { createDefaultDiagramConfig } from '../../utils/diagram';
 
 export interface FavouriteTabsShelfProps {
   tabs: Tab[];
@@ -171,7 +173,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
   const [groupPopoverTab, setGroupPopoverTab] = useState<{ tab: Tab; anchorRect: DOMRect } | null>(null);
 
-  const groupLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const groupLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMouseOverGroupRef = useRef<string | null>(null);
   const isMouseOverGroupPopoverRef = useRef(false);
   const isMouseOutsidePageRef = useRef(false);
@@ -266,9 +268,10 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     anchorRect: DOMRect;
   } | null>(null);
 
-  // Auto-open popover for newly created note widget
+  // Auto-open popover for newly created note or diagram widget
   const [pendingAutoOpenWidgetId, setPendingAutoOpenWidgetId] = useState<string | null>(null);
   const pendingAutoOpenNoteRef = useRef(false);
+  const pendingAutoOpenDiagramRef = useRef(false);
 
   useEffect(() => {
     let targetId = pendingAutoOpenWidgetId;
@@ -278,6 +281,14 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
       if (newestNote) {
         targetId = newestNote.id;
+      }
+    }
+    if (!targetId && pendingAutoOpenDiagramRef.current) {
+      const newestDiagram = [...widgets]
+        .filter((w) => w.style === 'diagram')
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+      if (newestDiagram) {
+        targetId = newestDiagram.id;
       }
     }
 
@@ -292,6 +303,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
           });
           setPendingAutoOpenWidgetId(null);
           pendingAutoOpenNoteRef.current = false;
+          pendingAutoOpenDiagramRef.current = false;
           return true;
         }
         return false;
@@ -306,6 +318,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             });
             setPendingAutoOpenWidgetId(null);
             pendingAutoOpenNoteRef.current = false;
+            pendingAutoOpenDiagramRef.current = false;
           }
         });
         return () => cancelAnimationFrame(raf);
@@ -664,11 +677,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const handleSelectAddWidget = (style: WidgetStyle, initialConfig?: Record<string, any>) => {
     setIsAddMenuOpen(false);
     const createdWidget = onAddWidget?.({ style, size: 'small', config: initialConfig });
-    if (style === 'note') {
+    if (style === 'note' || style === 'diagram') {
       if (createdWidget && (createdWidget as WorkspaceWidget).id) {
         setPendingAutoOpenWidgetId((createdWidget as WorkspaceWidget).id);
       } else {
-        pendingAutoOpenNoteRef.current = true;
+        if (style === 'note') pendingAutoOpenNoteRef.current = true;
+        if (style === 'diagram') pendingAutoOpenDiagramRef.current = true;
       }
     }
   };
@@ -1477,9 +1491,11 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               ? 'Weather & Temperature (Click to open)'
               : widget.style === 'search'
               ? 'Quick Search (Click to search)'
+              : widget.style === 'diagram'
+              ? 'Diagram / Chart (Click to edit)'
               : 'Widget';
 
-          const isInteractiveWidget = ['pomodoro', 'countdown', 'note', 'weather', 'search'].includes(widget.style);
+          const isInteractiveWidget = ['pomodoro', 'countdown', 'note', 'weather', 'search', 'diagram'].includes(widget.style);
 
           return (
             <div
@@ -2041,6 +2057,39 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>🔍</span>
             <span>Quick Search</span>
           </button>
+
+          {/* 11. Diagram / Chart */}
+          <button
+            type="button"
+            onClick={() => handleSelectAddWidget('diagram', createDefaultDiagramConfig())}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '6px 10px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'transparent',
+              color: shelfTheme.textColor,
+              fontSize: '12.5px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.12s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = shelfTheme.isDark
+                ? 'rgba(255, 255, 255, 0.08)'
+                : 'rgba(0, 0, 0, 0.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <span style={{ fontSize: '13px', lineHeight: 1, width: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>📊</span>
+            <span>Diagram / Chart</span>
+          </button>
         </div>,
         document.body
       )}
@@ -2109,6 +2158,17 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                 onClose={handleClose}
                 onUpdateConfig={handleUpdate}
                 onOpenTab={onOpenTab}
+                theme={shelfTheme}
+              />
+            );
+          case 'diagram':
+            return (
+              <DiagramPopover
+                widget={targetWidget}
+                anchorRect={activeWidgetPopover.anchorRect}
+                isOpen={true}
+                onClose={handleClose}
+                onUpdateConfig={handleUpdate}
                 theme={shelfTheme}
               />
             );

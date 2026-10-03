@@ -9,12 +9,18 @@ import {
   NoteConfig,
   WeatherConfig,
   SearchConfig,
+  DiagramConfig,
 } from '../../../types/workspace';
 import { SpaceThemeTokens } from '../../../utils/spaceTheme';
 import { NOTE_COLORS } from './StickyNotePopover';
 import { getWeatherInterpretation } from '../../../utils/weatherService';
 import { calculateCountdownStatus } from '../../../utils/countdown';
 import { renderMarkdown } from '../../../utils/markdown';
+import {
+  getDataPointColor,
+  computePieSlices,
+  DIAGRAM_PALETTES,
+} from '../../../utils/diagram';
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -486,6 +492,47 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
             }}
           >
             <span style={{ fontSize: '8px', lineHeight: 1 }}>🔍</span>
+          </div>
+        );
+      }
+
+      case 'diagram': {
+        const diagramConfig = (widget.config as DiagramConfig) || {};
+        const style = diagramConfig.chartStyle || 'bar';
+
+        return (
+          <div
+            style={{
+              width: '16px',
+              height: '16px',
+              borderRadius: '3.5px',
+              backgroundColor: isDark ? '#1e1b4b' : '#ede9fe',
+              border: `0.8px solid #8b5cf6`,
+              boxShadow: '0 0.5px 2px rgba(0,0,0,0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+              flexShrink: 0,
+            }}
+          >
+            {style === 'pie' || style === 'doughnut' ? (
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2A6 6 0 1 0 14 8h-6V2z" fill="#8b5cf6" />
+                <path d="M9 2.1A6 6 0 0 1 13.9 7H9V2.1z" fill="#38bdf8" />
+                {style === 'doughnut' && <circle cx="8" cy="8" r="2.5" fill={isDark ? '#1e1b4b' : '#ede9fe'} />}
+              </svg>
+            ) : style === 'line' || style === 'area' ? (
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                <polyline points="2,12 6,8 10,10 14,4" stroke="#8b5cf6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="8" width="3" height="6" rx="0.8" fill="#38bdf8" />
+                <rect x="6.5" y="4" width="3" height="10" rx="0.8" fill="#8b5cf6" />
+                <rect x="11" y="6" width="3" height="8" rx="0.8" fill="#ec4899" />
+              </svg>
+            )}
           </div>
         );
       }
@@ -1107,6 +1154,179 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
             }}
           >
             Search
+          </div>
+        </div>
+      );
+    }
+
+    case 'diagram': {
+      const diagramConfig = (widget.config as DiagramConfig) || {};
+      const title = diagramConfig.title || 'Metrics';
+      const chartStyle = diagramConfig.chartStyle || 'bar';
+      const dataPoints = diagramConfig.dataPoints || [];
+      const scheme = diagramConfig.colorScheme || 'vibrant';
+
+      const values = dataPoints.map((p) => (Number.isFinite(p.value) ? p.value : 0));
+      const maxVal = values.length > 0 ? Math.max(...values) : 0;
+      const count = dataPoints.length;
+
+      const titleFontSize = compact ? '7px' : '8px';
+      const subFontSize = compact ? '6.5px' : '7.5px';
+
+      const renderMiniFullSvg = () => {
+        if (count === 0) {
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+              <span style={{ fontSize: compact ? '13px' : '15px' }}>📊</span>
+              <span style={{ fontSize: subFontSize, color: theme.subtextColor, opacity: 0.8 }}>+ Data</span>
+            </div>
+          );
+        }
+
+        if (chartStyle === 'bar') {
+          const svgW = compact ? 36 : 44;
+          const svgH = compact ? 22 : 26;
+          const barCount = Math.min(count, 6);
+          const gap = 2;
+          const barW = Math.max(3, (svgW - gap * (barCount - 1)) / barCount);
+          const effectiveMax = maxVal > 0 ? maxVal : 1;
+
+          return (
+            <svg width={svgW} height={svgH} style={{ overflow: 'visible' }}>
+              {dataPoints.slice(0, barCount).map((p, idx) => {
+                const val = Math.max(0, p.value || 0);
+                const h = Math.max(2, (val / effectiveMax) * svgH);
+                const x = idx * (barW + gap);
+                const y = svgH - h;
+                const c = getDataPointColor(p, idx, scheme);
+                return (
+                  <rect
+                    key={p.id || idx}
+                    x={x}
+                    y={y}
+                    width={barW}
+                    height={h}
+                    rx="1.4"
+                    ry="1.4"
+                    fill={c}
+                  />
+                );
+              })}
+            </svg>
+          );
+        }
+
+        if (chartStyle === 'line' || chartStyle === 'area') {
+          const svgW = compact ? 36 : 44;
+          const svgH = compact ? 22 : 26;
+          const effectiveMax = maxVal > 0 ? maxVal : 1;
+          const pts = dataPoints.slice(0, 8);
+          const stepX = pts.length > 1 ? svgW / (pts.length - 1) : svgW / 2;
+          const coords = pts.map((p, idx) => {
+            const val = Math.max(0, p.value || 0);
+            const x = pts.length === 1 ? svgW / 2 : idx * stepX;
+            const y = svgH - 2 - (val / effectiveMax) * (svgH - 4);
+            return `${x},${y}`;
+          });
+          const polyPoints = coords.join(' ');
+          const lineCol = DIAGRAM_PALETTES[scheme]?.[0] || '#6366f1';
+
+          return (
+            <svg width={svgW} height={svgH} style={{ overflow: 'visible' }}>
+              {chartStyle === 'area' && pts.length > 1 && (
+                <polygon
+                  points={`0,${svgH} ${polyPoints} ${svgW},${svgH}`}
+                  fill={lineCol}
+                  fillOpacity="0.28"
+                />
+              )}
+              {pts.length > 1 && (
+                <polyline
+                  points={polyPoints}
+                  fill="none"
+                  stroke={lineCol}
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {coords.map((c, i) => {
+                const [cx, cy] = c.split(',');
+                return (
+                  <circle
+                    key={i}
+                    cx={cx}
+                    cy={cy}
+                    r="1.8"
+                    fill={theme.isDark ? '#0f172a' : '#ffffff'}
+                    stroke={lineCol}
+                    strokeWidth="1.2"
+                  />
+                );
+              })}
+            </svg>
+          );
+        }
+
+        // pie or doughnut
+        const outerR = compact ? 12 : 15;
+        const innerR = chartStyle === 'doughnut' ? (compact ? 6 : 8) : 0;
+        const cx = outerR + 1;
+        const cy = outerR + 1;
+        const svgDim = (outerR + 1) * 2;
+        const slices = computePieSlices(dataPoints, cx, cy, outerR, innerR, scheme);
+
+        return (
+          <svg width={svgDim} height={svgDim} style={{ overflow: 'visible' }}>
+            {slices.map((s) => (
+              <path
+                key={s.point.id}
+                d={s.pathD}
+                fill={s.color}
+                stroke={theme.isDark ? '#1e293b' : '#ffffff'}
+                strokeWidth="0.8"
+              />
+            ))}
+          </svg>
+        );
+      };
+
+      return (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            width: '100%',
+            userSelect: 'none',
+            padding: compact ? '2px' : '4px 2px',
+            boxSizing: 'border-box',
+            gap: compact ? '2px' : '3px',
+          }}
+        >
+          {/* Title */}
+          <div
+            style={{
+              fontSize: titleFontSize,
+              fontWeight: 700,
+              color: theme.subtextColor || theme.textColor,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              maxWidth: compact ? '40px' : '48px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              lineHeight: 1,
+            }}
+          >
+            {title}
+          </div>
+
+          {/* Chart SVG */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: compact ? '24px' : '28px' }}>
+            {renderMiniFullSvg()}
           </div>
         </div>
       );

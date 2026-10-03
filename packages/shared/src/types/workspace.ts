@@ -105,9 +105,27 @@ export type WidgetStyle =
   | 'countdown'
   | 'note'
   | 'weather'
-  | 'search';
+  | 'search'
+  | 'diagram';
 
 export type WidgetSize = 'small' | 'medium' | 'large';
+
+export type DiagramChartStyle = 'bar' | 'line' | 'area' | 'pie' | 'doughnut';
+
+export interface DiagramDataPoint {
+  id: string;
+  label: string;
+  value: number;
+  color?: string;
+}
+
+export interface DiagramConfig {
+  title?: string;
+  chartStyle?: DiagramChartStyle;
+  dataPoints?: DiagramDataPoint[];
+  colorScheme?: 'vibrant' | 'ocean' | 'emerald' | 'sunset' | 'slate';
+  unit?: string;
+}
 
 export interface PomodoroConfig {
   workMinutes?: number;

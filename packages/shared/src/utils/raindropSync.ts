@@ -460,8 +460,9 @@ export function widgetToRaindropItemInput(
 export function encodeSafePayload(text: string): string {
   if (!text) return '';
   try {
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(text, 'utf-8').toString('base64');
+    const buf = (globalThis as any).Buffer;
+    if (typeof buf !== 'undefined') {
+      return buf.from(text, 'utf-8').toString('base64');
     }
     if (typeof TextEncoder !== 'undefined' && typeof btoa !== 'undefined') {
       const bytes = new TextEncoder().encode(text);
@@ -484,8 +485,9 @@ export function encodeSafePayload(text: string): string {
 export function decodeSafePayload(encoded: string): string {
   if (!encoded) return '';
   try {
-    if (typeof Buffer !== 'undefined') {
-      return Buffer.from(encoded, 'base64').toString('utf-8');
+    const buf = (globalThis as any).Buffer;
+    if (typeof buf !== 'undefined') {
+      return buf.from(encoded, 'base64').toString('utf-8');
     }
     if (typeof TextDecoder !== 'undefined' && typeof atob !== 'undefined') {
       const binary = atob(encoded);

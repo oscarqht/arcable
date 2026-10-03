@@ -91,6 +91,8 @@ export function renderMiniWidgetIcon(style: WidgetStyle, size: number = 22) {
       return <span style={{ fontSize: `${size}px`, lineHeight: 1 }}>⏳</span>;
     case 'search':
       return <span style={{ fontSize: `${size}px`, lineHeight: 1 }}>🔍</span>;
+    case 'diagram':
+      return <span style={{ fontSize: `${size}px`, lineHeight: 1 }}>📊</span>;
     default:
       return <span style={{ fontSize: `${size}px`, lineHeight: 1 }}>🧩</span>;
   }
@@ -609,6 +611,7 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
                       { style: 'note' as const, label: 'Sticky Note', icon: '📝' },
                       { style: 'countdown' as const, label: 'Countdown', icon: '⏳' },
                       { style: 'search' as const, label: 'Quick Search', icon: '🔍' },
+                      { style: 'diagram' as const, label: 'Diagram / Chart', icon: '📊' },
                     ].map((wItem) => (
                       <button
                         key={wItem.style}
