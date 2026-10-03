@@ -24,6 +24,7 @@ import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../ut
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
 import { STORAGE_KEY_AUTO_PIP } from '../background/autoPip';
+import { STORAGE_KEY_ZEN_ZOOM_SYNC } from '../sidepanel/zoomSync';
 import packageJson from '../../package.json';
 
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
@@ -58,6 +59,9 @@ export const App: React.FC = () => {
 
   // Auto Picture-in-Picture state (default enabled)
   const [autoPipEnabled, setAutoPipEnabled] = useState(true);
+
+  // Zen Browser zoom sync state (default enabled for Zen)
+  const [zenZoomSyncEnabled, setZenZoomSyncEnabled] = useState(true);
 
   // Zen Browser state
   const [isZen, setIsZen] = useState(false);
@@ -103,6 +107,19 @@ export const App: React.FC = () => {
     }
   }, [showToast]);
 
+  const handleToggleZenZoomSync = useCallback(async (enabled: boolean) => {
+    try {
+      await browser.storage.local.set({ [STORAGE_KEY_ZEN_ZOOM_SYNC]: enabled });
+      setZenZoomSyncEnabled(enabled);
+      showToast(
+        enabled ? 'Sidebar zoom synchronization enabled' : 'Sidebar zoom synchronization disabled',
+        'info'
+      );
+    } catch {
+      showToast('Failed to update zoom synchronization setting', 'warning');
+    }
+  }, [showToast]);
+
   useEffect(() => {
     void isZenBrowser().then((val) => {
       setIsZen(val);
@@ -141,12 +158,16 @@ export const App: React.FC = () => {
     browser.storage.local.get([
       'arcable_last_synced_at',
       STORAGE_KEY_AUTO_PIP,
+      STORAGE_KEY_ZEN_ZOOM_SYNC,
     ]).then((res: any) => {
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
       }
       if (res[STORAGE_KEY_AUTO_PIP] !== undefined) {
         setAutoPipEnabled(res[STORAGE_KEY_AUTO_PIP] !== false);
+      }
+      if (res[STORAGE_KEY_ZEN_ZOOM_SYNC] !== undefined) {
+        setZenZoomSyncEnabled(res[STORAGE_KEY_ZEN_ZOOM_SYNC] !== false);
       }
     });
 
@@ -155,6 +176,9 @@ export const App: React.FC = () => {
       if (area === 'local') {
         if (changes[STORAGE_KEY_AUTO_PIP]) {
           setAutoPipEnabled(changes[STORAGE_KEY_AUTO_PIP].newValue !== false);
+        }
+        if (changes[STORAGE_KEY_ZEN_ZOOM_SYNC]) {
+          setZenZoomSyncEnabled(changes[STORAGE_KEY_ZEN_ZOOM_SYNC].newValue !== false);
         }
         if (changes.arcable_raindrop_auth) {
           const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
@@ -985,6 +1009,69 @@ export const App: React.FC = () => {
 }`}</pre>
                     </div>
                   )}
+                </div>
+
+                {/* Zen Zoom Sync Toggle */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '16px',
+                    padding: '14px 16px',
+                    borderRadius: '12px',
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    marginTop: '4px',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '15px' }}>🔍</span>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                        Synchronize sidebar zoom with active tab
+                      </span>
+                      <Badge variant={zenZoomSyncEnabled ? 'success' : 'default'}>
+                        {zenZoomSyncEnabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
+                    <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: 0, lineHeight: 1.5 }}>
+                      Automatically reads and matches the main page zoom factor in Zen Browser, dynamically scaling the extension side panel UI so text and proportions stay consistent.
+                    </p>
+                  </div>
+
+                  <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={zenZoomSyncEnabled}
+                      onChange={(e) => void handleToggleZenZoomSync(e.target.checked)}
+                      style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
+                    />
+                    <div
+                      style={{
+                        width: '44px',
+                        height: '24px',
+                        backgroundColor: zenZoomSyncEnabled ? '#0284c7' : (isDark ? '#334155' : '#cbd5e1'),
+                        borderRadius: '9999px',
+                        position: 'relative',
+                        transition: 'background-color 0.2s ease',
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '2px',
+                          left: zenZoomSyncEnabled ? '22px' : '2px',
+                          width: '20px',
+                          height: '20px',
+                          backgroundColor: '#ffffff',
+                          borderRadius: '9999px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                          transition: 'left 0.2s ease',
+                        }}
+                      />
+                    </div>
+                  </label>
                 </div>
               </div>
             </Card>
