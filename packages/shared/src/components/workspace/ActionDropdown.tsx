@@ -4,6 +4,12 @@ import React, { useState, useRef, useEffect, useCallback, useImperativeHandle } 
 import { createPortal } from 'react-dom';
 import { MoreHorizontalIcon, ChevronRightIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
+import {
+  getEffectiveZoomFactor,
+  normalizePointForZoom,
+  normalizeRectForZoom,
+  getScaledViewportDimensions,
+} from '../../utils/zoom';
 
 export interface ActionDropdownItem {
   id: string;
@@ -103,10 +109,11 @@ export const ActionDropdown = React.forwardRef<ActionDropdownHandle, ActionDropd
 
   // Calculate and update menu fixed position relative to viewport
   const updatePosition = useCallback((coords?: { x: number; y: number } | null) => {
-    const point = coords !== undefined ? coords : contextCoords;
+    const rawPoint = coords !== undefined ? coords : contextCoords;
 
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
+    const zoom = getEffectiveZoomFactor();
+    const { width: viewportWidth, height: viewportHeight } = getScaledViewportDimensions(zoom);
+    const point = normalizePointForZoom(rawPoint, zoom);
 
     const menuEl = menuRef.current;
     const menuHeight = menuEl ? menuEl.offsetHeight : (activeItems.length * 36 + 16);
@@ -125,7 +132,8 @@ export const ActionDropdown = React.forwardRef<ActionDropdownHandle, ActionDropd
     }
 
     if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
+    const rawRect = containerRef.current.getBoundingClientRect();
+    const rect = normalizeRectForZoom(rawRect, zoom);
 
     // If trigger element has 0 size or is completely hidden
     if (rect.width === 0 && rect.height === 0) return;
@@ -203,9 +211,10 @@ export const ActionDropdown = React.forwardRef<ActionDropdownHandle, ActionDropd
   const updateSubmenuPosition = useCallback((itemId: string) => {
     const itemEl = itemRefs.current[itemId];
     if (!itemEl) return;
-    const rect = itemEl.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
+    const zoom = getEffectiveZoomFactor();
+    const { width: viewportWidth, height: viewportHeight } = getScaledViewportDimensions(zoom);
+    const rawRect = itemEl.getBoundingClientRect();
+    const rect = normalizeRectForZoom(rawRect, zoom);
 
     const subEl = submenuRef.current;
     const subWidth = subEl ? subEl.offsetWidth : 175;

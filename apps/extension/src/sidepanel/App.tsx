@@ -44,6 +44,7 @@ import {
   getOpenTabsInSpaceOrder,
   findBestOpenFavoriteTab,
 } from './spaceTabTracker';
+import { useZenZoomSync } from './zoomSync';
 export { resolveSidepanelActiveSpaceId };
 
 export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
@@ -123,6 +124,9 @@ export const App: React.FC = () => {
     });
   }, []);
   const isMobile = isMobileHook || isAndroid;
+
+  // Keep sidebar zoom in sync with active tab in Zen Browser
+  useZenZoomSync();
 
   const workspaceRef = useRef<WorkspaceManagerHandle>(null);
   const [currentSpaceTheme, setCurrentSpaceTheme] = useState<SpaceThemeTokens>(() => {
@@ -1553,7 +1557,7 @@ export const App: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        maxHeight: '100dvh',
+        maxHeight: isMobile ? '100dvh' : '100%',
         width: '100%',
         overflow: 'hidden',
         overscrollBehavior: 'none',

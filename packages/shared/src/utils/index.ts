@@ -14,3 +14,4 @@ export * from './zenGradientGenerator';
 export * from './tabUtils';
 export * from './markdown';
 export * from './dragThreshold';
+export * from './zoom';
