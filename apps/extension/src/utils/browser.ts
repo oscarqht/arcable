@@ -298,7 +298,8 @@ export async function openWorkspaceSafely(): Promise<void> {
 export async function isZenBrowser(): Promise<boolean> {
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent || '';
-    if (/Zen\/|zen/i.test(ua)) {
+    const appVersion = (navigator as any).appVersion || '';
+    if (/Zen\/|zen/i.test(ua) || /Zen\/|zen/i.test(appVersion)) {
       return true;
     }
   }
@@ -306,7 +307,7 @@ export async function isZenBrowser(): Promise<boolean> {
   try {
     if (typeof browser !== 'undefined' && browser.runtime && (browser.runtime as any).getBrowserInfo) {
       const info = await (browser.runtime as any).getBrowserInfo();
-      if (info && (/zen/i.test(info.name) || /zen/i.test(info.vendor))) {
+      if (info && (/zen/i.test(info.name) || /zen/i.test(info.vendor) || /zen/i.test(info.version || ''))) {
         return true;
       }
     }

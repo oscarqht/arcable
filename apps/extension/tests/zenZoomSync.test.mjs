@@ -35,6 +35,11 @@ function createEnvironment(initialMocks = {}) {
 
   const listeners = {
     focus: [],
+    mouseenter: [],
+  };
+
+  const docListeners = {
+    visibilitychange: [],
   };
 
   const win = {
@@ -58,12 +63,27 @@ function createEnvironment(initialMocks = {}) {
 
   const doc = {
     documentElement: docElement,
+    addEventListener(evt, fn) {
+      if (!docListeners[evt]) docListeners[evt] = [];
+      docListeners[evt].push(fn);
+    },
+    removeEventListener(evt, fn) {
+      if (docListeners[evt]) {
+        docListeners[evt] = docListeners[evt].filter((cb) => cb !== fn);
+      }
+    },
+    trigger(evt) {
+      if (docListeners[evt]) {
+        docListeners[evt].forEach((fn) => fn());
+      }
+    },
   };
 
   const mockBrowser = {
     tabs: {
-      query: async () => [{ id: 101, active: true }],
+      query: async () => [{ id: 101, active: true, url: 'https://example.com' }],
       getZoom: async (id) => (id === 101 ? 1.25 : 1.0),
+      getZoomSettings: async () => ({ defaultZoomFactor: 1.0, mode: 'automatic', scope: 'per-origin' }),
       onZoomChange: {
         _listeners: [],
         addListener(fn) {
@@ -86,6 +106,18 @@ function createEnvironment(initialMocks = {}) {
         },
         trigger(info) {
           this._listeners.forEach((fn) => fn(info));
+        },
+      },
+      onUpdated: {
+        _listeners: [],
+        addListener(fn) {
+          this._listeners.push(fn);
+        },
+        removeListener(fn) {
+          this._listeners = this._listeners.filter((cb) => cb !== fn);
+        },
+        trigger(id, info) {
+          this._listeners.forEach((fn) => fn(id, info));
         },
       },
     },
@@ -124,7 +156,10 @@ function createEnvironment(initialMocks = {}) {
       const tabs = await mockBrowser.tabs.query({ active: true });
       return tabs[0];
     },
+    getPreviousActiveTab: async () => undefined,
     isZenBrowser: async () => true,
+    isFirefox: () => true,
+    isInternalOrExtensionUrl: (url) => !url || url.startsWith('about:') || url.startsWith('chrome:') || url.startsWith('moz-extension:'),
     ...initialMocks.browserUtils,
   };
 
@@ -133,6 +168,8 @@ function createEnvironment(initialMocks = {}) {
     console,
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
     document: doc,
     window: win,
     browser: mockBrowser,
@@ -169,6 +206,7 @@ function createEnvironment(initialMocks = {}) {
     docElement,
     styles,
     win,
+    doc,
     mockBrowser,
     mockBrowserUtils,
     zoomSync: context.exports,
@@ -277,34 +315,107 @@ test('getActiveTabZoom retrieves zoom from browser.tabs.getZoom', async () => {
   assert.equal(tab42Zoom, 1.75);
 });
 
+test('getDefaultZoomFactor retrieves global defaultZoomFactor from browser.tabs.getZoomSettings', async () => {
+  const { zoomSync, mockBrowser } = createEnvironment();
+
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 0.9, mode: 'automatic', scope: 'per-origin' });
+  const factor = await zoomSync.getDefaultZoomFactor();
+  assert.equal(factor, 0.9);
+});
+
+test('resolveEffectiveZoom resolves defaultZoomFactor on Zen internal pages (about:preferences)', async () => {
+  const { zoomSync, mockBrowser } = createEnvironment();
+
+  mockBrowser.tabs.query = async () => [{ id: 99, url: 'about:preferences', active: true }];
+  mockBrowser.tabs.getZoom = async () => 1.0;
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 0.9 });
+
+  const effectiveZoom = await zoomSync.resolveEffectiveZoom();
+  assert.equal(effectiveZoom, 0.9);
+});
+
+test('resolveEffectiveZoom prioritizes tab zoom when active web tab has explicit zoom override', async () => {
+  const { zoomSync, mockBrowser } = createEnvironment();
+
+  mockBrowser.tabs.query = async () => [{ id: 101, url: 'https://github.com', active: true }];
+  mockBrowser.tabs.getZoom = async () => 1.2;
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 0.9 });
+
+  const effectiveZoom = await zoomSync.resolveEffectiveZoom();
+  assert.equal(effectiveZoom, 1.2);
+});
+
 test('isZenZoomSyncActive defaults to true in Zen Browser and respects user setting override', async () => {
   const { zoomSync, mockBrowser, mockBrowserUtils } = createEnvironment();
 
   // In Zen with no setting stored -> true
   mockBrowserUtils.isZenBrowser = async () => true;
+  mockBrowserUtils.isFirefox = () => true;
   assert.equal(await zoomSync.isZenZoomSyncActive(), true);
 
-  // In non-Zen with no setting stored -> false
+  // In non-Zen / non-Firefox with no setting stored -> false
   mockBrowserUtils.isZenBrowser = async () => false;
+  mockBrowserUtils.isFirefox = () => false;
   assert.equal(await zoomSync.isZenZoomSyncActive(), false);
 
   // Explicit storage override to false -> false even in Zen
   mockBrowserUtils.isZenBrowser = async () => true;
+  mockBrowserUtils.isFirefox = () => true;
   mockBrowser.storage.local._store[zoomSync.STORAGE_KEY_ZEN_ZOOM_SYNC] = false;
   assert.equal(await zoomSync.isZenZoomSyncActive(), false);
 
   // Explicit storage override to true -> true even in non-Zen
   mockBrowserUtils.isZenBrowser = async () => false;
+  mockBrowserUtils.isFirefox = () => false;
   mockBrowser.storage.local._store[zoomSync.STORAGE_KEY_ZEN_ZOOM_SYNC] = true;
   assert.equal(await zoomSync.isZenZoomSyncActive(), true);
+});
+
+test('Zen Browser 90% zoom sync end-to-end: side panel renders at 90% when default zoom is 90%', async () => {
+  const { docElement, styles, win, mockBrowser, zoomSync } = createEnvironment();
+
+  // User is on Zen Browser Settings (about:preferences) where default zoom is changed to 90%
+  mockBrowser.tabs.query = async () => [{ id: 50, url: 'about:preferences', active: true }];
+  mockBrowser.tabs.getZoom = async () => 1.0; // Internal tab reports 1.0
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 0.9 }); // Settings preference is 90%
+
+  const cleanup = zoomSync.setupZenZoomSync();
+
+  // Initial sync
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(styles['--extension-zoom-factor'], '0.9');
+  assert.equal(docElement.style.transform, 'scale(0.9)');
+  assert.equal(docElement.style.width, `${100 / 0.9}%`);
+  assert.equal(docElement.style.height, `${100 / 0.9}%`);
+
+  // Switch to a new web tab inheriting default 90% zoom
+  mockBrowser.tabs.query = async () => [{ id: 51, url: 'https://duckduckgo.com', active: true }];
+  mockBrowser.tabs.getZoom = async () => 0.9;
+  mockBrowser.tabs.onActivated.trigger({ tabId: 51 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(styles['--extension-zoom-factor'], '0.9');
+
+  // Change default zoom in settings to 80% (0.8) while on about:preferences
+  mockBrowser.tabs.query = async () => [{ id: 50, url: 'about:preferences', active: true }];
+  mockBrowser.tabs.getZoom = async () => 1.0;
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 0.8 });
+  win.trigger('focus');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(styles['--extension-zoom-factor'], '0.8');
+  assert.equal(docElement.style.transform, 'scale(0.8)');
+
+  cleanup();
+  assert.equal(styles['--extension-zoom-factor'], '1');
+  assert.equal(docElement.style.transform, '');
 });
 
 test('setupZenZoomSync synchronizes zoom events, tab activations, storage changes, and cleanup', async () => {
   const { docElement, styles, win, mockBrowser, zoomSync } = createEnvironment();
 
   // Active tab starts with id 101, zoom 1.25
-  mockBrowser.tabs.query = async () => [{ id: 101, active: true }];
+  mockBrowser.tabs.query = async () => [{ id: 101, active: true, url: 'https://example.com' }];
   mockBrowser.tabs.getZoom = async (id) => (id === 101 ? 1.25 : 1.0);
+  mockBrowser.tabs.getZoomSettings = async () => ({ defaultZoomFactor: 1.0 });
 
   const cleanup = zoomSync.setupZenZoomSync();
 
@@ -314,30 +425,27 @@ test('setupZenZoomSync synchronizes zoom events, tab activations, storage change
   assert.equal(docElement.style.transform, 'scale(1.25)');
 
   // 1. Zoom change on active tab -> updates extension zoom
+  mockBrowser.tabs.getZoom = async () => 1.5;
   mockBrowser.tabs.onZoomChange.trigger({ tabId: 101, oldZoomFactor: 1.25, newZoomFactor: 1.5 });
+  await new Promise((r) => setTimeout(r, 10));
   assert.equal(styles['--extension-zoom-factor'], '1.5');
   assert.equal(docElement.style.transform, 'scale(1.5)');
 
-  // 2. Zoom change on background tab -> ignored
-  mockBrowser.tabs.onZoomChange.trigger({ tabId: 999, oldZoomFactor: 1.0, newZoomFactor: 0.8 });
-  await new Promise((r) => setTimeout(r, 10));
-  assert.equal(styles['--extension-zoom-factor'], '1.5');
-
-  // 3. Tab switched to tab 202 (which has zoom 1.1)
-  mockBrowser.tabs.query = async () => [{ id: 202, active: true }];
+  // 2. Tab switched to tab 202 (which has zoom 1.1)
+  mockBrowser.tabs.query = async () => [{ id: 202, active: true, url: 'https://example.com' }];
   mockBrowser.tabs.getZoom = async (id) => (id === 202 ? 1.1 : 1.0);
   mockBrowser.tabs.onActivated.trigger({ tabId: 202 });
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(styles['--extension-zoom-factor'], '1.1');
   assert.equal(docElement.style.transform, 'scale(1.1)');
 
-  // 4. Window focus -> re-syncs active tab
+  // 3. Window focus -> re-syncs active tab
   mockBrowser.tabs.getZoom = async (id) => (id === 202 ? 1.3 : 1.0);
   win.trigger('focus');
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(styles['--extension-zoom-factor'], '1.3');
 
-  // 5. Setting toggled off in storage -> immediately resets zoom to 1.0
+  // 4. Setting toggled off in storage -> immediately resets zoom to 1.0
   mockBrowser.storage.onChanged.trigger(
     { [zoomSync.STORAGE_KEY_ZEN_ZOOM_SYNC]: { newValue: false } },
     'local'
@@ -345,7 +453,7 @@ test('setupZenZoomSync synchronizes zoom events, tab activations, storage change
   assert.equal(styles['--extension-zoom-factor'], '1');
   assert.equal(docElement.style.transform, '');
 
-  // 6. Setting toggled on in storage -> re-enables and syncs
+  // 5. Setting toggled on in storage -> re-enables and syncs
   mockBrowser.storage.onChanged.trigger(
     { [zoomSync.STORAGE_KEY_ZEN_ZOOM_SYNC]: { newValue: true } },
     'local'
@@ -353,10 +461,11 @@ test('setupZenZoomSync synchronizes zoom events, tab activations, storage change
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(styles['--extension-zoom-factor'], '1.3');
 
-  // 7. Cleanup removes all listeners and resets zoom to 1.0
+  // 6. Cleanup removes all listeners and resets zoom to 1.0
   cleanup();
   assert.equal(mockBrowser.tabs.onZoomChange._listeners.length, 0);
   assert.equal(mockBrowser.tabs.onActivated._listeners.length, 0);
+  assert.equal(mockBrowser.tabs.onUpdated._listeners.length, 0);
   assert.equal(mockBrowser.storage.onChanged._listeners.length, 0);
   assert.equal(styles['--extension-zoom-factor'], '1');
   assert.equal(docElement.style.transform, '');

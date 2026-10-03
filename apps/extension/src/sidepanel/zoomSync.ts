@@ -1,5 +1,12 @@
 import { useEffect } from 'react';
-import { browser, getActiveTab, isZenBrowser } from '../utils/browser';
+import {
+  browser,
+  getActiveTab,
+  getPreviousActiveTab,
+  isFirefox,
+  isInternalOrExtensionUrl,
+  isZenBrowser,
+} from '../utils/browser';
 
 export const STORAGE_KEY_ZEN_ZOOM_SYNC = 'arcable_zen_zoom_sync';
 
@@ -27,6 +34,60 @@ export function applyZoomToExtensionPage(zoomFactor: number): void {
     document.documentElement.style.width = `${100 / factor}%`;
     document.documentElement.style.height = `${100 / factor}%`;
   }
+}
+
+/**
+ * Safely fetches the default zoom factor from the browser's zoom settings.
+ * In Firefox / Zen Browser, this retrieves the global default zoom preference
+ * (configured via Zen Browser Settings > Default zoom, e.g. 0.9 for 90%).
+ */
+export async function getDefaultZoomFactor(tabId?: number): Promise<number | null> {
+  // 1. Try webextension-polyfill browser.tabs.getZoomSettings
+  try {
+    if (typeof browser !== 'undefined' && browser.tabs && typeof browser.tabs.getZoomSettings === 'function') {
+      const settings = tabId !== undefined
+        ? await browser.tabs.getZoomSettings(tabId)
+        : await browser.tabs.getZoomSettings();
+      if (
+        settings &&
+        typeof settings.defaultZoomFactor === 'number' &&
+        settings.defaultZoomFactor > 0 &&
+        Number.isFinite(settings.defaultZoomFactor)
+      ) {
+        return settings.defaultZoomFactor;
+      }
+    }
+  } catch {}
+
+  // 2. Try chrome.tabs.getZoomSettings (Chromium fallback)
+  if (typeof chrome !== 'undefined' && chrome.tabs && typeof chrome.tabs.getZoomSettings === 'function') {
+    return new Promise<number | null>((resolve) => {
+      try {
+        const cb = (settings?: chrome.tabs.ZoomSettings) => {
+          if (
+            chrome.runtime?.lastError ||
+            !settings ||
+            typeof settings.defaultZoomFactor !== 'number' ||
+            settings.defaultZoomFactor <= 0 ||
+            !Number.isFinite(settings.defaultZoomFactor)
+          ) {
+            resolve(null);
+          } else {
+            resolve(settings.defaultZoomFactor);
+          }
+        };
+        if (tabId !== undefined) {
+          chrome.tabs.getZoomSettings(tabId, cb);
+        } else {
+          chrome.tabs.getZoomSettings(cb);
+        }
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  return null;
 }
 
 /**
@@ -83,9 +144,60 @@ export async function getActiveTabZoom(tabId?: number): Promise<number> {
 }
 
 /**
+ * Resolves the effective target zoom factor for the extension side panel:
+ * - If the active tab is an internal or settings page (e.g. about:preferences,
+ *   about:blank, new tab, extension page), internal pages stay at 1.0 in Firefox/Zen.
+ *   In this case, we use the browser's global defaultZoomFactor (e.g. 0.9 for 90%).
+ * - If the active tab is a normal web page:
+ *   - Uses tabZoom if it has an explicit custom zoom.
+ *   - If tabZoom is 1.0 and defaultZoomFactor is set (e.g. 0.9), honors defaultZoomFactor.
+ */
+export async function resolveEffectiveZoom(targetTab?: { id?: number; url?: string }): Promise<number> {
+  let activeTab = targetTab;
+  if (!activeTab || activeTab.id === undefined) {
+    try {
+      activeTab = await getActiveTab();
+    } catch {}
+  }
+
+  const defaultZoom = await getDefaultZoomFactor(activeTab?.id);
+  const isInternal = Boolean(activeTab?.url && isInternalOrExtensionUrl(activeTab.url));
+
+  if (isInternal) {
+    if (defaultZoom !== null && defaultZoom > 0 && Number.isFinite(defaultZoom)) {
+      return defaultZoom;
+    }
+
+    try {
+      const prevTab = await getPreviousActiveTab();
+      if (prevTab?.id !== undefined && prevTab.url && !isInternalOrExtensionUrl(prevTab.url)) {
+        const prevZoom = await getActiveTabZoom(prevTab.id);
+        if (prevZoom > 0 && Number.isFinite(prevZoom)) {
+          return prevZoom;
+        }
+      }
+    } catch {}
+
+    return 1;
+  }
+
+  const tabZoom = activeTab?.id !== undefined ? await getActiveTabZoom(activeTab.id) : 1;
+
+  if (tabZoom > 0 && Number.isFinite(tabZoom) && Math.abs(tabZoom - 1) > 0.001) {
+    return tabZoom;
+  }
+
+  if (defaultZoom !== null && defaultZoom > 0 && Number.isFinite(defaultZoom)) {
+    return defaultZoom;
+  }
+
+  return tabZoom;
+}
+
+/**
  * Checks whether Zen zoom sync is currently active.
  * - If user explicitly toggled it in storage (true or false), honors that.
- * - If not explicitly set in storage, automatically enables if running in Zen Browser.
+ * - If not explicitly set in storage, automatically enables if running in Zen Browser or Firefox.
  */
 export async function isZenZoomSyncActive(): Promise<boolean> {
   try {
@@ -99,33 +211,46 @@ export async function isZenZoomSyncActive(): Promise<boolean> {
     console.warn('[Arcable] Error checking zoom sync storage key:', err);
   }
 
-  return await isZenBrowser();
+  const inZen = await isZenBrowser();
+  if (inZen) return true;
+  return isFirefox();
 }
 
 /**
- * Subscribes to tab zoom changes, tab activation, and window focus to keep
- * the extension side panel zoom level synchronized with the active tab.
+ * Subscribes to tab zoom changes, tab activation, URL updates, and window focus to keep
+ * the extension side panel zoom level synchronized with Zen Browser settings and active tab.
  */
 export function setupZenZoomSync(): () => void {
   let isCleanedUp = false;
   let activeSync = false;
   let currentActiveTabId: number | null = null;
 
-  const syncZoomWithActiveTab = async (explicitTabId?: number) => {
+  const syncZoom = async (explicitTabId?: number) => {
     if (isCleanedUp || !activeSync) return;
     try {
-      let targetTabId = explicitTabId;
-      if (targetTabId === undefined) {
-        const activeTab = await getActiveTab();
-        if (activeTab?.id !== undefined) {
-          targetTabId = activeTab.id;
-          currentActiveTabId = activeTab.id;
+      let targetTab: { id?: number; url?: string } | undefined;
+      const activeTab = await getActiveTab();
+
+      if (explicitTabId !== undefined) {
+        currentActiveTabId = explicitTabId;
+        if (activeTab?.id === explicitTabId) {
+          targetTab = activeTab;
+        } else {
+          try {
+            if (typeof browser !== 'undefined' && browser.tabs && typeof browser.tabs.get === 'function') {
+              targetTab = await browser.tabs.get(explicitTabId);
+            }
+          } catch {}
+          if (!targetTab) {
+            targetTab = { id: explicitTabId };
+          }
         }
-      } else {
-        currentActiveTabId = targetTabId;
+      } else if (activeTab?.id !== undefined) {
+        currentActiveTabId = activeTab.id;
+        targetTab = activeTab;
       }
 
-      const zoomFactor = await getActiveTabZoom(targetTabId);
+      const zoomFactor = await resolveEffectiveZoom(targetTab);
       if (!isCleanedUp && activeSync) {
         applyZoomToExtensionPage(zoomFactor);
       }
@@ -134,7 +259,7 @@ export function setupZenZoomSync(): () => void {
     }
   };
 
-  const handleZoomChange = (zoomChangeInfo: { tabId: number; oldZoomFactor: number; newZoomFactor: number }) => {
+  const handleZoomChange = (zoomChangeInfo: { tabId: number; oldZoomFactor: number; newZoomFactor: number; zoomSettings?: any }) => {
     if (isCleanedUp || !activeSync) return;
     if (currentActiveTabId !== null && zoomChangeInfo.tabId === currentActiveTabId) {
       applyZoomToExtensionPage(zoomChangeInfo.newZoomFactor);
@@ -151,12 +276,19 @@ export function setupZenZoomSync(): () => void {
   const handleTabActivated = (activeInfo: { tabId: number; windowId?: number }) => {
     if (isCleanedUp || !activeSync) return;
     currentActiveTabId = activeInfo.tabId;
-    void syncZoomWithActiveTab(activeInfo.tabId);
+    void syncZoom(activeInfo.tabId);
   };
 
-  const handleFocus = () => {
+  const handleTabUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
     if (isCleanedUp || !activeSync) return;
-    void syncZoomWithActiveTab();
+    if (tabId === currentActiveTabId || changeInfo.status === 'complete' || changeInfo.url) {
+      void syncZoom();
+    }
+  };
+
+  const handleInteraction = () => {
+    if (isCleanedUp || !activeSync) return;
+    void syncZoom();
   };
 
   const handleStorageChange = (changes: Record<string, any>, areaName?: string) => {
@@ -164,7 +296,7 @@ export function setupZenZoomSync(): () => void {
       const newValue = Boolean(changes[STORAGE_KEY_ZEN_ZOOM_SYNC].newValue);
       activeSync = newValue;
       if (newValue) {
-        void syncZoomWithActiveTab();
+        void syncZoom();
       } else {
         applyZoomToExtensionPage(1);
       }
@@ -176,7 +308,7 @@ export function setupZenZoomSync(): () => void {
     if (isCleanedUp) return;
     activeSync = isActive;
     if (activeSync) {
-      void syncZoomWithActiveTab();
+      void syncZoom();
     }
   });
 
@@ -192,8 +324,17 @@ export function setupZenZoomSync(): () => void {
     tabsApi.onActivated.addListener(handleTabActivated as any);
   }
 
+  if (tabsApi && tabsApi.onUpdated) {
+    tabsApi.onUpdated.addListener(handleTabUpdated);
+  }
+
   if (typeof window !== 'undefined') {
-    window.addEventListener('focus', handleFocus);
+    window.addEventListener('focus', handleInteraction);
+    window.addEventListener('mouseenter', handleInteraction);
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleInteraction);
   }
 
   const storageApi = typeof browser !== 'undefined' && browser.storage ? browser.storage : (typeof chrome !== 'undefined' ? chrome.storage : null);
@@ -201,9 +342,22 @@ export function setupZenZoomSync(): () => void {
     storageApi.onChanged.addListener(handleStorageChange);
   }
 
+  // Periodic poll to catch browser preference changes (such as changing "Default zoom" in Zen settings)
+  // that do not emit tab zoom events
+  const pollTimer = setInterval(() => {
+    if (!isCleanedUp && activeSync) {
+      void syncZoom();
+    }
+  }, 1500);
+
+  if (typeof pollTimer === 'object' && typeof (pollTimer as any)?.unref === 'function') {
+    (pollTimer as any).unref();
+  }
+
   return () => {
     isCleanedUp = true;
     activeSync = false;
+    clearInterval(pollTimer);
     applyZoomToExtensionPage(1);
 
     if (tabsApi && (tabsApi as any).onZoomChange) {
@@ -222,8 +376,19 @@ export function setupZenZoomSync(): () => void {
       } catch {}
     }
 
+    if (tabsApi && tabsApi.onUpdated) {
+      try {
+        tabsApi.onUpdated.removeListener(handleTabUpdated);
+      } catch {}
+    }
+
     if (typeof window !== 'undefined') {
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', handleInteraction);
+      window.removeEventListener('mouseenter', handleInteraction);
+    }
+
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleInteraction);
     }
 
     if (storageApi && storageApi.onChanged) {
