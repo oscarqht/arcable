@@ -241,12 +241,17 @@ export const App: React.FC = () => {
         hasAppliedAuthoritativeSnapshotRef.current = true;
         clearStoredPendingOperations();
         const resolved = applySidepanelActiveSpace(res.data, getStoredLastSpaceId());
-        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(resolved));
-        if (resolved.tabs) workspaceTabsRef.current = resolved.tabs;
-        if (resolved.folders) workspaceFoldersRef.current = resolved.folders;
-        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: resolved }));
+        const folders = (resolved.folders || []).map((f: Folder) => {
+          setLocalFolderExpanded(f.id, false);
+          return { ...f, isExpanded: false };
+        });
+        const collapsedResolved = { ...resolved, folders };
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedResolved));
+        if (collapsedResolved.tabs) workspaceTabsRef.current = collapsedResolved.tabs;
+        if (collapsedResolved.folders) workspaceFoldersRef.current = collapsedResolved.folders;
+        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedResolved }));
         isProgrammaticSpaceChangeRef.current = true;
-        workspaceRef.current?.applySnapshot?.(resolved);
+        workspaceRef.current?.applySnapshot?.(collapsedResolved);
         setTimeout(() => {
           isProgrammaticSpaceChangeRef.current = false;
         }, 150);

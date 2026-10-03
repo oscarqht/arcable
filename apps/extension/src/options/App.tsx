@@ -9,7 +9,7 @@ import {
   ArchiveIcon,
 } from '@arcable/shared/components';
 import { RaindropAuthState, ExtensionResponse, SyncResult, ArcableWorkspaceData } from '@arcable/shared/types';
-import { useSystemTheme } from '@arcable/shared/hooks';
+import { useSystemTheme, setLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
   formatDate,
   extractRulesFromNenyaExport,
@@ -214,8 +214,13 @@ export const App: React.FC = () => {
         void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((fetchRes: any) => {
           if (fetchRes?.success && fetchRes.data && typeof window !== 'undefined') {
             clearStoredPendingOperations();
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(fetchRes.data));
-            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: fetchRes.data }));
+            const folders = (fetchRes.data.folders || []).map((f: any) => {
+              setLocalFolderExpanded(f.id, false);
+              return { ...f, isExpanded: false };
+            });
+            const collapsedData = { ...fetchRes.data, folders };
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedData));
+            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedData }));
           }
         });
       } else {

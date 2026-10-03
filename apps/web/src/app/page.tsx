@@ -17,13 +17,13 @@ import {
   FolderIcon,
   FolderOpenIcon,
 } from '@arcable/shared/components';
-import { useSystemTheme } from '@arcable/shared/hooks';
+import { useSystemTheme, setLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
 } from '@arcable/shared/utils';
-import { RaindropAuthState, TabOpenOptions } from '@arcable/shared/types';
+import { RaindropAuthState, TabOpenOptions, Folder } from '@arcable/shared/types';
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -173,11 +173,16 @@ export default function HomePage() {
       .then((res) => {
         if (res?.success && res.data) {
           clearStoredPendingOperations();
+          const folders = (res.data.folders || []).map((f: Folder) => {
+            setLocalFolderExpanded(f.id, false);
+            return { ...f, isExpanded: false };
+          });
+          const collapsedData = { ...res.data, folders };
           if (typeof window !== 'undefined') {
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.data));
-            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.data }));
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedData));
+            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedData }));
           }
-          workspaceRef.current?.applySnapshot?.(res.data);
+          workspaceRef.current?.applySnapshot?.(collapsedData);
           setRaindropHydrated(true);
         }
       })

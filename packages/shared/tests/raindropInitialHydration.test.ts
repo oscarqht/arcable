@@ -31,7 +31,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   if (pathname.endsWith('/collections/childrens')) {
-    return new Response(JSON.stringify({ items: [] }), {
+    return new Response(JSON.stringify({
+      items: hasArcableRoot
+        ? [
+            { _id: 10, title: 'Space 1', parent: { $id: 1 }, sort: 0 },
+            { _id: 20, title: 'Folder 1', parent: { $id: 10 }, sort: 0 },
+          ]
+        : [],
+    }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -90,6 +97,8 @@ async function main(): Promise<void> {
 
   const nativeWorkspace = await fetchRaindropWorkspace('token');
   assert.equal(nativeWorkspace.data?.tabs.length, 0, 'data.json.txt and widget items must not be parsed as browser tabs');
+  assert.equal(nativeWorkspace.data?.folders?.length, 1, 'folder should be parsed from child collections');
+  assert.equal(nativeWorkspace.data?.folders?.[0]?.isExpanded, false, 'folders must be collapsed by default after initial sync/hydration upon login');
   assert.deepEqual(
     nativeWorkspace.data?.widgets?.map((w) => ({ id: w.id, style: w.style, size: w.size })),
     [{ id: 'widget-1', style: 'combo', size: 'small' }],

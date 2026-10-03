@@ -2601,7 +2601,14 @@ export async function fetchRaindropWorkspace(
   if (!clean) return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
   try {
     const tree = await fetchRemoteArcableTree(clean);
-    return { success: true, data: reconstructWorkspace(tree, targetActiveSpaceId) };
+    const data = reconstructWorkspace(tree, targetActiveSpaceId);
+    if (data && Array.isArray(data.folders)) {
+      data.folders = data.folders.map((f) => ({
+        ...f,
+        isExpanded: false,
+      }));
+    }
+    return { success: true, data };
   } catch (err: any) {
     console.error('[RaindropSync] Failed to fetch Arcable tree:', err);
     return {
@@ -2663,10 +2670,24 @@ export async function syncWorkspaceWithRaindrop(
           if (isDeviceInitialSync) {
             clearStoredPendingOperations();
           }
+          const latestSnapshot = reconstructWorkspace(tree, syncLocalState?.activeSpaceId);
+          if (isDeviceInitialSync && latestSnapshot && Array.isArray(latestSnapshot.folders)) {
+            latestSnapshot.folders = latestSnapshot.folders.map((f) => ({
+              ...f,
+              isExpanded: false,
+            }));
+            if (typeof window !== 'undefined') {
+              latestSnapshot.folders.forEach((f) => {
+                try {
+                  window.localStorage.setItem(`arcable_collapse_folder_${f.id}`, 'true');
+                } catch {}
+              });
+            }
+          }
           return {
             success: true,
             collectionId: tree.root._id,
-            latestSnapshot: reconstructWorkspace(tree, syncLocalState?.activeSpaceId),
+            latestSnapshot,
             syncedAt: Date.now(),
           };
         }

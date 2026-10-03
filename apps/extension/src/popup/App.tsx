@@ -115,11 +115,8 @@ export const App: React.FC = () => {
       const hydrated = {
         ...snapshot,
         folders: (snapshot.folders || []).map((folder: any) => {
-          const isExpanded = folder.isExpanded !== undefined
-            ? folder.isExpanded
-            : getLocalFolderExpanded(folder.id, true);
-          setLocalFolderExpanded(folder.id, isExpanded);
-          return { ...folder, isExpanded };
+          setLocalFolderExpanded(folder.id, false);
+          return { ...folder, isExpanded: false };
         }),
       };
       window.localStorage.setItem('arcable_workspace_data', JSON.stringify(hydrated));
