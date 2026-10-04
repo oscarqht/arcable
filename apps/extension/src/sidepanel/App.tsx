@@ -1206,6 +1206,9 @@ export const App: React.FC = () => {
 
       // Update space in tabTracker
       await tabTracker.moveTmpTabToSpace(tab.id, targetSpaceId);
+
+      // Follow the tab to its destination space
+      workspaceRef.current?.setActiveSpace?.(targetSpaceId);
     },
     []
   );
