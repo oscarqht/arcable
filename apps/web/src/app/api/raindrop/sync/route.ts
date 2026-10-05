@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await fetchRaindropWorkspace(token);
+    const collapseFolders = request.nextUrl.searchParams.get('collapseFolders') === 'true';
+    const result = await fetchRaindropWorkspace(token, undefined, { collapseFolders });
     if (!result.success) {
       return NextResponse.json(result, { status: 400 });
     }
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest) {
       deviceName: body?.deviceName || getDefaultDeviceName('Web App'),
       pendingOps: body?.pendingOps,
       replaceBaseline: body?.replaceBaseline,
+      isInitialSync: body?.isInitialSync,
+      isInitialLogin: body?.isInitialLogin,
+      collapseFolders: body?.collapseFolders,
     });
 
     if (!result.success) {

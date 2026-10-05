@@ -255,7 +255,7 @@ async function clearAuthState(): Promise<void> {
 }
 
 /** Fetches Raindrop's tree and atomically replaces the extension cache and outbox. */
-async function fetchAndCacheRaindropWorkspace(): Promise<ExtensionResponse<ArcableWorkspaceData>> {
+async function fetchAndCacheRaindropWorkspace(options?: { collapseFolders?: boolean }): Promise<ExtensionResponse<ArcableWorkspaceData>> {
   const auth = await getStoredAuthState();
   if (!auth.isAuthenticated || !auth.accessToken) {
     return { success: false, error: 'Not authenticated with Raindrop' };
@@ -265,7 +265,7 @@ async function fetchAndCacheRaindropWorkspace(): Promise<ExtensionResponse<Arcab
     const stored = await browser.storage.local.get('arcable_workspace_snapshot');
     const currentActiveSpaceId = (stored.arcable_workspace_snapshot as ArcableWorkspaceData | undefined)?.activeSpaceId;
 
-    const result = await fetchRaindropWorkspace(auth.accessToken, currentActiveSpaceId);
+    const result = await fetchRaindropWorkspace(auth.accessToken, currentActiveSpaceId, options);
     if (!result.success || !result.data) {
       if (result.errorDetails) {
         console.warn('[Arcable Background] Raindrop workspace fetch exhausted transport retries.', result.errorDetails);
@@ -299,6 +299,7 @@ async function processOAuthTokens(tokens: {
   const user = await fetchRaindropUser(tokens.access_token);
   if (!user) return null;
 
+  const wasAuthenticated = Boolean(cachedAuthState?.isAuthenticated);
   const authState: RaindropAuthState = {
     isAuthenticated: true,
     authType: 'oauth',
@@ -309,7 +310,7 @@ async function processOAuthTokens(tokens: {
   };
 
   await saveAuthState(authState);
-  void fetchAndCacheRaindropWorkspace();
+  void fetchAndCacheRaindropWorkspace({ collapseFolders: !wasAuthenticated });
   return authState;
 }
 
@@ -419,6 +420,7 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Invalid Raindrop token or user fetch failed' };
         }
 
+        const wasAuthenticated = Boolean(cachedAuthState?.isAuthenticated);
         const authState: RaindropAuthState = {
           isAuthenticated: true,
           authType: 'token',
@@ -427,7 +429,7 @@ browser.runtime.onMessage.addListener(
         };
 
         await saveAuthState(authState);
-        void fetchAndCacheRaindropWorkspace();
+        void fetchAndCacheRaindropWorkspace({ collapseFolders: !wasAuthenticated });
         return { success: true, data: authState };
       }
 
@@ -579,7 +581,8 @@ browser.runtime.onMessage.addListener(
       // Raindrop: Always hydrate the local cache from the Arcable tree before
       // automatic writes are allowed in a newly opened extension surface.
       case 'RAINDROP_FETCH_WORKSPACE': {
-        return fetchAndCacheRaindropWorkspace();
+        const payload = message.payload as { collapseFolders?: boolean } | undefined;
+        return fetchAndCacheRaindropWorkspace({ collapseFolders: payload?.collapseFolders });
       }
 
       // Raindrop: Sync Workspace Data (Spaces, Folders, Tabs Op-Log)
