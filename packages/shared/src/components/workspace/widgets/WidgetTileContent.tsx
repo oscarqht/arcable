@@ -491,7 +491,9 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
               flexShrink: 0,
             }}
           >
-            <span style={{ fontSize: '8px', lineHeight: 1 }}>🔍</span>
+            <span style={{ fontSize: '8px', lineHeight: 1 }}>
+              {(widget.config as SearchConfig)?.customIcon?.trim() || '🔍'}
+            </span>
           </div>
         );
       }
@@ -1354,4 +1356,3 @@ export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
     </div>
   );
 };
-
