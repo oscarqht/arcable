@@ -95,7 +95,7 @@ async function main(): Promise<void> {
     },
   ];
 
-  const nativeWorkspace = await fetchRaindropWorkspace('token');
+  const nativeWorkspace = await fetchRaindropWorkspace('token', undefined, { collapseFolders: true });
   assert.equal(nativeWorkspace.data?.tabs.length, 0, 'data.json.txt and widget items must not be parsed as browser tabs');
   assert.equal(nativeWorkspace.data?.folders?.length, 1, 'folder should be parsed from child collections');
   assert.equal(nativeWorkspace.data?.folders?.[0]?.isExpanded, false, 'folders must be collapsed by default after initial sync/hydration upon login');

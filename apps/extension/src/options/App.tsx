@@ -235,7 +235,7 @@ export const App: React.FC = () => {
       if (res && res.success && res.data) {
         setAuthState(res.data);
         showToast('Connected to Raindrop.io successfully!', 'success');
-        void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE' }).then((fetchRes: any) => {
+        void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE', payload: { collapseFolders: true } }).then((fetchRes: any) => {
           if (fetchRes?.success && fetchRes.data && typeof window !== 'undefined') {
             clearStoredPendingOperations();
             const folders = (fetchRes.data.folders || []).map((f: any) => {

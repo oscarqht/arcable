@@ -2595,18 +2595,26 @@ export function reconstructWorkspace(
 /** Always rebuilds Arcable's local cache from the live Raindrop tree without mutating Raindrop. */
 export async function fetchRaindropWorkspace(
   token: string,
-  targetActiveSpaceId?: string
+  targetActiveSpaceId?: string,
+  options?: { collapseFolders?: boolean }
 ): Promise<{ success: boolean; data?: ArcableWorkspaceData; error?: string; errorDetails?: RaindropRequestFailureDetails }> {
   const clean = cleanRaindropToken(token);
   if (!clean) return { success: false, error: 'Raindrop authorization token is missing or invalid.' };
   try {
     const tree = await fetchRemoteArcableTree(clean);
     const data = reconstructWorkspace(tree, targetActiveSpaceId);
-    if (data && Array.isArray(data.folders)) {
+    if (options?.collapseFolders && data && Array.isArray(data.folders)) {
       data.folders = data.folders.map((f) => ({
         ...f,
         isExpanded: false,
       }));
+      if (typeof window !== 'undefined') {
+        data.folders.forEach((f) => {
+          try {
+            window.localStorage.setItem(`arcable_collapse_folder_${f.id}`, 'true');
+          } catch {}
+        });
+      }
     }
     return { success: true, data };
   } catch (err: any) {
@@ -2624,19 +2632,25 @@ export async function fetchRaindropWorkspace(
  * Raindrop IDs after the first successful write; updates use timestamps so a newer
  * remote edit wins over a stale local cache, while local queued deletions are explicit.
  */
+export interface RaindropSyncOptions {
+  localState?: ArcableWorkspaceData;
+  deviceId?: string;
+  deviceName?: string;
+  pendingOps?: WorkspaceOperation[];
+  replaceBaseline?: boolean;
+  /** Freshly hydrated state used only to recover Raindrop-issued IDs from a stale UI payload. */
+  identitySnapshot?: ArcableWorkspaceData;
+  /** Explicitly marks initial device sync to enforce read-only hydration. */
+  isInitialSync?: boolean;
+  /** Marks initial login (from logged out to logged in) to collapse all folders. */
+  isInitialLogin?: boolean;
+  /** Explicitly collapses all folders in snapshot and marks localStorage. */
+  collapseFolders?: boolean;
+}
+
 export async function syncWorkspaceWithRaindrop(
   token: string,
-  options?: {
-    localState?: ArcableWorkspaceData;
-    deviceId?: string;
-    deviceName?: string;
-    pendingOps?: WorkspaceOperation[];
-    replaceBaseline?: boolean;
-    /** Freshly hydrated state used only to recover Raindrop-issued IDs from a stale UI payload. */
-    identitySnapshot?: ArcableWorkspaceData;
-    /** Explicitly marks initial device sync to enforce read-only hydration. */
-    isInitialSync?: boolean;
-  }
+  options?: RaindropSyncOptions
 ): Promise<SyncResult> {
   const clean = cleanRaindropToken(token);
   if (!clean) {
@@ -2671,7 +2685,8 @@ export async function syncWorkspaceWithRaindrop(
             clearStoredPendingOperations();
           }
           const latestSnapshot = reconstructWorkspace(tree, syncLocalState?.activeSpaceId);
-          if (isDeviceInitialSync && latestSnapshot && Array.isArray(latestSnapshot.folders)) {
+          const shouldCollapseFolders = Boolean(options?.collapseFolders || (options?.isInitialLogin && isDeviceInitialSync));
+          if (shouldCollapseFolders && latestSnapshot && Array.isArray(latestSnapshot.folders)) {
             latestSnapshot.folders = latestSnapshot.folders.map((f) => ({
               ...f,
               isExpanded: false,

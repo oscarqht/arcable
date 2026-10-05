@@ -17,7 +17,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
 } from '@arcable/shared/components';
-import { useSystemTheme, setLocalFolderExpanded } from '@arcable/shared/hooks';
+import { useSystemTheme, setLocalFolderExpanded, getLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
   clearStoredPendingOperations,
   getOrCreateDeviceId,
@@ -35,6 +35,7 @@ export default function HomePage() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const hasAutoFetchedRef = useRef(false);
+  const isInitialLoginRef = useRef<boolean>(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
   const [initialSyncSettled, setInitialSyncSettled] = useState(false);
   const [foldersCollapseState, setFoldersCollapseState] = useState<{ areAllCollapsed: boolean; totalFolders: number }>({
@@ -47,6 +48,7 @@ export default function HomePage() {
   });
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+
   const isInitialLoading = Boolean(authState.isAuthenticated && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
 
   // Load auth status from API on mount
@@ -60,6 +62,7 @@ export default function HomePage() {
       }
       const auth = params.get('auth');
       if (auth === 'success') {
+        isInitialLoginRef.current = true;
         window.history.replaceState({}, '', window.location.pathname);
       }
     }
@@ -97,6 +100,9 @@ export default function HomePage() {
   };
 
   const handleLoginWithToken = async (token: string) => {
+    if (!authState.isAuthenticated) {
+      isInitialLoginRef.current = true;
+    }
     setAuthLoading(true);
     setAuthError(null);
     try {
@@ -126,6 +132,7 @@ export default function HomePage() {
   };
 
   const handleLogout = async () => {
+    isInitialLoginRef.current = false;
     setAuthLoading(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -137,9 +144,10 @@ export default function HomePage() {
     }
   };
 
-  const handleFetchWorkspace = useCallback(async () => {
+  const handleFetchWorkspace = useCallback(async (options?: { collapseFolders?: boolean }) => {
     try {
-      const res = await fetch('/api/raindrop/sync', {
+      const url = options?.collapseFolders ? '/api/raindrop/sync?collapseFolders=true' : '/api/raindrop/sync';
+      const res = await fetch(url, {
         headers: authState.accessToken
           ? { Authorization: `Bearer ${authState.accessToken}` }
           : undefined,
@@ -168,21 +176,27 @@ export default function HomePage() {
     if (hasAutoFetchedRef.current) return;
     hasAutoFetchedRef.current = true;
 
+    const isInitialLogin = isInitialLoginRef.current;
+    isInitialLoginRef.current = false;
+
     setIsInitialSyncing(true);
-    void handleFetchWorkspace()
+    void handleFetchWorkspace({ collapseFolders: isInitialLogin })
       .then((res) => {
         if (res?.success && res.data) {
           clearStoredPendingOperations();
           const folders = (res.data.folders || []).map((f: Folder) => {
-            setLocalFolderExpanded(f.id, false);
-            return { ...f, isExpanded: false };
+            const isExp = isInitialLogin
+              ? false
+              : (f.isExpanded !== undefined ? f.isExpanded : getLocalFolderExpanded(f.id, true));
+            setLocalFolderExpanded(f.id, isExp);
+            return { ...f, isExpanded: isExp };
           });
-          const collapsedData = { ...res.data, folders };
+          const processedData = { ...res.data, folders };
           if (typeof window !== 'undefined') {
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedData));
-            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedData }));
+            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(processedData));
+            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: processedData }));
           }
-          workspaceRef.current?.applySnapshot?.(collapsedData);
+          workspaceRef.current?.applySnapshot?.(processedData);
           setRaindropHydrated(true);
         }
       })

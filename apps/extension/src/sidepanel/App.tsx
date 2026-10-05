@@ -246,16 +246,19 @@ export const App: React.FC = () => {
         clearStoredPendingOperations();
         const resolved = applySidepanelActiveSpace(res.data, getStoredLastSpaceId());
         const folders = (resolved.folders || []).map((f: Folder) => {
-          setLocalFolderExpanded(f.id, false);
-          return { ...f, isExpanded: false };
+          const isExp = f.isExpanded !== undefined
+            ? f.isExpanded
+            : getLocalFolderExpanded(f.id, true);
+          setLocalFolderExpanded(f.id, isExp);
+          return { ...f, isExpanded: isExp };
         });
-        const collapsedResolved = { ...resolved, folders };
-        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedResolved));
-        if (collapsedResolved.tabs) workspaceTabsRef.current = collapsedResolved.tabs;
-        if (collapsedResolved.folders) workspaceFoldersRef.current = collapsedResolved.folders;
-        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedResolved }));
+        const hydratedResolved = { ...resolved, folders };
+        window.localStorage.setItem('arcable_workspace_data', JSON.stringify(hydratedResolved));
+        if (hydratedResolved.tabs) workspaceTabsRef.current = hydratedResolved.tabs;
+        if (hydratedResolved.folders) workspaceFoldersRef.current = hydratedResolved.folders;
+        window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: hydratedResolved }));
         isProgrammaticSpaceChangeRef.current = true;
-        workspaceRef.current?.applySnapshot?.(collapsedResolved);
+        workspaceRef.current?.applySnapshot?.(hydratedResolved);
         setTimeout(() => {
           isProgrammaticSpaceChangeRef.current = false;
         }, 150);
