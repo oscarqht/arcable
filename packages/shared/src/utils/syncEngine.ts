@@ -604,7 +604,7 @@ export function applyOperation(
             updated.parentSpaceId = op.payload.parentSpaceId || undefined;
           }
           if ('urlVariants' in op.payload) {
-            updated.urlVariants = op.payload.urlVariants && op.payload.urlVariants.length > 0
+            updated.urlVariants = Array.isArray(op.payload.urlVariants)
               ? op.payload.urlVariants.map((v: TabUrlVariant) => ({ ...v }))
               : undefined;
           }

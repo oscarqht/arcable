@@ -1138,7 +1138,7 @@ export function useWorkspace() {
             normalizedUpdates.url = defaultVar.url;
           }
         } else {
-          normalizedUpdates.urlVariants = undefined;
+          normalizedUpdates.urlVariants = (normalizedUpdates.isGroup ?? currentTab.isGroup) ? [] : undefined;
           normalizedUpdates.defaultVariantId = undefined;
         }
       } else if (normalizedUpdates.favIconUrl !== undefined && currentTab.urlVariants && currentTab.urlVariants.length > 0) {
@@ -2868,7 +2868,7 @@ export function useWorkspace() {
           const nextUrl = nextVariants[0]?.url || t.url;
           updatedTab = {
             ...updatedTab,
-            urlVariants: nextVariants.length > 0 ? nextVariants : undefined,
+            urlVariants: nextVariants,
             defaultVariantId: nextDefaultVariantId,
             url: nextUrl,
             groupItemOrder: nextOrder.length > 0 ? nextOrder : undefined,
@@ -3051,7 +3051,9 @@ export function useWorkspace() {
 
           const newGroupTab: Tab = {
             id: groupId,
+            // Raindrop requires a carrier URL; it is not a child tab.
             url: 'https://arcable.dev',
+            urlVariants: [],
             favourite: true,
             pinned: false,
             isGroup: true,
@@ -3065,6 +3067,7 @@ export function useWorkspace() {
           savePendingOperation(
             createWorkspaceOperation('TAB_CREATE', groupId, {
               url: newGroupTab.url,
+              urlVariants: [],
               title: newGroupTab.customTitle,
               customTitle: newGroupTab.customTitle,
               favourite: true,
@@ -3105,7 +3108,7 @@ export function useWorkspace() {
           const existingVariants: TabUrlVariant[] =
             targetTab.urlVariants && targetTab.urlVariants.length > 0
               ? targetTab.urlVariants
-              : [
+              : targetTab.isGroup ? [] : [
                   {
                     id: targetBaseId || generateId('var'),
                     name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
@@ -3131,9 +3134,9 @@ export function useWorkspace() {
           const updatedTarget: Tab = {
             ...targetTab,
             customTitle: groupTitle,
-            url: defaultVariant.url,
+            url: defaultVariant?.url || targetTab.url,
             urlVariants: existingVariants,
-            defaultVariantId: defaultVariant.id,
+            defaultVariantId: defaultVariant?.id,
             groupItemOrder: existingOrder,
             isGroup: true,
             updatedAt: Date.now(),
@@ -3144,9 +3147,9 @@ export function useWorkspace() {
               title: groupTitle,
               customTitle: groupTitle,
               isGroup: true,
-              url: defaultVariant.url,
+              url: defaultVariant?.url || targetTab.url,
               urlVariants: existingVariants,
-              defaultVariantId: defaultVariant.id,
+              defaultVariantId: defaultVariant?.id,
               groupItemOrder: existingOrder,
             })
           );
@@ -3174,7 +3177,7 @@ export function useWorkspace() {
           const sourceVariants: TabUrlVariant[] =
             sourceTab.urlVariants && sourceTab.urlVariants.length > 0
               ? sourceTab.urlVariants
-              : [
+              : sourceTab.isGroup ? [] : [
                   {
                     id: sourceBaseId || generateId('var'),
                     name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 1',
@@ -3187,6 +3190,9 @@ export function useWorkspace() {
           const groupItemOrder: Array<{ type: 'tab' | 'widget'; id: string }> = [
             { type: 'widget', id: targetWidget.id },
             ...sourceVariants.map((v) => ({ type: 'tab' as const, id: v.id })),
+            ...(prev.widgets || [])
+              .filter((w) => w.parentGroupId === sourceTab.id && w.id !== targetWidget.id)
+              .map((w) => ({ type: 'widget' as const, id: w.id })),
           ];
 
           const defaultVariant =
@@ -3197,9 +3203,9 @@ export function useWorkspace() {
           const updatedTab: Tab = {
             ...sourceTab,
             customTitle: groupTitle,
-            url: defaultVariant.url,
+            url: defaultVariant?.url || sourceTab.url,
             urlVariants: sourceVariants,
-            defaultVariantId: defaultVariant.id,
+            defaultVariantId: defaultVariant?.id,
             groupItemOrder,
             isGroup: true,
             order: targetWidget.order ?? sourceTab.order,
@@ -3211,9 +3217,9 @@ export function useWorkspace() {
               title: groupTitle,
               customTitle: groupTitle,
               isGroup: true,
-              url: defaultVariant.url,
+              url: defaultVariant?.url || sourceTab.url,
               urlVariants: sourceVariants,
-              defaultVariantId: defaultVariant.id,
+              defaultVariantId: defaultVariant?.id,
               groupItemOrder,
               order: updatedTab.order,
             })
@@ -3247,7 +3253,7 @@ export function useWorkspace() {
                 favIconUrl: v.favIconUrl || (i === 0 ? targetTab.favIconUrl : undefined),
                 customEmojiIcon: v.customEmojiIcon || (i === 0 ? targetTab.customEmojiIcon : undefined),
               }))
-            : [
+            : targetTab.isGroup ? [] : [
                 {
                   id: targetBaseId || generateId('var'),
                   name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
@@ -3265,7 +3271,7 @@ export function useWorkspace() {
                 favIconUrl: v.favIconUrl || (i === 0 ? sourceTab.favIconUrl : undefined),
                 customEmojiIcon: v.customEmojiIcon || (i === 0 ? sourceTab.customEmojiIcon : undefined),
               }))
-            : [
+            : sourceTab.isGroup ? [] : [
                 {
                   id: sourceBaseId || generateId('var'),
                   name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 2',
@@ -3309,9 +3315,9 @@ export function useWorkspace() {
         const updatedTarget: Tab = {
           ...targetTab,
           customTitle: groupTitle,
-          url: defaultVariant.url,
+          url: defaultVariant?.url || targetTab.url,
           urlVariants: mergedVariants,
-          defaultVariantId: defaultVariant.id,
+          defaultVariantId: defaultVariant?.id,
           groupItemOrder,
           isGroup: true,
           updatedAt: Date.now(),
@@ -3323,9 +3329,9 @@ export function useWorkspace() {
             title: groupTitle,
             customTitle: groupTitle,
             isGroup: true,
-            url: defaultVariant.url,
+            url: defaultVariant?.url || targetTab.url,
             urlVariants: mergedVariants,
-            defaultVariantId: defaultVariant.id,
+            defaultVariantId: defaultVariant?.id,
             groupItemOrder,
           })
         );
@@ -3903,7 +3909,7 @@ export function useWorkspace() {
           const nextUrl = remainingVariants[0]?.url || groupTab.url;
           const updatedGroupTab: Tab = {
             ...groupTab,
-            urlVariants: remainingVariants.length > 0 ? remainingVariants : undefined,
+            urlVariants: remainingVariants,
             defaultVariantId: nextDefaultVariantId,
             url: nextUrl,
             groupItemOrder: nextOrder.length > 0 ? nextOrder : undefined,
