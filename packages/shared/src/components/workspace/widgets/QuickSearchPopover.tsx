@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { WorkspaceWidget, SearchConfig } from '../../../types/workspace';
 import { SpaceThemeTokens } from '../../../utils/spaceTheme';
 import { SearchIcon, SettingsIcon } from '../../Icons';
+import { EmojiPicker } from '../../EmojiPicker';
 
 export interface QuickSearchPopoverProps {
   widget: WorkspaceWidget;
@@ -298,27 +299,30 @@ export const QuickSearchPopover: React.FC<QuickSearchPopoverProps> = ({
                 }}
               />
             </label>
-            <label style={{ width: '62px', fontSize: '10.5px', color: theme.subtextColor }}>
-              Emoji
-              <input
-                type="text"
+            <div style={{ width: '62px' }}>
+              <EmojiPicker
+                label="Emoji"
                 value={tempCustomIcon}
-                onChange={(e) => setTempCustomIcon(e.target.value)}
+                onChange={(emoji) => setTempCustomIcon(emoji)}
+                compact
+                align="right"
+                placement="auto"
+                isDark={theme.isDark}
+                popoverWidth={256}
+                popoverHeight={280}
                 placeholder="⚙️"
-                aria-label="Custom search emoji icon"
-                style={{
-                  boxSizing: 'border-box',
-                  width: '100%',
+                allowClear={false}
+                ariaLabel="Custom search emoji icon"
+                labelStyle={{ fontSize: '10.5px', color: theme.subtextColor }}
+                buttonStyle={{
                   marginTop: '3px',
-                  padding: '5px 8px',
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.borderColor}`,
+                  height: '28px',
+                  borderColor: theme.borderColor,
                   background: theme.isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc',
                   color: theme.textColor,
-                  fontSize: '11.5px',
                 }}
               />
-            </label>
+            </div>
           </div>
           <label style={{ fontSize: '10.5px', color: theme.subtextColor }}>
             Custom Search URL (use <code>%s</code> as query placeholder):
