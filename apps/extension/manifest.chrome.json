@@ -108,10 +108,16 @@
     }
   ],
   "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+A",
+        "mac": "Alt+A"
+      }
+    },
     "take-screenshot": {
       "suggested_key": {
-        "default": "Alt+Shift+S",
-        "mac": "Command+Shift+S"
+        "default": "Alt+K",
+        "mac": "Alt+K"
       },
       "description": "📸 Take Screenshot"
     },
