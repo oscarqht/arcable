@@ -80,9 +80,12 @@ export function serializeGroupMeta(tab: Tab): string {
   const defaultVar =
     (tab.defaultVariantId && tab.urlVariants?.find((v) => v.id === tab.defaultVariantId)) ||
     tab.urlVariants?.[0];
+  const hasOnlyWidgetEntries = Boolean(tab.groupItemOrder?.some((entry) => entry.type === 'widget')) &&
+    !tab.groupItemOrder?.some((entry) => entry.type === 'tab');
+  const variants = tab.urlVariants ?? (isGroup && hasOnlyWidgetEntries ? [] : undefined);
   const meta: GroupVariantMeta = {
-    variants: tab.urlVariants?.map((v) => ({ id: v.id, url: v.url, name: v.name })),
-    defaultVariantId: tab.defaultVariantId || tab.urlVariants?.[0]?.id,
+    variants: variants?.map((v) => ({ id: v.id, url: v.url, name: v.name })),
+    defaultVariantId: variants?.length === 0 ? undefined : tab.defaultVariantId || tab.urlVariants?.[0]?.id,
     firstName: defaultVar?.name || tab.urlVariants?.[0]?.name,
     groupItemOrder: tab.groupItemOrder,
   };
@@ -2111,11 +2114,27 @@ export function reconstructWorkspace(
   // Group URL variants by title delimiter: "<name> ||| <variant name>"
   const variantItemsByBaseTitle = new Map<string, RaindropBookmarkItem[]>();
   const baseTabItems: RaindropBookmarkItem[] = [];
+  const widgetOnlyCarrierIds = new Set<number>();
 
   for (const item of rawTabItems) {
     const rawTitle = decodeRaindropTitle(item.title || '');
     const delimiterIndex = rawTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
-    if (delimiterIndex !== -1) {
+    const meta = parseGroupMeta(item.note);
+    const hasExplicitEmptyVariants = Array.isArray(meta?.variants) && meta.variants.length === 0;
+    const hasWidgetChildren = widgets.some((widget) => widget.parentGroupId === String(item._id)) ||
+      Boolean(meta?.groupItemOrder?.some((entry) => entry.type === 'widget'));
+    const hasExplicitTabs = Boolean(meta?.variants?.length || meta?.groupItemOrder?.some((entry) => entry.type === 'tab'));
+    const isLegacyWidgetOnlyCarrier = /^https:\/\/arcable\.dev\/?$/i.test(item.link) &&
+      hasWidgetChildren && !hasExplicitTabs;
+    if (item.collectionId === root._id && (hasExplicitEmptyVariants || isLegacyWidgetOnlyCarrier)) {
+      // The Raindrop bookmark carries group metadata; its required link is not a tab.
+      // Older writers also appended the variant delimiter to widget-only groups.
+      widgetOnlyCarrierIds.add(item._id);
+      baseTabItems.push(delimiterIndex === -1 ? item : {
+        ...item,
+        title: encodeRaindropTitle(rawTitle.slice(0, delimiterIndex).trim()),
+      });
+    } else if (delimiterIndex !== -1) {
       const baseTitle = rawTitle.slice(0, delimiterIndex).trim();
       const groupKey = `${item.collectionId || 0}:::${baseTitle}`;
       const group = variantItemsByBaseTitle.get(groupKey) || [];
@@ -2152,7 +2171,9 @@ export function reconstructWorkspace(
 
     const groupMeta = parseGroupMeta(item.note);
 
-    if (variantItems && variantItems.length > 0) {
+    if (widgetOnlyCarrierIds.has(item._id)) {
+      urlVariants = [];
+    } else if (variantItems && variantItems.length > 0) {
       processedVariantGroupKeys.add(groupKey);
       const defaultId = String(item._id);
       const findMetaName = (id: string, url: string, fallback: string) => {
@@ -2272,8 +2293,8 @@ export function reconstructWorkspace(
       (urlVariants && urlVariants.length > 0) || hasWidgetChildren
     );
 
-    // If an empty placeholder group (arcable.dev) has no remaining bookmarks or child widgets, omit it
-    if (favourite && !hasValidGroupContent && item.link && item.link.includes('arcable.dev')) {
+    // Omit an empty group carrier, while retaining ordinary Arcable bookmarks.
+    if (widgetOnlyCarrierIds.has(item._id) && !hasValidGroupContent) {
       continue;
     }
 
@@ -2540,7 +2561,7 @@ export function reconstructWorkspace(
     const childWidgets = widgets.filter((w) => w.parentGroupId === tab.id);
     if (childWidgets.length > 0 && tab.favourite) {
       tab.isGroup = true;
-      if (!tab.urlVariants || tab.urlVariants.length === 0) {
+      if (!tab.urlVariants) {
         tab.urlVariants = [
           {
             id: tab.id,
