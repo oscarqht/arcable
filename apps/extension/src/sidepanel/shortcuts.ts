@@ -31,7 +31,29 @@ function sendSwitcherKey(action: SwitcherAction): void {
   }).catch(() => {});
 }
 
+// Lets the background know this panel is open (and whether it has focus) without an async
+// query, which would expire the Alt+F command's user gesture. Reconnects after worker restarts.
+function connectPresence(): void {
+  void getWindowId().then(windowId => {
+    if (windowId === undefined) return;
+    const port = browser.runtime.connect({ name: 'arcable-sidepanel' });
+    const report = () => {
+      try { port.postMessage({ windowId, focused: document.hasFocus() }); } catch { /* reconnecting */ }
+    };
+    window.addEventListener('focus', report);
+    window.addEventListener('blur', report);
+    port.onDisconnect.addListener(() => {
+      window.removeEventListener('focus', report);
+      window.removeEventListener('blur', report);
+      setTimeout(connectPresence, 500);
+    });
+    report();
+  });
+}
+
 export function initSidepanelShortcuts(): void {
+  connectPresence();
+
   browser.runtime.onMessage.addListener((message: unknown) => {
     const input = message as { type?: string; windowId?: number };
     if (input?.type !== 'ARCABLE_FOCUS_SIDEPANEL_SEARCH') return undefined;

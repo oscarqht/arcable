@@ -96,6 +96,13 @@ if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
 
     if (command === 'open-sidepanel-search') {
       // sidePanel.open() needs the command's user gesture, so it must run synchronously here.
+      // Chrome ignores open() for a panel that is already showing, leaving keyboard focus in
+      // the page; closing it first lets the reopened panel take focus.
+      const sidePanelApi = typeof chrome !== 'undefined' ? (chrome.sidePanel as any) : undefined;
+      const windowId = tab?.windowId;
+      if (windowId !== undefined && typeof sidePanelApi?.close === 'function' && isSidepanelOpenUnfocused(windowId)) {
+        void sidePanelApi.close({ windowId }).catch(() => {});
+      }
       handleActionClick(tab);
       void requestSidepanelSearchFocus(tab?.windowId);
       return;
@@ -1128,6 +1135,24 @@ async function openSidepanelTab(): Promise<void> {
 // A freshly opened side panel may not be listening yet, so it claims a recent request on load.
 const SIDEPANEL_SEARCH_FOCUS_TTL_MS = 5000;
 let sidepanelSearchFocusRequest: { windowId?: number; at: number } | null = null;
+
+// Side panels report over a port whether they are open and focused, so the Alt+F command
+// can decide synchronously (inside its user gesture) whether focus must be handed over.
+const sidepanelPorts = new Map<browser.Runtime.Port, { windowId: number; focused: boolean }>();
+browser.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'arcable-sidepanel') return;
+  port.onMessage.addListener((message: any) => {
+    if (Number.isInteger(message?.windowId)) {
+      sidepanelPorts.set(port, { windowId: message.windowId, focused: Boolean(message.focused) });
+    }
+  });
+  port.onDisconnect.addListener(() => sidepanelPorts.delete(port));
+});
+
+function isSidepanelOpenUnfocused(windowId: number): boolean {
+  const panels = [...sidepanelPorts.values()].filter((panel) => panel.windowId === windowId);
+  return panels.length > 0 && !panels.some((panel) => panel.focused);
+}
 
 async function requestSidepanelSearchFocus(windowId?: number): Promise<void> {
   if (windowId === undefined) {
