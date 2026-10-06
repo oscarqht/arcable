@@ -114,6 +114,13 @@
         "mac": "Alt+A"
       }
     },
+    "open-sidepanel-search": {
+      "suggested_key": {
+        "default": "Alt+F",
+        "mac": "Alt+F"
+      },
+      "description": "🔍 Open Side Panel Search"
+    },
     "take-screenshot": {
       "suggested_key": {
         "default": "Alt+K",

@@ -46,6 +46,15 @@ assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_ACTIVATE', tabId: 100 
 await message({ type: 'ARCABLE_TAB_SWITCHER_KEY', action: 'next' }, { ...sender, frameId: 4 });
 assert.equal(forwards[0][0], 1);
 assert.equal(forwards[0][2].frameId, 0);
+// The side panel has no sender tab; its keys go to the top frame of its window's active tab.
+assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'next', windowId: 10 }, {})).success, true);
+assert.equal(forwards[1][0], 1);
+assert.deepEqual({ ...forwards[1][1] }, { type: 'ARCABLE_TAB_SWITCHER_KEY', action: 'next' });
+assert.equal(forwards[1][2].frameId, 0);
+assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'bogus', windowId: 10 }, {})).success, false);
+assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'commit' }, {})).success, false);
+assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'commit', windowId: 404 }, {})).success, false);
+assert.equal(forwards.length, 2);
 tabs[0].active = false;
 assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_ACTIVATE', tabId: 7 }, sender)).success, false);
 assert.equal(updates.length, 1);

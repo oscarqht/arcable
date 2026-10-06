@@ -68,7 +68,7 @@ initTabSwitcherBackground();
 
 // Initialize keyboard shortcut commands (manifest commands)
 if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
-  chrome.commands.onCommand.addListener((command) => {
+  chrome.commands.onCommand.addListener((command, tab) => {
     if (command === 'copy-url') {
       void handleCopyOperation('url');
       return;
@@ -91,6 +91,13 @@ if (typeof chrome !== 'undefined' && chrome.commands?.onCommand) {
 
     if (command === 'copy-title') {
       void handleCopyOperation('title');
+      return;
+    }
+
+    if (command === 'open-sidepanel-search') {
+      // sidePanel.open() needs the command's user gesture, so it must run synchronously here.
+      handleActionClick(tab);
+      void requestSidepanelSearchFocus(tab?.windowId);
       return;
     }
 
@@ -331,6 +338,10 @@ browser.runtime.onMessage.addListener(
     const switcherResponse = handleTabSwitcherMessage(rawMessage, sender);
     if (switcherResponse) return switcherResponse;
     const message = rawMessage as ExtensionMessage;
+
+    if (rawMessage?.type === 'ARCABLE_CONSUME_SIDEPANEL_SEARCH_FOCUS') {
+      return { success: consumeSidepanelSearchFocus(rawMessage.windowId) };
+    }
 
     // Handle OAuth bridge event from content script
     if (rawMessage && rawMessage.type === 'oauth_bridge_success') {
@@ -1112,6 +1123,32 @@ async function openSidepanelTab(): Promise<void> {
   } catch (tabErr) {
     console.error('[Arcable Background] Failed to create sidepanel tab:', tabErr);
   }
+}
+
+// A freshly opened side panel may not be listening yet, so it claims a recent request on load.
+const SIDEPANEL_SEARCH_FOCUS_TTL_MS = 5000;
+let sidepanelSearchFocusRequest: { windowId?: number; at: number } | null = null;
+
+async function requestSidepanelSearchFocus(windowId?: number): Promise<void> {
+  if (windowId === undefined) {
+    try {
+      windowId = (await browser.windows.getLastFocused()).id;
+    } catch {}
+  }
+  sidepanelSearchFocusRequest = { windowId, at: Date.now() };
+  try {
+    await browser.runtime.sendMessage({ type: 'ARCABLE_FOCUS_SIDEPANEL_SEARCH', windowId });
+  } catch {
+    // No side panel is listening yet; it will consume the pending request on load.
+  }
+}
+
+function consumeSidepanelSearchFocus(windowId: unknown): boolean {
+  const request = sidepanelSearchFocusRequest;
+  if (!request || Date.now() - request.at > SIDEPANEL_SEARCH_FOCUS_TTL_MS) return false;
+  if (request.windowId !== undefined && windowId !== undefined && request.windowId !== windowId) return false;
+  sidepanelSearchFocusRequest = null;
+  return true;
 }
 
 // Detect Android / mobile environment and configure action behavior appropriately

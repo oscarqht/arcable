@@ -129,6 +129,23 @@ export const RaindropSearchInput: React.FC<RaindropSearchInputProps> = ({
     };
   }, [query, searchResults]);
 
+  // Host shortcut (e.g. the extension's Alt+F): cancelling the event acknowledges the focus request.
+  useEffect(() => {
+    const handleFocusRequest = (e: Event) => {
+      const input = inputRef.current;
+      if (!input) return;
+      e.preventDefault();
+      window.focus();
+      input.focus();
+      input.select();
+    };
+
+    window.addEventListener('arcable:focus-search', handleFocusRequest);
+    return () => {
+      window.removeEventListener('arcable:focus-search', handleFocusRequest);
+    };
+  }, []);
+
   // Perform search against Raindrop API
   const executeSearch = useCallback(
     async (text: string) => {

@@ -187,8 +187,34 @@ export function initTabSwitcherBackground(): void {
   }).catch(() => {});
 }
 
+const PANEL_ACTIONS = ['next', 'previous', 'commit', 'cancel'];
+
+// The side panel has no tab of its own, so it drives the overlay in its window's active tab.
+function forwardPanelKey(message: any): Promise<TabSwitcherResponse> {
+  if (!Number.isInteger(message.windowId) || !PANEL_ACTIONS.includes(message.action)) return Promise.resolve({ success: false });
+  const windowId: number = message.windowId;
+  const run = async (): Promise<TabSwitcherResponse> => {
+    try {
+      const [tab] = await browser.tabs.query({ active: true, windowId });
+      if (tab?.id === undefined) return { success: false };
+      await browser.tabs.sendMessage(tab.id, { type: 'ARCABLE_TAB_SWITCHER_KEY', action: message.action }, { frameId: 0 });
+      return { success: true };
+    } catch {
+      // Restricted pages have no content script to show the overlay.
+      return { success: false };
+    }
+  };
+  // Keyed by negative window id so panel queues never collide with tab ids.
+  const key = -1 - windowId;
+  const queued = (keyQueues.get(key) || Promise.resolve()).then(run);
+  keyQueues.set(key, queued);
+  void queued.then(() => { if (keyQueues.get(key) === queued) keyQueues.delete(key); });
+  return queued;
+}
+
 /** Undefined means this message belongs to another background handler. */
 export function handleTabSwitcherMessage(message: any, sender: browser.Runtime.MessageSender): Promise<TabSwitcherResponse> | undefined {
+  if (message?.type === 'ARCABLE_TAB_SWITCHER_PANEL_KEY') return forwardPanelKey(message);
   if (!['ARCABLE_TAB_SWITCHER_LIST', 'ARCABLE_TAB_SWITCHER_ACTIVATE', 'ARCABLE_TAB_SWITCHER_VISIBILITY', 'ARCABLE_TAB_SWITCHER_KEY'].includes(message?.type)) return undefined;
   const source = sender.tab;
   if (source?.id === undefined || source.windowId === undefined) return Promise.resolve({ success: false });
@@ -218,7 +244,7 @@ export function handleTabSwitcherMessage(message: any, sender: browser.Runtime.M
         return { success: false };
       }
       if (message.type === 'ARCABLE_TAB_SWITCHER_KEY') {
-        if (!['next', 'previous', 'commit', 'cancel'].includes(message.action)) return { success: false };
+        if (!PANEL_ACTIONS.includes(message.action)) return { success: false };
         await browser.tabs.sendMessage(sourceId, message, { frameId: 0 });
         return { success: true };
       }
