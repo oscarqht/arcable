@@ -10,6 +10,7 @@ import {
   RaindropRequestFailureDetails,
 } from '../types/raindrop';
 
+export const ARCABLE_COVERS_COLLECTION_NAME = '_covers';
 export const RAINDROP_API_BASE = 'https://api.raindrop.io/rest/v1';
 export const RAINDROP_OAUTH_AUTH_URL = 'https://raindrop.io/oauth/authorize';
 export const RAINDROP_OAUTH_TOKEN_URL = 'https://raindrop.io/oauth/access_token';
@@ -982,7 +983,7 @@ export async function uploadRaindropFile(
   token: string,
   collectionId: number,
   fileName: string,
-  content: string
+  content: string | Blob
 ): Promise<any> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) {
@@ -991,7 +992,7 @@ export async function uploadRaindropFile(
 
   // Ensure filename has a supported document extension (.txt) for Raindrop upload
   let safeFileName = fileName;
-  if (!safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md')) {
+  if (typeof content === 'string' && !safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md')) {
     safeFileName = `${safeFileName}.txt`;
   }
 
@@ -1001,7 +1002,7 @@ export async function uploadRaindropFile(
     formData.append('collectionId', String(collectionId));
     formData.append('collection', JSON.stringify({ $id: Number(collectionId) }));
   }
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const blob = typeof content === 'string' ? new Blob([content], { type: 'text/plain;charset=utf-8' }) : content;
   formData.append('file', blob, safeFileName);
 
   const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/file`, {

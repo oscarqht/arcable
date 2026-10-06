@@ -15,3 +15,4 @@ export * from './tabUtils';
 export * from './markdown';
 export * from './dragThreshold';
 export * from './zoom';
+export * from './coverLibrary';

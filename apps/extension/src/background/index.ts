@@ -31,6 +31,8 @@ import {
   getDefaultDeviceName,
   searchRaindrop,
   searchRaindropCollectionCovers,
+  listUploadedCovers,
+  uploadCoverToLibrary,
   getRaindropRequestFailureDetails,
   isValidHttpUrl,
   replayOperations,
@@ -852,6 +854,26 @@ browser.runtime.onMessage.addListener(
           return { success: true, data: result };
         } catch (err: any) {
           return { success: false, error: err?.message || 'Failed to search Raindrop' };
+        }
+      }
+
+      case 'RAINDROP_LIST_UPLOADED_COVERS':
+      case 'RAINDROP_UPLOAD_COVER': {
+        const auth = await getStoredAuthState();
+        if (!auth.isAuthenticated || !auth.accessToken) {
+          return { success: false, error: 'Not authenticated with Raindrop' };
+        }
+        try {
+          if (message.type === 'RAINDROP_LIST_UPLOADED_COVERS') {
+            return { success: true, data: await listUploadedCovers(auth.accessToken) };
+          }
+          const payload = message.payload as { name?: string; dataUrl?: string } | undefined;
+          if (typeof payload?.name !== 'string' || typeof payload?.dataUrl !== 'string') {
+            throw new Error('Missing image upload.');
+          }
+          return { success: true, data: await uploadCoverToLibrary(auth.accessToken, payload.name, payload.dataUrl) };
+        } catch (err: any) {
+          return { success: false, error: err?.message || 'Could not access cover library' };
         }
       }
 

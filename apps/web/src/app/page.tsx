@@ -144,6 +144,27 @@ export default function HomePage() {
     }
   };
 
+  const handleListUploadedCovers = useCallback(async () => {
+    const response = await fetch('/api/raindrop/covers', {
+      headers: authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : undefined,
+      cache: 'no-store',
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not load cover library');
+    return result.data;
+  }, [authState.accessToken]);
+
+  const handleUploadCover = useCallback(async (name: string, dataUrl: string) => {
+    const response = await fetch('/api/raindrop/covers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : {}) },
+      body: JSON.stringify({ name, dataUrl }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not upload cover');
+    return result.data;
+  }, [authState.accessToken]);
+
   const handleFetchWorkspace = useCallback(async (options?: { collapseFolders?: boolean }) => {
     try {
       const url = options?.collapseFolders ? '/api/raindrop/sync?collapseFolders=true' : '/api/raindrop/sync';
@@ -681,6 +702,8 @@ export default function HomePage() {
           showWidgets={true}
           defaultViewMode="grid"
           raindropToken={authState.accessToken}
+          onListUploadedCovers={handleListUploadedCovers}
+          onUploadCover={handleUploadCover}
           onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
             if (typeof window !== 'undefined' && url) {
               if (options?.inNewTab) {

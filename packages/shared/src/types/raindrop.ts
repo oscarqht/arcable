@@ -121,3 +121,10 @@ export interface RaindropBackupRecord {
   created?: string;
   lastUpdate?: string;
 }
+
+export interface UploadedCover {
+  id: number;
+  url: string;
+  name: string;
+  createdAt: string;
+}

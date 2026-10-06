@@ -20,6 +20,7 @@ import {
   cleanRaindropToken,
   getRaindropRequestFailureDetails,
   RAINDROP_API_BASE,
+  ARCABLE_COVERS_COLLECTION_NAME,
   encodeRaindropTitle,
   decodeRaindropTitle,
 } from './raindropClient';
@@ -1764,7 +1765,12 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
     .map((id) => byId.get(id))
     .filter((collection): collection is RaindropCollectionItem => Boolean(collection));
   const items = await fetchAllRaindropItems(token, root._id, { nested: true, cacheBust });
-  return { root, archiveRootId: archiveRoot?._id, collections, items };
+  // Cover assets are managed independently and must never enter tab hydration or pruning.
+  const coverCollectionIds = new Set(collections.filter(
+    (collection) => collection.title.trim().toLowerCase() === ARCABLE_COVERS_COLLECTION_NAME
+  ).map((collection) => collection._id));
+  return { root, archiveRootId: archiveRoot?._id, collections,
+    items: items.filter((item) => item.collectionId === undefined || !coverCollectionIds.has(item.collectionId)) };
 }
 
 function createEmptyRemoteWorkspace(): ArcableWorkspaceData {
