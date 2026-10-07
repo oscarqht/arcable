@@ -664,7 +664,7 @@ export const App: React.FC = () => {
     const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_LIST_UPLOADED_COVERS' });
     if (!res?.success) throw new Error(res?.error || 'Could not load cover library');
     return res.data;
-  }, []);
+  }, [raindropToken, hasRaindropAuth]);
 
   const handleUploadCover = useCallback(async (name: string, dataUrl: string) => {
     const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_UPLOAD_COVER', payload: { name, dataUrl } });
