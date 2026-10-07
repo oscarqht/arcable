@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { UploadedCover } from '../../types/raindrop';
 import { listUploadedCovers, uploadCoverToLibrary, validateCoverImage } from '../../utils/coverLibrary';
+import { getUploadedCoverCache, refreshUploadedCoverCache, cacheUploadedCover, EMPTY_UPLOADED_COVERS } from '../../utils/uploadedCoverCache';
 
 export interface UploadedCoverPickerProps {
   raindropToken?: string;
@@ -16,7 +17,12 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
   onSelect: (url: string) => void;
   isDark: boolean;
 }> = ({ raindropToken, onListUploadedCovers, onUploadCover, onBusyChange, value, onSelect, isDark }) => {
-  const [covers, setCovers] = useState<UploadedCover[]>([]);
+  const cache = getUploadedCoverCache(raindropToken, onListUploadedCovers);
+  const subscribe = useCallback((listener: () => void) => {
+    cache.listeners.add(listener);
+    return () => { cache.listeners.delete(listener); };
+  }, [cache]);
+  const covers = useSyncExternalStore(subscribe, () => cache.items || EMPTY_UPLOADED_COVERS, () => EMPTY_UPLOADED_COVERS);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -27,23 +33,20 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
 
   useEffect(() => {
     const current = ++generation.current;
-    setCovers([]);
     setError('');
     setUploading(false);
     onBusyChange?.(false);
+    setLoading(connected);
     if (connected) {
-      setLoading(true);
-      const request = onListUploadedCovers ? onListUploadedCovers() : listUploadedCovers(raindropToken!);
-      request.then((items) => {
-        if (generation.current === current) setCovers(items);
-      }).catch((err) => {
+      const request = refreshUploadedCoverCache(cache, () => onListUploadedCovers ? onListUploadedCovers() : listUploadedCovers(raindropToken!));
+      request.catch((err) => {
         if (generation.current === current) setError(err instanceof Error ? err.message : 'Could not load uploads.');
       }).finally(() => {
         if (generation.current === current) setLoading(false);
       });
     }
     return () => { ++generation.current; };
-  }, [connected, raindropToken, onListUploadedCovers, onBusyChange, reload]);
+  }, [cache, connected, raindropToken, onListUploadedCovers, onBusyChange, reload]);
 
   useEffect(() => () => { onBusyChange?.(false); }, [onBusyChange]);
 
@@ -67,8 +70,8 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
         image.src = dataUrl;
       });
       const item = onUploadCover ? await onUploadCover(file.name, dataUrl) : await uploadCoverToLibrary(raindropToken!, file.name, dataUrl);
+      cacheUploadedCover(cache, item);
       if (generation.current !== current) return;
-      setCovers((items) => [item, ...items.filter((cover) => cover.id !== item.id)]);
       onSelect(item.url);
     } catch (err) {
       if (generation.current === current) setError(err instanceof Error ? err.message : 'Upload failed. Please retry.');
@@ -83,7 +86,7 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
   return <div style={{ margin: '8px 0', fontSize: '12px', color: isDark ? '#cbd5e1' : '#334155' }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
       <strong>My uploads</strong>
-      <button type="button" disabled={!connected || loading || uploading} onClick={() => fileInput.current?.click()}
+      <button type="button" disabled={!connected || (loading && !covers.length) || uploading} onClick={() => fileInput.current?.click()}
         style={{ padding: '5px 8px', borderRadius: '6px', border: '1px solid #64748b', background: 'transparent', color: 'inherit', cursor: 'pointer' }}>
         {uploading ? 'Uploading…' : 'Upload image'}
       </button>
@@ -96,7 +99,7 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
     </div>
     <p style={{ margin: '6px 0', fontSize: '11px', opacity: 0.8 }}>PNG, JPEG, GIF · up to 2 MB. Uploads stay in your library when you cancel.</p>
     {!connected && <p>Connect Raindrop to upload and reuse covers.</p>}
-    <div role="status" aria-live="polite">{loading ? 'Loading uploads…' : uploading ? 'Uploading image…' : connected && !covers.length && !error ? 'No uploaded covers yet.' : ''}</div>
+    <div role="status" aria-live="polite">{uploading ? 'Uploading image…' : loading ? (cache.items ? 'Refreshing uploads…' : 'Loading uploads…') : connected && !covers.length && !error ? 'No uploaded covers yet.' : ''}</div>
     {error && <div role="alert" style={{ color: isDark ? '#fca5a5' : '#b91c1c', margin: '6px 0' }}>
       {error} <button type="button" disabled={uploading || loading} onClick={() => setReload((n) => n + 1)}>Reload library</button>
     </div>}
