@@ -1,5 +1,7 @@
 'use client';
 
+import type { UploadedCover } from '../../types/raindrop';
+
 import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from 'react';
 import { Space, Folder, Tab, TmpTab, ArcableWorkspaceData, TabUrlVariant, TabOpenOptions, WorkspaceSiblingItem, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../../types/workspace';
 export { VIRTUAL_SYNCED_TABS_SPACE_ID };
@@ -125,6 +127,8 @@ export interface WorkspaceManagerProps {
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   raindropToken?: string;
   hasRaindropAuth?: boolean;
+  onListUploadedCovers?: () => Promise<UploadedCover[]>;
+  onUploadCover?: (name: string, dataUrl: string) => Promise<UploadedCover>;
   onSearchCollectionCovers?: (query: string) => Promise<string[]>;
   searchPlaceholder?: string;
   onSearchRaindrop?: (query: string, options?: { signal?: AbortSignal }) => Promise<RaindropSearchResult>;
@@ -187,6 +191,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       raindropToken,
       hasRaindropAuth,
       onSearchCollectionCovers,
+      onListUploadedCovers,
+      onUploadCover,
       searchPlaceholder,
       onSearchRaindrop,
       onSaveToRaindrop,
@@ -3616,6 +3622,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         initialPinned={defaultTabPinned}
         initialFavourite={defaultTabFavourite}
         initialIsGroup={isTabGroupModal}
+        onListUploadedCovers={onListUploadedCovers}
+        onUploadCover={onUploadCover}
         raindropToken={raindropToken}
         onSearchCovers={onSearchCollectionCovers}
         onDelete={handleRequestDeleteTab}

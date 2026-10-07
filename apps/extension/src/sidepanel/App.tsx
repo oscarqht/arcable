@@ -660,6 +660,18 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleListUploadedCovers = useCallback(async () => {
+    const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_LIST_UPLOADED_COVERS' });
+    if (!res?.success) throw new Error(res?.error || 'Could not load cover library');
+    return res.data;
+  }, []);
+
+  const handleUploadCover = useCallback(async (name: string, dataUrl: string) => {
+    const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_UPLOAD_COVER', payload: { name, dataUrl } });
+    if (!res?.success) throw new Error(res?.error || 'Could not upload cover');
+    return res.data;
+  }, []);
+
   const handleSearchCollectionCovers = useCallback(async (query: string): Promise<string[]> => {
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SEARCH_COLLECTION_COVERS',
@@ -1697,6 +1709,8 @@ export const App: React.FC = () => {
           onSyncRaindrop={hasRaindropAuth ? handleSyncRaindrop : undefined}
           onSearchRaindrop={hasRaindropAuth ? handleSearchRaindrop : undefined}
           onSearchCollectionCovers={hasRaindropAuth ? handleSearchCollectionCovers : undefined}
+          onListUploadedCovers={hasRaindropAuth ? handleListUploadedCovers : undefined}
+          onUploadCover={hasRaindropAuth ? handleUploadCover : undefined}
           onSyncStateChange={setIsSyncing}
           isInitialLoading={isInitialLoading}
         />

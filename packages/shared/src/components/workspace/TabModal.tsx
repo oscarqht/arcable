@@ -11,6 +11,7 @@ import { getDomain, getFolderPath, getTreeOrderedFolders, getSiblingTabs, findTa
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
 import { generateId } from '../../utils/format';
 import { TabFavicon } from './TabFavicon';
+import { UploadedCoverPicker, type UploadedCoverPickerProps } from './UploadedCoverPicker';
 
 interface UrlInputProps {
   value: string;
@@ -42,7 +43,8 @@ const UrlInput: React.FC<UrlInputProps> = ({
   );
 };
 
-interface VariantCoverPopoverProps {
+interface VariantCoverPopoverProps extends UploadedCoverPickerProps {
+  isUploading?: boolean;
   variant: TabUrlVariant;
   buttonElement: HTMLElement | null;
   isOpen: boolean;
@@ -61,6 +63,10 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
   onSelectCover,
   raindropToken,
   onSearchCovers,
+  onListUploadedCovers,
+  onUploadCover,
+  onBusyChange,
+  isUploading,
   isDark,
 }) => {
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
@@ -71,13 +77,21 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen && buttonElement) {
+    if (!isOpen || !buttonElement) return;
+    const position = () => {
       const rect = buttonElement.getBoundingClientRect();
-      const popoverWidth = 280;
+      const popoverWidth = Math.min(280, window.innerWidth - 24);
       const left = Math.max(12, Math.min(window.innerWidth - popoverWidth - 12, rect.left));
-      const top = Math.min(window.innerHeight - 300, rect.bottom + 6);
+      const top = Math.max(12, Math.min(window.innerHeight - 400, rect.bottom + 6));
       setCoords({ top, left });
-    }
+    };
+    position();
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
   }, [isOpen, buttonElement]);
 
   useEffect(() => {
@@ -160,7 +174,7 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
         position: 'fixed',
         top: `${coords.top}px`,
         left: `${coords.left}px`,
-        width: '280px',
+        width: 'min(280px, calc(100vw - 24px))',
         backgroundColor: isDark ? '#1e293b' : '#ffffff',
         borderRadius: '12px',
         border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
@@ -168,6 +182,8 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
           ? '0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.4)'
           : '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
         padding: '12px',
+        maxHeight: `min(500px, calc(100vh - ${coords.top + 12}px))`,
+        overflowY: 'auto',
         zIndex: 100000,
         boxSizing: 'border-box',
         display: 'flex',
@@ -183,6 +199,7 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
         {variant.favIconUrl && (
           <button
             type="button"
+            disabled={isUploading}
             onClick={() => {
               onSelectCover(undefined);
               onClose();
@@ -227,12 +244,15 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
         </div>
       )}
 
+      <UploadedCoverPicker raindropToken={raindropToken} onListUploadedCovers={onListUploadedCovers}
+        onUploadCover={onUploadCover} onBusyChange={onBusyChange} value={variant.favIconUrl}
+        onSelect={onSelectCover} isDark={isDark} />
       <input
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={!raindropToken && !onSearchCovers ? 'Set Raindrop token to search covers' : 'Search covers...'}
-        disabled={!raindropToken && !onSearchCovers}
+        disabled={isUploading || (!raindropToken && !onSearchCovers)}
         autoFocus
         style={{
           width: '100%',
@@ -274,6 +294,7 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
             <button
               key={`${cover}-${idx}`}
               type="button"
+              disabled={isUploading}
               onClick={() => {
                 onSelectCover(cover);
                 onClose();
@@ -321,7 +342,7 @@ const VariantCoverPopover: React.FC<VariantCoverPopoverProps> = ({
   );
 };
 
-interface TabModalProps {
+interface TabModalProps extends UploadedCoverPickerProps {
   isOpen: boolean;
   onClose: () => void;
   tab?: Tab | null; // null/undefined for create, Tab for edit
@@ -369,12 +390,15 @@ export const TabModal: React.FC<TabModalProps> = ({
   initialIsGroup,
   raindropToken,
   onSearchCovers,
+  onListUploadedCovers,
+  onUploadCover,
   onDelete,
   onSave,
 }) => {
   const { isDark } = useSystemTheme();
   const [url, setUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [coverQuery, setCoverQuery] = useState('');
   const [coverUrl, setCoverUrl] = useState<string | undefined>();
   const [coverResults, setCoverResults] = useState<string[]>([]);
@@ -663,7 +687,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (titleConflictTab || duplicateVariantName) return;
+    if (titleConflictTab || duplicateVariantName || isUploadingCover) return;
 
     if (showVariants && variants.length > 0) {
       const validVariants = variants.filter((v) => v.name.trim() || v.url.trim());
@@ -942,6 +966,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                       {/* Cover Icon Button */}
                       <button
                         type="button"
+                        disabled={isUploadingCover}
                         ref={(el) => {
                           variantButtonRefs.current[v.id] = el;
                         }}
@@ -1109,6 +1134,10 @@ export const TabModal: React.FC<TabModalProps> = ({
                     );
                   }}
                   raindropToken={raindropToken}
+                  onListUploadedCovers={onListUploadedCovers}
+                  onUploadCover={onUploadCover}
+                  isUploading={isUploadingCover}
+                  onBusyChange={setIsUploadingCover}
                   onSearchCovers={onSearchCovers}
                   isDark={isDark}
                 />
@@ -1247,6 +1276,7 @@ export const TabModal: React.FC<TabModalProps> = ({
               {coverUrl && (
                 <button
                   type="button"
+                  disabled={isUploadingCover}
                   onClick={() => {
                     setCoverUrl(undefined);
                     if (showVariants && variants.length > 0) {
@@ -1279,12 +1309,18 @@ export const TabModal: React.FC<TabModalProps> = ({
                 </div>
               </div>
             )}
+            <UploadedCoverPicker raindropToken={raindropToken} onListUploadedCovers={onListUploadedCovers}
+              onUploadCover={onUploadCover} onBusyChange={setIsUploadingCover} value={coverUrl}
+              onSelect={(cover) => {
+                setCoverUrl(cover);
+                setVariants((prev) => prev.map((v, idx) => idx === 0 ? { ...v, favIconUrl: cover } : v));
+              }} isDark={isDark} />
             <input
               type="search"
               value={coverQuery}
               onChange={(e) => setCoverQuery(e.target.value)}
               placeholder="Search Raindrop covers"
-              disabled={!raindropToken && !onSearchCovers}
+              disabled={isUploadingCover || (!raindropToken && !onSearchCovers)}
               style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
             />
             {!raindropToken && !onSearchCovers ? (
@@ -1297,6 +1333,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                   <button
                     key={cover}
                     type="button"
+                    disabled={isUploadingCover}
                     onClick={() => {
                       setCoverUrl(cover);
                       if (showVariants && variants.length > 0) {
@@ -1353,7 +1390,7 @@ export const TabModal: React.FC<TabModalProps> = ({
                 type="submit"
                 variant="primary"
                 size="md"
-                disabled={Boolean(titleConflictTab || duplicateVariantName)}
+                disabled={Boolean(titleConflictTab || duplicateVariantName || isUploadingCover)}
               >
                 {tab ? 'Save' : 'Add'}
               </Button>
