@@ -84,6 +84,7 @@ export interface WorkspaceManagerProps {
   onOpenVariant?: (url: string, tab: Tab, variant: TabUrlVariant, options?: TabOpenOptions) => void;
   onActivateGroup?: (groupTab: Tab) => boolean | Promise<boolean>;
   onCaptureCurrentTab?: () => Promise<{ url: string; title?: string; favIconUrl?: string } | null>;
+  onRenameTab?: (tab: Tab, newTitle: string) => void;
 
   compact?: boolean;
   /** Shows the local browser-tab virtual space. This is only meaningful for the extension side panel. */
@@ -173,6 +174,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onClearTmpTabs,
       onPromoteTmpTab,
       onRenameTmpTab,
+      onRenameTab: onRenameTabProp,
       onMoveTmpTabToSpace: onMoveTmpTabToSpaceProp,
       onTabPromoted,
       onDropTmpTab: onDropTmpTabProp,
@@ -1704,6 +1706,23 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     onRenameTmpTab?.(tab, newTitle);
   }, [updateTmpTab, onRenameTmpTab]);
 
+  const handleRenameTab = useCallback(
+    (tab: Tab, newTitle: string) => {
+      const trimmed = newTitle.trim();
+      const updates: Partial<Tab> = {
+        customTitle: trimmed || undefined,
+      };
+      if (tab.urlVariants && tab.urlVariants.length > 0) {
+        updates.urlVariants = tab.urlVariants.map((v, idx) =>
+          idx === 0 ? { ...v, name: trimmed } : v
+        );
+      }
+      updateTab(tab.id, updates);
+      onRenameTabProp?.(tab, trimmed);
+    },
+    [updateTab, onRenameTabProp]
+  );
+
   const handleDropTmpTabIntoFolder = useCallback(
     (
       tmpTab: TmpTab,
@@ -2941,6 +2960,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setTargetSpaceIdForModal(space.id);
                     setIsTabModalOpen(true);
                   }}
+                  onRenameTab={handleRenameTab}
                   onDuplicateTab={(t) => duplicateTab(t.id)}
                   onArchiveTab={handleArchiveTab}
                   onDeleteTab={handleRequestDeleteTab}
@@ -3092,6 +3112,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
                       }}
+                      onRenameTab={handleRenameTab}
                       onDuplicateTab={(t) => duplicateTab(t.id)}
                       onArchiveTab={handleArchiveTab}
                       onDeleteTab={handleRequestDeleteTab}
@@ -3274,6 +3295,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setTargetSpaceIdForModal(space.id);
                         setIsTabModalOpen(true);
                       }}
+                      onRenameTab={handleRenameTab}
                       onDuplicateTab={(t) => duplicateTab(t.id)}
                       onArchiveTab={handleArchiveTab}
                       onDeleteTab={handleRequestDeleteTab}
