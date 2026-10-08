@@ -129,6 +129,20 @@ async function buildTarget(browserName) {
     },
   });
 
+  await build({
+    configFile: false,
+    build: {
+      outDir,
+      emptyOutDir: false,
+      lib: {
+        entry: resolve(__dirname, 'src/content/hide-scrollbars.ts'),
+        name: 'HideScrollbars',
+        formats: ['iife'],
+        fileName: () => 'hide-scrollbars.js',
+      },
+    },
+  });
+
   // 3.5 Build OAuth Bridge Content Script
   await build({
     configFile: false,

@@ -23,6 +23,7 @@ import { WorkspaceOperation } from '@arcable/shared/types';
 import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
+import { STORAGE_KEY_HIDE_SCROLLBARS } from '../background/hideScrollbars';
 import { STORAGE_KEY_AUTO_PIP } from '../background/autoPip';
 import { STORAGE_KEY_ZEN_ZOOM_SYNC } from '../sidepanel/zoomSync';
 import packageJson from '../../package.json';
@@ -56,6 +57,8 @@ export const App: React.FC = () => {
 
   // Custom code prefill pattern (from popup/sidepanel quick trigger)
   const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
+
+  const [hideScrollbarsEnabled, setHideScrollbarsEnabled] = useState(false);
 
   // Auto Picture-in-Picture state (default enabled)
   const [autoPipEnabled, setAutoPipEnabled] = useState(true);
@@ -93,6 +96,16 @@ export const App: React.FC = () => {
       showToast('Failed to copy command to clipboard', 'warning');
     }
   }, [activeZenCommand, zenPlatform, showToast]);
+
+  const handleToggleHideScrollbars = useCallback(async (enabled: boolean) => {
+    try {
+      await browser.storage.local.set({ [STORAGE_KEY_HIDE_SCROLLBARS]: enabled });
+      setHideScrollbarsEnabled(enabled);
+      showToast(enabled ? 'Scrollbars hidden on all websites' : 'Website scrollbars restored', 'info');
+    } catch {
+      showToast('Failed to update scrollbar setting', 'warning');
+    }
+  }, [showToast]);
 
   const handleToggleAutoPip = useCallback(async (enabled: boolean) => {
     try {
@@ -157,9 +170,11 @@ export const App: React.FC = () => {
     // 2. Load sync info and preferences from storage
     browser.storage.local.get([
       'arcable_last_synced_at',
+      STORAGE_KEY_HIDE_SCROLLBARS,
       STORAGE_KEY_AUTO_PIP,
       STORAGE_KEY_ZEN_ZOOM_SYNC,
     ]).then((res: any) => {
+      setHideScrollbarsEnabled(res[STORAGE_KEY_HIDE_SCROLLBARS] === true);
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
       }
@@ -174,6 +189,9 @@ export const App: React.FC = () => {
     // 3. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
+        if (changes[STORAGE_KEY_HIDE_SCROLLBARS]) {
+          setHideScrollbarsEnabled(changes[STORAGE_KEY_HIDE_SCROLLBARS].newValue === true);
+        }
         if (changes[STORAGE_KEY_AUTO_PIP]) {
           setAutoPipEnabled(changes[STORAGE_KEY_AUTO_PIP].newValue !== false);
         }
@@ -1074,6 +1092,28 @@ export const App: React.FC = () => {
                   </label>
                 </div>
               </div>
+            </Card>
+
+            <Card
+              title="Website Appearance"
+              subtitle="Customize how websites look in this browser."
+              style={{ borderRadius: '16px', padding: '24px' }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
+                <div>
+                  <span style={{ fontSize: '14px', fontWeight: 600 }}>Hide all scrollbars</span>
+                  <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: '4px 0 0', lineHeight: 1.5 }}>
+                    Hide page and nested scrollbars on all websites while keeping scrolling enabled. Applies immediately to open and new pages. Browser-protected pages are excluded.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={hideScrollbarsEnabled}
+                  onChange={(e) => void handleToggleHideScrollbars(e.target.checked)}
+                  style={{ width: '20px', height: '20px', flexShrink: 0, accentColor: '#0284c7' }}
+                />
+              </label>
             </Card>
 
             <Card

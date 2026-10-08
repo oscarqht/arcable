@@ -57,6 +57,7 @@ import {
   LAST_ACTIVE_WEB_TAB_STORAGE_KEY,
   getPreviousActiveTab,
 } from '../utils/browser';
+import { initHideScrollbarsBackground, applyHideScrollbars } from './hideScrollbars';
 import { initAutoPipBackground } from './autoPip';
 import { initTabSwitcherBackground, handleTabSwitcherMessage, type TabSwitcherResponse } from './tabSwitcher';
 
@@ -66,6 +67,7 @@ console.log('[Arcable Extension] Background service worker / script initialized.
 initRunCodeBackgroundListeners();
 initContextMenuListeners();
 initAutoPipBackground();
+initHideScrollbarsBackground();
 initTabSwitcherBackground();
 
 // Initialize keyboard shortcut commands (manifest commands)
@@ -346,6 +348,11 @@ browser.runtime.onMessage.addListener(
   async (rawMessage: any, sender: any): Promise<ExtensionResponse | TabSwitcherResponse> => {
     const switcherResponse = handleTabSwitcherMessage(rawMessage, sender);
     if (switcherResponse) return switcherResponse;
+    if (rawMessage?.type === 'ARCABLE_APPLY_HIDE_SCROLLBARS') {
+      if (sender.tab?.id === undefined) return { success: false };
+      await applyHideScrollbars({ tabId: sender.tab.id, frameIds: [sender.frameId ?? 0] });
+      return { success: true };
+    }
     const message = rawMessage as ExtensionMessage;
 
     if (rawMessage?.type === 'ARCABLE_CONSUME_SIDEPANEL_SEARCH_FOCUS') {
