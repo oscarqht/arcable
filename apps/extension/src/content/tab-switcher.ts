@@ -25,14 +25,113 @@ const styles = `
   .preview { aspect-ratio: 8 / 5; overflow: hidden; border-radius: 6px; background: #11141b;
     display: flex; align-items: center; justify-content: center; color: #8b94a8; font-size: 30px; }
   .preview img { width: 100%; height: 100%; object-fit: contain; }
-  .title { font-weight: 600; margin-top: 9px; }
-  .title, .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .preview img.preview-favicon { width: 36px; height: 36px; object-fit: contain; }
+  .title-row { display: flex; align-items: center; gap: 6px; margin-top: 9px; min-width: 0; }
+  .favicon-box { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .favicon-box img.favicon { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; }
+  .favicon-fallback { width: 16px; height: 16px; border-radius: 3px; background: #2f3441;
+    display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #a6adbd; line-height: 1; text-transform: uppercase; }
+  .favicon-fallback svg { width: 14px; height: 14px; stroke: #a6adbd; }
+  .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .url { color: #a6adbd; font-size: 11px; margin-top: 3px; }
   .badge { height: 17px; color: #bbb3ff; font-size: 10px; margin-top: 7px; }
   .loading { color: #a6adbd; padding: 30px 0; text-align: center; }
   @media (max-width: 600px) { .panel { padding: 12px; width: calc(100vw - 20px); }
     .tabs { gap: 5px; } button { padding: 3px; } .hint { font-size: 10px; } }
 `;
+
+function getDomain(urlStr?: string): string {
+  if (!urlStr || !/^https?:\/\//i.test(urlStr)) return '';
+  try {
+    return new URL(urlStr).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function createGlobeIcon(): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+
+  const circle = document.createElementNS(ns, 'circle');
+  circle.setAttribute('cx', '12');
+  circle.setAttribute('cy', '12');
+  circle.setAttribute('r', '10');
+
+  const line = document.createElementNS(ns, 'line');
+  line.setAttribute('x1', '2');
+  line.setAttribute('y1', '12');
+  line.setAttribute('x2', '22');
+  line.setAttribute('y2', '12');
+
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z');
+
+  svg.append(circle, line, path);
+  return svg;
+}
+
+function renderFavicon(wrapper: HTMLElement, tab: SwitcherTab): void {
+  const domain = getDomain(tab.url);
+  const letter = (domain || tab.title || tab.url || '?').slice(0, 1).toUpperCase();
+
+  const showFallback = () => {
+    wrapper.replaceChildren();
+    const fallback = document.createElement('div');
+    fallback.className = 'favicon-fallback';
+    if (letter && letter !== '?') {
+      fallback.textContent = letter;
+    } else {
+      fallback.append(createGlobeIcon());
+    }
+    wrapper.append(fallback);
+  };
+
+  const candidateUrls: string[] = [];
+  if (tab.favIconUrl) {
+    candidateUrls.push(tab.favIconUrl);
+  }
+  if (/^https?:\/\//i.test(tab.url || '')) {
+    try {
+      const originFavicon = `${new URL(tab.url).origin}/favicon.ico`;
+      if (!candidateUrls.includes(originFavicon)) {
+        candidateUrls.push(originFavicon);
+      }
+    } catch {
+      // Ignore invalid URL
+    }
+  }
+
+  if (candidateUrls.length === 0) {
+    showFallback();
+    return;
+  }
+
+  let index = 0;
+  const img = document.createElement('img');
+  img.className = 'favicon';
+  img.alt = '';
+
+  const tryNext = () => {
+    if (index < candidateUrls.length) {
+      img.src = candidateUrls[index++];
+    } else {
+      img.remove();
+      showFallback();
+    }
+  };
+
+  img.onerror = tryNext;
+  tryNext();
+  wrapper.append(img);
+}
 
 function closeOverlay(): void {
   host?.remove();
@@ -108,19 +207,46 @@ function render(tabs: SwitcherTab[], selected: number): void {
         img.src = tab.thumbnail;
         img.alt = '';
         preview.append(img);
+      } else if (tab.favIconUrl) {
+        const img = document.createElement('img');
+        img.className = 'preview-favicon';
+        img.src = tab.favIconUrl;
+        img.alt = '';
+        img.onerror = () => {
+          img.remove();
+          preview.textContent = (tab.title || tab.url || '?').slice(0, 1).toUpperCase();
+        };
+        preview.append(img);
       } else {
-        // Avoid loading third-party favicon URLs just to render a fallback.
         preview.textContent = (tab.title || tab.url || '?').slice(0, 1).toUpperCase();
       }
       card.append(preview);
-      for (const [className, text] of [
-        ['title', tab.title || 'Untitled tab'], ['url', tab.url], ['badge', index === 0 ? 'Current tab' : '\u00a0'],
-      ]) {
-        const element = document.createElement('div');
-        element.className = className;
-        element.textContent = text;
-        card.append(element);
-      }
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'title-row';
+
+      const faviconBox = document.createElement('div');
+      faviconBox.className = 'favicon-box';
+      renderFavicon(faviconBox, tab);
+      titleRow.append(faviconBox);
+
+      const titleElement = document.createElement('div');
+      titleElement.className = 'title';
+      titleElement.textContent = tab.title || 'Untitled tab';
+      titleRow.append(titleElement);
+
+      card.append(titleRow);
+
+      const urlElement = document.createElement('div');
+      urlElement.className = 'url';
+      urlElement.textContent = tab.url;
+      card.append(urlElement);
+
+      const badgeElement = document.createElement('div');
+      badgeElement.className = 'badge';
+      badgeElement.textContent = index === 0 ? 'Current tab' : '\u00a0';
+      card.append(badgeElement);
+
       list.append(card);
     });
     panel.append(list);
