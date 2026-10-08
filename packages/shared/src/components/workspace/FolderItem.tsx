@@ -65,6 +65,7 @@ export interface FolderItemProps {
   onReplaceTabUrl?: (tab: Tab, targetVariantId?: string) => void | Promise<void>;
   onMediaControl?: (browserTabId: number, action: MediaControlAction) => void;
   onEditTab: (tab: Tab) => void;
+  onRenameTab?: (tab: Tab, newTitle: string) => void;
   onDuplicateTab?: (tab: Tab) => void;
   onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
@@ -117,6 +118,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onReplaceTabUrl,
   onMediaControl,
   onEditTab,
+  onRenameTab,
   onDuplicateTab,
   onArchiveTab,
   onDeleteTab,
@@ -1277,6 +1279,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onResetDivertedUrl={onResetDivertedUrl}
                   onMediaControl={onMediaControl}
                   onEditTab={onEditTab}
+                  onRenameTab={onRenameTab}
                   onDeleteTab={onDeleteTab}
                   onArchiveTab={onArchiveTab}
                   onTogglePinTab={onTogglePinTab}
@@ -1336,6 +1339,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                     : undefined
                 }
                 onEdit={onEditTab}
+                onRename={onRenameTab}
                 onDuplicate={onDuplicateTab}
                 onArchive={onArchiveTab}
                 onDelete={onDeleteTab}

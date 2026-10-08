@@ -23,6 +23,8 @@ import {
   PlusIcon,
   StarIcon,
   EditIcon,
+  CheckIcon,
+  CloseIcon,
   DuplicateIcon,
   TrashIcon,
   ArchiveIcon,
@@ -39,6 +41,7 @@ export interface PinnedTabsShelfProps {
   onOpenTab?: (url: string, tabId?: string, options?: TabOpenOptions) => void;
   onOpenTmpTab?: (url: string, title?: string) => void;
   onEditTab: (tab: Tab) => void;
+  onRenameTab?: (tab: Tab, newTitle: string) => void;
   onDuplicateTab?: (tab: Tab) => void;
   onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
@@ -57,6 +60,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onOpenTab,
   onOpenTmpTab,
   onEditTab,
+  onRenameTab,
   onDuplicateTab,
   onArchiveTab,
   onDeleteTab,
@@ -93,6 +97,43 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
   const actionDropdownRefs = React.useRef<Record<string, ActionDropdownHandle | null>>({});
+
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingTabId) {
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 20);
+    }
+  }, [editingTabId]);
+
+  const handleStartRename = (tab: Tab, currentDisplayTitle: string, e?: React.MouseEvent) => {
+    if (!onRenameTab) return;
+    e?.stopPropagation();
+    e?.preventDefault();
+    setEditingTabId(tab.id);
+    const firstVariantName =
+      tab.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants[0]?.name?.trim() : undefined;
+    setEditTitle(tab.customTitle || firstVariantName || currentDisplayTitle);
+  };
+
+  const handleSaveRename = (tab: Tab) => {
+    setEditingTabId(null);
+    onRenameTab?.(tab, editTitle.trim());
+  };
+
+  const handleCancelRename = (e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    setEditingTabId(null);
+    setEditTitle('');
+  };
 
   if (tabs.length === 0) {
     return null;
@@ -242,14 +283,15 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
         {tabs.map((tab) => {
           const isHovered = hoveredTabId === tab.id;
           const isDragTarget = dragOverTabId === tab.id;
+          const isEditingThisTab = editingTabId === tab.id;
           const domain = getDomain(tab.url);
           const displayTitle = tab.customTitle || domain || cleanUrl(tab.url) || 'Pinned Tab';
 
           return (
             <div
               key={tab.id}
-              draggable={true}
-              onMouseDown={handleDraggableMouseDown}
+              draggable={!isEditingThisTab}
+              onMouseDown={isEditingThisTab ? undefined : handleDraggableMouseDown}
               onDragStart={(e) => handleDragStart(e, tab.id)}
               onDragOver={(e) => handleDragOver(e, tab.id)}
               onDragLeave={handleDragLeave}
@@ -263,8 +305,17 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   setDropPosition(null);
                 }
               }}
+              onDoubleClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest('button, input, textarea, a, [role="button"], [data-no-drag]')) {
+                  return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                handleStartRename(tab, displayTitle, e);
+              }}
               onClick={(e) => {
-                if (!shouldAllowClick(e)) return;
+                if (isEditingThisTab || !shouldAllowClick(e)) return;
                 if (tab.url) {
                   const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
                   if (onOpenTab) {
@@ -297,13 +348,17 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                 borderLeft: isDragTarget && dropPosition === 'before' ? '3px solid #0284c7' : undefined,
                 borderRight: isDragTarget && dropPosition === 'after' ? '3px solid #0284c7' : undefined,
                 borderRadius: '11px',
-                cursor: 'grab',
+                cursor: isEditingThisTab ? 'default' : 'grab',
                 transition: 'all 0.12s ease',
                 position: 'relative',
-                userSelect: 'none',
-                boxShadow: isHovered ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                userSelect: isEditingThisTab ? 'auto' : 'none',
+                boxShadow: isEditingThisTab
+                  ? `0 0 0 2px ${effectiveDark ? '#38bdf8' : '#0284c7'}`
+                  : isHovered
+                  ? '0 2px 6px rgba(0,0,0,0.08)'
+                  : 'none',
               }}
-              title={`${displayTitle}\n${tab.url}`}
+              title={isEditingThisTab ? undefined : `${displayTitle}\n${tab.url}`}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: 1 }}>
                 <TabFavicon
@@ -316,143 +371,245 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                   badge={tabAssociations?.[tab.id]?.badge}
                 />
 
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: 'inherit',
-                  }}
-                >
-                  {displayTitle}
-                </span>
+                {isEditingThisTab ? (
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSaveRename(tab);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        handleCancelRename(e);
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: textColor,
+                      backgroundColor: effectiveDark ? 'rgba(0, 0, 0, 0.3)' : '#ffffff',
+                      border: `1px solid ${effectiveDark ? '#38bdf8' : '#0284c7'}`,
+                      borderRadius: '4px',
+                      padding: '1px 5px',
+                      outline: 'none',
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: 'inherit',
+                    }}
+                  >
+                    {displayTitle}
+                  </span>
+                )}
               </div>
 
-              {/* Action dropdown on hover */}
-              <ActionDropdown
-                items={[
-                  {
-                    id: 'copy-url',
-                    label: 'Copy URL',
-                    icon: <CopyIcon size={14} />,
-                    onClick: () => {
-                      if (tab.url) navigator.clipboard.writeText(tab.url);
+              {/* Action dropdown or save/cancel controls when editing */}
+              {isEditingThisTab ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    flexShrink: 0,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSaveRename(tab)}
+                    title="Save title"
+                    aria-label="Save title"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '5px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#34d399' : '#059669',
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CheckIcon size={13} color={effectiveDark ? '#34d399' : '#059669'} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelRename}
+                    title="Cancel"
+                    aria-label="Cancel"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '5px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: effectiveDark ? '#94a3b8' : textColor,
+                      cursor: 'pointer',
+                      padding: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CloseIcon size={13} />
+                  </button>
+                </div>
+              ) : (
+                <ActionDropdown
+                  items={[
+                    {
+                      id: 'copy-url',
+                      label: 'Copy URL',
+                      icon: <CopyIcon size={14} />,
+                      onClick: () => {
+                        if (tab.url) navigator.clipboard.writeText(tab.url);
+                      },
                     },
-                  },
-                  (() => {
-                    const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
-                    const hasMultipleVariants = validVariants.length > 1;
-                    const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
-                      if (onOpenTmpTab) {
-                        onOpenTmpTab(urlToOpen, titleToUse);
-                      } else if (onOpenTab) {
-                        onOpenTab(urlToOpen, undefined, { inNewTab: true, asTmpTab: true });
-                      } else {
-                        window.open(urlToOpen, '_blank', 'noopener,noreferrer');
-                      }
-                    };
+                    (() => {
+                      const validVariants = (tab.urlVariants || []).filter((v) => Boolean(v.url));
+                      const hasMultipleVariants = validVariants.length > 1;
+                      const handleOpenTmpTab = (urlToOpen: string, titleToUse?: string) => {
+                        if (onOpenTmpTab) {
+                          onOpenTmpTab(urlToOpen, titleToUse);
+                        } else if (onOpenTab) {
+                          onOpenTab(urlToOpen, undefined, { inNewTab: true, asTmpTab: true });
+                        } else {
+                          window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+                        }
+                      };
 
-                    return {
-                      id: 'open-tmp-tab',
-                      label: 'Open in new tab',
-                      icon: <ExternalLinkIcon size={14} />,
-                      ...(hasMultipleVariants
-                        ? {
-                            children: validVariants.map((v, idx) => ({
-                              id: `open-tmp-var-${v.id || idx}`,
-                              label: v.name || cleanUrl(v.url) || 'Variant',
-                              icon: <GlobeIcon size={13} />,
+                      return {
+                        id: 'open-tmp-tab',
+                        label: 'Open in new tab',
+                        icon: <ExternalLinkIcon size={14} />,
+                        ...(hasMultipleVariants
+                          ? {
+                              children: validVariants.map((v, idx) => ({
+                                id: `open-tmp-var-${v.id || idx}`,
+                                label: v.name || cleanUrl(v.url) || 'Variant',
+                                icon: <GlobeIcon size={13} />,
+                                onClick: (e: any) => {
+                                  e?.stopPropagation?.();
+                                  handleOpenTmpTab(v.url, v.name || displayTitle);
+                                },
+                              })),
+                            }
+                          : {
                               onClick: (e: any) => {
                                 e?.stopPropagation?.();
-                                handleOpenTmpTab(v.url, v.name || displayTitle);
+                                if (tab.url) {
+                                  handleOpenTmpTab(tab.url, displayTitle);
+                                }
                               },
-                            })),
-                          }
-                        : {
-                            onClick: (e: any) => {
-                              e?.stopPropagation?.();
-                              if (tab.url) {
-                                handleOpenTmpTab(tab.url, displayTitle);
-                              }
-                            },
-                          }),
-                    };
-                  })(),
-                  buildReplaceWithCurrentUrlMenuItem({
-                    tab,
-                    onReplaceWithCurrentUrl: (variantId) => onReplaceTabUrl?.(tab, variantId),
-                    iconSize: 14,
-                    childIconSize: 13,
-                    dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
-                  }),
-                  ...(onToggleFavouriteTab
-                    ? [
-                        {
-                          id: 'toggle-fav',
-                          label: tab.favourite ? 'Remove favourite' : 'Add favourite',
-                          icon: (
-                            <StarIcon
-                              size={14}
-                              filled={Boolean(tab.favourite)}
-                              color={tab.favourite ? '#eab308' : 'currentColor'}
-                            />
-                          ),
-                          onClick: () => onToggleFavouriteTab(tab.id),
-                        },
-                      ]
-                    : []),
-                  {
-                    id: 'unpin',
-                    label: 'Unpin tab',
-                    icon: <PinIcon size={14} />,
-                    onClick: () => onTogglePinTab(tab.id),
-                    dividerAfter: Boolean(onEditTab || onDuplicateTab || onDeleteTab),
-                  },
-                  {
-                    id: 'edit-tab',
-                    label: 'Edit tab',
-                    icon: <EditIcon size={14} />,
-                    onClick: () => onEditTab(tab),
-                  },
-                  ...(onDuplicateTab
-                    ? [
-                        {
-                          id: 'duplicate-tab',
-                          label: 'Duplicate',
-                          icon: <DuplicateIcon size={14} />,
-                          onClick: () => onDuplicateTab(tab),
-                        },
-                      ]
-                    : []),
-                  ...(onArchiveTab
-                    ? [
-                        {
-                          id: 'archive-tab',
-                          label: 'Archive tab',
-                          icon: <ArchiveIcon size={14} />,
-                          onClick: () => onArchiveTab(tab.id),
-                        },
-                      ]
-                    : []),
-                  {
-                    id: 'delete-tab',
-                    label: 'Delete tab',
-                    icon: <TrashIcon size={14} />,
-                    danger: true,
-                    onClick: () => onDeleteTab(tab.id),
-                  },
-                ]}
-                ref={(el) => {
-                  actionDropdownRefs.current[tab.id] = el;
-                }}
-                isDarkTheme={effectiveDark}
-                visible={isMobile || isHovered}
-                hoverBg={itemHoverBg}
-                buttonTitle="Pinned tab options"
-                size="sm"
-              />
+                            }),
+                      };
+                    })(),
+                    buildReplaceWithCurrentUrlMenuItem({
+                      tab,
+                      onReplaceWithCurrentUrl: (variantId) => onReplaceTabUrl?.(tab, variantId),
+                      iconSize: 14,
+                      childIconSize: 13,
+                      dividerAfter: Boolean(onToggleFavouriteTab || onTogglePinTab),
+                    }),
+                    ...(onToggleFavouriteTab
+                      ? [
+                          {
+                            id: 'toggle-fav',
+                            label: tab.favourite ? 'Remove favourite' : 'Add favourite',
+                            icon: (
+                              <StarIcon
+                                size={14}
+                                filled={Boolean(tab.favourite)}
+                                color={tab.favourite ? '#eab308' : 'currentColor'}
+                              />
+                            ),
+                            onClick: () => onToggleFavouriteTab(tab.id),
+                          },
+                        ]
+                      : []),
+                    {
+                      id: 'unpin',
+                      label: 'Unpin tab',
+                      icon: <PinIcon size={14} />,
+                      onClick: () => onTogglePinTab(tab.id),
+                      dividerAfter: Boolean(onRenameTab || onEditTab || onDuplicateTab || onDeleteTab),
+                    },
+                    ...(onRenameTab
+                      ? [
+                          {
+                            id: 'rename-tab',
+                            label: 'Rename tab',
+                            icon: <EditIcon size={14} />,
+                            onClick: () => handleStartRename(tab, displayTitle),
+                          },
+                        ]
+                      : []),
+                    {
+                      id: 'edit-tab',
+                      label: 'Edit tab',
+                      icon: <EditIcon size={14} />,
+                      onClick: () => onEditTab(tab),
+                    },
+                    ...(onDuplicateTab
+                      ? [
+                          {
+                            id: 'duplicate-tab',
+                            label: 'Duplicate',
+                            icon: <DuplicateIcon size={14} />,
+                            onClick: () => onDuplicateTab(tab),
+                          },
+                        ]
+                      : []),
+                    ...(onArchiveTab
+                      ? [
+                          {
+                            id: 'archive-tab',
+                            label: 'Archive tab',
+                            icon: <ArchiveIcon size={14} />,
+                            onClick: () => onArchiveTab(tab.id),
+                          },
+                        ]
+                      : []),
+                    {
+                      id: 'delete-tab',
+                      label: 'Delete tab',
+                      icon: <TrashIcon size={14} />,
+                      danger: true,
+                      onClick: () => onDeleteTab(tab.id),
+                    },
+                  ]}
+                  ref={(el) => {
+                    actionDropdownRefs.current[tab.id] = el;
+                  }}
+                  isDarkTheme={effectiveDark}
+                  visible={isMobile || isHovered}
+                  hoverBg={itemHoverBg}
+                  buttonTitle="Pinned tab options"
+                  size="sm"
+                />
+              )}
             </div>
           );
         })}

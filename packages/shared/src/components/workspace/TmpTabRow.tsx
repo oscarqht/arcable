@@ -151,10 +151,10 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
 
   const isHttp = isValidHttpUrl(tab.url);
 
-  const handleStartRename = (e: React.MouseEvent) => {
-    if (!isHttp) return;
-    e.stopPropagation();
-    e.preventDefault();
+  const handleStartRename = (e?: React.MouseEvent) => {
+    if (!isHttp || !onRename) return;
+    e?.stopPropagation();
+    e?.preventDefault();
     setIsEditing(true);
   };
 
@@ -329,6 +329,14 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
       }}
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleDraggableClick}
+      onDoubleClick={(e) => {
+        if (isEditing || !isHttp || !onRename) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('button, input, textarea, a, [role="button"], [data-no-drag]')) {
+          return;
+        }
+        handleStartRename(e);
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',

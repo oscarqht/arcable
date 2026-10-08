@@ -17,6 +17,7 @@ import { CopyLinkButton } from './CopyLinkButton';
 import {
   CopyIcon,
   CheckIcon,
+  CloseIcon,
   LinkIcon,
   ExternalLinkIcon,
   StarIcon,
@@ -62,6 +63,7 @@ export interface TabRowProps {
   onResetDivertedUrl?: () => void;
   onMediaControl?: (action: MediaControlAction) => void;
   onEdit: (tab: Tab) => void;
+  onRename?: (tab: Tab, newTitle: string) => void;
   onDuplicate?: (tab: Tab) => void;
   onArchive?: (id: string) => void;
   onDelete: (id: string) => void;
@@ -99,6 +101,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onResetDivertedUrl,
   onMediaControl,
   onEdit,
+  onRename,
   onDuplicate,
   onArchive,
   onDelete,
@@ -173,7 +176,45 @@ export const TabRow: React.FC<TabRowProps> = ({
     ? activeSecondaryVariant.url
     : resolvedUrl;
 
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(
+    tab.customTitle || firstVariantName || displayTitle
+  );
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing) {
+      setEditTitle(tab.customTitle || firstVariantName || displayTitle);
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 20);
+    }
+  }, [isEditing, tab.customTitle, firstVariantName, displayTitle]);
+
+  const handleStartRename = (e?: React.MouseEvent) => {
+    if (!onRename) return;
+    e?.stopPropagation();
+    e?.preventDefault();
+    setIsEditing(true);
+  };
+
+  const handleSaveRename = () => {
+    setIsEditing(false);
+    onRename?.(tab, editTitle.trim());
+  };
+
+  const handleCancelRename = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    setIsEditing(false);
+    setEditTitle(tab.customTitle || firstVariantName || displayTitle);
+  };
+
   const handleClick = (e: React.MouseEvent) => {
+    if (isEditing) return;
     e.preventDefault();
     if (tab.url) {
       const inNewTab = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
@@ -312,6 +353,15 @@ export const TabRow: React.FC<TabRowProps> = ({
       });
     }
 
+    if (onRename) {
+      items.push({
+        id: 'rename-tab',
+        label: 'Rename tab',
+        icon: <EditIcon size={14} />,
+        onClick: () => handleStartRename(),
+      });
+    }
+
     if (onEdit) {
       items.push({
         id: 'edit-tab',
@@ -360,6 +410,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     raindropCollectionId,
     tab,
     onToggleFavourite,
+    onRename,
     onEdit,
     onDuplicate,
     onArchive,
@@ -436,7 +487,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     handleDragEnd: handleDraggableDragEnd,
     handleClick: handleDraggableClick,
   } = useDraggableWithThreshold({
-    enabled: draggable,
+    enabled: draggable && !isEditing,
     onDragStart: handleDragStartInternal,
     onDragEnd: handleDragEndInternal,
     onClick: handleClick,
@@ -449,7 +500,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     : (effectiveDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.06)');
   const activeIconHoverBg = effectiveDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.1)';
   const textColor = effectiveDark ? '#ffffff' : '#191c1b';
-  const showActions = isMobile || alwaysShowActions || isHovered || copied;
+  const showActions = isMobile || alwaysShowActions || isHovered || copied || isEditing;
 
 
   return (
@@ -478,7 +529,16 @@ export const TabRow: React.FC<TabRowProps> = ({
         setDropIndicator(null);
       }}
       onClick={handleDraggableClick}
+      onDoubleClick={(e) => {
+        if (isEditing || !onRename) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('button, input, textarea, a, [role="button"], [data-no-drag]')) {
+          return;
+        }
+        handleStartRename(e);
+      }}
       onContextMenu={(e) => {
+        if (isEditing) return;
         const target = e.target as HTMLElement;
         if (target.closest('button, input, a, [role="button"]')) {
           return;
@@ -494,23 +554,31 @@ export const TabRow: React.FC<TabRowProps> = ({
         minHeight: '38px',
         padding: '0 8px',
         borderRadius: '10px',
-        backgroundColor: isHovered ? hoverBg : isAssociated ? associatedBg : 'transparent',
+        backgroundColor: isEditing
+          ? (effectiveDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(56, 189, 248, 0.08)')
+          : isHovered
+          ? hoverBg
+          : isAssociated
+          ? associatedBg
+          : 'transparent',
         borderTop: dropIndicator === 'before' ? '2px solid #0284c7' : '2px solid transparent',
         borderBottom: dropIndicator === 'after' ? '2px solid #0284c7' : '2px solid transparent',
         borderLeft: '2px solid transparent',
         borderRight: '2px solid transparent',
         outline: isHighlighted
           ? themeStyles?.activeIndicatorOutline || (effectiveDark ? '2px solid rgba(255, 255, 255, 0.9)' : '2px solid rgba(15, 23, 42, 0.85)')
+          : isEditing
+          ? (effectiveDark ? '1.5px solid rgba(255, 255, 255, 0.75)' : '1.5px solid rgba(15, 23, 42, 0.75)')
           : 'none',
-        outlineOffset: isHighlighted ? '-2px' : undefined,
+        outlineOffset: (isHighlighted || isEditing) ? '-2px' : undefined,
         boxShadow: isHighlighted
           ? themeStyles?.activeIndicatorGlow || (effectiveDark ? '0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(255, 255, 255, 0.35)' : '0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 8px rgba(0, 0, 0, 0.16)')
           : 'none',
         color: textColor,
-        cursor: 'pointer',
+        cursor: isEditing ? 'default' : 'pointer',
         gap: '6px',
         transition: 'background-color 0.12s ease, outline 0.2s ease, box-shadow 0.2s ease',
-        userSelect: 'none',
+        userSelect: isEditing ? 'auto' : 'none',
         boxSizing: 'border-box',
         width: '100%',
         minWidth: 0,
@@ -576,21 +644,56 @@ export const TabRow: React.FC<TabRowProps> = ({
         )}
 
         {/* Title taking available width */}
-        <span
-          style={{
-            fontSize: '14px',
-            fontWeight: 500,
-            color: 'inherit',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: hasVariants ? '0 1 auto' : 1,
-            minWidth: 0,
-          }}
-          title={displayTitle}
-        >
-          {displayTitle}
-        </span>
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSaveRename();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancelRename();
+              }
+            }}
+            placeholder={firstVariantName || cleanUrl(tab.url) || 'Enter custom title...'}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              height: '24px',
+              padding: '2px 6px',
+              borderRadius: '5px',
+              border: `1px solid ${effectiveDark ? '#0284c7' : '#38bdf8'}`,
+              backgroundColor: effectiveDark ? '#0f172a' : '#ffffff',
+              color: textColor,
+              fontSize: '13px',
+              fontWeight: 500,
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        ) : (
+          <span
+            onDoubleClick={onRename ? handleStartRename : undefined}
+            style={{
+              fontSize: '14px',
+              fontWeight: 500,
+              color: 'inherit',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: hasVariants ? '0 1 auto' : 1,
+              minWidth: 0,
+            }}
+            title={tab.customTitle ? `${tab.customTitle} (Original: ${firstVariantName || cleanUrl(tab.url)})` : displayTitle}
+          >
+            {displayTitle}
+          </span>
+        )}
 
         {/* Variant button group following title */}
         {hasVariants && (
@@ -688,72 +791,142 @@ export const TabRow: React.FC<TabRowProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Action Dropdown (...) button on hover */}
-        <div ref={actionDropdownContainerRef} style={{ display: 'inline-flex' }}>
-          <ActionDropdown
-            ref={actionDropdownRef}
-            items={tabMenuItems}
-            isDarkTheme={effectiveDark}
-            visible={showActions}
-            hoverBg={activeIconHoverBg}
-            buttonTitle="Tab options"
-            size="sm"
-          />
-        </div>
+        {isEditing ? (
+          <>
+            {/* Save / Checkmark Button */}
+            <button
+              type="button"
+              onClick={handleSaveRename}
+              title="Save title"
+              aria-label="Save title"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: 'none',
+                background: 'transparent',
+                color: effectiveDark ? '#34d399' : '#059669',
+                cursor: 'pointer',
+                padding: 0,
+                flexShrink: 0,
+                transition: 'background-color 0.12s ease, color 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(52, 211, 153, 0.2)' : '#d1fae5';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <CheckIcon size={14} color={effectiveDark ? '#34d399' : '#059669'} />
+            </button>
 
-        {/* Copy Link icon button: between ... and - button */}
-        {(showActions || copied) && (
-          <CopyLinkButton
-            url={currentUrl || tab.url}
-            isDarkTheme={effectiveDark}
-            textColor={textColor}
-            hoverBg={activeIconHoverBg}
-            iconSize={14}
-            copied={copied}
-            onCopiedChange={setCopied}
-          />
-        )}
+            {/* Cancel Button */}
+            <button
+              type="button"
+              onClick={handleCancelRename}
+              title="Cancel"
+              aria-label="Cancel"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                border: 'none',
+                background: 'transparent',
+                color: effectiveDark ? '#94a3b8' : textColor,
+                cursor: 'pointer',
+                padding: 0,
+                flexShrink: 0,
+                transition: 'background-color 0.12s ease, color 0.12s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+              }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Action Dropdown (...) button on hover */}
+            <div ref={actionDropdownContainerRef} style={{ display: 'inline-flex' }}>
+              <ActionDropdown
+                ref={actionDropdownRef}
+                items={tabMenuItems}
+                isDarkTheme={effectiveDark}
+                visible={showActions}
+                hoverBg={activeIconHoverBg}
+                buttonTitle="Tab options"
+                size="sm"
+              />
+            </div>
 
-        {/* "-" button: Always visible when associated */}
-        {isAssociated && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onCloseAssociatedTab?.();
-            }}
-            title="Close associated browser tab"
-            aria-label="Close associated browser tab"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '24px',
-              height: '24px',
-              borderRadius: '6px',
-              border: 'none',
-              background: 'transparent',
-              color: effectiveDark ? '#94a3b8' : textColor,
-              opacity: 0.8,
-              cursor: 'pointer',
-              padding: 0,
-              flexShrink: 0,
-              transition: 'background-color 0.12s ease, color 0.12s ease, opacity 0.12s ease',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
-              e.currentTarget.style.color = '#ef4444';
-              e.currentTarget.style.opacity = '1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
-              e.currentTarget.style.opacity = '0.8';
-            }}
-          >
-            <MinusIcon size={14} />
-          </button>
+            {/* Copy Link icon button: between ... and - button */}
+            {(showActions || copied) && (
+              <CopyLinkButton
+                url={currentUrl || tab.url}
+                isDarkTheme={effectiveDark}
+                textColor={textColor}
+                hoverBg={activeIconHoverBg}
+                iconSize={14}
+                copied={copied}
+                onCopiedChange={setCopied}
+              />
+            )}
+
+            {/* "-" button: Always visible when associated */}
+            {isAssociated && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onCloseAssociatedTab?.();
+                }}
+                title="Close associated browser tab"
+                aria-label="Close associated browser tab"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: effectiveDark ? '#94a3b8' : textColor,
+                  opacity: 0.8,
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.12s ease, color 0.12s ease, opacity 0.12s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = effectiveDark ? 'rgba(239, 68, 68, 0.2)' : '#fee2e2';
+                  e.currentTarget.style.color = '#ef4444';
+                  e.currentTarget.style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = effectiveDark ? '#94a3b8' : textColor;
+                  e.currentTarget.style.opacity = '0.8';
+                }}
+              >
+                <MinusIcon size={14} />
+              </button>
+            )}
+          </>
         )}
 
         {/* Compact inline media control bar - always visible on the right-most side when audible */}
