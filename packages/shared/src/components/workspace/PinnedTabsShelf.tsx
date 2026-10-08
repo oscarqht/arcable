@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Tab, TabOpenOptions } from '../../types/workspace';
 import { TabAssociationMap } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
@@ -101,6 +101,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const editingContainerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (editingTabId) {
@@ -128,12 +129,39 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
     onRenameTab?.(tab, editTitle.trim());
   };
 
-  const handleCancelRename = (e?: React.SyntheticEvent) => {
+  const handleCancelRename = useCallback((e?: React.SyntheticEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
     setEditingTabId(null);
     setEditTitle('');
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!editingTabId) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (editingContainerRef.current && !editingContainerRef.current.contains(e.target as Node)) {
+        handleCancelRename();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (e.isComposing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleCancelRename();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [editingTabId, handleCancelRename]);
 
   if (tabs.length === 0) {
     return null;
@@ -290,6 +318,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
           return (
             <div
               key={tab.id}
+              ref={isEditingThisTab ? editingContainerRef : undefined}
               draggable={!isEditingThisTab}
               onMouseDown={isEditingThisTab ? undefined : handleDraggableMouseDown}
               onDragStart={(e) => handleDragStart(e, tab.id)}
@@ -378,6 +407,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing) return;
                       e.stopPropagation();
                       if (e.key === 'Enter') {
                         e.preventDefault();
