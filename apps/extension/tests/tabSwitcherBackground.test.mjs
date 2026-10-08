@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const handlers = {};
 const event = (name) => ({ addListener(fn) { handlers[name] = fn; } });
-let tabs = Array.from({ length: 7 }, (_, index) => ({ id: index + 1, windowId: 10, active: index === 0, lastAccessed: index * 100, title: `Tab ${index + 1}`, url: `https://example.com/${index}` }));
+let tabs = Array.from({ length: 7 }, (_, index) => ({ id: index + 1, windowId: 10, active: index === 0, lastAccessed: index * 100, title: `Tab ${index + 1}`, url: `https://example.com/${index}`, favIconUrl: `https://example.com/${index}/favicon.ico` }));
 const updates = [];
 const forwards = [];
 const browser = {
@@ -28,6 +28,7 @@ assert.equal(message({ type: 'OTHER' }, sender), undefined);
 assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_LIST' }, {})).success, false);
 let result = await message({ type: 'ARCABLE_TAB_SWITCHER_LIST' }, sender);
 assert.deepEqual(Array.from(result.tabs, (tab) => tab.id), [1, 7, 6, 5, 4]);
+assert.equal(result.tabs[0].favIconUrl, 'https://example.com/0/favicon.ico');
 handlers.activated({ tabId: 2, windowId: 10 });
 result = await message({ type: 'ARCABLE_TAB_SWITCHER_LIST' }, sender);
 assert.deepEqual(Array.from(result.tabs, (tab) => tab.id), [1, 2, 7, 6, 5]);
