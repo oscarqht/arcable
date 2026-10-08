@@ -181,6 +181,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     tab.customTitle || firstVariantName || displayTitle
   );
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const rowRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isEditing) {
@@ -206,12 +207,39 @@ export const TabRow: React.FC<TabRowProps> = ({
     onRename?.(tab, editTitle.trim());
   };
 
-  const handleCancelRename = (e?: React.MouseEvent) => {
+  const handleCancelRename = useCallback((e?: React.MouseEvent | React.SyntheticEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
     setIsEditing(false);
     setEditTitle(tab.customTitle || firstVariantName || displayTitle);
-  };
+  }, [tab.customTitle, firstVariantName, displayTitle]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) {
+        handleCancelRename();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (e.isComposing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleCancelRename();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEditing, handleCancelRename]);
 
   const handleClick = (e: React.MouseEvent) => {
     if (isEditing) return;
@@ -505,6 +533,7 @@ export const TabRow: React.FC<TabRowProps> = ({
 
   return (
     <div
+      ref={rowRef}
       draggable={isDraggable}
       onMouseDown={handleDraggableMouseDown}
       onDragStart={handleDraggableDragStart}
@@ -652,6 +681,7 @@ export const TabRow: React.FC<TabRowProps> = ({
             onChange={(e) => setEditTitle(e.target.value)}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
               if (e.key === 'Enter') {
                 e.preventDefault();
                 handleSaveRename();

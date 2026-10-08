@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { TmpTab, TabOpenOptions, Space } from '../../types/workspace';
 import { MediaControlAction } from '../../types/tabTracker';
 import { cleanUrl } from '../../utils/format';
@@ -163,14 +163,41 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     onRename?.(tab, editTitle.trim());
   };
 
-  const handleCancelRename = (e?: React.MouseEvent) => {
+  const handleCancelRename = useCallback((e?: React.MouseEvent | React.SyntheticEvent) => {
     if (e) {
       e.stopPropagation();
       e.preventDefault();
     }
     setIsEditing(false);
     setEditTitle(tab.customTitle || tab.title || '');
-  };
+  }, [tab.customTitle, tab.title]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) {
+        handleCancelRename();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (e.isComposing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleCancelRename();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEditing, handleCancelRename]);
 
   const handleDragStartInternal = (e: React.DragEvent) => {
     if (isEditing) {
@@ -401,6 +428,7 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
             onChange={(e) => setEditTitle(e.target.value)}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
               if (e.key === 'Enter') {
                 e.preventDefault();
                 handleSaveRename();
