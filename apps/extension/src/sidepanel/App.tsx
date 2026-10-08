@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import '../utils/raindropSession';
 import {
   WorkspaceManager,
   WorkspaceManagerHandle,
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
   const [audibleTabs, setAudibleTabs] = useState<AudibleTab[]>([]);
   const [highlightedTabId, setHighlightedTabId] = useState<string | null>(null);
   const [hasRaindropAuth, setHasRaindropAuth] = useState(false);
+  const [raindropReauthenticationRequired, setRaindropReauthenticationRequired] = useState(false);
   const [raindropToken, setRaindropToken] = useState<string | null>(null);
   const [isAuthStateLoaded, setIsAuthStateLoaded] = useState(false);
   const [raindropHydrated, setRaindropHydrated] = useState(false);
@@ -388,6 +390,7 @@ export const App: React.FC = () => {
       }
 
       const auth = res.arcable_raindrop_auth;
+      setRaindropReauthenticationRequired(Boolean(auth?.reauthenticationRequired));
       const isRaindropAuth = Boolean(auth && auth.isAuthenticated);
       setHasRaindropAuth(isRaindropAuth);
       setRaindropToken(auth?.accessToken || null);
@@ -450,6 +453,7 @@ export const App: React.FC = () => {
       if (area === 'local') {
         if (changes.arcable_raindrop_auth) {
           const authVal = changes.arcable_raindrop_auth.newValue;
+          setRaindropReauthenticationRequired(Boolean(authVal?.reauthenticationRequired));
           const isAuth = Boolean(authVal?.isAuthenticated);
           setHasRaindropAuth(isAuth);
           setRaindropToken(authVal?.accessToken || null);
@@ -1651,7 +1655,7 @@ export const App: React.FC = () => {
               Log in to Raindrop.io
             </h1>
             <p style={{ margin: '0 0 18px', color: currentSpaceTheme.subtextColor, lineHeight: 1.45, fontSize: '14px' }}>
-              Connect your account in Extension Settings to open your Arcable workspace.
+              {raindropReauthenticationRequired ? 'Your Raindrop session has expired. Please log in again in Extension Settings.' : 'Connect your account in Extension Settings to open your Arcable workspace.'}
             </p>
             <button
               type="button"

@@ -36,7 +36,11 @@ import {
   getRaindropRequestFailureDetails,
   isValidHttpUrl,
   replayOperations,
+  setRaindropTokenResolver,
+  getRaindropTokenExpiresAt,
+  RaindropReauthenticationError,
 } from '@arcable/shared/utils';
+import { createRaindropSessionManager, refreshExtensionRaindropToken } from './raindropSession';
 
 import {
   initRunCodeBackgroundListeners,
@@ -211,7 +215,7 @@ async function syncSidePanelBehavior(_isAuthenticated?: boolean): Promise<void> 
 void syncSidePanelBehavior();
 
 // Load stored auth state on startup
-async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
+async function loadStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
   if (cachedAuthState.isAuthenticated && !forceRefresh) {
     return cachedAuthState;
   }
@@ -225,6 +229,10 @@ async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthSta
   // 1. Check for stored OAuth session
   if (stored[STORAGE_KEY_AUTH]) {
     const auth = stored[STORAGE_KEY_AUTH] as RaindropAuthState;
+    if (auth.reauthenticationRequired) {
+      cachedAuthState = auth;
+      return auth;
+    }
     if (auth.isAuthenticated && auth.accessToken) {
       cachedAuthState = auth;
       return cachedAuthState;
@@ -235,7 +243,7 @@ async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthSta
   const token = typeof (stored as any)[STORAGE_KEY_TOKEN] === 'string' ? (stored as any)[STORAGE_KEY_TOKEN] : '';
   if (token) {
     try {
-      const user = await fetchRaindropUser(token);
+      const user = await fetchRaindropUser(token, { skipAuthRefresh: true });
       if (user) {
         cachedAuthState = {
           isAuthenticated: true,
@@ -270,6 +278,34 @@ async function clearAuthState(): Promise<void> {
   cachedAuthState = { isAuthenticated: false };
   await browser.storage.local.remove([STORAGE_KEY_AUTH, STORAGE_KEY_TOKEN]);
   void syncSidePanelBehavior(false);
+}
+
+const raindropSession = createRaindropSessionManager({
+  load: () => loadStoredAuthState(),
+  save: saveAuthState,
+  refresh: refreshExtensionRaindropToken,
+  invalidate: async () => {
+    cachedAuthState = { isAuthenticated: false, reauthenticationRequired: true };
+    await browser.storage.local.set({ [STORAGE_KEY_AUTH]: cachedAuthState });
+    await browser.storage.local.remove(STORAGE_KEY_TOKEN);
+  },
+});
+setRaindropTokenResolver((token, force) => raindropSession.resolve(token, force));
+
+async function getStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
+  const auth = await loadStoredAuthState(forceRefresh);
+  if (auth.isAuthenticated && auth.accessToken) {
+    try {
+      await raindropSession.resolve(auth.accessToken);
+    } catch (error) {
+      if (!(error instanceof RaindropReauthenticationError)) {
+        // Keep the session visible during outages. The actual API call will
+        // report renewal failure through its normal error response.
+        console.warn('[Arcable Background] Raindrop session renewal is temporarily unavailable.');
+      }
+    }
+  }
+  return cachedAuthState;
 }
 
 /** Fetches Raindrop's tree and atomically replaces the extension cache and outbox. */
@@ -314,7 +350,7 @@ async function processOAuthTokens(tokens: {
 }): Promise<RaindropAuthState | null> {
   if (!tokens || !tokens.access_token) return null;
 
-  const user = await fetchRaindropUser(tokens.access_token);
+  const user = await fetchRaindropUser(tokens.access_token, { skipAuthRefresh: true });
   if (!user) return null;
 
   const wasAuthenticated = Boolean(cachedAuthState?.isAuthenticated);
@@ -323,7 +359,7 @@ async function processOAuthTokens(tokens: {
     authType: 'oauth',
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
-    expiresAt: Date.now() + (Number(tokens.expires_in) || 2592000) * 1000,
+    expiresAt: getRaindropTokenExpiresAt(tokens),
     user,
   };
 
@@ -354,6 +390,15 @@ browser.runtime.onMessage.addListener(
       return { success: true };
     }
     const message = rawMessage as ExtensionMessage;
+
+    if (rawMessage?.type === 'RAINDROP_RESOLVE_TOKEN') {
+      try {
+        return { success: true, data: await raindropSession.resolve(rawMessage.payload?.token || '', Boolean(rawMessage.payload?.forceRefresh)) };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Could not renew Raindrop session.',
+          reauthenticationRequired: error instanceof RaindropReauthenticationError } as ExtensionResponse;
+      }
+    }
 
     if (rawMessage?.type === 'ARCABLE_CONSUME_SIDEPANEL_SEARCH_FOCUS') {
       return { success: consumeSidepanelSearchFocus(rawMessage.windowId) };
@@ -442,7 +487,7 @@ browser.runtime.onMessage.addListener(
           return { success: false, error: 'Token is required' };
         }
 
-        const user = await fetchRaindropUser(token);
+        const user = await fetchRaindropUser(token, { skipAuthRefresh: true });
         if (!user) {
           return { success: false, error: 'Invalid Raindrop token or user fetch failed' };
         }
@@ -499,7 +544,7 @@ browser.runtime.onMessage.addListener(
                   const auth = await processOAuthTokens({
                     access_token: token,
                     refresh_token: refreshToken || undefined,
-                    expires_in: Number(expiresIn) || 2592000,
+                    expires_in: Number(expiresIn) || 1209600,
                   });
                   return { success: Boolean(auth), data: auth };
                 }
@@ -1119,7 +1164,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (changes.arcable_raindrop_auth) {
       const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
       const oldAuth = changes.arcable_raindrop_auth.oldValue as RaindropAuthState | undefined;
-      cachedAuthState = newAuth && newAuth.isAuthenticated && newAuth.accessToken ? newAuth : { isAuthenticated: false };
+      cachedAuthState = newAuth || { isAuthenticated: false };
       void syncSidePanelBehavior(Boolean(cachedAuthState.isAuthenticated && cachedAuthState.accessToken));
       if (cachedAuthState.isAuthenticated && (!oldAuth || !oldAuth.isAuthenticated)) {
         void fetchAndCacheRaindropWorkspace();
@@ -1341,4 +1386,3 @@ if (typeof browser !== 'undefined' && browser.tabs?.onUpdated) {
     }
   });
 }
-

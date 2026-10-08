@@ -1,3 +1,4 @@
+import { clearSessionCookies } from '@/lib/raindropSession';
 import { NextRequest, NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, fetchRaindropUser, getAuthCookieOptions } from '@/lib/raindrop';
 
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await fetchRaindropUser(token);
+    const user = await fetchRaindropUser(token, { skipAuthRefresh: true });
     if (!user) {
       return NextResponse.json(
         { error: 'Invalid Raindrop API token or unauthorized. Please verify your token in Raindrop Settings → Integrations.' },
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       authType: 'token',
     });
 
+    clearSessionCookies(response);
     response.cookies.set(
       ACCESS_TOKEN_COOKIE,
       token,
@@ -47,6 +49,6 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   const response = NextResponse.json({ success: true });
-  response.cookies.set(ACCESS_TOKEN_COOKIE, '', getAuthCookieOptions(0));
+  clearSessionCookies(response);
   return response;
 }

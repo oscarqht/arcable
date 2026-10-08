@@ -1,3 +1,4 @@
+import { withRaindropSession } from '@/lib/raindropSession';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
@@ -15,7 +16,7 @@ function extractToken(request: NextRequest, bodyToken?: string): string {
   return bodyToken?.trim() || authHeader || cookieToken || getRaindropTokenFromEnv();
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const token = extractToken(request);
 
   if (!token) {
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   let body: any = {};
   try {
     body = await request.json();
@@ -84,3 +85,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+
+export const GET = withRaindropSession(handleGET);
+
+export const POST = withRaindropSession(handlePOST);

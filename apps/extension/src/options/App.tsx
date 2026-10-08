@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import '../utils/raindropSession';
 import {
   Button,
   Badge,
@@ -205,6 +206,7 @@ export const App: React.FC = () => {
             setAuthError(null);
           } else {
             setAuthState({ isAuthenticated: false });
+            if (newAuth?.reauthenticationRequired) setAuthError('Your Raindrop session has expired. Please log in again.');
           }
         }
         if (changes.arcable_last_synced_at) {
@@ -232,6 +234,7 @@ export const App: React.FC = () => {
       })) as ExtensionResponse<RaindropAuthState>;
       if (res && res.success && res.data) {
         setAuthState(res.data);
+        if (res.data.reauthenticationRequired) setAuthError('Your Raindrop session has expired. Please log in again.');
       } else {
         setAuthState({ isAuthenticated: false });
       }

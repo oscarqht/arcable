@@ -20,6 +20,7 @@ export type RaindropAuthType = 'oauth' | 'token';
 
 export interface RaindropAuthState {
   isAuthenticated: boolean;
+  reauthenticationRequired?: boolean;
   authType?: RaindropAuthType;
   accessToken?: string;
   refreshToken?: string;

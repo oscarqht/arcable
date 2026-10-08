@@ -1,9 +1,8 @@
+import { setSessionCookies } from '@/lib/raindropSession';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getRaindropConfig,
   exchangeRaindropOAuthCode,
-  ACCESS_TOKEN_COOKIE,
-  REFRESH_TOKEN_COOKIE,
   STATE_COOKIE,
   getAuthCookieOptions,
 } from '@/lib/raindrop';
@@ -86,7 +85,6 @@ export async function GET(request: NextRequest) {
     );
 
     // If request originated from extension or has bridge, render HTML bridge page or redirect
-    const maxAge = tokenData.expires_in || 60 * 60 * 24 * 30; // 30 days default
 
     // If state requested an extension flow or external bridge
     if (statePayload?.fromExt || statePayload?.extId) {
@@ -114,7 +112,7 @@ export async function GET(request: NextRequest) {
       tokens: {
         access_token: ${JSON.stringify(tokenData.access_token)},
         refresh_token: ${JSON.stringify(tokenData.refresh_token || '')},
-        expires_in: ${JSON.stringify(tokenData.expires_in || 2592000)}
+        expires_in: ${JSON.stringify(tokenData.expires_in || 1209600)}
       }
     };
 
@@ -140,10 +138,7 @@ export async function GET(request: NextRequest) {
       const response = new NextResponse(bridgeHtml, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
-      response.cookies.set(ACCESS_TOKEN_COOKIE, tokenData.access_token, getAuthCookieOptions(maxAge));
-      if (tokenData.refresh_token) {
-        response.cookies.set(REFRESH_TOKEN_COOKIE, tokenData.refresh_token, getAuthCookieOptions(60 * 60 * 24 * 90));
-      }
+      setSessionCookies(response, tokenData);
       response.cookies.set(STATE_COOKIE, '', getAuthCookieOptions(0));
       return response;
     }
@@ -154,19 +149,7 @@ export async function GET(request: NextRequest) {
     baseUrl.searchParams.set('auth', 'success');
     const redirectResponse = NextResponse.redirect(baseUrl);
 
-    redirectResponse.cookies.set(
-      ACCESS_TOKEN_COOKIE,
-      tokenData.access_token,
-      getAuthCookieOptions(maxAge)
-    );
-
-    if (tokenData.refresh_token) {
-      redirectResponse.cookies.set(
-        REFRESH_TOKEN_COOKIE,
-        tokenData.refresh_token,
-        getAuthCookieOptions(60 * 60 * 24 * 90)
-      );
-    }
+    setSessionCookies(redirectResponse, tokenData);
 
     // Clear state cookie
     redirectResponse.cookies.set(STATE_COOKIE, '', getAuthCookieOptions(0));

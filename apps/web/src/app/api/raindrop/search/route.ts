@@ -1,3 +1,4 @@
+import { withRaindropSession } from '@/lib/raindropSession';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
@@ -7,7 +8,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const authHeader = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '')?.trim();
   const cookieToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value?.trim();
   const token = authHeader || cookieToken || getRaindropTokenFromEnv();
@@ -33,3 +34,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withRaindropSession(handleGET);

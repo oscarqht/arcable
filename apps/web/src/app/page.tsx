@@ -19,10 +19,12 @@ import {
 } from '@arcable/shared/components';
 import { useSystemTheme, setLocalFolderExpanded, getLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
+  setRaindropTokenResolver,
   clearStoredPendingOperations,
   getOrCreateDeviceId,
   getStoredDeviceName,
 } from '@arcable/shared/utils';
+import { createBrowserRaindropResolver } from '@/lib/raindropBrowserSession';
 import { RaindropAuthState, TabOpenOptions, Folder } from '@arcable/shared/types';
 
 export default function HomePage() {
@@ -51,6 +53,43 @@ export default function HomePage() {
 
   const isInitialLoading = Boolean(authState.isAuthenticated && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
 
+  const authStateRef = useRef(authState);
+  authStateRef.current = authState;
+  const authGenerationRef = useRef(0);
+  const authExpiresAtRef = useRef(0);
+  const requireLogin = useCallback((message = 'Your Raindrop session expired. Please log in again.') => {
+    authGenerationRef.current += 1;
+    authExpiresAtRef.current = 0;
+    authStateRef.current = { isAuthenticated: false };
+    setAuthState(authStateRef.current);
+    setAuthError(message);
+    hasAutoFetchedRef.current = false;
+    setRaindropHydrated(false);
+    setInitialSyncSettled(false);
+  }, []);
+  const raindropFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const generation = authGenerationRef.current;
+    const response = await fetch(input, init);
+    if (response.status === 401) {
+      const body = await response.clone().json().catch(() => ({}));
+      if (body.reauthenticationRequired && generation === authGenerationRef.current) requireLogin(body.error);
+    }
+    return response;
+  };
+  useEffect(() => {
+    setRaindropTokenResolver(createBrowserRaindropResolver({
+      getAuth: () => authStateRef.current,
+      getGeneration: () => authGenerationRef.current,
+      getExpiresAt: () => authExpiresAtRef.current,
+      onInvalid: requireLogin,
+      onToken: (token, expiresAt) => {
+        authExpiresAtRef.current = expiresAt;
+        authStateRef.current = { ...authStateRef.current, accessToken: token };
+        setAuthState(authStateRef.current);
+      },
+    }));
+  }, [requireLogin]);
+
   // Load auth status from API on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -71,20 +110,26 @@ export default function HomePage() {
   }, []);
 
   const fetchAuthState = async () => {
+    const generation = authGenerationRef.current;
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await raindropFetch('/api/auth/me');
+      if (!res.ok && res.status !== 401) setAuthError('Unable to connect to Raindrop right now. Please retry.');
       if (res.ok) {
         const data = await res.json();
+        if (generation !== authGenerationRef.current) return;
+        authExpiresAtRef.current = Number(data.expiresAt || 0);
         if (data.isAuthenticated && data.user) {
-          setAuthState({
+          authStateRef.current = {
             isAuthenticated: true,
             user: data.user,
             accessToken: data.token,
             authType: data.authType || 'token',
-          });
+          };
+          setAuthState(authStateRef.current);
         } else {
-          setAuthState({ isAuthenticated: false });
+          authStateRef.current = { isAuthenticated: false };
+          setAuthState(authStateRef.current);
         }
       }
     } catch (e) {
@@ -100,6 +145,8 @@ export default function HomePage() {
   };
 
   const handleLoginWithToken = async (token: string) => {
+    const generation = ++authGenerationRef.current;
+    authExpiresAtRef.current = 0;
     if (!authState.isAuthenticated) {
       isInitialLoginRef.current = true;
     }
@@ -115,16 +162,18 @@ export default function HomePage() {
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to authenticate with Raindrop token.');
       }
-      setAuthState({
+      if (generation !== authGenerationRef.current) throw new Error('Raindrop session changed.');
+      authStateRef.current = {
         isAuthenticated: true,
         user: data.user,
         accessToken: data.token,
         authType: 'token',
-      });
+      };
+      setAuthState(authStateRef.current);
       setIsSettingsModalOpen(false);
       return true;
     } catch (err: any) {
-      setAuthError(err?.message || 'Token authentication failed.');
+      if (generation === authGenerationRef.current) setAuthError(err?.message || 'Token authentication failed.');
       throw err;
     } finally {
       setAuthLoading(false);
@@ -132,11 +181,14 @@ export default function HomePage() {
   };
 
   const handleLogout = async () => {
+    authGenerationRef.current += 1;
+    authExpiresAtRef.current = 0;
+    authStateRef.current = { isAuthenticated: false };
+    setAuthState(authStateRef.current);
     isInitialLoginRef.current = false;
     setAuthLoading(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-      setAuthState({ isAuthenticated: false });
     } catch (e) {
       console.error('Logout error:', e);
     } finally {
@@ -145,7 +197,7 @@ export default function HomePage() {
   };
 
   const handleListUploadedCovers = useCallback(async () => {
-    const response = await fetch('/api/raindrop/covers', {
+    const response = await raindropFetch('/api/raindrop/covers', {
       headers: authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : undefined,
       cache: 'no-store',
     });
@@ -155,7 +207,7 @@ export default function HomePage() {
   }, [authState.accessToken]);
 
   const handleUploadCover = useCallback(async (name: string, dataUrl: string) => {
-    const response = await fetch('/api/raindrop/covers', {
+    const response = await raindropFetch('/api/raindrop/covers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(authState.accessToken ? { Authorization: `Bearer ${authState.accessToken}` } : {}) },
       body: JSON.stringify({ name, dataUrl }),
@@ -168,7 +220,7 @@ export default function HomePage() {
   const handleFetchWorkspace = useCallback(async (options?: { collapseFolders?: boolean }) => {
     try {
       const url = options?.collapseFolders ? '/api/raindrop/sync?collapseFolders=true' : '/api/raindrop/sync';
-      const res = await fetch(url, {
+      const res = await raindropFetch(url, {
         headers: authState.accessToken
           ? { Authorization: `Bearer ${authState.accessToken}` }
           : undefined,
@@ -237,7 +289,7 @@ export default function HomePage() {
     replaceBaseline?: boolean;
   }) => {
     try {
-      const res = await fetch('/api/raindrop/sync', {
+      const res = await raindropFetch('/api/raindrop/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,7 +318,7 @@ export default function HomePage() {
 
   const handleSearchRaindrop = async (query: string, options?: { signal?: AbortSignal }) => {
     try {
-      const res = await fetch(`/api/raindrop/search?query=${encodeURIComponent(query)}`, {
+      const res = await raindropFetch(`/api/raindrop/search?query=${encodeURIComponent(query)}`, {
         headers: authState.accessToken
           ? { Authorization: `Bearer ${authState.accessToken}` }
           : undefined,

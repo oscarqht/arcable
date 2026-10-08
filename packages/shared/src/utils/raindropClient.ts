@@ -15,6 +15,47 @@ export const RAINDROP_API_BASE = 'https://api.raindrop.io/rest/v1';
 export const RAINDROP_OAUTH_AUTH_URL = 'https://raindrop.io/oauth/authorize';
 export const RAINDROP_OAUTH_TOKEN_URL = 'https://raindrop.io/oauth/access_token';
 
+export class RaindropReauthenticationError extends Error {
+  constructor() {
+    super('Your Raindrop session has expired. Please log in again.');
+    this.name = 'RaindropReauthenticationError';
+  }
+}
+
+type RaindropTokenResolver = (token: string, forceRefresh: boolean) => Promise<string>;
+let tokenResolver: RaindropTokenResolver | undefined;
+// Browser/extension contexts install their session adapter. Servers must use
+// request-local state inside their adapter, never a global user's token.
+export function setRaindropTokenResolver(resolver?: RaindropTokenResolver): void {
+  tokenResolver = resolver;
+}
+
+export function getRaindropTokenExpiresAt(tokens: RaindropTokenResponse, now = Date.now()): number {
+  const seconds = Number(tokens.expires_in);
+  const milliseconds = Number(tokens.expires);
+  return now + (Number.isFinite(seconds) && seconds > 0 ? seconds * 1000
+    : Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : 14 * 86400 * 1000);
+}
+
+export async function refreshRaindropOAuthToken(refreshToken: string, clientId: string, clientSecret: string): Promise<RaindropTokenResponse> {
+  if (!refreshToken) throw new RaindropReauthenticationError();
+  if (!clientId || !clientSecret) throw new Error('Raindrop OAuth credentials are not configured.');
+  const response = await fetch(RAINDROP_OAUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
+  });
+  const data = await response.json().catch(() => ({})) as RaindropTokenResponse;
+  if (!response.ok || !data.access_token) {
+    if (/invalid_grant|bad_refresh_token|invalid_refresh_token|invalid refresh token|refresh token (?:is )?(?:invalid|expired|revoked)/i.test(`${data.error || ''} ${data.errorMessage || ''}`)) {
+      throw new RaindropReauthenticationError();
+    }
+    // Never include the provider body, which may contain credentials.
+    throw new Error(`Raindrop token renewal failed (${response.status}). Please try again.`);
+  }
+  return data;
+}
+
 // OAuth API calls are limited to 120 requests per minute per user. Keep a
 // little headroom rather than sending sync fan-outs in a burst.
 const RAINDROP_API_ORIGIN = 'https://api.raindrop.io';
@@ -79,6 +120,7 @@ function paceFromRateLimitHeaders(response: Response): void {
 
 export interface RaindropApiRequestInit extends RequestInit {
   bypassQueue?: boolean;
+  skipAuthRefresh?: boolean;
 }
 
 async function fetchRaindropApi(input: RequestInfo | URL, init?: RaindropApiRequestInit): Promise<Response> {
@@ -94,6 +136,13 @@ async function fetchRaindropApi(input: RequestInfo | URL, init?: RaindropApiRequ
   const canRetryTransportFailure = operation === 'GET';
 
   const request = async (): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    let token = cleanRaindropToken(headers.get('Authorization') || '');
+    if (token && tokenResolver && !init?.skipAuthRefresh) {
+      token = await tokenResolver(token, false);
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    let authRetried = false;
     for (let attempt = 0; ; attempt += 1) {
       if (init?.signal?.aborted) {
         throw new DOMException('The user aborted a request.', 'AbortError');
@@ -123,7 +172,7 @@ async function fetchRaindropApi(input: RequestInfo | URL, init?: RaindropApiRequ
 
       let response: Response;
       try {
-        response = await fetch(input, init);
+        response = await fetch(input, { ...init, headers });
       } catch (error) {
         if (init?.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
           throw error;
@@ -141,6 +190,15 @@ async function fetchRaindropApi(input: RequestInfo | URL, init?: RaindropApiRequ
         continue;
       }
       paceFromRateLimitHeaders(response);
+      if (response.status === 401 && token && tokenResolver && !init?.skipAuthRefresh && !authRetried) {
+        authRetried = true;
+        const renewed = await tokenResolver(token, true);
+        if (renewed !== token) {
+          token = renewed;
+          headers.set('Authorization', `Bearer ${token}`);
+          continue;
+        }
+      }
       if (response.status !== 429 || attempt === MAX_RATE_LIMIT_RETRIES) return response;
 
       const retryDelay = getRetryDelay(response);
@@ -188,12 +246,13 @@ export function decodeRaindropTitle(title: string | undefined | null): string {
 /**
  * Validates a Raindrop token and retrieves the current user profile.
  */
-export async function fetchRaindropUser(token: string): Promise<RaindropUserProfile | null> {
+export async function fetchRaindropUser(token: string, options?: { skipAuthRefresh?: boolean }): Promise<RaindropUserProfile | null> {
   const cleanToken = cleanRaindropToken(token);
   if (!cleanToken) return null;
 
   try {
     const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/user`, {
+      skipAuthRefresh: options?.skipAuthRefresh,
       method: 'GET',
       headers: {
         Authorization: `Bearer ${cleanToken}`,

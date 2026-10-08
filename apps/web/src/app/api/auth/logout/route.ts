@@ -1,3 +1,4 @@
+import { clearSessionCookies } from '@/lib/raindropSession';
 import { NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
@@ -11,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   const response = NextResponse.json({ success: true });
 
+  clearSessionCookies(response);
   const clearCookieOptions = getAuthCookieOptions(0);
 
   response.cookies.set(ACCESS_TOKEN_COOKIE, '', clearCookieOptions);

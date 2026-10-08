@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import '../utils/raindropSession';
 import { Header, Card, Button, Badge } from '@arcable/shared/components';
 import { getLocalFolderExpanded, setLocalFolderExpanded, useSystemTheme } from '@arcable/shared/hooks';
 import {
@@ -35,6 +36,16 @@ export const App: React.FC = () => {
 
   // Raindrop Auth
   const [authState, setAuthState] = useState<RaindropAuthState>({ isAuthenticated: false });
+
+  useEffect(() => {
+    const onAuthChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
+      if (area === 'local' && changes.arcable_raindrop_auth) {
+        setAuthState(changes.arcable_raindrop_auth.newValue as RaindropAuthState || { isAuthenticated: false });
+      }
+    };
+    browser.storage.onChanged.addListener(onAuthChange);
+    return () => browser.storage.onChanged.removeListener(onAuthChange);
+  }, []);
 
   // Matching Run Code Snippets for current page
   const [matchingSnippets, setMatchingSnippets] = useState<Array<{ id: string; title: string }>>([]);
@@ -480,7 +491,7 @@ export const App: React.FC = () => {
               {authState.isAuthenticated && authState.user ? (
                 <>Raindrop: <strong>{authState.user.name}</strong></>
               ) : (
-                <>Raindrop: <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>Not connected</span></>
+                <>Raindrop: <span style={{ color: isDark ? '#64748b' : '#94a3b8' }}>{authState.reauthenticationRequired ? 'Session expired. Please log in again.' : 'Not connected'}</span></>
               )}
             </div>
           </div>

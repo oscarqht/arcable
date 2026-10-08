@@ -1,3 +1,4 @@
+import { withRaindropSession } from '@/lib/raindropSession';
 import { NextRequest, NextResponse } from 'next/server';
 import { ACCESS_TOKEN_COOKIE, getRaindropTokenFromEnv } from '@/lib/raindrop';
 import { listUploadedCovers, uploadCoverToLibrary } from '@arcable/shared/utils';
@@ -10,7 +11,7 @@ function getToken(request: NextRequest): string {
     || getRaindropTokenFromEnv();
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const token = getToken(request);
   if (!token) return NextResponse.json({ error: 'Connect Raindrop to use your cover library.' }, { status: 401 });
   try {
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const token = getToken(request);
   if (!token) return NextResponse.json({ error: 'Connect Raindrop to upload covers.' }, { status: 401 });
   if (Number(request.headers.get('content-length')) > 3 * 1024 * 1024) {
@@ -36,3 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not upload image.' }, { status: 502 });
   }
 }
+
+export const GET = withRaindropSession(handleGET);
+
+export const POST = withRaindropSession(handlePOST);
