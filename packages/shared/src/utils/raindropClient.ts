@@ -444,6 +444,14 @@ export async function uploadRaindropCover(
   if (typeof cover === 'string') {
     if (cover.startsWith('data:')) {
       blob = dataUrlToBlob(cover);
+    } else if (cover.startsWith('http://') || cover.startsWith('https://') || cover.startsWith('blob:')) {
+      try {
+        const resp = await fetch(cover);
+        if (!resp.ok) return null;
+        blob = await resp.blob();
+      } catch {
+        return null;
+      }
     } else {
       return null;
     }
@@ -472,6 +480,111 @@ export async function uploadRaindropCover(
 
   const data = (await res.json()) as { result?: boolean; item?: { cover?: string } };
   return data.item?.cover || null;
+}
+
+/**
+ * Determines whether a collection cover URL is a custom user upload/external image
+ * (requiring multipart PUT /collection/{id}/cover) rather than a built-in Raindrop
+ * icon catalogue URL or existing collection thumb.
+ */
+export function isCustomRaindropCollectionCover(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('data:')) return true;
+  if (!/^https?:\/\//i.test(trimmed) && !trimmed.startsWith('blob:')) {
+    return false;
+  }
+  // Arcable root/archive system collection icons
+  if (trimmed.includes('arcable.vercel.app')) return false;
+  // Raindrop collection thumbs or icons are already native collection covers
+  if (trimmed.includes('/collection/thumbs/') || trimmed.includes('/collection/icons/')) return false;
+  // Raindrop collection cover catalogue domains
+  if (/^https?:\/\/([^/]+\.)?(rdl\.ink|icons8\.com|twemoji|raindrop\.io)/i.test(trimmed)) {
+    // Raindrop uploaded files (e.g. from Arcable's _covers library) are on up.raindrop.io/raindrop/files/...
+    // These must be uploaded to the collection cover endpoint to generate collection thumbs.
+    if (trimmed.includes('/raindrop/files/') || trimmed.includes('/raindrop/file/')) {
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Uploads a custom cover image for an existing Raindrop collection.
+ * Uses Raindrop's PUT /collection/{id}/cover endpoint with multipart/form-data.
+ * Returns the generated collection thumb URL (e.g. https://up.raindrop.io/collection/thumbs/...) or null.
+ */
+export async function uploadRaindropCollectionCover(
+  token: string,
+  collectionId: number,
+  cover: Blob | string
+): Promise<string | null> {
+  const cleanToken = cleanRaindropToken(token);
+  if (!cleanToken || !collectionId) return null;
+
+  let blob: Blob;
+  if (typeof cover === 'string') {
+    if (cover.startsWith('data:')) {
+      blob = dataUrlToBlob(cover);
+    } else if (cover.startsWith('http://') || cover.startsWith('https://') || cover.startsWith('blob:')) {
+      try {
+        const resp = await fetch(cover);
+        if (!resp.ok) {
+          console.warn(`[RaindropClient] Failed to fetch collection cover (${resp.status}): ${cover}`);
+          return null;
+        }
+        blob = await resp.blob();
+      } catch (err) {
+        console.warn('[RaindropClient] Error fetching collection cover URL:', err);
+        return null;
+      }
+    } else {
+      return null;
+    }
+  } else {
+    blob = cover;
+  }
+
+  if (!blob || blob.size === 0) {
+    console.warn('[RaindropClient] Collection cover image blob is empty.');
+    return null;
+  }
+
+  const formData = new FormData();
+  const ext = blob.type.includes('png')
+    ? 'png'
+    : blob.type.includes('gif')
+      ? 'gif'
+      : blob.type.includes('webp')
+        ? 'webp'
+        : 'jpeg';
+  formData.append('cover', blob, `cover.${ext}`);
+
+  try {
+    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}/cover`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        Accept: 'application/json',
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      console.warn(`[RaindropClient] Failed to upload collection cover (${res.status}): ${errorText}`);
+      return null;
+    }
+
+    clearSearchCollectionsCache();
+    const data = (await res.json()) as { result?: boolean; item?: RaindropCollectionItem };
+    return data.item?.cover?.[0] || null;
+  } catch (error) {
+    console.warn(`[RaindropClient] Error uploading collection cover for collection ${collectionId}:`, error);
+    return null;
+  }
 }
 
 /**
@@ -782,7 +895,15 @@ export async function createRaindropCollection(
   }
 
   if (options?.color) payload.color = options.color;
-  if (options?.cover?.length) payload.cover = options.cover;
+
+  const customCover = options?.cover?.[0] && isCustomRaindropCollectionCover(options.cover[0])
+    ? options.cover[0]
+    : undefined;
+
+  if (options?.cover?.length && !customCover) {
+    payload.cover = options.cover;
+  }
+
   const sortVal = options?.order !== undefined ? options.order : options?.sort;
   if (sortVal !== undefined) {
     payload.sort = sortVal;
@@ -806,6 +927,18 @@ export async function createRaindropCollection(
 
   const data = (await res.json()) as { item: RaindropCollectionItem };
   clearSearchCollectionsCache();
+
+  if (customCover && data.item?._id) {
+    try {
+      const uploadedThumb = await uploadRaindropCollectionCover(cleanToken, data.item._id, customCover);
+      if (uploadedThumb) {
+        data.item.cover = [uploadedThumb];
+      }
+    } catch (coverErr) {
+      console.warn('[RaindropClient] Error uploading custom cover for collection:', coverErr);
+    }
+  }
+
   return data.item;
 }
 
@@ -822,7 +955,19 @@ export async function updateRaindropCollection(
   if (updates.title !== undefined) payload.title = encodeRaindropTitle(updates.title);
   if (updates.parentId !== undefined) payload.parent = updates.parentId === null ? {} : { $id: updates.parentId };
   if (updates.color !== undefined) payload.color = updates.color;
-  if (updates.cover !== undefined) payload.cover = updates.cover;
+
+  const customCover = updates.cover?.[0] && isCustomRaindropCollectionCover(updates.cover[0])
+    ? updates.cover[0]
+    : undefined;
+
+  if (updates.cover !== undefined) {
+    if (updates.cover.length === 0) {
+      payload.cover = [];
+    } else if (!customCover) {
+      payload.cover = updates.cover;
+    }
+  }
+
   const sortVal = updates.order !== undefined ? updates.order : updates.sort;
   if (sortVal !== undefined) {
     payload.sort = sortVal;
@@ -830,19 +975,36 @@ export async function updateRaindropCollection(
   }
 
   try {
-    const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${cleanToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) return null;
-    clearSearchCollectionsCache();
-    const data = (await res.json()) as { item?: RaindropCollectionItem };
-    return data.item || null;
+    let resultItem: RaindropCollectionItem | null = null;
+    const hasMetadataUpdates = Object.keys(payload).length > 0;
+    if (hasMetadataUpdates || !customCover) {
+      const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/collection/${collectionId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${cleanToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) return null;
+      clearSearchCollectionsCache();
+      const data = (await res.json()) as { item?: RaindropCollectionItem };
+      resultItem = data.item || null;
+    }
+
+    if (customCover) {
+      const uploadedThumb = await uploadRaindropCollectionCover(cleanToken, collectionId, customCover);
+      if (uploadedThumb) {
+        if (resultItem) {
+          resultItem.cover = [uploadedThumb];
+        } else {
+          resultItem = { _id: collectionId, cover: [uploadedThumb] } as RaindropCollectionItem;
+        }
+      }
+    }
+
+    return resultItem;
   } catch (error) {
     console.warn(`[RaindropClient] Failed to update collection ${collectionId}:`, error);
     return null;
