@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Header,
-  WorkspaceManager,
   WorkspaceManagerHandle,
   DropletIcon,
   PlusIcon,
@@ -26,6 +26,12 @@ import {
 } from '@arcable/shared/utils';
 import { createBrowserRaindropResolver } from '@/lib/raindropBrowserSession';
 import { RaindropAuthState, TabOpenOptions, Folder } from '@arcable/shared/types';
+
+// The workspace reads browser storage on its first render.
+const WorkspaceManager = dynamic(
+  () => import('@arcable/shared/components').then((module) => module.WorkspaceManager),
+  { ssr: false },
+);
 
 export default function HomePage() {
   const { isDark } = useSystemTheme();
@@ -51,7 +57,7 @@ export default function HomePage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const isInitialLoading = Boolean(authState.isAuthenticated && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
+  const isInitialLoading = authLoading || Boolean(authState.isAuthenticated && !initialSyncSettled && (!raindropHydrated || isInitialSyncing));
 
   const authStateRef = useRef(authState);
   authStateRef.current = authState;
@@ -644,14 +650,8 @@ export default function HomePage() {
           flexDirection: authLoading || !authState.isAuthenticated || isInitialLoading ? 'column' : undefined,
         }}
       >
-        {authLoading ? (
-          <div
-            role="status"
-            style={{ margin: 'auto', color: isDark ? '#94a3b8' : '#64748b', fontSize: '14px' }}
-          >
-            Checking Raindrop login…
-          </div>
-        ) : !authState.isAuthenticated ? (
+        {/* Mount the cache reader while authentication runs in the background. */}
+        {!authLoading && !authState.isAuthenticated ? (
           <section
             aria-labelledby="raindrop-login-title"
             style={{
