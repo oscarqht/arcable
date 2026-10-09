@@ -756,13 +756,7 @@ export async function syncIncrementalOperations(
         latestSnapshot = {
           ...latestSnapshot,
           folders: latestSnapshot.folders.map((candidate) =>
-            candidate.id === entityId
-              ? {
-                  ...candidate,
-                  raindropId: created._id,
-                  ...(created.cover?.[0] ? { coverUrl: created.cover[0] } : {}),
-                }
-              : candidate
+            candidate.id === entityId ? { ...candidate, raindropId: created._id } : candidate
           ),
         };
       } else {
@@ -777,17 +771,6 @@ export async function syncIncrementalOperations(
           order: targetOrder,
         });
         if (!updated) throw new Error(`Failed to update Raindrop folder ${remoteId}.`);
-        latestSnapshot = {
-          ...latestSnapshot,
-          folders: latestSnapshot.folders.map((candidate) =>
-            candidate.id === entityId
-              ? {
-                  ...candidate,
-                  coverUrl: updated.cover?.[0] || (folder.coverUrl ? candidate.coverUrl : undefined),
-                }
-              : candidate
-          ),
-        };
       }
 
       unresolvedFolderUpserts.delete(key);
@@ -1633,17 +1616,6 @@ export async function syncIncrementalOperations(
             order: targetOrder,
           });
           if (!updated) throw new Error(`Failed to update Raindrop space ${remoteSpaceId}.`);
-          latestSnapshot = {
-            ...latestSnapshot,
-            spaces: latestSnapshot.spaces.map((candidate) =>
-              candidate.id === entityId
-                ? {
-                    ...candidate,
-                    coverUrl: updated.cover?.[0] || (space.coverUrl ? candidate.coverUrl : undefined),
-                  }
-                : candidate
-            ),
-          };
         }
       }
 
@@ -2853,35 +2825,14 @@ export async function syncWorkspaceWithRaindrop(
           : calculateFolderTargetOrder(entry.entity as Folder, localState.folders || []);
         const orderChanged = existing !== undefined && (existing.sort !== targetOrder && existing.order !== targetOrder);
         const titleChanged = existing !== undefined && existing.title !== encodeRaindropTitle(entry.entity.name);
-        const existingCover = existing?.cover?.[0];
-        const entityCover = (entry.entity as Folder | Space).coverUrl;
-        const coverChanged = existing !== undefined && (
-          (Boolean(entityCover) && entityCover !== existingCover) ||
-          (!entityCover && Boolean(existingCover) && changedIds.has(id))
-        );
-        const colorChanged = existing !== undefined && ((entry.entity.colors || null) !== (existing.color || null));
-        const shouldUpdate = Boolean(existing) && (
-          changedIds.has(id) ||
-          orderChanged ||
-          titleChanged ||
-          coverChanged ||
-          colorChanged ||
-          (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate)
-        );
-        // Space and folder covers come from Raindrop's own icon catalogue or custom cover upload. Only
+        const shouldUpdate = Boolean(existing) && (changedIds.has(id) || orderChanged || titleChanged || (entry.entity.updatedAt || 0) > timestamp(existing?.lastUpdate));
+        // Space and folder covers come from Raindrop's own icon catalogue. Only
         // search when creating or modifying the corresponding collection.
-        let cover: string | undefined;
-        if (!existing) {
-          cover = entityCover || await searchRaindropCollectionCover(clean, entry.entity.name);
-        } else if (shouldUpdate) {
-          if (entityCover) {
-            cover = entityCover;
-          } else if (changedIds.has(id)) {
-            cover = '';
-          } else {
-            cover = existingCover;
-          }
-        }
+        const cover = !existing || shouldUpdate
+          ? (entry.kind === 'space'
+            ? (entry.entity as Space).coverUrl || await searchRaindropCollectionCover(clean, entry.entity.name)
+            : (entry.entity as Folder).coverUrl || await searchRaindropCollectionCover(clean, entry.entity.name))
+          : undefined;
         const color = entry.entity.colors;
         if (!existing) {
           const created = await createRaindropCollection(clean, encodeRaindropTitle(entry.entity.name), parentRemoteId, {
@@ -2895,17 +2846,14 @@ export async function syncWorkspaceWithRaindrop(
         } else {
           localCollectionToRemote.set(id, existing._id);
           if (shouldUpdate) {
-            const updated = await updateRaindropCollection(clean, existing._id, {
+            await updateRaindropCollection(clean, existing._id, {
               title: encodeRaindropTitle(entry.entity.name),
               parentId: parentRemoteId,
-              ...(entry.kind === 'folder' ? { color: color ?? null } : {}),
-              cover: cover !== undefined ? (cover ? [cover] : []) : undefined,
+              ...(entry.kind === 'folder' ? { color } : {}),
+              cover: cover ? [cover] : undefined,
               sort: targetOrder,
               order: targetOrder,
             });
-            if (updated) {
-              remoteCollections.set(existing._id, updated);
-            }
           }
         }
         unresolved.delete(id);

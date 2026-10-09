@@ -761,7 +761,6 @@ export function useWorkspace() {
       if ('customEmojiIcon' in finalUpdates) opPayload.customEmojiIcon = finalUpdates.customEmojiIcon ?? null;
       if ('parentFolderId' in finalUpdates) opPayload.parentFolderId = finalUpdates.parentFolderId ?? null;
       if ('colors' in finalUpdates) opPayload.colors = finalUpdates.colors ?? null;
-      if ('coverUrl' in finalUpdates) opPayload.coverUrl = finalUpdates.coverUrl ?? null;
       if ('isExpanded' in finalUpdates) {
         opPayload.isExpanded = finalUpdates.isExpanded;
         if (typeof finalUpdates.isExpanded === 'boolean') {

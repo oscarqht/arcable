@@ -159,7 +159,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
       name: name.trim(),
       parentSpaceId,
       parentFolderId: parentFolderId || undefined,
-      customEmojiIcon: folder?.customEmojiIcon,
+      customEmojiIcon: undefined,
       coverUrl,
     });
     onClose();
