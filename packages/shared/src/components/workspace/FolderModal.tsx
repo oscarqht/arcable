@@ -7,9 +7,8 @@ import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { getSortedSpaces } from '../../hooks/useWorkspace';
 import { getFolderPath, getTreeOrderedFolders } from '../../utils/treeUtils';
 import { searchRaindropCollectionCovers } from '../../utils/raindropClient';
-import { UploadedCoverPicker, type UploadedCoverPickerProps } from './UploadedCoverPicker';
 
-interface FolderModalProps extends UploadedCoverPickerProps {
+interface FolderModalProps {
   isOpen: boolean;
   onClose: () => void;
   folder?: Folder | null; // null/undefined for create, Folder for edit
@@ -39,8 +38,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   defaultParentFolderId,
   raindropToken,
   onSearchCovers,
-  onListUploadedCovers,
-  onUploadCover,
   onDelete,
   onSave,
 }) => {
@@ -49,7 +46,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   const [name, setName] = useState('');
   const [parentSpaceId, setParentSpaceId] = useState(defaultSpaceId || orderedSpaces[0]?.id || '');
   const [parentFolderId, setParentFolderId] = useState(defaultParentFolderId || '');
-  const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [coverQuery, setCoverQuery] = useState('');
   const [coverUrl, setCoverUrl] = useState<string | undefined>();
   const [coverResults, setCoverResults] = useState<string[]>([]);
@@ -300,49 +296,13 @@ export const FolderModal: React.FC<FolderModalProps> = ({
           </div>
 
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155' }}>Folder Cover</label>
-              {coverUrl && (
-                <button
-                  type="button"
-                  disabled={isUploadingCover}
-                  onClick={() => setCoverUrl(undefined)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: isDark ? '#94a3b8' : '#64748b',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    padding: '2px 4px',
-                  }}
-                >
-                  Remove cover
-                </button>
-              )}
-            </div>
-            {coverUrl && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Current:</span>
-                <div style={{ width: '36px', height: '36px', padding: '4px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img src={coverUrl} alt="Current folder cover" width="26" height="26" referrerPolicy="no-referrer" style={{ width: '26px', height: '26px', objectFit: 'contain', display: 'block' }} />
-                </div>
-              </div>
-            )}
-            <UploadedCoverPicker
-              raindropToken={raindropToken}
-              onListUploadedCovers={onListUploadedCovers}
-              onUploadCover={onUploadCover}
-              onBusyChange={setIsUploadingCover}
-              value={coverUrl}
-              onSelect={(cover) => setCoverUrl(cover)}
-              isDark={isDark}
-            />
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#334155', marginBottom: '6px' }}>Folder Cover</label>
             <input
               type="search"
               value={coverQuery}
               onChange={(e) => setCoverQuery(e.target.value)}
               placeholder="Search Raindrop covers"
-              disabled={isUploadingCover || (!raindropToken && !onSearchCovers)}
+              disabled={!raindropToken && !onSearchCovers}
               style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f8fafc' : '#0f172a', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
             />
             {!raindropToken && !onSearchCovers ? (
@@ -352,15 +312,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 {isSearchingCovers && <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Searching covers…</span>}
                 {coverSearchError && <span role="alert" style={{ fontSize: '12px', color: isDark ? '#fca5a5' : '#dc2626' }}>{coverSearchError}</span>}
                 {!isSearchingCovers && coverResults.map((cover) => (
-                  <button
-                    key={cover}
-                    type="button"
-                    disabled={isUploadingCover}
-                    onClick={() => setCoverUrl(cover)}
-                    title="Use this folder cover"
-                    aria-label="Use this folder cover"
-                    style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}
-                  >
+                  <button key={cover} type="button" onClick={() => setCoverUrl(cover)} title="Use this folder cover" aria-label="Use this folder cover" style={{ width: '40px', height: '40px', padding: '5px', borderRadius: '8px', cursor: 'pointer', border: coverUrl === cover ? '2px solid #38bdf8' : `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#0f172a' : '#ffffff' }}>
                     <img src={cover} alt="" width="28" height="28" referrerPolicy="no-referrer" style={{ width: '28px', height: '28px', objectFit: 'contain', display: 'block' }} />
                   </button>
                 ))}
@@ -397,7 +349,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               <Button type="button" variant="secondary" size="md" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={isUploadingCover}>
+              <Button type="submit" variant="primary" size="md">
                 {folder ? 'Save' : 'Create'}
               </Button>
             </div>
