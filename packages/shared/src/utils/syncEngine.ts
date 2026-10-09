@@ -473,6 +473,7 @@ export function applyOperation(
         parentSpaceId: op.payload?.parentSpaceId || cloned.activeSpaceId,
         parentFolderId: op.payload?.parentFolderId || undefined,
         customEmojiIcon: op.payload?.customEmojiIcon || '📁',
+        coverUrl: op.payload?.coverUrl || undefined,
         colors: op.payload?.colors || undefined,
         isExpanded: op.payload?.isExpanded !== undefined ? op.payload.isExpanded : true,
         order: op.payload?.order !== undefined ? op.payload.order : undefined,
@@ -502,6 +503,7 @@ export function applyOperation(
           if ('customEmojiIcon' in op.payload) updated.customEmojiIcon = op.payload.customEmojiIcon || undefined;
           if ('parentFolderId' in op.payload) updated.parentFolderId = op.payload.parentFolderId || undefined;
           if ('colors' in op.payload) updated.colors = op.payload.colors || undefined;
+          if ('coverUrl' in op.payload) updated.coverUrl = op.payload.coverUrl || undefined;
         }
 
         cloned.folders[existingIdx] = updated;
