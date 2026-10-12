@@ -25,7 +25,33 @@ export function applyHideScrollbars(target: browser.Scripting.InjectionTarget): 
   return pendingUpdate;
 }
 
+// A registered CSS content script is applied by the browser before first paint. Injecting from
+// the background after a message round trip lets scrollbars render briefly and shifts the layout.
+const REGISTERED_SCRIPT_ID = 'arcable-hide-scrollbars-css';
+let pendingRegistration = Promise.resolve();
+function syncRegisteredCss(): Promise<void> {
+  pendingRegistration = pendingRegistration.then(async () => {
+    const stored = await browser.storage.local.get(STORAGE_KEY_HIDE_SCROLLBARS);
+    const existing = await browser.scripting.getRegisteredContentScripts({ ids: [REGISTERED_SCRIPT_ID] });
+    const enabled = stored[STORAGE_KEY_HIDE_SCROLLBARS] === true;
+    if (!enabled && existing.length > 0) {
+      await browser.scripting.unregisterContentScripts({ ids: [REGISTERED_SCRIPT_ID] });
+    } else if (enabled && existing.length === 0) {
+      await browser.scripting.registerContentScripts([{
+        id: REGISTERED_SCRIPT_ID,
+        matches: ['<all_urls>'],
+        css: ['hide-scrollbars.css'],
+        runAt: 'document_start',
+        allFrames: true,
+        persistAcrossSessions: true,
+      }]);
+    }
+  }).catch(console.warn);
+  return pendingRegistration;
+}
+
 export function initHideScrollbarsBackground(): void {
+  void syncRegisteredCss();
   const updateOpenTabs = async () => {
     const tabs = await browser.tabs.query({});
     await Promise.all(tabs.flatMap(tab => tab.id === undefined ? [] : [
@@ -34,6 +60,7 @@ export function initHideScrollbarsBackground(): void {
   };
   browser.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes[STORAGE_KEY_HIDE_SCROLLBARS]) {
+      void syncRegisteredCss();
       void updateOpenTabs().catch(console.warn);
     }
   });

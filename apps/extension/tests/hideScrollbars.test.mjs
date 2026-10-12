@@ -19,6 +19,9 @@ const browser = {
       calls.push(['remove', details]);
     },
     insertCSS: async details => { calls.push(['insert', details]); },
+    getRegisteredContentScripts: async () => [],
+    registerContentScripts: async () => {},
+    unregisterContentScripts: async () => {},
   },
 };
 const source = await readFile(new URL('../src/background/hideScrollbars.ts', import.meta.url), 'utf8');

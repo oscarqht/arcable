@@ -1,0 +1,3 @@
+/* Keep in sync with HIDE_SCROLLBARS_CSS in src/background/hideScrollbars.ts */
+* { scrollbar-width: none !important; }
+*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }

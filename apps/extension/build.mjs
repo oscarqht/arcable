@@ -205,6 +205,7 @@ async function buildTarget(browserName) {
   const manifestSrc = resolve(__dirname, `manifest.${browserName}.json`);
   const manifestDest = resolve(outDir, 'manifest.json');
   fs.copyFileSync(manifestSrc, manifestDest);
+  fs.copyFileSync(resolve(__dirname, 'src/content/hide-scrollbars.css'), resolve(outDir, 'hide-scrollbars.css'));
 
   // 4.5. Copy icons directory
   const iconsSrc = resolve(__dirname, 'icons');
