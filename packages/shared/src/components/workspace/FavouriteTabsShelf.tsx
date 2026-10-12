@@ -33,6 +33,7 @@ import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useWeatherAutoFetch } from '../../hooks/useWeatherAutoFetch';
+import { isMobileDevice } from '../../utils/syncEngine';
 import { ActionDropdown, ActionDropdownItem, ActionDropdownHandle } from './ActionDropdown';
 import { FavouriteGroupPopover, renderMiniWidgetIcon } from './FavouriteGroupPopover';
 import {
@@ -173,12 +174,17 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null);
   const [groupPopoverTab, setGroupPopoverTab] = useState<{ tab: Tab; anchorRect: DOMRect } | null>(null);
 
+  const lastTouchTimeRef = useRef<number>(0);
   const groupLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMouseOverGroupRef = useRef<string | null>(null);
   const isMouseOverGroupPopoverRef = useRef(false);
   const isMouseOutsidePageRef = useRef(false);
   const groupPopoverTabRef = useRef(groupPopoverTab);
   groupPopoverTabRef.current = groupPopoverTab;
+
+  const isMobileOrTouch = () => {
+    return isMobile || isMobileDevice() || Date.now() - lastTouchTimeRef.current < 1000;
+  };
 
   const clearGroupLeaveTimer = () => {
     if (groupLeaveTimerRef.current) {
@@ -188,6 +194,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   };
 
   const scheduleGroupPopoverClose = (delay = 80) => {
+    if (isMobile || isMobileDevice()) {
+      return;
+    }
     const activeDrag = getActiveDrag();
     if (activeDrag && activeDrag.parentGroupId) {
       return;
@@ -207,6 +216,9 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
 
   useEffect(() => {
     const handleMouseLeavePage = () => {
+      if (isMobile || isMobileDevice()) {
+        return;
+      }
       const activeDrag = getActiveDrag();
       if (activeDrag) {
         return;
@@ -1040,14 +1052,19 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             return (
               <div
                 key={tab.id}
+                data-group-id={isGroup ? tab.id : undefined}
                 draggable={true}
                 onMouseDown={handleDraggableMouseDown}
+                onTouchStart={() => {
+                  lastTouchTimeRef.current = Date.now();
+                }}
                 onDragStart={(e) => handleDragStart(e, tab.id)}
                 onDragOver={(e) => handleDragOver(e, tab.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, tab.id)}
                 onDragEnd={(e) => handleDragEnd(e, tab)}
                 onMouseEnter={(e) => {
+                  if (isMobileOrTouch()) return;
                   handleItemMouseEnter(tab.id);
                   if (isGroup) {
                     clearGroupLeaveTimer();
@@ -1057,6 +1074,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                   }
                 }}
                 onMouseLeave={() => {
+                  if (isMobileOrTouch()) return;
                   handleItemMouseLeave(tab.id);
                   if (isGroup) {
                     if (isMouseOverGroupRef.current === tab.id) {
@@ -2230,6 +2248,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             isMouseOverGroupPopoverRef.current = true;
           }}
           onMouseLeave={() => {
+            if (isMobile || isMobileDevice()) return;
             isMouseOverGroupPopoverRef.current = false;
             const activeDrag = getActiveDrag();
             if (!activeDrag || activeDrag.parentGroupId !== activePopoverGroupTab.id) {

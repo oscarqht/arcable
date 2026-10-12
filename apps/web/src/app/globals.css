@@ -148,10 +148,16 @@ a {
   }
 }
 
-/* Space Cards Grid: responsive breakpoints (<=500: 1 col, <=600: 2 cols, <=960: 3 cols, <=1280: 4 cols, otherwise 5 cols) */
+/* Main content container max-width: allows 4 columns to expand up to 1800px on widescreen displays */
+.main-content {
+  max-width: 1800px !important;
+  width: 100%;
+}
+
+/* Space Cards Grid: responsive breakpoints (<800px: 1 col, <1200px: 2 cols, <1600px: 3 cols, otherwise: 4 cols) */
 .space-cards-grid {
   display: grid !important;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   gap: 20px !important;
   align-items: start;
   justify-content: center;
@@ -159,24 +165,44 @@ a {
   width: 100%;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1599.98px) {
   .space-cards-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 18px !important;
+  }
+}
+
+@media (max-width: 1199.98px) {
+  .space-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 16px !important;
   }
 }
 
-@media (max-width: 960px) {
+@media (max-width: 799.98px) {
+  .main-content {
+    margin: 12px auto !important;
+    padding: 0 12px !important;
+  }
+
   .space-cards-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 14px !important;
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  .space-card {
+    padding: 14px 12px !important;
+    border-radius: 18px !important;
+  }
+
+  .space-card h3 {
+    font-size: 15px !important;
   }
 }
 
-@media (max-width: 780px) {
+@media (max-width: 480px) {
   .main-content {
-    margin: 12px auto !important;
-    padding: 0 10px !important;
+    padding: 0 8px !important;
   }
 
   .space-card {
@@ -186,24 +212,6 @@ a {
 
   .space-card h3 {
     font-size: 14px !important;
-  }
-}
-
-@media (max-width: 600px) {
-  .space-cards-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 10px !important;
-  }
-}
-
-@media (max-width: 500px) {
-  .main-content {
-    padding: 0 8px !important;
-  }
-
-  .space-cards-grid {
-    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
-    gap: 10px !important;
   }
 }
 

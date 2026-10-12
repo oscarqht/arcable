@@ -640,7 +640,7 @@ export default function HomePage() {
       <main
         className="main-content"
         style={{
-          maxWidth: '1440px',
+          maxWidth: '1800px',
           width: '100%',
           margin: '20px auto',
           padding: '0 20px',

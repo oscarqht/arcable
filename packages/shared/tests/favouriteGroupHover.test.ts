@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Tab } from '../src/types';
+import type { Tab } from '../src/types/workspace';
 
 test('favourite group hover state machine: immediate open and grace transition to popover', async () => {
   // Model state machine of FavouriteTabsShelf group hover logic
@@ -208,3 +208,74 @@ test('favourite group hover state machine: mouse leave side panel page dismisses
   await new Promise((r) => setTimeout(r, 120));
   assert.deepEqual(groupPopoverTab, { tabId: 'grp-3' }, 'Popover stays open if mouse re-enters within 150ms');
 });
+
+test('mobile browser: groups in favorite section open popover on single click without double click requirement', () => {
+  // Model state machine for mobile vs desktop interaction
+  let groupPopoverTab: { tabId: string } | null = null;
+  let lastTouchTime = 0;
+
+  const isMobileOrTouch = (isMobileEnv: boolean) => {
+    return isMobileEnv || Date.now() - lastTouchTime < 1000;
+  };
+
+  const handleTouchStart = () => {
+    lastTouchTime = Date.now();
+  };
+
+  const handleMouseEnter = (tabId: string, isMobileEnv: boolean) => {
+    if (isMobileOrTouch(isMobileEnv)) {
+      // In mobile/touch environment, do NOT open popover on synthesized mouseenter
+      return;
+    }
+    groupPopoverTab = { tabId };
+  };
+
+  const handleMouseLeave = (tabId: string, isMobileEnv: boolean) => {
+    if (isMobileOrTouch(isMobileEnv)) {
+      return;
+    }
+    if (groupPopoverTab?.tabId === tabId) {
+      groupPopoverTab = null;
+    }
+  };
+
+  const handleClick = (tabId: string) => {
+    if (groupPopoverTab?.tabId === tabId) {
+      groupPopoverTab = null;
+    } else {
+      groupPopoverTab = { tabId };
+    }
+  };
+
+  // Scenario 1: Desktop browser with mouse (isMobileEnv = false, no touch)
+  // Hover opens popover
+  assert.equal(groupPopoverTab, null);
+  handleMouseEnter('grp-desktop', false);
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-desktop' }, 'Desktop hover opens popover');
+  handleMouseLeave('grp-desktop', false);
+  assert.equal(groupPopoverTab, null, 'Desktop mouseleave closes popover');
+
+  // Scenario 2: Mobile browser (isMobileEnv = true)
+  // When user taps on mobile browser:
+  // Step 1: touchstart fires
+  handleTouchStart();
+  // Step 2: browser synthesizes mouseenter
+  handleMouseEnter('grp-mobile', true);
+  // Popover must NOT have been opened by synthesized mouseenter!
+  assert.equal(groupPopoverTab, null, 'Synthesized mouseenter on mobile does not open popover');
+  // Step 3: browser fires click
+  handleClick('grp-mobile');
+  // First click successfully opens popover!
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-mobile' }, 'Single click on mobile opens the group items popover');
+
+  // Step 4: Second click on the same group toggles it closed
+  handleClick('grp-mobile');
+  assert.equal(groupPopoverTab, null, 'Second click toggles popover closed');
+
+  // Step 5: Tapping a different group opens it on a single click
+  handleTouchStart();
+  handleMouseEnter('grp-mobile-2', true);
+  handleClick('grp-mobile-2');
+  assert.deepEqual(groupPopoverTab, { tabId: 'grp-mobile-2' }, 'Single click opens another group');
+});
+

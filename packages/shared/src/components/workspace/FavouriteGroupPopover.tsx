@@ -343,13 +343,18 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handlePointerDown = (e: MouseEvent) => {
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
       if (isUngroupConfirmOpen) return;
       if (draggedItemId || getActiveDrag()) return;
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement | null;
+      if (addMenuRef.current && !addMenuRef.current.contains(target as Node)) {
         setIsAddMenuOpen(false);
       }
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+      if (popoverRef.current && !popoverRef.current.contains(target as Node)) {
+        // Do not close if user clicked/tapped the group card itself (the group card's onClick handles toggling)
+        if (target?.closest?.(`[data-group-id="${groupTab.id}"]`)) {
+          return;
+        }
         onClose();
       }
     };
@@ -367,12 +372,14 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     };
 
     window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('touchstart', handlePointerDown, { passive: true });
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('touchstart', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose, isAddMenuOpen, draggedItemId, isUngroupConfirmOpen]);
+  }, [isOpen, onClose, isAddMenuOpen, draggedItemId, isUngroupConfirmOpen, groupTab.id]);
 
   if (!isOpen || !anchorRect || typeof document === 'undefined') return null;
 
