@@ -21,7 +21,7 @@ const source = await readFile(new URL('../src/background/tabSwitcher.ts', import
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
 const sandbox = { exports: {}, require: () => browser, setTimeout: () => 1, clearTimeout() {}, Date };
 vm.runInNewContext(js, sandbox);
-const { handleTabSwitcherMessage: message, initTabSwitcherBackground: init } = sandbox.exports;
+const { handleTabSwitcherMessage: message, initTabSwitcherBackground: init, isNewTab, isNewTabUrl } = sandbox.exports;
 const sender = { tab: tabs[0], frameId: 0 };
 init();
 assert.equal(message({ type: 'OTHER' }, sender), undefined);
@@ -56,6 +56,47 @@ assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'b
 assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'commit' }, {})).success, false);
 assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_PANEL_KEY', action: 'commit', windowId: 404 }, {})).success, false);
 assert.equal(forwards.length, 2);
+// Verify new tab detection helpers
+assert.equal(isNewTabUrl('chrome://newtab'), true);
+assert.equal(isNewTabUrl('chrome://newtab/'), true);
+assert.equal(isNewTabUrl('chrome://new-tab-page'), true);
+assert.equal(isNewTabUrl('chrome://new-tab-page/'), true);
+assert.equal(isNewTabUrl('about:blank'), true);
+assert.equal(isNewTabUrl('about:newtab'), true);
+assert.equal(isNewTabUrl('edge://newtab'), true);
+assert.equal(isNewTabUrl('about:home'), true);
+assert.equal(isNewTabUrl('about:zen'), true);
+assert.equal(isNewTabUrl('chrome://zen'), true);
+assert.equal(isNewTabUrl('chrome-search://local-ntp'), true);
+assert.equal(isNewTabUrl('brave://newtab'), true);
+assert.equal(isNewTabUrl(''), true);
+assert.equal(isNewTabUrl(null), true);
+assert.equal(isNewTabUrl(undefined), true);
+assert.equal(isNewTabUrl('https://example.com'), false);
+assert.equal(isNewTabUrl('https://example.com/newtab'), false);
+assert.equal(isNewTab({ url: 'chrome://newtab' }), true);
+assert.equal(isNewTab({ pendingUrl: 'chrome://newtab' }), true);
+assert.equal(isNewTab({ url: '', pendingUrl: 'https://example.com' }), false);
+assert.equal(isNewTab({ url: 'https://example.com' }), false);
+
+// Exclude new tab pages from tab switcher list and activation
+tabs[0].active = true;
+const newTabIds = [201, 202, 203, 204, 205, 206, 207];
+tabs.push(
+  { id: 201, windowId: 10, active: false, lastAccessed: 5000, title: 'New Tab', url: 'chrome://newtab' },
+  { id: 202, windowId: 10, active: false, lastAccessed: 5001, title: 'New Tab', url: 'about:blank' },
+  { id: 203, windowId: 10, active: false, lastAccessed: 5002, title: 'New Tab', url: 'about:newtab' },
+  { id: 204, windowId: 10, active: false, lastAccessed: 5003, title: 'New Tab', url: 'edge://newtab' },
+  { id: 205, windowId: 10, active: false, lastAccessed: 5004, title: 'New Tab', url: 'chrome://new-tab-page' },
+  { id: 206, windowId: 10, active: false, lastAccessed: 5005, title: 'New Tab', url: 'chrome-search://local-ntp' },
+  { id: 207, windowId: 10, active: false, lastAccessed: 5006, title: 'New Tab', url: '' },
+);
+result = await message({ type: 'ARCABLE_TAB_SWITCHER_LIST' }, sender);
+for (const id of newTabIds) {
+  assert.equal(result.tabs.some((tab) => tab.id === id), false, `Tab ${id} must be excluded from switcher list`);
+  assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_ACTIVATE', tabId: id }, sender)).success, false, `Activating new tab ${id} must fail`);
+}
+
 tabs[0].active = false;
 assert.equal((await message({ type: 'ARCABLE_TAB_SWITCHER_ACTIVATE', tabId: 7 }, sender)).success, false);
 assert.equal(updates.length, 1);
