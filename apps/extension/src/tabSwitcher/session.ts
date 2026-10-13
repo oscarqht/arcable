@@ -8,6 +8,28 @@ export interface SwitcherTab {
 
 export type SwitcherAction = 'next' | 'previous' | 'commit' | 'cancel';
 
+export function isNewTabUrl(url?: string | null): boolean {
+  if (!url) return true;
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed === '' ||
+    trimmed === 'about:blank' ||
+    trimmed.startsWith('chrome://newtab') ||
+    trimmed.startsWith('chrome://new-tab-page') ||
+    trimmed.startsWith('edge://newtab') ||
+    trimmed.startsWith('about:newtab') ||
+    trimmed.startsWith('about:home') ||
+    trimmed.startsWith('about:zen') ||
+    trimmed.startsWith('chrome://zen') ||
+    trimmed.startsWith('chrome-search://local-ntp') ||
+    trimmed.startsWith('brave://newtab')
+  );
+}
+
+export function isNewTab(tab: { url?: string }): boolean {
+  return isNewTabUrl(tab.url);
+}
+
 interface SwitcherEffects {
   load: () => Promise<SwitcherTab[]>;
   render: (tabs: SwitcherTab[], selected: number) => void;
@@ -49,7 +71,7 @@ export class SwitcherSession {
       this.effects.render([], 0);
       void this.effects.load().then(tabs => {
         if (!this.active || generation !== this.generation) return;
-        this.tabs = tabs.slice(0, 5);
+        this.tabs = (tabs || []).filter(tab => !isNewTab(tab)).slice(0, 5);
         if (!this.tabs.length) { this.cancel(); return; }
         if (this.released) this.commit();
         else this.effects.render(this.tabs, this.selected);

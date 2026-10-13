@@ -9,6 +9,28 @@ export interface SwitcherTab {
 }
 export type TabSwitcherResponse = { tabs: SwitcherTab[] } | { success: boolean };
 
+export function isNewTabUrl(url?: string | null): boolean {
+  if (!url) return true;
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed === '' ||
+    trimmed === 'about:blank' ||
+    trimmed.startsWith('chrome://newtab') ||
+    trimmed.startsWith('chrome://new-tab-page') ||
+    trimmed.startsWith('edge://newtab') ||
+    trimmed.startsWith('about:newtab') ||
+    trimmed.startsWith('about:home') ||
+    trimmed.startsWith('about:zen') ||
+    trimmed.startsWith('chrome://zen') ||
+    trimmed.startsWith('chrome-search://local-ntp') ||
+    trimmed.startsWith('brave://newtab')
+  );
+}
+
+export function isNewTab(tab: { url?: string; pendingUrl?: string }): boolean {
+  return isNewTabUrl(tab.url || tab.pendingUrl);
+}
+
 const PREVIEW_SESSION_KEY = 'arcable_tab_switcher_previews_v1';
 const MAX_PREVIEWS = 40;
 const MAX_PREVIEW_BYTES = 2_000_000;
@@ -249,11 +271,11 @@ export function handleTabSwitcherMessage(message: any, sender: browser.Runtime.M
         return { success: true };
       }
       if (message.type === 'ARCABLE_TAB_SWITCHER_ACTIVATE') {
-        if (!Number.isInteger(message.tabId) || !tabs.some((tab) => tab.id === message.tabId)) return { success: false };
+        if (!Number.isInteger(message.tabId) || !tabs.some((tab) => tab.id === message.tabId && !isNewTab(tab))) return { success: false };
         await browser.tabs.update(message.tabId, { active: true });
         return { success: true };
       }
-      const recent = tabs.filter((tab) => tab.id !== undefined).sort((a, b) => {
+      const recent = tabs.filter((tab) => tab.id !== undefined && !isNewTab(tab)).sort((a, b) => {
         if (a.id === sourceId) return -1;
         if (b.id === sourceId) return 1;
         return Math.max(activity.get(b.id!) || 0, b.lastAccessed || 0) - Math.max(activity.get(a.id!) || 0, a.lastAccessed || 0);

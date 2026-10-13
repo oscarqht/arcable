@@ -8,7 +8,7 @@ const source = await readFile(new URL('../src/tabSwitcher/session.ts', import.me
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const sandbox = { exports: {} };
 vm.runInNewContext(compiled, sandbox);
-const { SwitcherSession } = sandbox.exports;
+const { SwitcherSession, isNewTab, isNewTabUrl } = sandbox.exports;
 const tabs = Array.from({ length: 5 }, (_, id) => ({ id, title: `Tab ${id}`, url: `https://example.com/${id}` }));
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -89,3 +89,45 @@ test('single tab works; empty results and failed loads dismiss safely', async ()
     assert.equal(f.closed, 1);
   }
 });
+
+test('filters out new tab urls from switcher session and cancels if all tabs are new tabs', async () => {
+  assert.equal(isNewTabUrl('chrome://newtab'), true);
+  assert.equal(isNewTabUrl('about:blank'), true);
+  assert.equal(isNewTabUrl('https://example.com'), false);
+  assert.equal(isNewTab({ url: 'chrome://new-tab-page' }), true);
+  assert.equal(isNewTab({ url: 'https://example.com' }), false);
+
+  const mixedTabs = [
+    { id: 1, title: 'Real Tab 1', url: 'https://example.com/1' },
+    { id: 2, title: 'New Tab', url: 'chrome://newtab' },
+    { id: 3, title: 'Blank', url: 'about:blank' },
+    { id: 4, title: 'Real Tab 2', url: 'https://example.com/2' },
+    { id: 5, title: 'Edge New Tab', url: 'edge://newtab' },
+  ];
+
+  const f = fixture();
+  f.session.handle('next');
+  f.pending[0].resolve(mixedTabs);
+  await flush();
+
+  assert.equal(f.session.active, true);
+  assert.deepEqual(
+    f.renders.at(-1).tabs.map(t => t.id),
+    [1, 4],
+  );
+
+  // When all loaded tabs are new tabs, session cancels safely
+  const allNewTabs = [
+    { id: 10, title: 'New Tab', url: 'chrome://newtab' },
+    { id: 11, title: 'About Blank', url: 'about:blank' },
+  ];
+  const fEmpty = fixture();
+  fEmpty.session.handle('next');
+  fEmpty.pending[0].resolve(allNewTabs);
+  await flush();
+
+  assert.equal(fEmpty.session.active, false);
+  assert.equal(fEmpty.closed, 1);
+  assert.deepEqual(fEmpty.activations, []);
+});
+

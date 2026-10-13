@@ -21,11 +21,14 @@ export function isBlankNewTabUrl(url: string | null | undefined): boolean {
     trimmed === '' ||
     trimmed === 'about:blank' ||
     trimmed.startsWith('chrome://newtab') ||
+    trimmed.startsWith('chrome://new-tab-page') ||
     trimmed.startsWith('edge://newtab') ||
     trimmed.startsWith('about:newtab') ||
     trimmed.startsWith('about:home') ||
     trimmed.startsWith('about:zen') ||
-    trimmed.startsWith('chrome://zen')
+    trimmed.startsWith('chrome://zen') ||
+    trimmed.startsWith('chrome-search://local-ntp') ||
+    trimmed.startsWith('brave://newtab')
   );
 }
 
