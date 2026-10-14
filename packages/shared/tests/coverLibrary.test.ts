@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { listUploadedCovers, uploadCoverToLibrary, validateCoverImage } from '../src/utils/coverLibrary';
-import { fetchRaindropWorkspace, syncWorkspaceWithRaindrop } from '../src/utils/raindropSync';
+import { fetchRaindropWorkspace, reconstructWorkspace, syncWorkspaceWithRaindrop } from '../src/utils/raindropSync';
+import { replayOperations } from '../src/utils/syncEngine';
 
 const collections: any[] = [{ _id: 1, title: 'Arcable v2', count: 2 }];
 const items: any[] = [];
@@ -75,6 +76,49 @@ async function main() {
   assert.equal(hydrated.data.tabs.length, 2, 'image assets must not appear as tabs');
   assert.equal(hydrated.data.spaces.length, 0, 'the library must not appear as a space');
   assert(hydrated.data.tabs.every((tab) => tab.favIconUrl === cover.url));
+
+  // Verify reconstructWorkspace directly ignores _covers/system collection items and replayOperations drops leaked _covers orphan tabs on tab/folder edit
+  const reconstructedWithRawCovers = reconstructWorkspace({
+    root: { _id: 1, title: 'Arcable v2' },
+    collections: [
+      { _id: 2, title: '_covers', parent: { $id: 1 } },
+      { _id: 10, title: 'Treeee', parent: { $id: 1 } },
+    ],
+    items: [
+      { _id: 20, title: 'trident', link: cover.url, collectionId: 2 },
+      { _id: 21, title: 'logo ||| reused.png', link: cover.url, collectionId: 2 },
+      { _id: 40, title: 'Work Tab', link: 'https://work.example', collectionId: 10 },
+    ],
+  });
+  assert.equal(reconstructedWithRawCovers.tabs.length, 1, 'reconstructWorkspace must exclude _covers items even when passed directly');
+  assert.equal(reconstructedWithRawCovers.tabs[0].customTitle, 'Work Tab');
+
+  const replayedAfterEdit = replayOperations(
+    {
+      ...reconstructedWithRawCovers,
+      activeSpaceId: '10',
+      tabs: [
+        ...reconstructedWithRawCovers.tabs,
+        // Simulate a stale cached snapshot where a _covers item leaked in with parentFolderId='2' and parentSpaceId=undefined
+        {
+          id: '20',
+          raindropId: 20,
+          url: cover.url,
+          customTitle: 'trident',
+          parentFolderId: '2',
+          parentSpaceId: undefined,
+          pinned: false,
+          order: 1000,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    },
+    [{ id: 'op-edit', type: 'TAB_UPDATE', entityId: '40', payload: { customTitle: 'Work Tab Edited' }, timestamp: Date.now(), deviceId: 'test' }]
+  );
+  assert.equal(replayedAfterEdit.tabs.length, 1, 'modifying a tab/folder must not promote leaked _covers items into activeSpaceId');
+  assert.equal(replayedAfterEdit.tabs[0].customTitle, 'Work Tab Edited');
+
   const a = hydrated.data.tabs.find((tab) => tab.raindropId === 30)!;
   const result = await syncWorkspaceWithRaindrop('test', {
     localState: { ...hydrated.data, tabs: hydrated.data.tabs.filter((tab) => tab !== a) },

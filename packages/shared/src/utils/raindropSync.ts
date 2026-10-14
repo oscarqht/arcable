@@ -1765,9 +1765,9 @@ async function fetchRemoteArcableTree(token: string): Promise<RemoteArcableTree>
     .map((id) => byId.get(id))
     .filter((collection): collection is RaindropCollectionItem => Boolean(collection));
   const items = await fetchAllRaindropItems(token, root._id, { nested: true, cacheBust });
-  // Cover assets are managed independently and must never enter tab hydration or pruning.
+  // Cover and system assets are managed independently and must never enter tab hydration or pruning.
   const coverCollectionIds = new Set(collections.filter(
-    (collection) => collection.title.trim().toLowerCase() === ARCABLE_COVERS_COLLECTION_NAME
+    (collection) => decodeRaindropTitle(collection.title).trim().toLowerCase() === ARCABLE_COVERS_COLLECTION_NAME
   ).map((collection) => collection._id));
   return { root, archiveRootId: archiveRoot?._id, collections,
     items: items.filter((item) => item.collectionId === undefined || !coverCollectionIds.has(item.collectionId)) };
@@ -1847,6 +1847,11 @@ export function reconstructWorkspace(
   const spaceIds = new Set(
     tree.collections
       .filter((collection) => collection.parent?.$id === root._id && !isSystemCollection(collection))
+      .map((collection) => collection._id)
+  );
+  const systemCollectionIds = new Set(
+    tree.collections
+      .filter((collection) => isSystemCollection(collection))
       .map((collection) => collection._id)
   );
 
@@ -2114,7 +2119,12 @@ export function reconstructWorkspace(
   ]);
 
   const rawTabItems = tree.items.filter(
-    (item) => !isArcableInternalItem(item) && !nonTabItemIds.has(item._id) && !isWidgetItem(item) && !isSpaceThemeItem(item)
+    (item) =>
+      !isArcableInternalItem(item) &&
+      !nonTabItemIds.has(item._id) &&
+      !isWidgetItem(item) &&
+      !isSpaceThemeItem(item) &&
+      !(item.collectionId !== undefined && systemCollectionIds.has(item.collectionId))
   );
 
   // Group URL variants by title delimiter: "<name> ||| <variant name>"
@@ -2168,6 +2178,7 @@ export function reconstructWorkspace(
         parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
       }
     }
+    if (!favourite && !parentSpaceId) continue;
 
     const decodedTitle = decodeRaindropTitle(item.title || '');
     const groupKey = `${collectionId || 0}:::${decodedTitle.trim()}`;
@@ -2359,6 +2370,7 @@ export function reconstructWorkspace(
         parentSpaceId = cursor?.parent?.$id ? arcableCollectionId(cursor.parent.$id) : undefined;
       }
     }
+    if (!favourite && !parentSpaceId) continue;
     const baseTitle = groupKey.split(':::')[1] || decodeRaindropTitle(first.title);
     variantItems.sort((a, b) => {
       const orderA = itemOrderMap.get(a._id) ?? (a.sort ?? a.order ?? 0);
