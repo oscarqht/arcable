@@ -19,6 +19,9 @@ import {
   getSpaceNoiseOverlayStyle,
   SpaceThemeTokens,
   searchRaindrop,
+  searchRaindropCollectionCovers,
+  listUploadedCovers,
+  uploadCoverToLibrary,
   clearMousePos,
   resolveRaindropArchiveCollectionId,
   isMobileDevice,
@@ -441,6 +444,9 @@ export const App: React.FC = () => {
       if (res && res.success) {
         const isAuth = Boolean(res.data?.isAuthenticated);
         setHasRaindropAuth(isAuth);
+        if (res.data?.accessToken) {
+          setRaindropToken(res.data.accessToken);
+        }
       }
       setIsAuthStateLoaded(true);
     }).catch((error) => {
@@ -558,10 +564,14 @@ export const App: React.FC = () => {
       browser.storage.local.get(['arcable_raindrop_auth']).then((res: any) => {
         if (res.arcable_raindrop_auth !== undefined) {
           setHasRaindropAuth(Boolean(res.arcable_raindrop_auth?.isAuthenticated));
+          setRaindropToken(res.arcable_raindrop_auth?.accessToken || null);
         }
         browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' }).then((r: any) => {
           if (r && r.success) {
             setHasRaindropAuth(Boolean(r.data?.isAuthenticated));
+            if (r.data?.accessToken !== undefined) {
+              setRaindropToken(r.data.accessToken || null);
+            }
           }
         });
       });
@@ -664,26 +674,59 @@ export const App: React.FC = () => {
     }
   };
 
+  const resolveActiveRaindropToken = useCallback(async (): Promise<string | null> => {
+    if (raindropToken) return raindropToken;
+    try {
+      const stored: any = await browser.storage.local.get(['arcable_raindrop_auth']);
+      const storedToken = stored?.arcable_raindrop_auth?.accessToken;
+      if (stored?.arcable_raindrop_auth?.isAuthenticated && storedToken) {
+        setRaindropToken(storedToken);
+        return storedToken;
+      }
+    } catch {}
+    try {
+      const authRes: any = await browser.runtime.sendMessage({ type: 'RAINDROP_GET_AUTH_STATE' });
+      const activeToken = authRes?.data?.accessToken;
+      if (authRes?.success && authRes.data?.isAuthenticated && activeToken) {
+        setRaindropToken(activeToken);
+        return activeToken;
+      }
+    } catch {}
+    return null;
+  }, [raindropToken]);
+
   const handleListUploadedCovers = useCallback(async () => {
+    const token = await resolveActiveRaindropToken();
+    if (token) {
+      return await listUploadedCovers(token);
+    }
     const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_LIST_UPLOADED_COVERS' });
     if (!res?.success) throw new Error(res?.error || 'Could not load cover library');
     return res.data;
-  }, [raindropToken, hasRaindropAuth]);
+  }, [resolveActiveRaindropToken]);
 
   const handleUploadCover = useCallback(async (name: string, dataUrl: string) => {
+    const token = await resolveActiveRaindropToken();
+    if (token) {
+      return await uploadCoverToLibrary(token, name, dataUrl);
+    }
     const res: any = await browser.runtime.sendMessage({ type: 'RAINDROP_UPLOAD_COVER', payload: { name, dataUrl } });
     if (!res?.success) throw new Error(res?.error || 'Could not upload cover');
     return res.data;
-  }, []);
+  }, [resolveActiveRaindropToken]);
 
   const handleSearchCollectionCovers = useCallback(async (query: string): Promise<string[]> => {
+    const token = await resolveActiveRaindropToken();
+    if (token) {
+      return await searchRaindropCollectionCovers(token, query);
+    }
     const res: any = await browser.runtime.sendMessage({
       type: 'RAINDROP_SEARCH_COLLECTION_COVERS',
       payload: { query },
     });
     if (!res?.success) throw new Error(res?.error || 'Failed to search Raindrop collection covers');
     return Array.isArray(res.data) ? res.data : [];
-  }, []);
+  }, [resolveActiveRaindropToken]);
 
   const handleRestoreComplete = useCallback(async (restoredSnapshot: any) => {
     if (typeof window !== 'undefined' && restoredSnapshot) {

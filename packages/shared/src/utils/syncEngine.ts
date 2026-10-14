@@ -941,29 +941,31 @@ export function replayOperations(
 
   const updatedFolderMap = new Map<string, Folder>(state.folders.map((f) => [f.id, f]));
 
-  // Repair tabs
-  state.tabs = state.tabs.map((t) => {
-    if (t.favourite) {
+  // Repair tabs (drop leaked system-collection items that have a non-folder parentFolderId and no parentSpaceId)
+  state.tabs = state.tabs
+    .filter((t) => t.favourite || Boolean(t.parentSpaceId) || !t.parentFolderId || folderIds.has(t.parentFolderId))
+    .map((t) => {
+      if (t.favourite) {
+        return {
+          ...t,
+          favourite: true,
+          pinned: false,
+          parentSpaceId: undefined,
+          parentFolderId: undefined,
+        };
+      }
+      const validParentFolder = !t.pinned && t.parentFolderId && folderIds.has(t.parentFolderId)
+        ? t.parentFolderId
+        : undefined;
+      const folderSpace = validParentFolder ? updatedFolderMap.get(validParentFolder)?.parentSpaceId : undefined;
+      const validSpace = folderSpace || (spaceIds.has(t.parentSpaceId || '') ? t.parentSpaceId : state.activeSpaceId);
       return {
         ...t,
-        favourite: true,
-        pinned: false,
-        parentSpaceId: undefined,
-        parentFolderId: undefined,
+        favourite: false,
+        parentSpaceId: validSpace,
+        parentFolderId: validParentFolder,
       };
-    }
-    const validParentFolder = !t.pinned && t.parentFolderId && folderIds.has(t.parentFolderId)
-      ? t.parentFolderId
-      : undefined;
-    const folderSpace = validParentFolder ? updatedFolderMap.get(validParentFolder)?.parentSpaceId : undefined;
-    const validSpace = folderSpace || (spaceIds.has(t.parentSpaceId || '') ? t.parentSpaceId : state.activeSpaceId);
-    return {
-      ...t,
-      favourite: false,
-      parentSpaceId: validSpace,
-      parentFolderId: validParentFolder,
-    };
-  });
+    });
 
   // Chronological sort and self-heal for tmpTabs (newest first)
   if (state.tmpTabs && state.tmpTabs.length > 0) {
