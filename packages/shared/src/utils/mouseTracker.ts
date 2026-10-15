@@ -23,7 +23,6 @@ if (typeof window !== 'undefined') {
   };
 
   window.addEventListener('mousemove', updatePos, { passive: true });
-  window.addEventListener('pointermove', updatePos, { passive: true });
   window.addEventListener('mousedown', updatePos, { passive: true });
   window.addEventListener('mouseup', updatePos, { passive: true });
   window.addEventListener('click', updatePos, { passive: true });
@@ -35,11 +34,6 @@ if (typeof window !== 'undefined') {
     document.addEventListener('pointerleave', clearMousePos);
     document.addEventListener('mouseout', (e) => {
       // If relatedTarget is null, the pointer has left the document window
-      if (!e.relatedTarget) {
-        clearMousePos();
-      }
-    });
-    document.addEventListener('pointerout', (e) => {
       if (!e.relatedTarget) {
         clearMousePos();
       }
@@ -133,6 +127,6 @@ export function refreshHoverUnderCursor(): void {
     }
   }
 
-  // Also dispatch a custom event on window for active components listening for hover refresh
-  window.dispatchEvent(new CustomEvent(REFRESH_HOVER_EVENT, { detail: { x, y } }));
+  // Also dispatch a custom event on window with the resolved target so listeners don't re-run elementFromPoint
+  window.dispatchEvent(new CustomEvent(REFRESH_HOVER_EVENT, { detail: { x, y, target } }));
 }

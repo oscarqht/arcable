@@ -97,17 +97,29 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const checkHover = () => {
+    const checkHover = (e: Event) => {
       if (!rowRef.current || isEditing || isDragging) return;
-      const under = isElementUnderCursor(rowRef.current);
+      const detailTarget = (e as CustomEvent)?.detail?.target as Node | null | undefined;
+      const under =
+        detailTarget !== undefined
+          ? Boolean(detailTarget && (detailTarget === rowRef.current || rowRef.current.contains(detailTarget)))
+          : isElementUnderCursor(rowRef.current);
       setIsHovered(under);
     };
+
+    window.addEventListener(REFRESH_HOVER_EVENT, checkHover);
+    return () => {
+      window.removeEventListener(REFRESH_HOVER_EVENT, checkHover);
+    };
+  }, [isEditing, isDragging]);
+
+  useEffect(() => {
+    if (!isHovered) return;
 
     const handleClear = () => {
       setIsHovered(false);
     };
 
-    window.addEventListener(REFRESH_HOVER_EVENT, checkHover);
     window.addEventListener(CLEAR_HOVER_EVENT, handleClear);
     window.addEventListener('blur', handleClear);
     if (typeof document !== 'undefined') {
@@ -115,14 +127,13 @@ export const TmpTabRow: React.FC<TmpTabRowProps> = ({
     }
 
     return () => {
-      window.removeEventListener(REFRESH_HOVER_EVENT, checkHover);
       window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
       window.removeEventListener('blur', handleClear);
       if (typeof document !== 'undefined') {
         document.removeEventListener('mouseleave', handleClear);
       }
     };
-  }, [isEditing, isDragging]);
+  }, [isHovered]);
 
   const [editTitle, setEditTitle] = useState(tab.customTitle || tab.title || '');
   const inputRef = useRef<HTMLInputElement>(null);

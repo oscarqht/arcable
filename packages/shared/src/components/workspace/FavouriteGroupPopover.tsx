@@ -137,14 +137,6 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
     if (!isOpen) setIsUngroupConfirmOpen(false);
   }, [isOpen]);
 
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (!isOpen) return;
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, [isOpen]);
-  const clockInfo = useMemo(() => buildClockInfo(now), [now]);
-
   const variants = useMemo(
     () => (groupTab.urlVariants || []).filter((v) => Boolean(v.url)),
     [groupTab.urlVariants]
@@ -1092,8 +1084,6 @@ export const FavouriteGroupPopover: React.FC<FavouriteGroupPopoverProps> = ({
               <WidgetTileContent
                 widget={w}
                 theme={theme}
-                clockInfo={clockInfo}
-                now={now}
                 mode="full"
                 compact={true}
               />

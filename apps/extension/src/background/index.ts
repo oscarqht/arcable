@@ -1138,7 +1138,19 @@ if (typeof chrome !== 'undefined' && chrome.alarms) {
   chrome.alarms.clear('arcable_tmp_tabs_sync_alarm');
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === SYNC_ALARM_NAME) {
-      void triggerBackgroundSync();
+      const hasOpenSidepanel = sidepanelPorts.size > 0;
+      if (typeof chrome.idle?.queryState === 'function' && !hasOpenSidepanel) {
+        chrome.idle.queryState(300, (state) => {
+          if (state === 'idle' || state === 'locked') {
+            // Only flush pending local operations when the user is idle/locked with no open sidepanel
+            void triggerBackgroundSync(true);
+          } else {
+            void triggerBackgroundSync();
+          }
+        });
+      } else {
+        void triggerBackgroundSync();
+      }
     }
   });
 }
@@ -1173,6 +1185,25 @@ browser.storage.onChanged.addListener((changes, area) => {
       void getStoredAuthState(true).then((auth) => {
         void syncSidePanelBehavior(Boolean(auth.isAuthenticated && auth.accessToken));
       });
+    }
+
+    if (changes[CUSTOM_CODE_STORAGE_KEY]) {
+      const updatedRules = (changes[CUSTOM_CODE_STORAGE_KEY].newValue || []) as CustomCodeRule[];
+      void browser.tabs
+        .query({})
+        .then((tabs) => {
+          for (const tab of tabs) {
+            if (tab.id !== undefined && tab.url && !isInternalOrExtensionUrl(tab.url)) {
+              void browser.tabs
+                .sendMessage(tab.id, {
+                  type: 'ARCABLE_CUSTOM_CODE_RULES_UPDATED',
+                  rules: updatedRules,
+                })
+                .catch(() => {});
+            }
+          }
+        })
+        .catch(() => {});
     }
 
     const pendingOpsAfterChange = changes.arcable_pending_ops?.newValue;
@@ -1289,19 +1320,42 @@ if (browser.runtime?.onStartup) {
 // Initial side panel behavior synchronization on service worker load
 void syncSidePanelBehavior();
 
+let lastRecordedWebTab: { id?: number; url?: string; title?: string } | null = null;
+
+function rememberActiveWebTab(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
+  if (!tab?.url || isInternalOrExtensionUrl(tab.url)) return;
+  const title = tab.title || tab.url;
+  if (
+    lastRecordedWebTab &&
+    lastRecordedWebTab.id === tab.id &&
+    lastRecordedWebTab.url === tab.url &&
+    lastRecordedWebTab.title === title
+  ) {
+    return;
+  }
+  lastRecordedWebTab = { id: tab.id, url: tab.url, title };
+  const payload = {
+    [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
+      id: tab.id,
+      windowId: tab.windowId,
+      url: tab.url,
+      title,
+      lastAccessed: Date.now(),
+    },
+  };
+  const sessionStorageArea = (browser.storage as any)?.session;
+  if (sessionStorageArea?.set) {
+    void sessionStorageArea.set(payload).catch(() => {
+      void browser.storage.local.set(payload);
+    });
+  } else {
+    void browser.storage.local.set(payload);
+  }
+}
+
 // Handle extension toolbar action click (instantly open side panel on desktop, or open side panel page on mobile)
 function handleActionClick(tab?: browser.Tabs.Tab | chrome.tabs.Tab): void {
-  if (tab?.url && !isInternalOrExtensionUrl(tab.url)) {
-    void browser.storage.local.set({
-      [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
-        id: tab.id,
-        windowId: tab.windowId,
-        url: tab.url,
-        title: tab.title || tab.url,
-        lastAccessed: Date.now(),
-      },
-    });
-  }
+  rememberActiveWebTab(tab);
   // Firefox Desktop: sidebarAction.open()
   if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
     try {
@@ -1356,33 +1410,15 @@ if (typeof browser !== 'undefined' && browser.tabs?.onActivated) {
   browser.tabs.onActivated.addListener(async (activeInfo) => {
     try {
       const tab = await browser.tabs.get(activeInfo.tabId);
-      if (tab?.url && !isInternalOrExtensionUrl(tab.url)) {
-        void browser.storage.local.set({
-          [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
-            id: tab.id,
-            windowId: tab.windowId,
-            url: tab.url,
-            title: tab.title || tab.url,
-            lastAccessed: Date.now(),
-          },
-        });
-      }
+      rememberActiveWebTab(tab);
     } catch {}
   });
 }
 
 if (typeof browser !== 'undefined' && browser.tabs?.onUpdated) {
   browser.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete' && tab.active && tab.url && !isInternalOrExtensionUrl(tab.url)) {
-      void browser.storage.local.set({
-        [LAST_ACTIVE_WEB_TAB_STORAGE_KEY]: {
-          id: tab.id,
-          windowId: tab.windowId,
-          url: tab.url,
-          title: tab.title || tab.url,
-          lastAccessed: Date.now(),
-        },
-      });
+    if (changeInfo.status === 'complete' && tab.active) {
+      rememberActiveWebTab(tab);
     }
   });
 }

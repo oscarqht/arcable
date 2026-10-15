@@ -44,35 +44,85 @@ export const PomodoroPopover: React.FC<PomodoroPopoverProps> = ({
     return config.remainingSeconds ?? defaultTotalSeconds;
   });
 
-  // Tick effect
+  // Tick effect: 1Hz UI tick only when popover is open & document is visible;
+  // single exact completion timeout when closed or hidden so notifications fire without 2Hz background wakeups.
   useEffect(() => {
     if (!isRunning || !config.targetTimestamp) return;
 
-    const interval = setInterval(() => {
-      const diff = Math.max(0, Math.ceil((config.targetTimestamp! - Date.now()) / 1000));
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let completionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      if (completionTimeoutId !== null) {
+        clearTimeout(completionTimeoutId);
+        completionTimeoutId = null;
+      }
+    };
+
+    const handleComplete = () => {
+      clearTimers();
+      setRemainingSeconds(0);
+      const nextMode = mode === 'work' ? 'break' : 'work';
+      const nextTotal = (nextMode === 'work' ? workMinutes : breakMinutes) * 60;
+      sendTimerNotification(
+        mode === 'work' ? '🍅 Pomodoro Finished!' : '☕ Break Ended!',
+        mode === 'work' ? 'Great focus! Time to take a short break.' : 'Break over! Ready to focus again?'
+      );
+      onUpdateConfig({
+        ...config,
+        mode: nextMode,
+        isRunning: false,
+        targetTimestamp: undefined,
+        remainingSeconds: nextTotal,
+      });
+    };
+
+    const sync = () => {
+      clearTimers();
+      const msLeft = config.targetTimestamp! - Date.now();
+      const diff = Math.max(0, Math.ceil(msLeft / 1000));
       setRemainingSeconds(diff);
 
-      if (diff <= 0) {
-        clearInterval(interval);
-        // Timer completed!
-        const nextMode = mode === 'work' ? 'break' : 'work';
-        const nextTotal = (nextMode === 'work' ? workMinutes : breakMinutes) * 60;
-        sendTimerNotification(
-          mode === 'work' ? '🍅 Pomodoro Finished!' : '☕ Break Ended!',
-          mode === 'work' ? 'Great focus! Time to take a short break.' : 'Break over! Ready to focus again?'
-        );
-        onUpdateConfig({
-          ...config,
-          mode: nextMode,
-          isRunning: false,
-          targetTimestamp: undefined,
-          remainingSeconds: nextTotal,
-        });
+      if (msLeft <= 0) {
+        handleComplete();
+        return;
       }
-    }, 500);
 
-    return () => clearInterval(interval);
-  }, [isRunning, config.targetTimestamp, mode, workMinutes, breakMinutes]);
+      const isVisible = typeof document === 'undefined' || document.visibilityState === 'visible';
+      if (isOpen && isVisible) {
+        intervalId = setInterval(() => {
+          const remainingMs = config.targetTimestamp! - Date.now();
+          const nextDiff = Math.max(0, Math.ceil(remainingMs / 1000));
+          setRemainingSeconds(nextDiff);
+          if (remainingMs <= 0) {
+            handleComplete();
+          }
+        }, 1000);
+      } else {
+        completionTimeoutId = setTimeout(handleComplete, msLeft + 20);
+      }
+    };
+
+    sync();
+
+    const handleVisibilityChange = () => {
+      sync();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearTimers();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [isRunning, isOpen, config.targetTimestamp, mode, workMinutes, breakMinutes]);
 
   // Click outside to close
   useEffect(() => {

@@ -135,6 +135,8 @@ export const TabRow: React.FC<TabRowProps> = ({
   const actionDropdownRef = React.useRef<ActionDropdownHandle>(null);
 
   useEffect(() => {
+    if (!isHovered && !dropIndicator) return;
+
     const handleClear = () => {
       setIsHovered(false);
       setDropIndicator(null);
@@ -153,7 +155,7 @@ export const TabRow: React.FC<TabRowProps> = ({
         document.removeEventListener('mouseleave', handleClear);
       }
     };
-  }, []);
+  }, [isHovered, dropIndicator]);
 
   const domain = getDomain(resolvedUrl);
   const firstVariantName = tab.urlVariants && tab.urlVariants.length > 0 ? tab.urlVariants[0]?.name?.trim() : undefined;

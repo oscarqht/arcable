@@ -118,11 +118,13 @@ export class CustomCodeInjector {
   }
 
   setupStorageListener(): void {
-    browser.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes[STORAGE_KEY]) {
-        this.rules = (changes[STORAGE_KEY].newValue as CustomCodeRule[]) || [];
+    browser.runtime.onMessage.addListener((message: unknown) => {
+      const msg = message as { type?: string; rules?: CustomCodeRule[] };
+      if (msg?.type === 'ARCABLE_CUSTOM_CODE_RULES_UPDATED') {
+        this.rules = Array.isArray(msg.rules) ? msg.rules : [];
         this.applyMatchingRules();
       }
+      return undefined;
     });
   }
 }

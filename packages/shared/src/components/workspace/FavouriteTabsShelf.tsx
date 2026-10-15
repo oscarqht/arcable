@@ -163,7 +163,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   }, [themeStyles, isDark]);
 
   const [mounted, setMounted] = useState(false);
-  const [now, setNow] = useState(() => new Date());
 
   // Auto-fetch weather widget updates: every hour when visible, and when page becomes visible if last fetch was >= 1 hour ago
   useWeatherAutoFetch({
@@ -247,7 +246,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       document.addEventListener('mouseenter', handleMouseEnterPage);
       document.addEventListener('pointerenter', handleMouseEnterPage);
     }
-    window.addEventListener('mousemove', handleMouseEnterPage, { passive: true });
 
     return () => {
       clearGroupLeaveTimer();
@@ -259,7 +257,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
         document.removeEventListener('mouseenter', handleMouseEnterPage);
         document.removeEventListener('pointerenter', handleMouseEnterPage);
       }
-      window.removeEventListener('mousemove', handleMouseEnterPage);
     };
   }, []);
   const [menuVisibleTabId, setMenuVisibleTabId] = useState<string | null>(null);
@@ -350,12 +347,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
     setMounted(true);
   }, []);
 
-  // 1-second live clock update for widgets
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
@@ -390,8 +381,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isAddMenuOpen]);
-
-  const clockInfo = useMemo(() => buildClockInfo(now), [now]);
 
   // Only show widgets that are not inside a group on the root shelf
   const shelfWidgets = useMemo(() => widgets.filter((w) => !w.parentGroupId), [widgets]);
@@ -1268,8 +1257,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                               <WidgetTileContent
                                 widget={pItem.widget}
                                 theme={shelfTheme}
-                                clockInfo={clockInfo}
-                                now={now}
                                 mode="mini"
                               />
                             </div>
@@ -1606,8 +1593,6 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
               <WidgetTileContent
                 widget={widget}
                 theme={shelfTheme}
-                clockInfo={clockInfo}
-                now={now}
                 mode="full"
                 compact={false}
               />

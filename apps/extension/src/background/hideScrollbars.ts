@@ -64,6 +64,14 @@ export function initHideScrollbarsBackground(): void {
       void updateOpenTabs().catch(console.warn);
     }
   });
-  // Also style pages already open when the extension starts or reloads.
-  void updateOpenTabs().catch(console.warn);
+  // Only style pages already open on startup when the preference is actually enabled.
+  void browser.storage.local
+    .get(STORAGE_KEY_HIDE_SCROLLBARS)
+    .then((stored) => {
+      if (stored?.[STORAGE_KEY_HIDE_SCROLLBARS] === true) {
+        return updateOpenTabs();
+      }
+      return undefined;
+    })
+    .catch(console.warn);
 }
