@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { listUploadedCovers, uploadCoverToLibrary, validateCoverImage } from '../src/utils/coverLibrary';
+import { COVER_IMAGE_SIZE, listUploadedCovers, resizeCoverImage, uploadCoverToLibrary, validateCoverImage } from '../src/utils/coverLibrary';
 import { fetchRaindropWorkspace, reconstructWorkspace, syncWorkspaceWithRaindrop } from '../src/utils/raindropSync';
 import { replayOperations } from '../src/utils/syncEngine';
 
@@ -58,12 +58,79 @@ globalThis.fetch = (async (input, init) => {
 }) as typeof fetch;
 
 async function main() {
+  assert.equal(COVER_IMAGE_SIZE, 256);
   assert.deepEqual(await listUploadedCovers('test'), []);
   assert.equal(mutations.length, 0, 'opening an empty library must not create collections');
   assert.throws(() => validateCoverImage(new Blob(['x'], { type: 'image/svg+xml' })), /PNG/);
   assert.throws(() => validateCoverImage(new Blob([new Uint8Array(2 * 1024 * 1024 + 1)], { type: 'image/png' })), /2 MB/);
   await assert.rejects(uploadCoverToLibrary('test', 'bad.png', 'data:image/png;base64,' + 'x'.repeat(3_000_000)), /2 MB/);
-  const cover = await uploadCoverToLibrary('test', 'logo ||| reused.png', 'data:image/png;base64,iVBORw==');
+
+  // Verify resizeCoverImage resizes to 256x256 and keeps image format (preserving PNG transparency)
+  const drawCalls: Array<{ width: number; height: number; cleared: [number, number, number, number] | null; drawn: [number, number, number, number] | null; toDataUrlType?: string }> = [];
+  (globalThis as any).Image = class MockImage {
+    onload?: () => void;
+    onerror?: () => void;
+    set src(val: string) {
+      if (val.includes('corrupt')) {
+        queueMicrotask(() => this.onerror?.());
+      } else {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+  };
+  (globalThis as any).document = {
+    createElement(tag: string) {
+      assert.equal(tag, 'canvas');
+      const record: { width: number; height: number; cleared: [number, number, number, number] | null; drawn: [number, number, number, number] | null; toDataUrlType?: string } = {
+        width: 0,
+        height: 0,
+        cleared: null,
+        drawn: null,
+      };
+      drawCalls.push(record);
+      return {
+        get width() { return record.width; },
+        set width(v: number) { record.width = v; },
+        get height() { return record.height; },
+        set height(v: number) { record.height = v; },
+        getContext(contextId: string) {
+          assert.equal(contextId, '2d');
+          return {
+            clearRect(x: number, y: number, w: number, h: number) {
+              record.cleared = [x, y, w, h];
+            },
+            drawImage(_img: unknown, x: number, y: number, w: number, h: number) {
+              record.drawn = [x, y, w, h];
+            },
+          };
+        },
+        toDataURL(type?: string) {
+          record.toDataUrlType = type;
+          return `data:${type || 'image/png'};base64,iVBORw==`;
+        },
+      };
+    },
+  };
+
+  const resizedPng = await resizeCoverImage('data:image/png;base64,AAAA', 'image/png');
+  assert.equal(resizedPng, 'data:image/png;base64,iVBORw==');
+  assert.deepEqual(drawCalls.at(-1), {
+    width: 256,
+    height: 256,
+    cleared: [0, 0, 256, 256],
+    drawn: [0, 0, 256, 256],
+    toDataUrlType: 'image/png',
+  });
+
+  const resizedJpeg = await resizeCoverImage('data:image/jpeg;base64,AAAA');
+  assert.equal(resizedJpeg, 'data:image/jpeg;base64,iVBORw==');
+  assert.equal(drawCalls.at(-1)?.toDataUrlType, 'image/jpeg');
+  assert.deepEqual(drawCalls.at(-1)?.drawn, [0, 0, 256, 256]);
+
+  await assert.rejects(resizeCoverImage('data:image/png;base64,corrupt'), /could not be opened/);
+
+  const cover = await uploadCoverToLibrary('test', 'logo ||| reused.png', 'data:image/png;base64,AAAA');
+  assert.equal(drawCalls.length, 3, 'uploadCoverToLibrary must resize to 256x256 before uploading to Raindrop');
   assert.equal(cover.url, 'https://up.raindrop.io/raindrop/20/file.png');
   assert.deepEqual(await listUploadedCovers('test'), [cover]);
   failUpload = true;
