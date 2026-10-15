@@ -6,6 +6,7 @@ import {
 import { ARCABLE_COLLECTION_NAME, getOrCreateArcableCollection } from './raindropSync';
 
 export const MAX_COVER_BYTES = 2 * 1024 * 1024;
+export const COVER_IMAGE_SIZE = 256;
 
 export function validateCoverImage(image: Blob): void {
   if (!['image/png', 'image/jpeg', 'image/gif'].includes(image.type)) {
@@ -14,6 +15,30 @@ export function validateCoverImage(image: Blob): void {
   if (!image.size || image.size > MAX_COVER_BYTES) {
     throw new Error('Choose an image smaller than 2 MB.');
   }
+}
+
+export async function resizeCoverImage(dataUrl: string, mimeType?: string): Promise<string> {
+  const match = /^data:(image\/(?:png|jpeg|gif));base64,/i.exec(dataUrl);
+  const targetType = (mimeType || match?.[1] || 'image/png').toLowerCase();
+  if (!['image/png', 'image/jpeg', 'image/gif'].includes(targetType)) {
+    throw new Error('Choose a PNG, JPEG, or GIF image.');
+  }
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('This file could not be opened as an image.'));
+    img.src = dataUrl;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_IMAGE_SIZE;
+  canvas.height = COVER_IMAGE_SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Could not process this image.');
+  }
+  ctx.clearRect(0, 0, COVER_IMAGE_SIZE, COVER_IMAGE_SIZE);
+  ctx.drawImage(image, 0, 0, COVER_IMAGE_SIZE, COVER_IMAGE_SIZE);
+  return canvas.toDataURL(targetType);
 }
 
 export async function listUploadedCovers(token: string): Promise<UploadedCover[]> {
@@ -35,7 +60,12 @@ export async function uploadCoverToLibrary(token: string, name: string, dataUrl:
   if (!/^data:image\/(png|jpeg|gif);base64,/.test(dataUrl) || dataUrl.length > MAX_COVER_BYTES * 1.4 + 100) {
     throw new Error('Choose a PNG, JPEG, or GIF image smaller than 2 MB.');
   }
-  const image = dataUrlToBlob(dataUrl);
+  const initialImage = dataUrlToBlob(dataUrl);
+  validateCoverImage(initialImage);
+  const finalDataUrl = typeof Image === 'function' && typeof document !== 'undefined'
+    ? await resizeCoverImage(dataUrl, initialImage.type)
+    : dataUrl;
+  const image = finalDataUrl === dataUrl ? initialImage : dataUrlToBlob(finalDataUrl);
   validateCoverImage(image);
   const root = await getOrCreateArcableCollection(token);
   const collections = await fetchRaindropCollections(token);

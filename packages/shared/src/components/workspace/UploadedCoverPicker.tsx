@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { UploadedCover } from '../../types/raindrop';
-import { listUploadedCovers, uploadCoverToLibrary, validateCoverImage } from '../../utils/coverLibrary';
+import { listUploadedCovers, resizeCoverImage, uploadCoverToLibrary, validateCoverImage } from '../../utils/coverLibrary';
 import { getUploadedCoverCache, refreshUploadedCoverCache, cacheUploadedCover, EMPTY_UPLOADED_COVERS } from '../../utils/uploadedCoverCache';
 
 export interface UploadedCoverPickerProps {
@@ -57,18 +57,13 @@ export const UploadedCoverPicker: React.FC<UploadedCoverPickerProps & {
     onBusyChange?.(true);
     try {
       validateCoverImage(file);
-      const dataUrl = await new Promise<string>((resolve, reject) => {
+      const rawDataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
         reader.onerror = () => reject(new Error('Could not read this image.'));
         reader.readAsDataURL(file);
       });
-      await new Promise<void>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('This file could not be opened as an image.'));
-        image.src = dataUrl;
-      });
+      const dataUrl = await resizeCoverImage(rawDataUrl, file.type);
       const item = onUploadCover ? await onUploadCover(file.name, dataUrl) : await uploadCoverToLibrary(raindropToken!, file.name, dataUrl);
       cacheUploadedCover(cache, item);
       if (generation.current !== current) return;
