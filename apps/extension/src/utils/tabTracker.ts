@@ -365,6 +365,17 @@ class TabTracker {
     return details.tabItemId;
   }
 
+  private cloneAssociations(source: TabAssociationMap | undefined | null): TabAssociationMap {
+    const cloned: TabAssociationMap = {};
+    if (!source || typeof source !== 'object') return cloned;
+    for (const [key, val] of Object.entries(source)) {
+      if (val && typeof val === 'object') {
+        cloned[key] = { ...val };
+      }
+    }
+    return cloned;
+  }
+
   // Load associations from session storage (or local storage fallback)
   public async getAssociations(): Promise<TabAssociationMap> {
     try {
@@ -372,8 +383,8 @@ class TabTracker {
         try {
           const res = await chrome.storage.session.get(SESSION_KEY);
           if (res && res[SESSION_KEY]) {
-            memoryAssociations = { ...(res[SESSION_KEY] as TabAssociationMap) };
-            return memoryAssociations;
+            memoryAssociations = this.cloneAssociations(res[SESSION_KEY] as TabAssociationMap);
+            return this.cloneAssociations(memoryAssociations);
           }
         } catch {}
       }
@@ -381,8 +392,8 @@ class TabTracker {
         try {
           const res = await (browser as any).storage.session.get(SESSION_KEY);
           if (res && res[SESSION_KEY]) {
-            memoryAssociations = { ...(res[SESSION_KEY] as TabAssociationMap) };
-            return memoryAssociations;
+            memoryAssociations = this.cloneAssociations(res[SESSION_KEY] as TabAssociationMap);
+            return this.cloneAssociations(memoryAssociations);
           }
         } catch {}
       }
@@ -390,18 +401,18 @@ class TabTracker {
         try {
           const res = await browser.storage.local.get(SESSION_KEY);
           if (res && res[SESSION_KEY]) {
-            memoryAssociations = { ...(res[SESSION_KEY] as TabAssociationMap) };
-            return memoryAssociations;
+            memoryAssociations = this.cloneAssociations(res[SESSION_KEY] as TabAssociationMap);
+            return this.cloneAssociations(memoryAssociations);
           }
         } catch {}
       }
     } catch (err) {
       console.warn('[TabTracker] Could not read associations from storage, using memory fallback:', err);
     }
-    return { ...memoryAssociations };
+    return this.cloneAssociations(memoryAssociations);
   }
 
-  private hasPersistedAssociationsOnce = false;
+  private lastPersistedAssociations: TabAssociationMap | null = null;
 
   private areAssociationsEqual(a: TabAssociationMap, b: TabAssociationMap): boolean {
     const keysA = Object.keys(a);
@@ -416,9 +427,9 @@ class TabTracker {
         valA.windowId !== valB.windowId ||
         valA.currentUrl !== valB.currentUrl ||
         valA.originalUrl !== valB.originalUrl ||
-        Boolean(valA.isDiverted) !== Boolean(valB.isDiverted) ||
+        Boolean(valA.isDiverted) !== Boolean(valA.isDiverted) ||
         (valA.badge || undefined) !== (valB.badge || undefined) ||
-        (valA.favIconUrl || undefined) !== (valB.favIconUrl || undefined)
+        (valA.favIconUrl || undefined) !== (valA.favIconUrl || undefined)
       ) {
         return false;
       }
@@ -428,38 +439,37 @@ class TabTracker {
 
   // Save associations to session storage / local storage
   private async saveAssociations(associations: TabAssociationMap): Promise<void> {
-    if (this.hasPersistedAssociationsOnce && this.areAssociationsEqual(memoryAssociations, associations)) {
+    const nextAssociations = this.cloneAssociations(associations);
+    if (
+      this.lastPersistedAssociations !== null &&
+      this.areAssociationsEqual(this.lastPersistedAssociations, nextAssociations)
+    ) {
+      memoryAssociations = nextAssociations;
       return;
     }
-    this.hasPersistedAssociationsOnce = true;
-    memoryAssociations = { ...associations };
+    this.lastPersistedAssociations = this.cloneAssociations(nextAssociations);
+    memoryAssociations = nextAssociations;
     this.notify(memoryAssociations);
 
-    let saved = false;
     try {
       if (typeof chrome !== 'undefined' && chrome.storage?.session) {
         try {
           await chrome.storage.session.set({ [SESSION_KEY]: memoryAssociations });
-          saved = true;
         } catch {}
-      }
-      if (!saved && typeof browser !== 'undefined' && (browser as any).storage?.session) {
+      } else if (typeof browser !== 'undefined' && (browser as any).storage?.session) {
         try {
           await (browser as any).storage.session.set({ [SESSION_KEY]: memoryAssociations });
-          saved = true;
         } catch {}
       }
     } catch {}
 
-    // Only write to local storage as fallback when session storage is unavailable
-    if (!saved) {
-      try {
-        if (typeof browser !== 'undefined' && browser.storage?.local) {
-          await browser.storage.local.set({ [SESSION_KEY]: memoryAssociations });
-        }
-      } catch (err) {
-        console.warn('[TabTracker] Could not save associations to storage:', err);
+    // Also persist to browser.storage.local so fallback reads and cross-context listeners stay in sync
+    try {
+      if (typeof browser !== 'undefined' && browser.storage?.local) {
+        await browser.storage.local.set({ [SESSION_KEY]: memoryAssociations });
       }
+    } catch (err) {
+      console.warn('[TabTracker] Could not save associations to storage:', err);
     }
   }
 
@@ -475,7 +485,7 @@ class TabTracker {
             void browser.storage.local.set({ [STORAGE_KEY_TMP_TABS]: sanitized }).catch(() => {});
           }
           memoryTmpTabs = sanitized;
-          return memoryTmpTabs;
+          return [...memoryTmpTabs];
         }
       }
       if (typeof window !== 'undefined') {
@@ -488,7 +498,7 @@ class TabTracker {
               window.localStorage.setItem(STORAGE_KEY_TMP_TABS, JSON.stringify(sanitized));
             }
             memoryTmpTabs = sanitized;
-            return memoryTmpTabs;
+            return [...memoryTmpTabs];
           }
         }
       }
@@ -533,14 +543,14 @@ class TabTracker {
         const res = await browser.storage.local.get(STORAGE_KEY_TMP_TAB_CUSTOM_TITLES);
         if (res && res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES] && Array.isArray(res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES])) {
           memoryTmpTabCustomTitles = [...res[STORAGE_KEY_TMP_TAB_CUSTOM_TITLES]];
-          return memoryTmpTabCustomTitles;
+          return [...memoryTmpTabCustomTitles];
         }
       }
       if (typeof window !== 'undefined') {
         const raw = window.localStorage.getItem(STORAGE_KEY_TMP_TAB_CUSTOM_TITLES);
         if (raw) {
           memoryTmpTabCustomTitles = JSON.parse(raw);
-          return memoryTmpTabCustomTitles;
+          return [...memoryTmpTabCustomTitles];
         }
       }
     } catch (err) {
@@ -1424,7 +1434,11 @@ class TabTracker {
           matchingBrowserTab.id !== undefined &&
           !assignedBrowserTabIds.has(matchingBrowserTab.id)
         ) {
-          const currentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
+          const rawCurrentUrl = matchingBrowserTab.url || matchingBrowserTab.pendingUrl || '';
+          const currentUrl =
+            (!rawCurrentUrl || rawCurrentUrl === 'about:blank') && !info.isDiverted
+              ? info.currentUrl || matchingWorkspaceItem.url
+              : rawCurrentUrl;
           if (this.urlsMatchForDivergence(currentUrl, matchingWorkspaceItem.url, matchingWorkspaceItem.urlVariants)) {
             const badge = extractTabNotificationBadge(matchingBrowserTab.title || matchingBrowserTab.pendingTitle);
             newAssociations[resolvedTabItemId] = {
@@ -1848,6 +1862,7 @@ class TabTracker {
         const windowId = newTab.windowId || 0;
         const title = newTab.title || (newTab as any).pendingTitle;
         await this.runWithLock(async () => {
+          this.recentlyAssociatedIds.set(tabItemId, Date.now());
           const associations = await this.getAssociations();
           const badge = extractTabNotificationBadge(title);
           // Strictly 1-to-1: clear any existing association tied to this browserTabId or tabItemId
@@ -1866,6 +1881,16 @@ class TabTracker {
             badge: badge || undefined,
           };
           await this.saveAssociations(associations);
+
+          // If an earlier tab event (e.g. onActivated/onCreated) ran syncWithWorkspace before
+          // this association lock completed, prune the newly associated browser tab from tmpTabs.
+          const currentTmpTabs = await this.getTmpTabs();
+          if (currentTmpTabs.some((t) => t.browserTabId === newTabId || t.id === tabItemId)) {
+            const updatedTmpTabs = currentTmpTabs.filter(
+              (t) => t.browserTabId !== newTabId && t.id !== tabItemId
+            );
+            await this.saveTmpTabs(updatedTmpTabs);
+          }
         });
         const workspaceTabs = this.currentWorkspaceTabs.length > 0 ? this.currentWorkspaceTabs : this.getStoredWorkspaceTabs();
         const spaceId = resolveSpaceIdForTabItem(tabItemId, workspaceTabs, memoryTmpTabs);
@@ -2093,8 +2118,10 @@ class TabTracker {
       browser.storage.onChanged.addListener((changes, area) => {
         if (changes[SESSION_KEY]) {
           const newVal = (changes[SESSION_KEY].newValue as TabAssociationMap) || {};
-          memoryAssociations = { ...newVal };
-          this.notify(memoryAssociations);
+          memoryAssociations = this.cloneAssociations(newVal);
+          this.lastPersistedAssociations = this.cloneAssociations(newVal);
+          this.hasPersistedAssociationsOnce = true;
+          this.notify(this.cloneAssociations(memoryAssociations));
         }
         if (changes[STORAGE_KEY_TMP_TABS]) {
           const newVal = (changes[STORAGE_KEY_TMP_TABS].newValue as TmpTab[]) || [];
