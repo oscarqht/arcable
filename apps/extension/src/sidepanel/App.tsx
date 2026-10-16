@@ -334,7 +334,9 @@ export const App: React.FC = () => {
       if (tabItemId && (isTabInCurrentSpace || isFav)) {
         setHighlightedTabId(tabItemId);
         if (workspaceRef.current) {
-          workspaceRef.current.revealAndHighlightTab(tabItemId);
+          // Browser activation only highlights. Global favourites may retain
+          // a parent space different from the space the user is viewing.
+          workspaceRef.current.revealAndHighlightTab(tabItemId, { switchSpace: false });
         }
       } else {
         setHighlightedTabId(null);
