@@ -244,7 +244,7 @@ async function testFavouriteGroupSync(): Promise<void> {
   assert(favTabs[0].isGroup === true, 'Reconstructed group should have isGroup true');
   console.log('✓ reconstructWorkspace reconstructs exactly 1 favourite group tab');
 
-  // Test 4: Orphan variant reconciliation with existing tab
+  // Test 4: A differently named item with a shared URL must remain separate
   remoteItemsStore.push({
     _id: 201,
     title: `Antigravity${ARCABLE_VARIANT_DELIMITER}Google AI Studio`,
@@ -262,14 +262,15 @@ async function testFavouriteGroupSync(): Promise<void> {
 
   const reconstructedWithOrphan = reconstructWorkspace(treeWithOrphan, 'space-1');
   const favTabsWithOrphan = reconstructedWithOrphan.tabs.filter((t) => t.favourite);
-  assert(favTabsWithOrphan.length === 1, `Expected exactly 1 favourite group tab despite orphan variant with duplicate URL, got ${favTabsWithOrphan.length}`);
-  assert(favTabsWithOrphan[0].urlVariants?.length === 3, 'Variants should remain deduplicated');
-  console.log('✓ reconstructWorkspace deduplicates orphan variants and reconciles without creating duplicate group');
+  assert(favTabsWithOrphan.length === 2, `Expected both named items despite shared URL, got ${favTabsWithOrphan.length}`);
+  assert(favTabsWithOrphan.find((tab) => tab.customTitle === 'Coding')?.urlVariants?.length === 3, 'Coding variants should remain intact');
+  assert(favTabsWithOrphan.some((tab) => tab.customTitle === 'Antigravity'), 'Antigravity must remain separate');
+  console.log('✓ reconstructWorkspace preserves differently named items with shared URLs');
 
-  // Test 5: Full sync deletes orphan variants when pushing workspace
+  // Test 5: Full sync deletes an item explicitly omitted from the pushed workspace
   calls.length = 0;
   const syncWithOrphanResult = await syncWorkspaceWithRaindrop('test-token', {
-    localState: reconstructedWithOrphan,
+    localState: reconstructed,
     pendingOps: [],
     replaceBaseline: true,
   });

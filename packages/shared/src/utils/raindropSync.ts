@@ -2389,20 +2389,16 @@ export function reconstructWorkspace(
     }
     const finalItems = deduplicatedVariantItems.length > 0 ? deduplicatedVariantItems : variantItems;
 
-    // Check if an existing tab in the same scope already matches this base title OR contains matching variant URLs
-    const orphanUrls = new Set(finalItems.map((item) => (item.link || '').trim().toLowerCase()).filter(Boolean));
+    // The base title and collection identify a variant group. Different groups may
+    // intentionally share URLs or use another group's title as a variant name.
     const matchingTab = tabs.find((t) => {
       const sameScope = favourite
         ? Boolean(t.favourite)
-        : t.parentFolderId === parentFolderId && t.parentSpaceId === parentSpaceId;
+        : !t.favourite && t.parentFolderId === parentFolderId && t.parentSpaceId === parentSpaceId;
       if (!sameScope) return false;
       const tabTitle = (t.customTitle || '').trim().toLowerCase();
       const targetBase = baseTitle.trim().toLowerCase();
-      if (tabTitle && tabTitle === targetBase) return true;
-      if (t.urlVariants && t.urlVariants.some((v) => (v.name || '').trim().toLowerCase() === targetBase)) return true;
-      if (t.url && orphanUrls.has(t.url.trim().toLowerCase())) return true;
-      if (t.urlVariants && t.urlVariants.some((v) => v.url && orphanUrls.has(v.url.trim().toLowerCase()))) return true;
-      return false;
+      return Boolean(tabTitle && tabTitle === targetBase);
     });
 
     if (matchingTab) {
