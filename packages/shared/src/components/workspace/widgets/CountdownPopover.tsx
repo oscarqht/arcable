@@ -61,14 +61,36 @@ export const CountdownPopover: React.FC<CountdownPopoverProps> = ({
 
   // Live countdown state
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isOpen) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [isOpen]);
 
   // Current status
   const status = calculateCountdownStatus(targetDateStr, now);
+
+  useEffect(() => {
+    if (!isOpen || status.isCompleted) return;
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const startTimer = () => {
+      if (timer !== null) clearInterval(timer);
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        timer = null;
+        return;
+      }
+      setNow(Date.now());
+      timer = setInterval(() => setNow(Date.now()), 1000);
+    };
+
+    startTimer();
+    const handleVisibilityChange = () => startTimer();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    return () => {
+      if (timer !== null) clearInterval(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [isOpen, status.isCompleted]);
 
   // Completion notification (fires only if completed within last 30s)
   const notifiedRef = useRef(false);

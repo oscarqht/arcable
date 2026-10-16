@@ -63,7 +63,7 @@ function buildClockInfo(now: Date): ClockInfo {
     monthShort: MONTH_SHORT[now.getMonth()],
     day: now.getDate(),
     hourAngle: ((h24 % 12) + now.getMinutes() / 60) * 30,
-    minuteAngle: now.getMinutes() * 6 + now.getSeconds() * 0.1,
+    minuteAngle: now.getMinutes() * 6,
   };
 }
 
@@ -263,11 +263,49 @@ export const WidgetsSection: React.FC<WidgetsSectionProps> = ({
 
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live clock tick (1s keeps analog minute hand and time displays fresh)
+  // Live clock tick aligned to minute boundary when widgets or picker are visible
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (widgets.length === 0 && !pickerOpen) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const clearTimer = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+
+    const scheduleNext = () => {
+      clearTimer();
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      setNow(new Date());
+      const msUntilNextMinute = 60000 - (Date.now() % 60000) + 50;
+      timeoutId = setTimeout(scheduleNext, msUntilNextMinute);
+    };
+
+    scheduleNext();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleNext();
+      } else {
+        clearTimer();
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearTimer();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [widgets.length, pickerOpen]);
 
   useEffect(() => {
     return () => {

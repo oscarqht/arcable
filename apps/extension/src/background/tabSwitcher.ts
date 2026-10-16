@@ -34,7 +34,8 @@ export function isNewTab(tab: { url?: string; pendingUrl?: string }): boolean {
 const PREVIEW_SESSION_KEY = 'arcable_tab_switcher_previews_v1';
 const MAX_PREVIEWS = 40;
 const MAX_PREVIEW_BYTES = 2_000_000;
-const previews = new Map<number, { url: string; image: string }>();
+const PREVIEW_FRESH_TTL_MS = 30_000;
+const previews = new Map<number, { url: string; image: string; capturedAt?: number }>();
 const activity = new Map<number, number>();
 const visible = new Set<number>();
 const keyQueues = new Map<number, Promise<TabSwitcherResponse>>();
@@ -91,15 +92,18 @@ function persistPreviews(): void {
   persistQueue = persistQueue.then(async () => {
     await restorePreviews();
     await browser.storage.session.set({
-      [PREVIEW_SESSION_KEY]: [...previews].map(([id, preview]) => ({ id, ...preview })),
+      [PREVIEW_SESSION_KEY]: [...previews].map(([id, preview]) => ({ id, url: preview.url, image: preview.image })),
     });
   }).catch(() => {});
 }
 
 function deletePreview(id: number): void {
-  if (!restored) changedDuringRestore.add(id);
-  previews.delete(id);
-  persistPreviews();
+  const wasRestored = restored;
+  if (!wasRestored) changedDuringRestore.add(id);
+  const removed = previews.delete(id);
+  if (removed || !wasRestored) {
+    persistPreviews();
+  }
 }
 
 function invalidateCapture(): void {
@@ -110,7 +114,7 @@ function invalidateCapture(): void {
 function storePreview(id: number, url: string, image: string): void {
   if (!restored) changedDuringRestore.add(id);
   previews.delete(id);
-  previews.set(id, { url, image });
+  previews.set(id, { url, image, capturedAt: Date.now() });
   trimPreviews();
   persistPreviews();
 }
@@ -128,7 +132,10 @@ async function shrinkPreview(dataUrl: string): Promise<string> {
       const small = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.55 });
       const bytes = new Uint8Array(await small.arrayBuffer());
       let binary = '';
-      for (const byte of bytes) binary += String.fromCharCode(byte);
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
       return `data:image/jpeg;base64,${btoa(binary)}`;
     } finally {
       bitmap.close();
@@ -148,7 +155,7 @@ async function shrinkPreview(dataUrl: string): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.55);
 }
 
-function scheduleCapture(tabId: number, windowId: number): void {
+function scheduleCapture(tabId: number, windowId: number, force = false): void {
   invalidateCapture();
   const generation = captureGeneration;
   captureTimer = setTimeout(() => {
@@ -159,6 +166,10 @@ function scheduleCapture(tabId: number, windowId: number): void {
         const tab = await browser.tabs.get(tabId);
         const window = await browser.windows.get(windowId);
         if (!tab.active || !window.focused || !/^https?:\/\//i.test(tab.url || '') || visible.has(tabId) || generation !== captureGeneration) return;
+        const existing = previews.get(tabId);
+        if (!force && existing && existing.url === tab.url && existing.capturedAt && (Date.now() - existing.capturedAt) < PREVIEW_FRESH_TTL_MS) {
+          return;
+        }
         lastCaptureAt = Date.now();
         const full = await browser.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 50 });
         const small = await shrinkPreview(full);

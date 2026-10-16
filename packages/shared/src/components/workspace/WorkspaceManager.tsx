@@ -796,9 +796,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   useEffect(() => {
     if (!tabAssociations) return;
 
-    data.tabs.forEach((tab) => {
+    for (const tab of data.tabs) {
+      const updates: Partial<Omit<Tab, 'id'>> = {};
       if (!tab.favIconUrl && tabAssociations[tab.id]?.favIconUrl) {
-        updateTab(tab.id, { favIconUrl: tabAssociations[tab.id].favIconUrl });
+        updates.favIconUrl = tabAssociations[tab.id].favIconUrl;
       }
 
       if (tab.urlVariants && tab.urlVariants.length > 0) {
@@ -812,10 +813,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           return v;
         });
         if (changed) {
-          updateTab(tab.id, { urlVariants: updatedVariants });
+          updates.urlVariants = updatedVariants;
         }
       }
-    });
+
+      if (updates.favIconUrl !== undefined || updates.urlVariants !== undefined) {
+        updateTab(tab.id, updates);
+      }
+    }
   }, [data.tabs, tabAssociations, updateTab]);
 
   const handleNavigateSpace = useCallback(

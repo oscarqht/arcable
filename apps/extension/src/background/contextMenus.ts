@@ -32,11 +32,19 @@ const CONTEXTS: chrome.contextMenus.ContextType[] = [
   'editable',
 ];
 
+let cachedRunCodeRules: RunCodeRule[] | null = null;
+let lastRenderedRuleSignature: string | null = null;
+
 async function getRunCodeRules(): Promise<RunCodeRule[]> {
+  if (cachedRunCodeRules !== null) {
+    return cachedRunCodeRules;
+  }
   try {
     const res = await browser.storage.local.get(RUN_CODE_IN_PAGE_STORAGE_KEY);
     const rules = res[RUN_CODE_IN_PAGE_STORAGE_KEY];
-    return Array.isArray(rules) ? sortRunCodeRules(rules as RunCodeRule[]) : [];
+    const sorted = Array.isArray(rules) ? sortRunCodeRules(rules as RunCodeRule[]) : [];
+    cachedRunCodeRules = sorted;
+    return sorted;
   } catch (err) {
     console.warn('[contextMenus] Error reading run code rules:', err);
     return [];
@@ -59,7 +67,7 @@ export async function getMatchingCodeRules(url: string): Promise<RunCodeRule[]> 
 
 let isUpdatingMenu = false;
 
-export async function updateRunCodeContextMenus(currentUrl?: string): Promise<void> {
+export async function updateRunCodeContextMenus(currentUrl?: string, forceRebuild = false): Promise<void> {
   if (typeof chrome === 'undefined' || !chrome.contextMenus) return;
   if (isUpdatingMenu) return;
   isUpdatingMenu = true;
@@ -73,6 +81,11 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
     }
 
     const matchingRules = targetUrl ? await getMatchingCodeRules(targetUrl) : [];
+    const signature = matchingRules.map((r) => `${r.id}:${r.title || 'Untitled Snippet'}`).join('|');
+
+    if (!forceRebuild && lastRenderedRuleSignature === signature) {
+      return;
+    }
 
     // Remove all existing arcable context menu items
     await new Promise<void>((resolve) => {
@@ -132,6 +145,8 @@ export async function updateRunCodeContextMenus(currentUrl?: string): Promise<vo
         });
       }
     }
+
+    lastRenderedRuleSignature = signature;
   } catch (err) {
     console.warn('[contextMenus] Failed to update context menus:', err);
   } finally {
@@ -217,10 +232,11 @@ export function initContextMenuListeners(): void {
   // Listen to storage changes for runCodeInPageRules
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes[RUN_CODE_IN_PAGE_STORAGE_KEY]) {
-      void updateRunCodeContextMenus();
+      cachedRunCodeRules = null;
+      void updateRunCodeContextMenus(undefined, true);
     }
   });
 
   // Initial update
-  void updateRunCodeContextMenus();
+  void updateRunCodeContextMenus(undefined, true);
 }

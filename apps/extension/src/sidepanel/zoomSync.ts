@@ -281,13 +281,14 @@ export function setupZenZoomSync(): () => void {
 
   const handleTabUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
     if (isCleanedUp || !activeSync) return;
-    if (tabId === currentActiveTabId || changeInfo.status === 'complete' || changeInfo.url) {
-      void syncZoom();
+    if (tabId === currentActiveTabId && (changeInfo.status === 'complete' || Boolean(changeInfo.url))) {
+      void syncZoom(tabId);
     }
   };
 
   const handleInteraction = () => {
     if (isCleanedUp || !activeSync) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     void syncZoom();
   };
 
@@ -342,13 +343,13 @@ export function setupZenZoomSync(): () => void {
     storageApi.onChanged.addListener(handleStorageChange);
   }
 
-  // Periodic poll to catch browser preference changes (such as changing "Default zoom" in Zen settings)
-  // that do not emit tab zoom events
+  // Low-frequency fallback poll (only when visible and activeSync is enabled) to catch
+  // browser preference changes (such as changing "Default zoom" in Zen settings)
   const pollTimer = setInterval(() => {
-    if (!isCleanedUp && activeSync) {
-      void syncZoom();
-    }
-  }, 1500);
+    if (isCleanedUp || !activeSync) return;
+    if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return;
+    void syncZoom();
+  }, 10000);
 
   if (typeof pollTimer === 'object' && typeof (pollTimer as any)?.unref === 'function') {
     (pollTimer as any).unref();

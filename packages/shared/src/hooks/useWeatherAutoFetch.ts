@@ -20,12 +20,13 @@ const RETRY_BACKOFF_ON_ERROR_MS = 5 * 60 * 1000; // 5 minutes
 export function useWeatherAutoFetch({
   widgets = [],
   onUpdateWidget,
-  checkIntervalMs = 30 * 1000,
+  checkIntervalMs = 5 * 60 * 1000,
 }: UseWeatherAutoFetchOptions) {
   const inFlightRef = useRef<Set<string>>(new Set());
   const lastErrorTimeRef = useRef<Map<string, number>>(new Map());
   const widgetsRef = useRef(widgets);
   const onUpdateWidgetRef = useRef(onUpdateWidget);
+  const hasWeatherWidgets = widgets.some((w) => w.style === 'weather');
 
   useEffect(() => {
     widgetsRef.current = widgets;
@@ -99,34 +100,43 @@ export function useWeatherAutoFetch({
   // 1. Initial check on mount, visibility change listener, and recurring periodic interval while visible
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (!hasWeatherWidgets) return;
 
-    // Check immediately on mount if page is visible
-    checkAndFetchWeather();
+    let timer: ReturnType<typeof setInterval> | null = null;
 
-    // Auto fetch when page becomes visible and last fetch was one hour ago
-    const handleVisibilityChange = () => {
+    const startPolling = () => {
+      if (timer !== null) clearInterval(timer);
       if (document.visibilityState === 'visible') {
-        checkAndFetchWeather();
+        void checkAndFetchWeather();
+        timer = setInterval(() => {
+          if (document.visibilityState === 'visible') {
+            void checkAndFetchWeather();
+          }
+        }, checkIntervalMs);
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Auto fetch update every hour when page is visible (checked every checkIntervalMs)
-    const timer = setInterval(() => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        checkAndFetchWeather();
+        startPolling();
+      } else if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
       }
-    }, checkIntervalMs);
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(timer);
+      if (timer !== null) clearInterval(timer);
     };
-  }, [checkAndFetchWeather, checkIntervalMs]);
+  }, [hasWeatherWidgets, checkAndFetchWeather, checkIntervalMs]);
 
   // 2. Check whenever widgets array changes (e.g. newly added weather widget)
   useEffect(() => {
-    checkAndFetchWeather();
-  }, [widgets, checkAndFetchWeather]);
+    if (!hasWeatherWidgets) return;
+    void checkAndFetchWeather();
+  }, [widgets, hasWeatherWidgets, checkAndFetchWeather]);
 }

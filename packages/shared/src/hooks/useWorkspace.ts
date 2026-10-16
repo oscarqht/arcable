@@ -274,7 +274,10 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
       version: parsed.version || 1,
     };
 
-    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(initial));
+    const serialized = JSON.stringify(initial);
+    if (serialized !== raw) {
+      window.localStorage.setItem(WORKSPACE_STORAGE_KEY, serialized);
+    }
     return initial;
   } catch (err) {
     console.warn('Failed to parse workspace from localStorage:', err);
@@ -351,6 +354,7 @@ export function useWorkspace() {
   const saveWorkspaceData = useCallback((nextData: ArcableWorkspaceData | ((prev: ArcableWorkspaceData) => ArcableWorkspaceData)) => {
     setData((prev) => {
       const resolved = typeof nextData === 'function' ? nextData(prev) : nextData;
+      if (resolved === prev) return prev;
       if (typeof window !== 'undefined') {
         try {
           window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(resolved));

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   WorkspaceWidget,
   WidgetStyle,
@@ -43,7 +43,6 @@ export function buildClockInfo(now: Date): ClockInfo {
   const h24 = now.getHours();
   const h12 = ((h24 + 11) % 12) + 1;
   const m = now.getMinutes();
-  const s = now.getSeconds();
   return {
     timeMain: h12 + ':' + padZero(m),
     timeAmpm: h24 >= 12 ? 'PM' : 'AM',
@@ -51,14 +50,14 @@ export function buildClockInfo(now: Date): ClockInfo {
     monthShort: MONTH_SHORT[now.getMonth()],
     day: now.getDate(),
     hourAngle: ((h24 % 12) + m / 60) * 30,
-    minuteAngle: m * 6 + s * 0.1,
+    minuteAngle: m * 6,
   };
 }
 
 export interface WidgetTileContentProps {
   widget: WorkspaceWidget;
   theme: SpaceThemeTokens;
-  clockInfo: ClockInfo;
+  clockInfo?: ClockInfo;
   now?: Date;
   mode?: 'full' | 'mini';
   compact?: boolean; // true for 46px popover, false for 56px shelf
@@ -67,12 +66,101 @@ export interface WidgetTileContentProps {
 export const WidgetTileContent: React.FC<WidgetTileContentProps> = ({
   widget,
   theme,
-  clockInfo,
-  now = new Date(),
+  clockInfo: externalClockInfo,
+  now: externalNow,
   mode = 'full',
   compact = false,
 }) => {
   const isDark = theme.isDark;
+
+  const isTimeWidget =
+    widget.style === 'calendar' ||
+    widget.style === 'digital' ||
+    widget.style === 'analog' ||
+    widget.style === 'combo' ||
+    widget.style === 'pomodoro' ||
+    widget.style === 'countdown';
+
+  const [internalNow, setInternalNow] = useState<Date>(() => externalNow || new Date());
+
+  useEffect(() => {
+    if (!isTimeWidget || externalNow) return;
+
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const getNextDelayMs = (): number | null => {
+      const currentMs = Date.now();
+      if (widget.style === 'pomodoro') {
+        const pomoConfig = (widget.config as PomodoroConfig) || {};
+        if (!pomoConfig.isRunning || !pomoConfig.targetTimestamp) {
+          return null;
+        }
+        if (pomoConfig.targetTimestamp <= currentMs) {
+          return null;
+        }
+        return mode === 'mini' ? 60000 - (currentMs % 60000) + 50 : 1000 - (currentMs % 1000) + 20;
+      }
+
+      if (widget.style === 'countdown') {
+        const countConfig = (widget.config as CountdownConfig) || {};
+        if (!countConfig.targetDate) return null;
+        const targetTime = new Date(countConfig.targetDate).getTime();
+        if (isNaN(targetTime) || targetTime <= currentMs) return null;
+        const diffMs = targetTime - currentMs;
+        if (mode !== 'mini' && diffMs <= 3600 * 1000) {
+          return 1000 - (currentMs % 1000) + 20;
+        }
+        return 60000 - (currentMs % 60000) + 50;
+      }
+
+      // calendar, digital, analog, combo only change once per minute
+      return 60000 - (currentMs % 60000) + 50;
+    };
+
+    const scheduleNext = () => {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      const delay = getNextDelayMs();
+      if (delay === null) return;
+      timerId = setTimeout(() => {
+        setInternalNow(new Date());
+        scheduleNext();
+      }, delay);
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        setInternalNow(new Date());
+        scheduleNext();
+      } else if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    };
+
+    scheduleNext();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [isTimeWidget, externalNow, widget.style, widget.config, mode]);
+
+  const now = externalNow || internalNow;
+  const clockInfo = useMemo(
+    () => externalClockInfo || buildClockInfo(now),
+    [externalClockInfo, now]
+  );
 
   // =========================================================================
   // MINI MODE (16x16px for group 2x2 preview on the shelf)

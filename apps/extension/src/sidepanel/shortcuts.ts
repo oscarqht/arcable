@@ -32,20 +32,38 @@ function sendSwitcherKey(action: SwitcherAction): void {
 }
 
 // Lets the background know this panel is open (and whether it has focus) without an async
-// query, which would expire the Alt+F command's user gesture. Reconnects after worker restarts.
+// query, which would expire the Alt+F command's user gesture. Reconnects lazily on user activity
+// after worker idle suspension so the service worker is allowed to sleep when idle.
 function connectPresence(): void {
   void getWindowId().then(windowId => {
     if (windowId === undefined) return;
-    const port = browser.runtime.connect({ name: 'arcable-sidepanel' });
+    let port: browser.Runtime.Port | null = null;
+    try {
+      port = browser.runtime.connect({ name: 'arcable-sidepanel' });
+    } catch {
+      return;
+    }
     const report = () => {
-      try { port.postMessage({ windowId, focused: document.hasFocus() }); } catch { /* reconnecting */ }
+      try { port?.postMessage({ windowId, focused: document.hasFocus() }); } catch { /* disconnected */ }
     };
     window.addEventListener('focus', report);
     window.addEventListener('blur', report);
     port.onDisconnect.addListener(() => {
+      port = null;
       window.removeEventListener('focus', report);
       window.removeEventListener('blur', report);
-      setTimeout(connectPresence, 500);
+      const reconnectOnActivity = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        window.removeEventListener('focus', reconnectOnActivity);
+        window.removeEventListener('keydown', reconnectOnActivity, true);
+        window.removeEventListener('mousedown', reconnectOnActivity, true);
+        document.removeEventListener('visibilitychange', reconnectOnActivity);
+        connectPresence();
+      };
+      window.addEventListener('focus', reconnectOnActivity);
+      window.addEventListener('keydown', reconnectOnActivity, true);
+      window.addEventListener('mousedown', reconnectOnActivity, true);
+      document.addEventListener('visibilitychange', reconnectOnActivity);
     });
     report();
   });

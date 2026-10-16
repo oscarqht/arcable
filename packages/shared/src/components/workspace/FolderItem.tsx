@@ -422,6 +422,15 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   }, [showHoverPopup, updatePopupPosition]);
 
   useEffect(() => {
+    return () => {
+      clearHoverTimer();
+      clearCloseTimer();
+    };
+  }, [clearHoverTimer, clearCloseTimer]);
+
+  useEffect(() => {
+    if (!isHovered && !showHoverPopup) return;
+
     const handleClear = () => {
       setIsHovered(false);
       clearHoverTimer();
@@ -436,15 +445,13 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
 
     return () => {
-      clearHoverTimer();
-      clearCloseTimer();
       window.removeEventListener(CLEAR_HOVER_EVENT, handleClear);
       window.removeEventListener('blur', handleClear);
       if (typeof document !== 'undefined') {
         document.removeEventListener('mouseleave', handleClear);
       }
     };
-  }, [clearHoverTimer, clearCloseTimer]);
+  }, [isHovered, showHoverPopup, clearHoverTimer, clearCloseTimer]);
 
   useEffect(() => {
     if (isExpanded) {

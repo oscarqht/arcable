@@ -62,10 +62,17 @@ export async function getPreviousActiveTab(trackerPreviousTabId?: number): Promi
     } catch {}
   }
 
-  // 2. Check storage for the last tracked web tab
+  // 2. Check storage (session first, then local) for the last tracked web tab
   try {
-    const stored = await browser.storage.local.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
-    const lastWebTab = stored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
+    let lastWebTab: StoredActiveWebTab | undefined;
+    if (browser.storage?.session) {
+      const sessionStored = await browser.storage.session.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
+      lastWebTab = sessionStored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
+    }
+    if (!lastWebTab) {
+      const stored = await browser.storage.local.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
+      lastWebTab = stored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
+    }
     if (lastWebTab?.id) {
       try {
         const liveTab = await browser.tabs.get(lastWebTab.id);

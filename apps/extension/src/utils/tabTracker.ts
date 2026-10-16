@@ -401,8 +401,37 @@ class TabTracker {
     return { ...memoryAssociations };
   }
 
+  private hasPersistedAssociationsOnce = false;
+
+  private areAssociationsEqual(a: TabAssociationMap, b: TabAssociationMap): boolean {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    for (const key of keysA) {
+      const valA = a[key];
+      const valB = b[key];
+      if (!valB) return false;
+      if (
+        valA.browserTabId !== valB.browserTabId ||
+        valA.windowId !== valB.windowId ||
+        valA.currentUrl !== valB.currentUrl ||
+        valA.originalUrl !== valB.originalUrl ||
+        Boolean(valA.isDiverted) !== Boolean(valB.isDiverted) ||
+        (valA.badge || undefined) !== (valB.badge || undefined) ||
+        (valA.favIconUrl || undefined) !== (valB.favIconUrl || undefined)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Save associations to session storage / local storage
   private async saveAssociations(associations: TabAssociationMap): Promise<void> {
+    if (this.hasPersistedAssociationsOnce && this.areAssociationsEqual(memoryAssociations, associations)) {
+      return;
+    }
+    this.hasPersistedAssociationsOnce = true;
     memoryAssociations = { ...associations };
     this.notify(memoryAssociations);
 
@@ -422,13 +451,15 @@ class TabTracker {
       }
     } catch {}
 
-    // Also persist to browser.storage.local for cross-context safety
-    try {
-      if (typeof browser !== 'undefined' && browser.storage?.local) {
-        await browser.storage.local.set({ [SESSION_KEY]: memoryAssociations });
+    // Only write to local storage as fallback when session storage is unavailable
+    if (!saved) {
+      try {
+        if (typeof browser !== 'undefined' && browser.storage?.local) {
+          await browser.storage.local.set({ [SESSION_KEY]: memoryAssociations });
+        }
+      } catch (err) {
+        console.warn('[TabTracker] Could not save associations to storage:', err);
       }
-    } catch (err) {
-      console.warn('[TabTracker] Could not save associations to storage:', err);
     }
   }
 
@@ -1036,7 +1067,7 @@ class TabTracker {
    * - For spaces with real tabs: preserves user-created manual blank tabs while working in that space,
    *   and prunes inactive leftover blank tabs from other spaces.
    */
-  public async cleanupSurplusBlankTabs(windowId?: number): Promise<void> {
+  public async cleanupSurplusBlankTabs(windowId?: number, preloadedAllTabs?: any[]): Promise<void> {
     const tabsApi =
       typeof browser !== 'undefined' && browser.tabs
         ? browser.tabs
@@ -1052,12 +1083,19 @@ class TabTracker {
           : await this.getCurrentWindowId().catch(() => undefined);
 
       let allTabs: any[] = [];
-      try {
-        allTabs = await tabsApi.query(
-          resolvedWinId !== undefined ? { windowId: resolvedWinId } : {}
-        );
-      } catch (e) {
-        return;
+      if (Array.isArray(preloadedAllTabs)) {
+        allTabs =
+          resolvedWinId !== undefined
+            ? preloadedAllTabs.filter((bt) => bt.windowId === undefined || bt.windowId === resolvedWinId)
+            : preloadedAllTabs;
+      } else {
+        try {
+          allTabs = await tabsApi.query(
+            resolvedWinId !== undefined ? { windowId: resolvedWinId } : {}
+          );
+        } catch (e) {
+          return;
+        }
       }
 
       if (allTabs.length <= 1) return;
@@ -1637,7 +1675,7 @@ class TabTracker {
       }
 
       await this.saveTmpTabs(newTmpTabs);
-      void this.cleanupSurplusBlankTabs();
+      void this.cleanupSurplusBlankTabs(undefined, allBrowserTabs);
 
       return newAssociations;
     });
@@ -2126,6 +2164,30 @@ class TabTracker {
     if (tabsApi && tabsApi.onUpdated) {
       tabsApi.onUpdated.addListener((tabId: number, changeInfo: any, tab: any) => {
         if (this.closingTabIds.has(tabId)) return;
+
+        if (changeInfo && typeof changeInfo === 'object') {
+          const keys = Object.keys(changeInfo);
+          if (
+            keys.length > 0 &&
+            !keys.some(
+              (k) =>
+                k === 'url' ||
+                k === 'status' ||
+                k === 'title' ||
+                k === 'favIconUrl' ||
+                k === 'pinned' ||
+                k === 'audible' ||
+                k === 'mutedInfo' ||
+                k === 'discarded'
+            )
+          ) {
+            return;
+          }
+          // Skip intermediate status='loading' events that carry neither a URL nor a title change
+          if (keys.length === 1 && changeInfo.status === 'loading') {
+            return;
+          }
+        }
 
         const currentUrl = tab?.url || changeInfo?.url || '';
 

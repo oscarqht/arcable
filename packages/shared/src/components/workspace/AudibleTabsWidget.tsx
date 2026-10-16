@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AudibleTab } from '../../types/tabTracker';
 import { TabFavicon } from './TabFavicon';
 
@@ -21,10 +21,25 @@ export const AudibleTabsWidget: React.FC<AudibleTabsWidgetProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredTabId, setHoveredTabId] = useState<number | null>(null);
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible'
+  );
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handleVisibility = () => {
+      setIsDocumentVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   if (!tabs || tabs.length === 0) {
     return null;
   }
+
+  const isPlayingUnmuted = tabs.some((t) => !t.muted);
+  const shouldAnimate = isPlayingUnmuted && isDocumentVisible;
 
   return (
     <div
@@ -59,16 +74,16 @@ export const AudibleTabsWidget: React.FC<AudibleTabsWidgetProps> = ({
     >
       <style>{`
         @keyframes arcable-soundbar-1 {
-          0%, 100% { height: 3px; }
-          50% { height: 10px; }
+          0%, 100% { transform: scaleY(0.25); }
+          50% { transform: scaleY(0.833); }
         }
         @keyframes arcable-soundbar-2 {
-          0%, 100% { height: 10px; }
-          50% { height: 4px; }
+          0%, 100% { transform: scaleY(0.833); }
+          50% { transform: scaleY(0.333); }
         }
         @keyframes arcable-soundbar-3 {
-          0%, 100% { height: 5px; }
-          50% { height: 11px; }
+          0%, 100% { transform: scaleY(0.417); }
+          50% { transform: scaleY(0.917); }
         }
         .arcable-audible-item:hover {
           transform: scale(1.1);
@@ -198,31 +213,40 @@ export const AudibleTabsWidget: React.FC<AudibleTabsWidgetProps> = ({
         <span
           style={{
             width: '2px',
+            height: '12px',
             backgroundColor: '#10b981',
             borderRadius: '1px',
-            animation: tabs.some((t) => !t.muted) ? 'arcable-soundbar-1 0.8s ease-in-out infinite' : 'none',
-            height: tabs.some((t) => !t.muted) ? '8px' : '2px',
-            opacity: tabs.some((t) => !t.muted) ? 1 : 0.4,
+            transformOrigin: 'bottom',
+            willChange: shouldAnimate ? 'transform' : 'auto',
+            animation: shouldAnimate ? 'arcable-soundbar-1 0.8s ease-in-out infinite' : 'none',
+            transform: isPlayingUnmuted ? 'scaleY(0.667)' : 'scaleY(0.167)',
+            opacity: isPlayingUnmuted ? 1 : 0.4,
           }}
         />
         <span
           style={{
             width: '2px',
+            height: '12px',
             backgroundColor: '#10b981',
             borderRadius: '1px',
-            animation: tabs.some((t) => !t.muted) ? 'arcable-soundbar-2 0.7s ease-in-out infinite' : 'none',
-            height: tabs.some((t) => !t.muted) ? '12px' : '2px',
-            opacity: tabs.some((t) => !t.muted) ? 1 : 0.4,
+            transformOrigin: 'bottom',
+            willChange: shouldAnimate ? 'transform' : 'auto',
+            animation: shouldAnimate ? 'arcable-soundbar-2 0.7s ease-in-out infinite' : 'none',
+            transform: isPlayingUnmuted ? 'scaleY(1)' : 'scaleY(0.167)',
+            opacity: isPlayingUnmuted ? 1 : 0.4,
           }}
         />
         <span
           style={{
             width: '2px',
+            height: '12px',
             backgroundColor: '#10b981',
             borderRadius: '1px',
-            animation: tabs.some((t) => !t.muted) ? 'arcable-soundbar-3 0.9s ease-in-out infinite' : 'none',
-            height: tabs.some((t) => !t.muted) ? '6px' : '2px',
-            opacity: tabs.some((t) => !t.muted) ? 1 : 0.4,
+            transformOrigin: 'bottom',
+            willChange: shouldAnimate ? 'transform' : 'auto',
+            animation: shouldAnimate ? 'arcable-soundbar-3 0.9s ease-in-out infinite' : 'none',
+            transform: isPlayingUnmuted ? 'scaleY(0.5)' : 'scaleY(0.167)',
+            opacity: isPlayingUnmuted ? 1 : 0.4,
           }}
         />
       </div>
