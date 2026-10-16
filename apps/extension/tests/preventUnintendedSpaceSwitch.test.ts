@@ -387,6 +387,66 @@ async function runTests() {
     }
   }
 
+  // Test 8: Clicking a saved tab item (openAndAssociateTab) after initial persistence
+  // keeps the browser tab associated with the saved item and never turns it into a tmp tab
+  {
+    const spaceClick = 'space-click';
+    const workspaceItems = [
+      { id: 'saved-click-item', url: 'https://saved-clicked.com', title: 'Saved Clicked', parentSpaceId: spaceClick },
+    ];
+
+    await tabTracker.syncWithWorkspace(workspaceItems, []);
+
+    let notifiedAssoc: any = null;
+    const unsubscribe = tabTracker.subscribe((assoc) => {
+      notifiedAssoc = assoc;
+    });
+
+    await tabTracker.openAndAssociateTab('saved-click-item', 'https://saved-clicked.com');
+    unsubscribe();
+
+    if (!notifiedAssoc || !notifiedAssoc['saved-click-item']) {
+      throw new Error('Test 8 failed: openAndAssociateTab did not notify association listeners');
+    }
+
+    const assocAfterOpen = await tabTracker.getAssociations();
+    const openedBrowserTabId = assocAfterOpen['saved-click-item']?.browserTabId;
+    if (!openedBrowserTabId) {
+      throw new Error('Test 8 failed: openAndAssociateTab did not persist association to storage');
+    }
+
+    // Simulate browser tab briefly reporting about:blank while loading during a subsequent sync
+    const openedBrowserTab = await mockApi.tabs.get(openedBrowserTabId);
+    openedBrowserTab.url = 'about:blank';
+    await tabTracker.syncWithWorkspace(workspaceItems, []);
+
+    const assocDuringLoad = await tabTracker.getAssociations();
+    if (
+      !assocDuringLoad['saved-click-item'] ||
+      assocDuringLoad['saved-click-item'].browserTabId !== openedBrowserTabId ||
+      assocDuringLoad['saved-click-item'].isDiverted
+    ) {
+      throw new Error('Test 8 failed: association was lost or marked diverted while tab was still loading');
+    }
+
+    // Now the tab finishes loading its target URL and another sync runs (after pendingCreation is cleared)
+    openedBrowserTab.url = 'https://saved-clicked.com';
+    await tabTracker.syncWithWorkspace(workspaceItems, []);
+
+    const assocAfterSync = await tabTracker.getAssociations();
+    if (
+      !assocAfterSync['saved-click-item'] ||
+      assocAfterSync['saved-click-item'].browserTabId !== openedBrowserTabId
+    ) {
+      throw new Error('Test 8 failed: association was lost after subsequent syncWithWorkspace');
+    }
+
+    const tmpTabs = await tabTracker.getTmpTabs();
+    if (tmpTabs.some((t) => t.browserTabId === openedBrowserTabId)) {
+      throw new Error('Test 8 failed: saved tab opened via openAndAssociateTab was wrongly added to tmpTabs');
+    }
+  }
+
   console.log('✅ All preventUnintendedSpaceSwitch tests passed successfully!');
 }
 
