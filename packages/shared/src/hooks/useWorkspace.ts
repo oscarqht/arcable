@@ -13,10 +13,11 @@ import {
   clearStoredPendingOperations,
   removeStoredPendingOperations,
   replayOperations,
+  mergeIncrementalSyncSnapshot,
   getOrCreateDeviceId,
   detectDeviceType,
 } from '../utils/syncEngine';
-import { syncWorkspaceWithRaindrop, numericRaindropId } from '../utils/raindropSync';
+import { syncWorkspaceWithRaindrop, numericRaindropId, INCREMENTAL_OPERATION_TYPES } from '../utils/raindropSync';
 import {
   getDescendantFolderIds,
   getAllSpaceFolderIds,
@@ -287,7 +288,16 @@ function readWorkspaceFromStorage(): ArcableWorkspaceData {
 }
 
 export function useWorkspace() {
-  const [data, setData] = useState<ArcableWorkspaceData>(readWorkspaceFromStorage);
+  const [data, setRenderedData] = useState<ArcableWorkspaceData>(readWorkspaceFromStorage);
+  const workspaceDataRef = useRef(data);
+  // Commit mutations immediately. React may batch or replay state updaters;
+  // persistence and outbox writes must run once, against the latest workspace.
+  const setData = useCallback((update: ArcableWorkspaceData | ((prev: ArcableWorkspaceData) => ArcableWorkspaceData)) => {
+    const next = typeof update === 'function' ? update(workspaceDataRef.current) : update;
+    workspaceDataRef.current = next;
+    setRenderedData(next);
+  }, []);
+  const getLatestData = useCallback(() => workspaceDataRef.current, []);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Sync from storage on mount & handle cross-window/cross-tab storage events
@@ -391,6 +401,7 @@ export function useWorkspace() {
     themeScheme?: SpaceScheme;
     themeConfig?: ZenThemeConfig;
   }) => {
+    const data = workspaceDataRef.current;
     const sorted = getSortedSpaces(data.spaces);
     const lastSpace = sorted[sorted.length - 1];
     const highestOrder = lastSpace
@@ -448,6 +459,7 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const deleteSpace = useCallback((id: string) => {
+    const data = workspaceDataRef.current;
     savePendingOperation(createWorkspaceOperation('SPACE_DELETE', id));
 
     const remainingSpaces = data.spaces.filter((s) => s.id !== id);
@@ -501,6 +513,7 @@ export function useWorkspace() {
   }, [data.spaces, saveWorkspaceData]);
 
   const archiveSpace = useCallback((id: string) => {
+    const data = workspaceDataRef.current;
     const spaceToArchive = data.spaces.find((s) => s.id === id);
     savePendingOperation(
       createWorkspaceOperation('SPACE_ARCHIVE', id, {
@@ -561,6 +574,7 @@ export function useWorkspace() {
 
   const convertSpaceToFolder = useCallback(
     (sourceSpaceId: string, targetSpaceId: string, targetParentFolderId?: string) => {
+      const data = workspaceDataRef.current;
       if (sourceSpaceId === targetSpaceId) return;
 
       const sourceSpace = data.spaces.find((s) => s.id === sourceSpaceId);
@@ -689,6 +703,7 @@ export function useWorkspace() {
     coverUrl?: string;
     colors?: string;
   }) => {
+    const data = workspaceDataRef.current;
     const targetSpaceId = folderInput.parentSpaceId;
     const targetFolderId = folderInput.parentFolderId || undefined;
     const siblings = getSortedSiblings(data.folders, data.tabs, targetSpaceId, targetFolderId);
@@ -887,6 +902,7 @@ export function useWorkspace() {
   }, [setAllFoldersExpandedAcrossAllSpaces]);
 
   const toggleAllFoldersAcrossAllSpaces = useCallback(() => {
+    const data = workspaceDataRef.current;
     const allCollapsed = data.folders.length > 0 && data.folders.every((f) => f.isExpanded === false);
     const nextExpanded = allCollapsed ? true : false;
     setAllFoldersExpandedAcrossAllSpaces(nextExpanded);
@@ -1001,6 +1017,7 @@ export function useWorkspace() {
     parentFolderId?: string;
     order?: number;
   }) => {
+    const data = workspaceDataRef.current;
     const normalizeUrl = (u: string) => {
       let c = u.trim();
       if (c && !/^https?:\/\//i.test(c) && !c.startsWith('about:') && !c.startsWith('chrome:')) {
@@ -1359,6 +1376,7 @@ export function useWorkspace() {
   }, [saveWorkspaceData]);
 
   const togglePinTab = useCallback((id: string) => {
+    const data = workspaceDataRef.current;
     const existing = data.tabs.find((t) => t.id === id);
     const nextPinned = !existing?.pinned;
     savePendingOperation(
@@ -1385,6 +1403,7 @@ export function useWorkspace() {
   }, [data.tabs, saveWorkspaceData]);
 
   const toggleFavouriteTab = useCallback((id: string) => {
+    const data = workspaceDataRef.current;
     const existing = data.tabs.find((t) => t.id === id);
     const nextFavourite = !existing?.favourite;
 
@@ -1438,6 +1457,7 @@ export function useWorkspace() {
 
   const duplicateTab = useCallback(
     (tabOrId: string | Tab) => {
+      const data = workspaceDataRef.current;
       const tabId = typeof tabOrId === 'string' ? tabOrId : tabOrId?.id;
       // Always look up the canonical sourceTab from data.tabs by ID first.
       // This guarantees that we duplicate the original raw URL containing template variables (e.g. {{env}})
@@ -1707,6 +1727,7 @@ export function useWorkspace() {
   // ================= Tmp Tab Operations =================
 
   const createTmpTab = useCallback((tabInput: Partial<TmpTab> & { url: string; id?: string }) => {
+    const data = workspaceDataRef.current;
     const newTmpTab: TmpTab = {
       id: tabInput.id || generateId('tmp'),
       url: tabInput.url,
@@ -1801,6 +1822,7 @@ export function useWorkspace() {
       config?: Record<string, any>;
       parentGroupId?: string;
     }) => {
+      const data = workspaceDataRef.current;
       const existing = data.widgets || [];
       const favTabs = data.tabs.filter((t) => Boolean(t.favourite));
       const maxOrder = Math.max(
@@ -1963,6 +1985,7 @@ export function useWorkspace() {
 
   // Reorders a widget before the target widget; when targetId is omitted, moves it to the end.
   const reorderWidget = useCallback((sourceId: string, targetId?: string) => {
+    const data = workspaceDataRef.current;
     if (sourceId === targetId) return;
 
     const sorted = getSortedWidgets(data.widgets || []);
@@ -2005,6 +2028,7 @@ export function useWorkspace() {
   // ================= Reordering Operations =================
   const reorderSpaces = useCallback(
     (sourceSpaceId: string, targetSpaceId: string, position: 'before' | 'after') => {
+      const data = workspaceDataRef.current;
       if (sourceSpaceId === targetSpaceId) return;
 
       const sorted = getSortedSpaces(data.spaces);
@@ -2045,6 +2069,7 @@ export function useWorkspace() {
 
   const moveSpace = useCallback(
     (spaceId: string, direction: 'left' | 'right') => {
+      const data = workspaceDataRef.current;
       const sorted = getSortedSpaces(data.spaces);
       const idx = sorted.findIndex((s) => s.id === spaceId);
       if (idx < 0) return;
@@ -2089,6 +2114,7 @@ export function useWorkspace() {
       position: 'before' | 'after' | 'inside';
       parentGroupId?: string;
     }) => {
+      const data = workspaceDataRef.current;
       const { sourceId, sourceType, targetId, targetType, position, parentGroupId } = params;
       if (sourceId === targetId) return;
 
@@ -2604,6 +2630,7 @@ export function useWorkspace() {
 
   const moveSiblingItem = useCallback(
     (itemId: string, itemType: 'folder' | 'tab', direction: 'up' | 'down') => {
+      const data = workspaceDataRef.current;
       const folder = itemType === 'folder' ? data.folders.find((f) => f.id === itemId) : undefined;
       const tab = itemType === 'tab' ? data.tabs.find((t) => t.id === itemId) : undefined;
       if (!folder && !tab) return;
@@ -2696,6 +2723,7 @@ export function useWorkspace() {
 
   const reorderPinnedTabs = useCallback(
     (sourceTabId: string, targetTabId: string, position: 'before' | 'after') => {
+      const data = workspaceDataRef.current;
       if (sourceTabId === targetTabId) return;
       const currentSpace = activeSpace?.id || data.activeSpaceId;
       const pinned = getSortedTabs(
@@ -2741,6 +2769,7 @@ export function useWorkspace() {
 
   const reorderFavouriteItem = useCallback(
     (sourceId: string, targetId: string, position: 'before' | 'after') => {
+      const data = workspaceDataRef.current;
       if (sourceId === targetId) return;
 
       type FavItem = { id: string; type: 'tab' | 'widget'; order?: number; createdAt?: number };
@@ -4034,7 +4063,7 @@ export function useWorkspace() {
     try {
       const pendingOps = getStoredPendingOperations();
       const result = await syncWorkspaceWithRaindrop(token, {
-        localState: data,
+        localState: workspaceDataRef.current,
         deviceName,
         pendingOps,
       });
@@ -4042,9 +4071,12 @@ export function useWorkspace() {
       setLastSyncResult(result);
 
       if (result.success) {
-        clearStoredPendingOperations();
+        removeStoredPendingOperations(pendingOps.map((op) => op.id));
         if (result.latestSnapshot) {
-          applyLatestSnapshot(result.latestSnapshot);
+          const incremental = pendingOps.length > 0 && pendingOps.every((op) => INCREMENTAL_OPERATION_TYPES.has(op.type));
+          applyLatestSnapshot(incremental
+            ? mergeIncrementalSyncSnapshot(workspaceDataRef.current, result.latestSnapshot)
+            : replayOperations(result.latestSnapshot, getStoredPendingOperations()));
         }
       }
 
@@ -4128,15 +4160,18 @@ export function useWorkspace() {
   );
 
   const getChildFolders = useCallback((folderId: string) => {
+    const data = workspaceDataRef.current;
     return data.folders.filter((f) => f.parentFolderId === folderId);
   }, [data.folders]);
 
   const getChildTabs = useCallback((folderId: string) => {
+    const data = workspaceDataRef.current;
     return data.tabs.filter((t) => !t.favourite && t.parentFolderId === folderId && !t.pinned);
   }, [data.tabs]);
 
   const getChildSiblings = useCallback(
     (folderId: string) => {
+      const data = workspaceDataRef.current;
       const folder = data.folders.find((f) => f.id === folderId);
       const spaceId = folder?.parentSpaceId || currentSpaceId;
       return getSortedSiblings(data.folders, data.tabs, spaceId, folderId);
@@ -4146,6 +4181,7 @@ export function useWorkspace() {
 
   return {
     data,
+    getLatestData,
     isLoaded,
     activeSpace,
     sortedSpaces,

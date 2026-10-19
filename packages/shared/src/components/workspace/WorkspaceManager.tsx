@@ -271,12 +271,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     moveWidgetToGroup,
     extractWidgetFromGroup,
     isSyncing: hookIsSyncing,
+    getLatestData,
   } = useWorkspace();
-
-  // Network responses may complete after newer optimistic edits have rendered.
-  // Always read and update the latest workspace instead of a render-time closure.
-  const latestWorkspaceDataRef = useRef(data);
-  latestWorkspaceDataRef.current = data;
 
   const hasCachedData = useMemo(() => {
     return (
@@ -1130,7 +1126,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         const isIncrementalCrud = pendingOps.length > 0 &&
           pendingOps.every((operation) => INCREMENTAL_OPERATION_TYPES.has(operation.type));
 
-        const isInitialSync = !latestWorkspaceDataRef.current?.raindropRootCollectionId;
+        const isInitialSync = !getLatestData()?.raindropRootCollectionId;
 
         const applySuccessfulSnapshot = (snapshot: ArcableWorkspaceData) => {
           removeStoredPendingOperations(syncedOpIds);
@@ -1139,12 +1135,14 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           }
           const remainingOps = isInitialSync ? [] : getStoredPendingOperations();
           let nextSnapshot = !isInitialSync && isIncrementalCrud
-            ? mergeIncrementalSyncSnapshot(latestWorkspaceDataRef.current, snapshot)
+            ? mergeIncrementalSyncSnapshot(getLatestData(), snapshot)
             : snapshot;
-          if (remainingOps.length > 0) {
+          // Incremental merges already start from the current optimistic state.
+          // Replaying its outbox can restore stale group-member identities.
+          if (remainingOps.length > 0 && !isIncrementalCrud) {
             nextSnapshot = replayOperations(nextSnapshot, remainingOps);
           }
-          const currentActive = latestWorkspaceDataRef.current?.activeSpaceId;
+          const currentActive = getLatestData()?.activeSpaceId;
           const currentActiveStillExists = Boolean(
             currentActive &&
             (currentActive === VIRTUAL_SYNCED_TABS_SPACE_ID || nextSnapshot.spaces.some((s) => s.id === currentActive))
@@ -1155,13 +1153,12 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               activeSpaceId: currentActive,
             };
           }
-          latestWorkspaceDataRef.current = nextSnapshot;
           applyLatestSnapshot(nextSnapshot);
         };
 
         if (onSyncRaindrop) {
           const res = await onSyncRaindrop({
-            localState: latestWorkspaceDataRef.current,
+            localState: getLatestData(),
             deviceId,
             pendingOps,
           });
@@ -1180,7 +1177,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           }
         } else if (raindropToken) {
           const res = await syncWorkspaceWithRaindrop(raindropToken, {
-            localState: latestWorkspaceDataRef.current,
+            localState: getLatestData(),
             deviceId,
             deviceName: getStoredDeviceName(),
             pendingOps,
@@ -1462,19 +1459,18 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
               ...snapshot,
               widgets: (snapshot.widgets && snapshot.widgets.length > 0)
                 ? snapshot.widgets
-                : (latestWorkspaceDataRef.current.widgets || []),
+                : (getLatestData().widgets || []),
               customCodeRules: (snapshot.customCodeRules && snapshot.customCodeRules.length > 0)
                 ? snapshot.customCodeRules
-                : (latestWorkspaceDataRef.current.customCodeRules || []),
+                : (getLatestData().customCodeRules || []),
               runCodeInPageRules: (snapshot.runCodeInPageRules && snapshot.runCodeInPageRules.length > 0)
                 ? snapshot.runCodeInPageRules
-                : (latestWorkspaceDataRef.current.runCodeInPageRules || []),
+                : (getLatestData().runCodeInPageRules || []),
             }
           : snapshot;
         // React state updates are asynchronous. Keep the imperative sync source
         // in lockstep with a Raindrop hydration so a subsequent sync cannot
         // start from stale data or discard metadata the remote does not have.
-        latestWorkspaceDataRef.current = hydratedSnapshot;
         applyLatestSnapshot(hydratedSnapshot);
       },
       setActiveSpace: (spaceId: string) => {

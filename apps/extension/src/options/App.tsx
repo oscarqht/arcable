@@ -18,6 +18,9 @@ import {
   mergeRunCodeRules,
   createWorkspaceOperation,
   clearStoredPendingOperations,
+  getStoredPendingOperations,
+  removeStoredPendingOperations,
+  replayOperations,
   resolveRaindropArchiveCollectionId,
 } from '@arcable/shared/utils';
 import { WorkspaceOperation } from '@arcable/shared/types';
@@ -213,9 +216,11 @@ export const App: React.FC = () => {
           setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
         }
         if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
-          clearStoredPendingOperations();
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(changes.arcable_workspace_snapshot.newValue));
-          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: changes.arcable_workspace_snapshot.newValue }));
+          // A background save can finish while another extension surface is
+          // still editing. A broadcast is not an acknowledgement of its outbox.
+          const snapshot = replayOperations(changes.arcable_workspace_snapshot.newValue as ArcableWorkspaceData, getStoredPendingOperations());
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snapshot));
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: snapshot }));
         }
       }
     };
@@ -323,18 +328,21 @@ export const App: React.FC = () => {
         }
       }
 
+      const pendingOps = getStoredPendingOperations();
       const res = (await browser.runtime.sendMessage({
         type: 'RAINDROP_SYNC_WORKSPACE',
         payload: {
           localState,
+          pendingOps,
         },
       })) as ExtensionResponse<SyncResult>;
 
       if (res && res.success) {
         if (res.data?.latestSnapshot && typeof window !== 'undefined') {
-          clearStoredPendingOperations();
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(res.data.latestSnapshot));
-          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: res.data.latestSnapshot }));
+          removeStoredPendingOperations(pendingOps.map((op) => op.id));
+          const snapshot = replayOperations(res.data.latestSnapshot, getStoredPendingOperations());
+          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snapshot));
+          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: snapshot }));
         }
         const now = res.data?.syncedAt || Date.now();
         setLastSyncAt(now);

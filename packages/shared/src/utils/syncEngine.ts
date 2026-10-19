@@ -367,6 +367,7 @@ export function applyOperation(
   op: WorkspaceOperation
 ): ArcableWorkspaceData {
   const cloned: ArcableWorkspaceData = {
+    ...state,
     raindropRootCollectionId: state.raindropRootCollectionId,
     raindropMetadataItemId: state.raindropMetadataItemId,
     spaces: [...state.spaces],
@@ -871,6 +872,7 @@ export function replayOperations(
 ): ArcableWorkspaceData {
   const sorted = sortOperations(ops);
   let state: ArcableWorkspaceData = {
+    ...baseline,
     raindropRootCollectionId: baseline.raindropRootCollectionId,
     raindropMetadataItemId: baseline.raindropMetadataItemId,
     spaces: [...baseline.spaces],
@@ -1087,8 +1089,7 @@ export function mergeIncrementalSyncSnapshot(
       ...(nextVariants ? { urlVariants: nextVariants } : {}),
       ...(nextDefaultVariantId ? { defaultVariantId: nextDefaultVariantId } : {}),
       favIconUrl: tab.favIconUrl || syncedTab.favIconUrl,
-      customTitle: tab.customTitle || syncedTab.customTitle,
-      note: tab.note || syncedTab.note,
+
     };
   });
 
