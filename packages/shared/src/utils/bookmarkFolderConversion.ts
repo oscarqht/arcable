@@ -38,12 +38,14 @@ export function convertBookmarkToFolder(data: ArcableWorkspaceData, tabId: strin
     ...data.folders.filter((folder) => folder.parentSpaceId === parentSpaceId && !folder.parentFolderId),
     ...data.tabs.filter((item) => !item.favourite && !item.pinned && item.parentSpaceId === parentSpaceId && !item.parentFolderId),
   ];
+  const defaultVariant = tab.urlVariants?.find((variant) => variant.id === tab.defaultVariantId) || tab.urlVariants?.[0];
   const folder: Folder = {
     id: generateId('folder'), name: getTabEffectiveTitle(tab),
     parentSpaceId: parentSpaceId!, parentFolderId: tab.favourite ? undefined : tab.parentFolderId,
     order: tab.favourite
       ? rootSiblings.reduce((max, item) => Math.max(max, item.order ?? item.createdAt ?? 0), 0) + 1000
       : tab.order ?? tab.createdAt,
+    coverUrl: tab.favIconUrl || defaultVariant?.favIconUrl,
     customEmojiIcon: tab.customEmojiIcon, isExpanded: true, createdAt: now, updatedAt: now,
   };
   const tabs: Tab[] = variantsOf(tab).map((variant, index) => ({

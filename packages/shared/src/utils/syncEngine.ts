@@ -471,6 +471,7 @@ export function applyOperation(
       const folderData: Folder = {
         id: op.entityId,
         name: op.payload?.name || 'New Folder',
+        coverUrl: op.payload?.coverUrl,
         parentSpaceId: op.payload?.parentSpaceId || cloned.activeSpaceId,
         parentFolderId: op.payload?.parentFolderId || undefined,
         customEmojiIcon: op.payload?.customEmojiIcon || '📁',

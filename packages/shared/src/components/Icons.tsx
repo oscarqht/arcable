@@ -150,6 +150,23 @@ export const PlusIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor
   </svg>
 );
 
+export const BookmarkIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', strokeWidth = 2, className, style }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={strokeWidth}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    style={style}
+  >
+    <path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
 export const FolderIcon: React.FC<IconProps> = ({ size = 16, color = 'currentColor', className, style }) => (
   <svg
     width={size}

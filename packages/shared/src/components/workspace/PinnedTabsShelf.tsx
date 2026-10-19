@@ -26,6 +26,7 @@ import {
   CheckIcon,
   CloseIcon,
   DuplicateIcon,
+  FolderIcon,
   TrashIcon,
   ArchiveIcon,
   CopyIcon,
@@ -605,7 +606,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       onClick: () => onEditTab(tab),
                     },
                     ...(onConvertTabToFolder && tab.urlVariants?.length
-                      ? [{ id: 'convert-to-folder', label: 'Convert to folder', onClick: () => onConvertTabToFolder(tab) }]
+                      ? [{ id: 'convert-to-folder', label: 'Convert to folder', icon: <FolderIcon size={14} />, onClick: () => onConvertTabToFolder(tab) }]
                       : []),
                     ...(onDuplicateTab
                       ? [

@@ -23,6 +23,7 @@ import {
   StarIcon,
   EditIcon,
   DuplicateIcon,
+  FolderIcon,
   TrashIcon,
   ArchiveIcon,
   MinusIcon,
@@ -404,7 +405,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     }
 
     if (onConvertToFolder && tab.urlVariants?.length) {
-      items.push({ id: 'convert-to-folder', label: 'Convert to folder', onClick: () => onConvertToFolder(tab) });
+      items.push({ id: 'convert-to-folder', label: 'Convert to folder', icon: <FolderIcon size={14} />, onClick: () => onConvertToFolder(tab) });
     }
 
     if (onDuplicate) {

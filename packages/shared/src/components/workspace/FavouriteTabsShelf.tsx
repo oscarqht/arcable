@@ -41,6 +41,7 @@ import {
   PlusIcon,
   EditIcon,
   DuplicateIcon,
+  FolderIcon,
   TrashIcon,
   ArchiveIcon,
   CopyIcon,
@@ -1009,7 +1010,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const menuItems = isGroup ? groupMenuItems : standardMenuItems;
             if (onConvertTabToFolder && validVariants.length > 0 && groupWidgets.length === 0) {
               menuItems.splice(2, 0, {
-                id: 'convert-to-folder', label: 'Convert to folder in active space',
+                id: 'convert-to-folder', label: 'Convert to folder in active space', icon: <FolderIcon size={14} />,
                 onClick: () => onConvertTabToFolder(tab),
               });
             }

@@ -10,7 +10,7 @@ const base: ArcableWorkspaceData = {
   activeSpaceId: 'space', raindropRootCollectionId: 1,
   spaces: [{ id: 'space', raindropId: 10, name: 'Space' }],
   folders: [{ id: 'parent', raindropId: 11, parentSpaceId: 'space', name: 'Parent' }],
-  tabs: [{ id: 'bookmark', raindropId: 20, pinned: false, customTitle: 'API', note: 'Keep this note',
+  tabs: [{ id: 'bookmark', raindropId: 20, pinned: false, customTitle: 'API', favIconUrl: 'https://example.com/bookmark-cover.png', note: 'Keep this note',
     parentSpaceId: 'space', parentFolderId: 'parent', order: 2000,
     url: 'https://prod.example/{{path}}', defaultVariantId: '21', urlVariants: [
       { id: '20', name: 'Local', url: 'http://localhost:8080/{{path}}', customEmojiIcon: '🏠' },
@@ -26,6 +26,7 @@ test('bookmark becomes a sibling folder with one named item per variant; operati
   const conversion = convertBookmarkToFolder(base, 'bookmark')!;
   const folder = conversion.data.folders.at(-1)!;
   assert.equal(folder.name, 'API');
+  assert.equal(folder.coverUrl, base.tabs[0].favIconUrl);
   assert.equal(folder.parentFolderId, 'parent');
   assert.equal(folder.order, 2000);
   assert.deepEqual(conversion.data.tabs.map((tab) => [tab.customTitle, tab.url]), base.tabs[0].urlVariants!.map((v) => [v.name, v.url]));
@@ -33,8 +34,14 @@ test('bookmark becomes a sibling folder with one named item per variant; operati
   assert.equal(conversion.data.tabs[0].customEmojiIcon, '🏠');
   assert.equal(conversion.data.tabs[1].favIconUrl, 'https://prod.example/icon.png');
   const replay = replayOperations(base, ops(conversion));
+  assert.equal(replay.folders.at(-1)!.coverUrl, base.tabs[0].favIconUrl);
   assert.deepEqual(replay.tabs.map((t) => [t.id, t.note, t.parentFolderId]), conversion.data.tabs.map((t) => [t.id, t.note, t.parentFolderId]));
   assert.deepEqual(conversion.operations.at(-1)!.payload.variantRaindropIds, [20, 21]);
+});
+
+test('folder cover falls back to the default variant cover', () => {
+  const data = { ...base, tabs: [{ ...base.tabs[0], favIconUrl: undefined }] };
+  assert.equal(convertBookmarkToFolder(data, 'bookmark')!.data.folders.at(-1)!.coverUrl, 'https://prod.example/icon.png');
 });
 
 test('folder uses displayed first bookmark title and preserves nested variants and default', () => {
@@ -92,6 +99,8 @@ test('both conversions and a round trip before sync create destinations before r
     const splitResult = await syncIncrementalOperations('test', split.data, ops(split), false);
     assert(splitResult?.success);
     const folder = splitResult.latestSnapshot!.folders.at(-1)!;
+    assert.equal(folder.coverUrl, base.tabs[0].favIconUrl);
+    assert.deepEqual(calls.find((call) => call.method === 'POST' && call.url.endsWith('/collection'))!.body.cover, [base.tabs[0].favIconUrl]);
     const merged = convertFolderToBookmark(splitResult.latestSnapshot!, folder.id)!;
     calls.length = 0;
     const mergeResult = await syncIncrementalOperations('test', merged.data, ops(merged), false);

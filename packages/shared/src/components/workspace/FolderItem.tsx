@@ -31,6 +31,7 @@ import {
   ExternalLinkIcon,
   PlusIcon,
   FolderIcon,
+  BookmarkIcon,
   FolderOpenIcon,
   FolderPlusIcon,
   EditIcon,
@@ -559,7 +560,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     }
 
     if (onConvertFolderToTab && canConvertFolderToBookmark({ tabs: allTabs, folders: allFolders }, folder.id)) {
-      items.push({ id: 'convert-to-bookmark', label: 'Convert to bookmark with URL variants', onClick: () => onConvertFolderToTab(folder.id) });
+      items.push({ id: 'convert-to-bookmark', label: 'Convert to bookmark with URL variants', icon: <BookmarkIcon size={14} />, onClick: () => onConvertFolderToTab(folder.id) });
     }
 
     if (onArchiveFolder) {
