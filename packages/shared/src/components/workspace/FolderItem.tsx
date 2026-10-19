@@ -1,3 +1,4 @@
+import { canConvertFolderToBookmark } from '../../utils/bookmarkFolderConversion';
 import React, { useState, useMemo, useRef, useEffect, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { Folder, Tab, TmpTab, TabUrlVariant, TabOpenOptions } from '../../types/workspace';
@@ -54,6 +55,7 @@ export interface FolderItemProps {
   onToggleExpand: (folderId: string) => void;
   onEditFolder: (folder: Folder) => void;
   onDeleteFolder?: (folderId: string) => void;
+  onConvertFolderToTab?: (folderId: string) => void;
   onArchiveFolder?: (folderId: string) => void;
   onAddSubFolder: (parentFolderId: string) => void;
   onAddTabInFolder: (parentFolderId: string) => void;
@@ -67,6 +69,7 @@ export interface FolderItemProps {
   onEditTab: (tab: Tab) => void;
   onRenameTab?: (tab: Tab, newTitle: string) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onConvertTabToFolder?: (tab: Tab) => void;
   onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab?: (tabId: string) => void;
@@ -108,6 +111,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onEditFolder,
   onDeleteFolder,
   onArchiveFolder,
+  onConvertFolderToTab,
   onAddSubFolder,
   onAddTabInFolder,
   onOpenTab,
@@ -120,6 +124,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   onEditTab,
   onRenameTab,
   onDuplicateTab,
+  onConvertTabToFolder,
   onArchiveTab,
   onDeleteTab,
   onTogglePinTab,
@@ -553,6 +558,10 @@ export const FolderItem: React.FC<FolderItemProps> = ({
       });
     }
 
+    if (onConvertFolderToTab && canConvertFolderToBookmark({ tabs: allTabs, folders: allFolders }, folder.id)) {
+      items.push({ id: 'convert-to-bookmark', label: 'Convert to bookmark with URL variants', onClick: () => onConvertFolderToTab(folder.id) });
+    }
+
     if (onArchiveFolder) {
       items.push({
         id: 'archive-folder',
@@ -576,6 +585,8 @@ export const FolderItem: React.FC<FolderItemProps> = ({
   }, [
     copied,
     totalItemCount,
+    allTabs,
+    allFolders,
     handleCopyFolder,
     handleOpenFolder,
     onAddTabInFolder,
@@ -583,6 +594,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
     folder.raindropId,
     handleEditInRaindrop,
     onArchiveFolder,
+    onConvertFolderToTab,
     onDeleteFolder,
     onAddSubFolder,
     onEditFolder,
@@ -1277,6 +1289,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onToggleExpand={onToggleExpand}
                   onEditFolder={onEditFolder}
                   onDeleteFolder={onDeleteFolder}
+                  onConvertFolderToTab={onConvertFolderToTab}
                   onArchiveFolder={onArchiveFolder}
                   onAddSubFolder={onAddSubFolder}
                   onAddTabInFolder={onAddTabInFolder}
@@ -1304,6 +1317,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                   onMoveSiblingItem={onMoveSiblingItem}
                   onReorderSiblingItem={onReorderSiblingItem}
                   onDropTmpTab={onDropTmpTab}
+                  onConvertTabToFolder={onConvertTabToFolder}
                   onDuplicateTab={onDuplicateTab}
                   onOpenVariant={onOpenVariant}
                   onReplaceTabUrl={onReplaceTabUrl}
@@ -1347,6 +1361,7 @@ export const FolderItem: React.FC<FolderItemProps> = ({
                 }
                 onEdit={onEditTab}
                 onRename={onRenameTab}
+                onConvertToFolder={onConvertTabToFolder}
                 onDuplicate={onDuplicateTab}
                 onArchive={onArchiveTab}
                 onDelete={onDeleteTab}

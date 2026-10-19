@@ -43,6 +43,7 @@ export interface PinnedTabsShelfProps {
   onEditTab: (tab: Tab) => void;
   onRenameTab?: (tab: Tab, newTitle: string) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onConvertTabToFolder?: (tab: Tab) => void;
   onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onTogglePinTab: (tabId: string) => void;
@@ -62,6 +63,7 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
   onEditTab,
   onRenameTab,
   onDuplicateTab,
+  onConvertTabToFolder,
   onArchiveTab,
   onDeleteTab,
   onTogglePinTab,
@@ -602,6 +604,9 @@ export const PinnedTabsShelf: React.FC<PinnedTabsShelfProps> = ({
                       icon: <EditIcon size={14} />,
                       onClick: () => onEditTab(tab),
                     },
+                    ...(onConvertTabToFolder && tab.urlVariants?.length
+                      ? [{ id: 'convert-to-folder', label: 'Convert to folder', onClick: () => onConvertTabToFolder(tab) }]
+                      : []),
                     ...(onDuplicateTab
                       ? [
                           {

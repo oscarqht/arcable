@@ -242,6 +242,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     deleteTab,
     archiveTab,
     duplicateTab,
+    convertTabToFolder,
+    convertFolderToTab,
     togglePinTab,
     toggleFavouriteTab,
     reorderSiblingItem,
@@ -2401,6 +2403,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
             setTargetSpaceIdForModal(tab.parentSpaceId);
             setIsTabModalOpen(true);
           }}
+          onConvertTabToFolder={(tab) => convertTabToFolder(tab.id)}
           onDuplicateTab={(tab) => duplicateTab(tab.id)}
           onArchiveTab={handleArchiveTab}
           onDeleteTab={handleRequestDeleteTab}
@@ -2955,6 +2958,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setIsFolderModalOpen(true);
                   }}
                   onDeleteFolder={handleRequestDeleteFolder}
+                  onConvertFolderToTab={convertFolderToTab}
                   onArchiveFolder={handleRequestArchiveFolder}
                   onToggleFolderExpand={handleToggleFolderExpand}
                   onExpandAllFolders={handleExpandAllFolders}
@@ -2966,6 +2970,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                     setIsTabModalOpen(true);
                   }}
                   onRenameTab={handleRenameTab}
+                  onConvertTabToFolder={(tab) => convertTabToFolder(tab.id)}
                   onDuplicateTab={(t) => duplicateTab(t.id)}
                   onArchiveTab={handleArchiveTab}
                   onDeleteTab={handleRequestDeleteTab}
@@ -3107,6 +3112,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsFolderModalOpen(true);
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
+                      onConvertFolderToTab={convertFolderToTab}
                       onArchiveFolder={handleRequestArchiveFolder}
                       onToggleFolderExpand={handleToggleFolderExpand}
                       onExpandAllFolders={handleExpandAllFolders}
@@ -3118,6 +3124,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsTabModalOpen(true);
                       }}
                       onRenameTab={handleRenameTab}
+                      onConvertTabToFolder={(tab) => convertTabToFolder(tab.id)}
                       onDuplicateTab={(t) => duplicateTab(t.id)}
                       onArchiveTab={handleArchiveTab}
                       onDeleteTab={handleRequestDeleteTab}
@@ -3290,6 +3297,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsFolderModalOpen(true);
                       }}
                       onDeleteFolder={handleRequestDeleteFolder}
+                      onConvertFolderToTab={convertFolderToTab}
                       onArchiveFolder={handleRequestArchiveFolder}
                       onToggleFolderExpand={handleToggleFolderExpand}
                       onExpandAllFolders={handleExpandAllFolders}
@@ -3301,6 +3309,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
                         setIsTabModalOpen(true);
                       }}
                       onRenameTab={handleRenameTab}
+                      onConvertTabToFolder={(tab) => convertTabToFolder(tab.id)}
                       onDuplicateTab={(t) => duplicateTab(t.id)}
                       onArchiveTab={handleArchiveTab}
                       onDeleteTab={handleRequestDeleteTab}

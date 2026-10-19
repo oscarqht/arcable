@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Space, SpaceScheme, ZenThemeConfig, Folder, Tab, TmpTab, ArcableWorkspaceData, WorkspaceSiblingItem, WorkspaceWidget, WidgetStyle, WidgetSize, TabUrlVariant, VIRTUAL_SYNCED_TABS_SPACE_ID } from '../types/workspace';
 import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
+import { convertBookmarkToFolder, convertFolderToBookmark } from '../utils/bookmarkFolderConversion';
 import { ungroupFavourite } from '../utils/ungroupFavourite';
 import {
   createWorkspaceOperation,
@@ -964,6 +965,25 @@ export function useWorkspace() {
         folders: prev.folders.filter((f) => !folderIdsToDelete.has(f.id)),
         tabs: prev.tabs.filter((t) => !t.parentFolderId || !folderIdsToDelete.has(t.parentFolderId)),
       };
+    });
+  }, [saveWorkspaceData]);
+
+  const convertTabToFolder = useCallback((tabId: string) => {
+    saveWorkspaceData((prev) => {
+      const conversion = convertBookmarkToFolder(prev, tabId);
+      if (!conversion) return prev;
+      conversion.operations.forEach((op) => savePendingOperation(createWorkspaceOperation(op.type, op.entityId, op.payload)));
+      return conversion.data;
+    });
+  }, [saveWorkspaceData]);
+
+  const convertFolderToTab = useCallback((folderId: string) => {
+    saveWorkspaceData((prev) => {
+      const conversion = convertFolderToBookmark(prev, folderId);
+      if (!conversion) return prev;
+      conversion.operations.forEach((op) => savePendingOperation(createWorkspaceOperation(op.type, op.entityId, op.payload)));
+      removeLocalFolderExpanded(folderId);
+      return conversion.data;
     });
   }, [saveWorkspaceData]);
 
@@ -4139,6 +4159,8 @@ export function useWorkspace() {
     reorderSpaces,
     moveSpace,
     // Folder operations
+    convertFolderToTab,
+    convertTabToFolder,
     createFolder,
     updateFolder,
     deleteFolder,

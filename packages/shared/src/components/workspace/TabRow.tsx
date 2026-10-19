@@ -65,6 +65,7 @@ export interface TabRowProps {
   onEdit: (tab: Tab) => void;
   onRename?: (tab: Tab, newTitle: string) => void;
   onDuplicate?: (tab: Tab) => void;
+  onConvertToFolder?: (tab: Tab) => void;
   onArchive?: (id: string) => void;
   onDelete: (id: string) => void;
   onTogglePin?: (id: string) => void;
@@ -103,6 +104,7 @@ export const TabRow: React.FC<TabRowProps> = ({
   onEdit,
   onRename,
   onDuplicate,
+  onConvertToFolder,
   onArchive,
   onDelete,
   onTogglePin,
@@ -401,6 +403,10 @@ export const TabRow: React.FC<TabRowProps> = ({
       });
     }
 
+    if (onConvertToFolder && tab.urlVariants?.length) {
+      items.push({ id: 'convert-to-folder', label: 'Convert to folder', onClick: () => onConvertToFolder(tab) });
+    }
+
     if (onDuplicate) {
       items.push({
         id: 'duplicate-tab',
@@ -443,6 +449,7 @@ export const TabRow: React.FC<TabRowProps> = ({
     onRename,
     onEdit,
     onDuplicate,
+    onConvertToFolder,
     onArchive,
     onDelete,
   ]);

@@ -81,6 +81,7 @@ export interface FavouriteTabsShelfProps {
   onToggleTabMute?: (tabId: number, muted?: boolean) => void;
   onEditTab: (tab: Tab) => void;
   onDuplicateTab?: (tab: Tab) => void;
+  onConvertTabToFolder?: (tab: Tab) => void;
   onArchiveTab?: (tabId: string) => void;
   onDeleteTab: (tabId: string) => void;
   onToggleFavouriteTab: (tabId: string) => void;
@@ -133,6 +134,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
   onToggleTabMute,
   onEditTab,
   onDuplicateTab,
+  onConvertTabToFolder,
   onArchiveTab,
   onDeleteTab,
   onToggleFavouriteTab,
@@ -1005,6 +1007,12 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             ];
 
             const menuItems = isGroup ? groupMenuItems : standardMenuItems;
+            if (onConvertTabToFolder && validVariants.length > 0 && groupWidgets.length === 0) {
+              menuItems.splice(2, 0, {
+                id: 'convert-to-folder', label: 'Convert to folder in active space',
+                onClick: () => onConvertTabToFolder(tab),
+              });
+            }
 
             const isDroppingInside = isDragTarget && dropPosition === 'inside';
 

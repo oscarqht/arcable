@@ -553,6 +553,7 @@ export function applyOperation(
         pinned: isPinned,
         favourite: isFav || undefined,
         customTitle: op.payload?.customTitle,
+        note: op.payload?.note,
         customEmojiIcon: op.payload?.customEmojiIcon,
         favIconUrl: op.payload?.favIconUrl,
         parentSpaceId: isFav ? undefined : (op.payload?.parentSpaceId || cloned.activeSpaceId),
