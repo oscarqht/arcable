@@ -1,0 +1,7 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Vite's esbuild binary installation is the only required dependency build script.
+allowBuilds:
+  'esbuild@0.25.12': true

@@ -11,13 +11,13 @@
     "build:dev": "node build.mjs all --dev",
     "build:dev:chrome": "node build.mjs chrome --dev",
     "build:dev:firefox": "node build.mjs firefox --dev",
-    "lint:firefox": "npx web-ext lint --source-dir dist/firefox",
-    "package:firefox": "npx web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --overwrite-dest",
+    "lint:firefox": "pnpm dlx web-ext lint --source-dir dist/firefox",
+    "package:firefox": "pnpm dlx web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --overwrite-dest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@arcable/shared": "*",
+    "@arcable/shared": "workspace:*",
     "@mozilla/readability": "^0.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

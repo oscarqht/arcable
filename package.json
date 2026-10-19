@@ -3,26 +3,22 @@
   "version": "0.178.0",
   "private": true,
   "description": "Arcable monorepo containing Chrome/Firefox extension, Next.js webapp, and shared libraries.",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
-    "dev": "npm run dev --workspace=@arcable/web",
-    "dev:web": "npm run dev --workspace=@arcable/web",
-    "dev:extension": "npm run dev --workspace=@arcable/extension",
-    "build": "npm run build:shared && npm run build:web && npm run build:extension",
-    "build:shared": "npm run build --workspace=@arcable/shared",
-    "build:web": "npm run build --workspace=@arcable/web",
-    "build:extension": "npm run build --workspace=@arcable/extension",
-    "build:extension:chrome": "npm run build:chrome --workspace=@arcable/extension",
-    "build:extension:firefox": "npm run build:firefox --workspace=@arcable/extension",
-    "build:extension:dev": "npm run build:dev --workspace=@arcable/extension",
-    "build:extension:dev:chrome": "npm run build:dev:chrome --workspace=@arcable/extension",
-    "build:extension:dev:firefox": "npm run build:dev:firefox --workspace=@arcable/extension",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
-    "clean": "npm run clean --workspaces --if-present",
+    "dev": "pnpm --filter @arcable/web run dev",
+    "dev:web": "pnpm --filter @arcable/web run dev",
+    "dev:extension": "pnpm --filter @arcable/extension run dev",
+    "build": "pnpm run build:shared && pnpm run build:web && pnpm run build:extension",
+    "build:shared": "pnpm --filter @arcable/shared run build",
+    "build:web": "pnpm --filter @arcable/web run build",
+    "build:extension": "pnpm --filter @arcable/extension run build",
+    "build:extension:chrome": "pnpm --filter @arcable/extension run build:chrome",
+    "build:extension:firefox": "pnpm --filter @arcable/extension run build:firefox",
+    "build:extension:dev": "pnpm --filter @arcable/extension run build:dev",
+    "build:extension:dev:chrome": "pnpm --filter @arcable/extension run build:dev:chrome",
+    "build:extension:dev:firefox": "pnpm --filter @arcable/extension run build:dev:firefox",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "pnpm -r --if-present run lint",
+    "clean": "pnpm -r --if-present run clean",
     "version:bump:minor": "node scripts/bump-version.mjs"
   },
   "keywords": [
@@ -38,5 +34,6 @@
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.7.3"
-  }
+  },
+  "packageManager": "pnpm@12.14.0"
 }

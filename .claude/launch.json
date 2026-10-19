@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "extension-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--workspace=@arcable/extension"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "dev:extension"],
       "port": 5173
     }
   ]

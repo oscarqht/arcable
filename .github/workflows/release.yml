@@ -29,16 +29,15 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup pnpm and install dependencies
+        uses: pnpm/setup@v3
         with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: npm install
+          runtime: node@20
+          cache: true
+          require-lockfile: true
 
       - name: Build extensions
-        run: npm run build:extension
+        run: pnpm run build:extension
 
       - name: Package extension archives
         run: |
