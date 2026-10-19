@@ -98,7 +98,9 @@ Embedded directly in the workspace, supporting small, medium, and large sizes wi
 
 ```text
 arcable/
-├── package.json               # Root monorepo workspace configuration (npm workspaces)
+├── package.json               # Root scripts and pinned pnpm version
+├── pnpm-workspace.yaml        # Workspace packages and dependency build approvals
+├── pnpm-lock.yaml             # Shared dependency lockfile
 ├── tsconfig.base.json         # Base TypeScript configuration
 ├── tsconfig.json              # TypeScript solution references
 ├── docs/                      # Assets, icons, CI/CD publishing guides
@@ -138,29 +140,48 @@ arcable/
 
 ### 1. Installation
 
+Use Node.js 20 and pnpm **12.14.0** (pinned in `package.json`). On macOS/Linux,
+install the native pnpm binary if it is not already available:
+
 ```bash
-npm install
+curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=12.14.0 sh -
 ```
+
+Follow the installer instructions to add pnpm to your shell, then run from the
+repository root:
+
+```bash
+pnpm --version # 12.14.0
+pnpm install --frozen-lockfile
+```
+
+For Windows and other installation options, see [pnpm installation](https://pnpm.io/installation).
+When switching an existing checkout from npm, remove the old root and workspace
+`node_modules` directories before installing. Commit `pnpm-lock.yaml` when changing
+dependencies; CI uses frozen installs. Internal packages use `workspace:*` to ensure
+local linking. Dependency installation scripts require explicit approval in
+`pnpm-workspace.yaml`; review new scripts before adding a targeted `allowBuilds` rule.
+Firefox tooling runs through `pnpm dlx web-ext` as needed.
 
 ### 2. Development
 
 - **Run Next.js Web App**:
   ```bash
-  npm run dev:web
+  pnpm run dev:web
   ```
   Open [http://localhost:3000](http://localhost:3000).
 
 - **Run Extension in Watch Mode**:
   ```bash
-  npm run dev:extension
+  pnpm run dev:extension
   ```
 
 - **Build Development Version of Extensions**:
   ```bash
-  npm run build:extension:dev
+  pnpm run build:extension:dev
   # or specifically:
-  npm run build:extension:dev:chrome
-  npm run build:extension:dev:firefox
+  pnpm run build:extension:dev:chrome
+  pnpm run build:extension:dev:firefox
   ```
 
 ---
@@ -169,29 +190,29 @@ npm install
 
 - **Build All Workspaces**:
   ```bash
-  npm run build
+  pnpm run build
   ```
 
 - **Build Next.js Web App**:
   ```bash
-  npm run build:web
+  pnpm run build:web
   ```
 
 - **Build Chrome Extension (Manifest V3)**:
   ```bash
-  npm run build:extension:chrome
+  pnpm run build:extension:chrome
   ```
   Output directory: `apps/extension/dist/chrome`
 
 - **Build Firefox Extension (Manifest V3)**:
   ```bash
-  npm run build:extension:firefox
+  pnpm run build:extension:firefox
   ```
   Output directory: `apps/extension/dist/firefox`
 
 - **Typecheck Entire Codebase**:
   ```bash
-  npm run typecheck
+  pnpm run typecheck
   ```
 
 ---

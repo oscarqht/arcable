@@ -98,15 +98,13 @@ jobs:
           exit 1
         fi
 
-    - name: Setup Node.js
+    - name: Setup pnpm and install dependencies
       if: steps.release_meta.outputs.skip != 'true'
-      uses: actions/setup-node@v4
+      uses: pnpm/setup@v3
       with:
-        node-version: '20'
-
-    - name: Install dependencies
-      if: steps.release_meta.outputs.skip != 'true'
-      run: npm ci || npm install
+        runtime: node@20
+        cache: true
+        require-lockfile: true
 
     - name: Build Chrome extension package
       if: steps.release_meta.outputs.skip != 'true'
@@ -212,15 +210,13 @@ jobs:
           exit 1
         fi
 
-    - name: Setup Node.js
+    - name: Setup pnpm and install dependencies
       if: steps.release_meta.outputs.skip != 'true'
-      uses: actions/setup-node@v4
+      uses: pnpm/setup@v3
       with:
-        node-version: '20'
-
-    - name: Install dependencies
-      if: steps.release_meta.outputs.skip != 'true'
-      run: npm ci || npm install
+        runtime: node@20
+        cache: true
+        require-lockfile: true
 
     - name: Build Firefox extension package
       if: steps.release_meta.outputs.skip != 'true'

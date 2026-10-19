@@ -77,7 +77,7 @@ echo "Submitting Firefox extension to Mozilla Add-ons (AMO)..."
 echo "Channel: ${CHANNEL}"
 echo "Approval Timeout: ${APPROVAL_TIMEOUT}ms"
 
-npx --yes web-ext sign \
+pnpm dlx web-ext sign \
   --source-dir="${SOURCE_DIR}" \
   --artifacts-dir="${ARTIFACTS_DIR}" \
   --api-key="${API_KEY}" \
