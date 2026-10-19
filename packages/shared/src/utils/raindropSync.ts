@@ -2371,7 +2371,9 @@ export function reconstructWorkspace(
       }
     }
     if (!favourite && !parentSpaceId) continue;
-    const baseTitle = groupKey.split(':::')[1] || decodeRaindropTitle(first.title);
+    // Read the name from the title, not the internal key: names may contain ":::".
+    const firstTitle = decodeRaindropTitle(first.title);
+    const baseTitle = firstTitle.slice(0, firstTitle.indexOf(ARCABLE_VARIANT_DELIMITER)).trim();
     variantItems.sort((a, b) => {
       const orderA = itemOrderMap.get(a._id) ?? (a.sort ?? a.order ?? 0);
       const orderB = itemOrderMap.get(b._id) ?? (b.sort ?? b.order ?? 0);
@@ -2389,40 +2391,8 @@ export function reconstructWorkspace(
     }
     const finalItems = deduplicatedVariantItems.length > 0 ? deduplicatedVariantItems : variantItems;
 
-    // The base title and collection identify a variant group. Different groups may
-    // intentionally share URLs or use another group's title as a variant name.
-    const matchingTab = tabs.find((t) => {
-      const sameScope = favourite
-        ? Boolean(t.favourite)
-        : !t.favourite && t.parentFolderId === parentFolderId && t.parentSpaceId === parentSpaceId;
-      if (!sameScope) return false;
-      const tabTitle = (t.customTitle || '').trim().toLowerCase();
-      const targetBase = baseTitle.trim().toLowerCase();
-      return Boolean(tabTitle && tabTitle === targetBase);
-    });
-
-    if (matchingTab) {
-      // Merge orphan variants into the existing matching tab instead of creating a duplicate group
-      const existingUrls = new Set((matchingTab.urlVariants || []).map((v) => (v.url || '').trim().toLowerCase()));
-      const addedVariants: TabUrlVariant[] = [];
-      for (const v of finalItems) {
-        const vUrl = (v.link || '').trim().toLowerCase();
-        if (vUrl && !existingUrls.has(vUrl)) {
-          existingUrls.add(vUrl);
-          const vTitle = decodeRaindropTitle(v.title || '');
-          const delimIdx = vTitle.indexOf(ARCABLE_VARIANT_DELIMITER);
-          const variantName = delimIdx !== -1 ? vTitle.slice(delimIdx + ARCABLE_VARIANT_DELIMITER.length).trim() : 'Variant';
-          addedVariants.push({ id: String(v._id), name: variantName, url: v.link, favIconUrl: v.cover });
-        }
-      }
-      if (addedVariants.length > 0) {
-        matchingTab.urlVariants = [...(matchingTab.urlVariants || []), ...addedVariants];
-        if (favourite) {
-          matchingTab.isGroup = true;
-        }
-      }
-      continue;
-    }
+    // Exact name/collection matches were handled above via groupKey. An orphan
+    // must stay separate; a similar title or shared URL does not identify a group.
 
     let groupMeta: GroupVariantMeta | undefined;
     let groupNote = first.note;
