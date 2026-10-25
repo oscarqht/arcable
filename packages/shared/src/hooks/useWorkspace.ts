@@ -6,6 +6,7 @@ import { SyncResult } from '../types/sync';
 import { generateId } from '../utils/format';
 import { convertBookmarkToFolder, convertFolderToBookmark } from '../utils/bookmarkFolderConversion';
 import { ungroupFavourite } from '../utils/ungroupFavourite';
+import { applyBatchUrlReplacements, type BatchUrlReplacement } from '../utils/batchUrlReplacement';
 import {
   createWorkspaceOperation,
   savePendingOperation,
@@ -1312,6 +1313,24 @@ export function useWorkspace() {
         ...prev,
         tabs: prev.tabs.map((t) => (t.id === id ? updated : t)),
       };
+    });
+  }, [saveWorkspaceData]);
+
+  const replaceTabUrls = useCallback((replacements: readonly BatchUrlReplacement[]) => {
+    saveWorkspaceData((prev) => {
+      const result = applyBatchUrlReplacements(prev.tabs, replacements);
+      if (!result.changedTabs.length) return prev;
+      const updatedAt = Date.now();
+      const changedById = new Map(result.changedTabs.map((tab) => [tab.id, { ...tab, updatedAt }]));
+      for (const tab of result.changedTabs) {
+        // Use the normal outbox while preserving the exact reviewed text. The
+        // single-tab editor normalizes URLs and can rename/reorder variants.
+        savePendingOperation(createWorkspaceOperation('TAB_UPDATE', tab.id, {
+          url: tab.url,
+          ...(tab.urlVariants ? { urlVariants: tab.urlVariants } : {}),
+        }));
+      }
+      return { ...prev, tabs: result.tabs.map((tab) => changedById.get(tab.id) || tab) };
     });
   }, [saveWorkspaceData]);
 
@@ -4213,6 +4232,7 @@ export function useWorkspace() {
     // Tab operations
     createTab,
     updateTab,
+    replaceTabUrls,
     deleteTab,
     archiveTab,
     duplicateTab,

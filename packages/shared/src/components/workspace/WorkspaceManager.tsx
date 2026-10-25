@@ -36,6 +36,7 @@ import { ConvertSpaceModal } from './ConvertSpaceModal';
 import { FolderModal } from './FolderModal';
 import { TabModal } from './TabModal';
 import { ConfirmModal } from './ConfirmModal';
+import { ReplaceUrlsModal } from './ReplaceUrlsModal';
 import { cleanUrl, areUrlsMatching, generateId } from '../../utils/format';
 import { computeTabUrlReplacement, getActiveBrowserTabInfo } from '../../utils/tabUtils';
 import { getDomain, getSpaceOpenTabCounts } from '../../utils/treeUtils';
@@ -61,6 +62,7 @@ const INCREMENTAL_SYNC_DEBOUNCE_MS = 150;
 export interface WorkspaceManagerHandle {
   openNewSpace: () => void;
   openJsonModal: () => void;
+  openReplaceUrls: () => void;
   triggerSync: () => Promise<void>;
   captureCurrentTab: () => Promise<void>;
   revealAndHighlightTab: (tabId: string, options?: { switchSpace?: boolean }) => void;
@@ -239,6 +241,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     areAllFoldersCollapsed,
     createTab,
     updateTab,
+    replaceTabUrls,
     deleteTab,
     archiveTab,
     duplicateTab,
@@ -546,6 +549,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const [defaultFolderParentId, setDefaultFolderParentId] = useState<string | undefined>();
 
   const [isTabModalOpen, setIsTabModalOpen] = useState(false);
+  const [isReplaceUrlsModalOpen, setIsReplaceUrlsModalOpen] = useState(false);
+  const closeReplaceUrlsModal = useCallback(() => setIsReplaceUrlsModalOpen(false), []);
   const [isTabGroupModal, setIsTabGroupModal] = useState(false);
   const [editingTab, setEditingTab] = useState<Tab | null>(null);
   const [promotingTmpTab, setPromotingTmpTab] = useState<TmpTab | null>(null);
@@ -604,7 +609,10 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
 
   const isCurrentlySyncing = syncLoading || hookIsSyncing;
   const bottomBarSyncItem = bottomBarMenuItems?.find((item) => item.id === 'sync-raindrop');
-  const bottomBarMoreItems = (bottomBarMenuItems || []).filter((item) => item.id !== 'sync-raindrop');
+  const bottomBarMoreItems: ActionDropdownItem[] = [
+    ...(bottomBarMenuItems || []).filter((item) => item.id !== 'sync-raindrop'),
+    { id: 'replace-urls', label: 'Replace URLs…', icon: <EditIcon size={14} />, onClick: () => setIsReplaceUrlsModalOpen(true) },
+  ];
 
   // Load persistent space collapse state
   useEffect(() => {
@@ -912,7 +920,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         isSpaceModalOpen ||
         isFolderModalOpen ||
         isTabModalOpen ||
-        isJsonModalOpen
+        isJsonModalOpen ||
+        isReplaceUrlsModalOpen
       ) {
         return;
       }
@@ -1041,7 +1050,8 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
         isSpaceModalOpen ||
         isFolderModalOpen ||
         isTabModalOpen ||
-        isJsonModalOpen
+        isJsonModalOpen ||
+        isReplaceUrlsModalOpen
       ) {
         return;
       }
@@ -1098,6 +1108,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
     isFolderModalOpen,
     isTabModalOpen,
     isJsonModalOpen,
+    isReplaceUrlsModalOpen,
   ]);
   const activeSyncPromiseRef = useRef<Promise<SyncResult | void> | null>(null);
   const isCurrentSyncSilentRef = useRef<boolean>(true);
@@ -1436,6 +1447,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       openJsonModal: () => {
         setIsJsonModalOpen(true);
       },
+      openReplaceUrls: () => setIsReplaceUrlsModalOpen(true),
       triggerSync: async () => {
         await performSync(false);
       },
@@ -2595,6 +2607,11 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
           {/* Right: Actions, Add Space, Sync & JSON Inspector */}
           {!hideControlBarActions && (
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <ActionDropdown
+                items={[{ id: 'replace-urls', label: 'Replace URLs…', icon: <EditIcon size={14} />, onClick: () => setIsReplaceUrlsModalOpen(true) }]}
+                buttonTitle="Workspace actions"
+                isDarkTheme={isDark}
+              />
               {onCaptureCurrentTab && (
                 <Button
                   size="sm"
@@ -3580,6 +3597,15 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       )}
 
       {/* Modals */}
+      {isReplaceUrlsModalOpen && (
+        <ReplaceUrlsModal
+          tabs={data.tabs}
+          spaces={data.spaces}
+          folders={data.folders}
+          onClose={closeReplaceUrlsModal}
+          onApply={replaceTabUrls}
+        />
+      )}
       <SpaceModal
         isOpen={isSpaceModalOpen}
         onClose={() => {

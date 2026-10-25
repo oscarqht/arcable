@@ -16,6 +16,8 @@ import {
   LogOutIcon,
   FolderIcon,
   FolderOpenIcon,
+  ActionDropdown,
+  EditIcon,
 } from '@arcable/shared/components';
 import { useSystemTheme, setLocalFolderExpanded, getLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
@@ -516,6 +518,20 @@ export default function HomePage() {
                 {foldersCollapseState.areAllCollapsed ? 'Expand' : 'Collapse'}
               </span>
             </button>
+
+            {authState.isAuthenticated && (
+              <ActionDropdown
+                buttonTitle="Workspace actions"
+                isDarkTheme={isDark}
+                items={[{
+                  id: 'replace-urls',
+                  label: 'Replace URLs…',
+                  icon: <EditIcon size={14} />,
+                  disabled: isInitialLoading,
+                  onClick: () => workspaceRef.current?.openReplaceUrls(),
+                }]}
+              />
+            )}
 
             {/* Backup & Restore Button */}
             <button

@@ -32,6 +32,7 @@ Module._load = function(name, parent, ...rest) {
 };
 const { useWorkspace } = require('../src/hooks/useWorkspace.ts');
 const { mergeIncrementalSyncSnapshot, replayOperations, getStoredPendingOperations } = require('../src/utils/syncEngine.ts');
+const { buildBatchUrlReplacementPreview } = require('../src/utils/batchUrlReplacement.ts');
 Module._load = originalLoad;
 
 function setup() {
@@ -69,6 +70,54 @@ test('folder rename and bookmark move survive a rapid keyboard reorder', () => {
   const state = flush();
   assert.equal(state.folders[0].name, 'Renamed folder');
   assert.equal(state.tabs.find(t => t.id === 'c').parentFolderId, 'f');
+});
+
+test('batch URL replacement persists only selected current rows without normalization or lost edits', () => {
+  const { hook, base, flush } = setup();
+  const tmpTabs = [{ id: 'tmp', url: 'https://temporary.test', title: 'Temporary' }];
+  hook.saveWorkspaceData(prev => ({ ...prev, tmpTabs }));
+  const preview = buildBatchUrlReplacementPreview(hook.getLatestData().tabs, 'https://', '');
+  // Dispatch using the same render, with a metadata edit and a stale URL row.
+  hook.updateTab('a', { note: 'Edited during preview' });
+  hook.updateTab('c', { url: 'https://changed.test' });
+  hook.replaceTabUrls(preview.filter(row => row.tabId !== 'b'));
+  const state = flush();
+  assert.equal(state.tabs[0].url, 'a.test');
+  assert.equal(state.tabs[0].note, 'Edited during preview');
+  assert.equal(state.tabs[1].url, base.tabs[1].url);
+  assert.equal(state.tabs[2].url, 'https://changed.test');
+  assert.deepEqual(state.tmpTabs, tmpTabs);
+  assert.equal(JSON.parse(window.localStorage.getItem('arcable_workspace_data')).tabs[0].url, 'a.test');
+  const operations = getStoredPendingOperations();
+  assert.deepEqual(operations.at(-1).payload, { url: 'a.test' });
+  const replayed = replayOperations(base, operations);
+  assert.equal(replayed.tabs[0].url, 'a.test');
+  assert.equal(replayed.tabs[0].note, 'Edited during preview');
+});
+
+test('batch URL replacement saves an empty default URL and unchanged variant metadata in its outbox', () => {
+  const { hook, flush } = setup();
+  const variants = [
+    { id: 'main', name: 'Main', url: 'https://clear.test', customEmojiIcon: '🦚' },
+    { id: 'other', name: 'Other', url: 'https://keep.test', favIconUrl: 'https://keep.test/icon.png' },
+  ];
+  hook.saveWorkspaceData(prev => ({ ...prev, tabs: [{
+    ...prev.tabs[0], url: variants[0].url, defaultVariantId: 'main', urlVariants: variants,
+    favIconUrl: 'https://clear.test/icon.png',
+  }] }));
+  const preview = buildBatchUrlReplacementPreview(hook.getLatestData().tabs, 'https://clear.test', '');
+  hook.replaceTabUrls(preview);
+  const saved = flush().tabs[0];
+  assert.equal(saved.url, '');
+  assert.equal(saved.urlVariants[0].url, '');
+  assert.equal(saved.defaultVariantId, 'main');
+  assert.equal(saved.customTitle, 'a');
+  assert.equal(saved.favIconUrl, 'https://clear.test/icon.png');
+  assert.deepEqual(saved.urlVariants, [{ ...variants[0], url: '' }, variants[1]]);
+  assert.deepEqual(getStoredPendingOperations().at(-1).payload, { url: '', urlVariants: saved.urlVariants });
+  const stored = JSON.parse(window.localStorage.getItem('arcable_workspace_data'));
+  assert.equal(stored.tabs[0].url, '');
+  assert.equal(stored.tabs[0].urlVariants[0].url, '');
 });
 
 test('an older save response cannot restore an explicitly cleared title or note', () => {
