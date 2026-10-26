@@ -529,6 +529,12 @@ export default function HomePage() {
                   icon: <EditIcon size={14} />,
                   disabled: isInitialLoading,
                   onClick: () => workspaceRef.current?.openReplaceUrls(),
+                }, {
+                  id: 'replace-covers',
+                  label: 'Replace cover images…',
+                  icon: <EditIcon size={14} />,
+                  disabled: isInitialLoading,
+                  onClick: () => workspaceRef.current?.openReplaceCovers(),
                 }]}
               />
             )}

@@ -7,6 +7,7 @@ import { generateId } from '../utils/format';
 import { convertBookmarkToFolder, convertFolderToBookmark } from '../utils/bookmarkFolderConversion';
 import { ungroupFavourite } from '../utils/ungroupFavourite';
 import { applyBatchUrlReplacements, type BatchUrlReplacement } from '../utils/batchUrlReplacement';
+import { applyBatchCoverReplacements, type BatchCoverReplacement } from '../utils/batchCoverReplacement';
 import {
   createWorkspaceOperation,
   savePendingOperation,
@@ -1328,6 +1329,24 @@ export function useWorkspace() {
         savePendingOperation(createWorkspaceOperation('TAB_UPDATE', tab.id, {
           url: tab.url,
           ...(tab.urlVariants ? { urlVariants: tab.urlVariants } : {}),
+        }));
+      }
+      return { ...prev, tabs: result.tabs.map((tab) => changedById.get(tab.id) || tab) };
+    });
+  }, [saveWorkspaceData]);
+
+  const replaceTabCovers = useCallback((replacements: readonly BatchCoverReplacement[]) => {
+    saveWorkspaceData((prev) => {
+      const result = applyBatchCoverReplacements(prev.tabs, replacements);
+      if (!result.changedTabs.length) return prev;
+      const originals = new Map(prev.tabs.map((tab) => [tab.id, tab]));
+      const updatedAt = Date.now();
+      const changedById = new Map(result.changedTabs.map((tab) => [tab.id, { ...tab, updatedAt }]));
+      for (const tab of result.changedTabs) {
+        const original = originals.get(tab.id)!;
+        savePendingOperation(createWorkspaceOperation('TAB_UPDATE', tab.id, {
+          ...(tab.favIconUrl !== original.favIconUrl ? { favIconUrl: tab.favIconUrl } : {}),
+          ...(tab.urlVariants !== original.urlVariants ? { urlVariants: tab.urlVariants } : {}),
         }));
       }
       return { ...prev, tabs: result.tabs.map((tab) => changedById.get(tab.id) || tab) };
@@ -4233,6 +4252,7 @@ export function useWorkspace() {
     createTab,
     updateTab,
     replaceTabUrls,
+    replaceTabCovers,
     deleteTab,
     archiveTab,
     duplicateTab,
