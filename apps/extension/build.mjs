@@ -64,6 +64,7 @@ async function buildTarget(browserName) {
   // 2. Build Background Service Worker / Script
   await build({
     configFile: false,
+    root: __dirname,
     plugins: [react()],
     resolve: {
       alias: {
@@ -88,6 +89,7 @@ async function buildTarget(browserName) {
   // 3. Build Content Script
   await build({
     configFile: false,
+    root: __dirname,
     plugins: [react()],
     resolve: {
       alias: {
@@ -117,6 +119,7 @@ async function buildTarget(browserName) {
   // Small, early keyboard listener, including focused child frames.
   await build({
     configFile: false,
+    root: __dirname,
     build: {
       outDir,
       emptyOutDir: false,
@@ -131,6 +134,7 @@ async function buildTarget(browserName) {
 
   await build({
     configFile: false,
+    root: __dirname,
     build: {
       outDir,
       emptyOutDir: false,
@@ -146,6 +150,7 @@ async function buildTarget(browserName) {
   // 3.5 Build OAuth Bridge Content Script
   await build({
     configFile: false,
+    root: __dirname,
     plugins: [react()],
     resolve: {
       alias: {
@@ -175,6 +180,7 @@ async function buildTarget(browserName) {
   // 3.6 Build Markdown Extractor (injected on demand, not a manifest content script)
   await build({
     configFile: false,
+    root: __dirname,
     plugins: [react()],
     resolve: {
       alias: {
