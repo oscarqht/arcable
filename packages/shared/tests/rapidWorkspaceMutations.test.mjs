@@ -33,6 +33,7 @@ Module._load = function(name, parent, ...rest) {
 const { useWorkspace } = require('../src/hooks/useWorkspace.ts');
 const { mergeIncrementalSyncSnapshot, replayOperations, getStoredPendingOperations } = require('../src/utils/syncEngine.ts');
 const { buildBatchUrlReplacementPreview } = require('../src/utils/batchUrlReplacement.ts');
+const { buildBatchCoverReplacementPreview } = require('../src/utils/batchCoverReplacement.ts');
 Module._load = originalLoad;
 
 function setup() {
@@ -118,6 +119,50 @@ test('batch URL replacement saves an empty default URL and unchanged variant met
   const stored = JSON.parse(window.localStorage.getItem('arcable_workspace_data'));
   assert.equal(stored.tabs[0].url, '');
   assert.equal(stored.tabs[0].urlVariants[0].url, '');
+});
+
+test('batch cover replacement saves selected current covers without URLs, emoji or pending edits changing', () => {
+  const { hook, base, flush } = setup();
+  const tmpTabs = [{ id: 'tmp', url: 'https://a.test', favIconUrl: 'temporary.png' }];
+  hook.saveWorkspaceData(prev => ({ ...prev, tmpTabs, tabs: prev.tabs.map(t => ({ ...t, customEmojiIcon: '🦚' })) }));
+  const rows = buildBatchCoverReplacementPreview(hook.getLatestData().tabs, '.test', 'selected.png');
+  hook.updateTab('a', { note: 'Edited during preview' });
+  hook.updateTab('c', { favIconUrl: 'changed.png' });
+  hook.replaceTabCovers(rows.filter(row => row.tabId !== 'b'));
+  const state = flush();
+  assert.equal(state.tabs[0].favIconUrl, 'selected.png');
+  assert.equal(state.tabs[0].note, 'Edited during preview');
+  assert.equal(state.tabs[0].customEmojiIcon, '🦚');
+  assert.equal(state.tabs[1].favIconUrl, undefined);
+  assert.equal(state.tabs[2].favIconUrl, 'changed.png');
+  assert.deepEqual(state.tabs.map(t => t.url), base.tabs.map(t => t.url));
+  assert.deepEqual(state.tmpTabs, tmpTabs);
+  assert.deepEqual(getStoredPendingOperations().at(-1).payload, { favIconUrl: 'selected.png' });
+  assert.equal(JSON.parse(window.localStorage.getItem('arcable_workspace_data')).tabs[0].favIconUrl, 'selected.png');
+  const replayed = replayOperations(base, getStoredPendingOperations());
+  assert.equal(replayed.tabs[0].favIconUrl, 'selected.png');
+  assert.equal(replayed.tabs[0].url, base.tabs[0].url);
+});
+
+test('batch variant covers save normal default mirrors and preserve exact URLs and variant metadata', () => {
+  const { hook, flush } = setup();
+  const variants = [
+    { id: 'main', name: 'Main', url: 'http://a.test//{{env}}', customEmojiIcon: '🦚', favIconUrl: 'old.png' },
+    { id: 'other', name: 'Other', url: 'http://b.test', favIconUrl: 'keep.png' },
+  ];
+  hook.saveWorkspaceData(prev => ({ ...prev, tabs: [{
+    ...prev.tabs[0], url: variants[0].url, defaultVariantId: 'main', urlVariants: variants,
+    favIconUrl: 'old.png', customEmojiIcon: '🏠',
+  }] }));
+  const rows = buildBatchCoverReplacementPreview(hook.getLatestData().tabs, 'a.test', 'selected.png');
+  hook.replaceTabCovers(rows);
+  const saved = flush().tabs[0];
+  assert.equal(saved.url, variants[0].url);
+  assert.equal(saved.favIconUrl, 'selected.png');
+  assert.equal(saved.customEmojiIcon, '🏠');
+  assert.deepEqual(saved.urlVariants, [{ ...variants[0], favIconUrl: 'selected.png' }, variants[1]]);
+  assert.deepEqual(getStoredPendingOperations().at(-1).payload, { favIconUrl: 'selected.png', urlVariants: saved.urlVariants });
+  assert.equal('url' in getStoredPendingOperations().at(-1).payload, false);
 });
 
 test('an older save response cannot restore an explicitly cleared title or note', () => {
