@@ -91,6 +91,8 @@ export interface WorkspaceManagerProps {
   onRenameTab?: (tab: Tab, newTitle: string) => void;
 
   compact?: boolean;
+  /** Enable Option/Alt+1–9 navigation while this workspace has keyboard focus. */
+  enableSpaceNumberShortcuts?: boolean;
   /** Shows the local browser-tab virtual space. This is only meaningful for the extension side panel. */
   showOpenTabsVirtualSpace?: boolean;
   /** Renders the pinned date & time widgets section at the top (sidepanel). */
@@ -162,6 +164,7 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
       onActivateGroup,
       onCaptureCurrentTab,
       compact = false,
+      enableSpaceNumberShortcuts = false,
       showOpenTabsVirtualSpace = true,
       showWidgets = false,
       alwaysShowActions = false,
@@ -587,6 +590,25 @@ export const WorkspaceManager = React.forwardRef<WorkspaceManagerHandle, Workspa
   const [isAddTmpTabModalOpen, setIsAddTmpTabModalOpen] = useState(false);
   const [newTmpTabUrl, setNewTmpTabUrl] = useState('');
   const [newTmpTabTitle, setNewTmpTabTitle] = useState('');
+
+  useEffect(() => {
+    if (!enableSpaceNumberShortcuts) return;
+    const handleSpaceNumberShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      // On macOS Option changes event.key (e.g. Option+1 is “¡”). Use the physical digit.
+      if (!/^Digit[1-9]$/.test(event.code)) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      if (document.querySelector('[role="dialog"], dialog[open]')) return;
+      const space = sortedSpacesWithVirtual[Number(event.code.slice(-1)) - 1];
+      if (!space) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveSpace(space.id);
+    };
+    window.addEventListener('keydown', handleSpaceNumberShortcut);
+    return () => window.removeEventListener('keydown', handleSpaceNumberShortcut);
+  }, [enableSpaceNumberShortcuts, sortedSpacesWithVirtual, setActiveSpace]);
 
   const handleCreateTmpTabSubmit = (e: React.FormEvent) => {
     e.preventDefault();
