@@ -1,4 +1,5 @@
 import { initExtensionActionBehavior, syncExtensionActionBehavior } from './extensionAction';
+import { handleTabActivationMessage } from './tabActivation';
 import browser from 'webextension-polyfill';
 import {
   ExtensionMessage,
@@ -370,6 +371,8 @@ let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
   async (rawMessage: any, sender: any): Promise<ExtensionResponse | TabSwitcherResponse> => {
+    const activationResponse = handleTabActivationMessage(rawMessage, sender);
+    if (activationResponse) return activationResponse;
     const switcherResponse = handleTabSwitcherMessage(rawMessage, sender);
     if (switcherResponse) return switcherResponse;
     if (rawMessage?.type === 'ARCABLE_APPLY_HIDE_SCROLLBARS') {

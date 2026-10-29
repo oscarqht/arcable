@@ -1,4 +1,4 @@
-import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant, Folder } from '@arcable/shared/types';
+import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant, Folder, ExtensionResponse } from '@arcable/shared/types';
 import {
   areUrlsMatching,
   normalizeUrl,
@@ -1714,12 +1714,10 @@ class TabTracker {
   }
 
   // Activate browser tab and focus its window
-  public async activateTab(browserTabId: number, windowId?: number): Promise<void> {
+  public async activateTab(browserTabId: number, _windowId?: number): Promise<void> {
     try {
-      if (windowId !== undefined && typeof browser.windows !== 'undefined' && browser.windows.update) {
-        await browser.windows.update(windowId, { focused: true }).catch(() => {});
-      }
-      await browser.tabs.update(browserTabId, { active: true });
+      const response = await browser.runtime.sendMessage({ type: 'ARCABLE_ACTIVATE_BROWSER_TAB', browserTabId }) as ExtensionResponse | undefined;
+      if (!response?.success) throw new Error(response?.error || 'Could not activate browser tab');
     } catch (err) {
       console.warn('[TabTracker] Error activating tab:', err);
     }
