@@ -1722,6 +1722,7 @@ export const App: React.FC = () => {
           <WorkspaceManager
           ref={workspaceRef}
           compact={true}
+          enableSpaceNumberShortcuts={true}
           showWidgets={true}
           defaultViewMode="focused"
           headerTitle="Sidepanel Workspace"
