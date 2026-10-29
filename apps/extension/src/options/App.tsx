@@ -13,23 +13,19 @@ import { RaindropAuthState, ExtensionResponse, SyncResult, ArcableWorkspaceData 
 import { useSystemTheme, setLocalFolderExpanded } from '@arcable/shared/hooks';
 import {
   formatDate,
-  extractRulesFromNenyaExport,
-  mergeCustomCodeRules,
-  mergeRunCodeRules,
-  createWorkspaceOperation,
   clearStoredPendingOperations,
   getStoredPendingOperations,
   removeStoredPendingOperations,
   replayOperations,
   resolveRaindropArchiveCollectionId,
 } from '@arcable/shared/utils';
-import { WorkspaceOperation } from '@arcable/shared/types';
-import { browser, openWorkspaceSafely, isZenBrowser, getPlatformOS } from '../utils/browser';
+import { browser, isZenBrowser, getPlatformOS } from '../utils/browser';
 import { CustomCodeTab } from './components/CustomCodeTab';
 import { RunCodeTab } from './components/RunCodeTab';
 import { STORAGE_KEY_HIDE_SCROLLBARS } from '../background/hideScrollbars';
 import { STORAGE_KEY_AUTO_PIP } from '../background/autoPip';
 import { STORAGE_KEY_ZEN_ZOOM_SYNC } from '../sidepanel/zoomSync';
+import { STORAGE_KEY_ACTION_MODE, getActionMode, type ExtensionActionMode } from '../utils/actionMode';
 import packageJson from '../../package.json';
 
 const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
@@ -62,7 +58,8 @@ export const App: React.FC = () => {
   // Custom code prefill pattern (from popup/sidepanel quick trigger)
   const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
 
-  const [hideScrollbarsEnabled, setHideScrollbarsEnabled] = useState(false);
+  const [hideScrollbarsEnabled, setHideScrollbarsEnabled] = useState(true);
+  const [actionMode, setActionMode] = useState<ExtensionActionMode>('sidepanel');
 
   // Auto Picture-in-Picture state (default enabled)
   const [autoPipEnabled, setAutoPipEnabled] = useState(true);
@@ -175,10 +172,12 @@ export const App: React.FC = () => {
     browser.storage.local.get([
       'arcable_last_synced_at',
       STORAGE_KEY_HIDE_SCROLLBARS,
+      STORAGE_KEY_ACTION_MODE,
       STORAGE_KEY_AUTO_PIP,
       STORAGE_KEY_ZEN_ZOOM_SYNC,
     ]).then((res: any) => {
-      setHideScrollbarsEnabled(res[STORAGE_KEY_HIDE_SCROLLBARS] === true);
+      setHideScrollbarsEnabled(res[STORAGE_KEY_HIDE_SCROLLBARS] !== false);
+      setActionMode(getActionMode(res[STORAGE_KEY_ACTION_MODE]));
       if (res.arcable_last_synced_at) {
         setLastSyncAt(res.arcable_last_synced_at);
       }
@@ -193,8 +192,11 @@ export const App: React.FC = () => {
     // 3. Listen to storage changes
     const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
       if (area === 'local') {
+        if (changes[STORAGE_KEY_ACTION_MODE]) {
+          setActionMode(getActionMode(changes[STORAGE_KEY_ACTION_MODE].newValue));
+        }
         if (changes[STORAGE_KEY_HIDE_SCROLLBARS]) {
-          setHideScrollbarsEnabled(changes[STORAGE_KEY_HIDE_SCROLLBARS].newValue === true);
+          setHideScrollbarsEnabled(changes[STORAGE_KEY_HIDE_SCROLLBARS].newValue !== false);
         }
         if (changes[STORAGE_KEY_AUTO_PIP]) {
           setAutoPipEnabled(changes[STORAGE_KEY_AUTO_PIP].newValue !== false);
@@ -384,76 +386,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const fileInputNenyaRef = React.useRef<HTMLInputElement>(null);
-
-  const handleGlobalNenyaImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const text = String(event.target?.result || '');
-        const parsed = JSON.parse(text);
-        const { customCodeRules: extractedCustom, runCodeRules: extractedRun } =
-          extractRulesFromNenyaExport(parsed);
-
-        if (extractedCustom.length === 0 && extractedRun.length === 0) {
-          showToast('No valid Custom JS/CSS or Run Code rules found in Nenya file.', 'warning');
-          return;
-        }
-
-        let customAdded = 0;
-        let runAdded = 0;
-        const opsToQueue: WorkspaceOperation[] = [];
-
-        if (extractedCustom.length > 0) {
-          const stored = await browser.storage.local.get('customCodeRules');
-          const existing = (stored.customCodeRules as any[]) || [];
-          const { merged, addedCount, addedRules } = mergeCustomCodeRules(existing, extractedCustom);
-          await browser.storage.local.set({ customCodeRules: merged });
-          customAdded = addedCount;
-          for (const r of addedRules) {
-            opsToQueue.push(createWorkspaceOperation('CUSTOM_CODE_CREATE', r.id, r));
-          }
-        }
-
-        if (extractedRun.length > 0) {
-          const storedRun = await browser.storage.local.get('runCodeInPageRules');
-          const existingRun = (storedRun.runCodeInPageRules as any[]) || [];
-          const { merged: mergedRun, addedCount, addedRules } = mergeRunCodeRules(existingRun, extractedRun);
-          await browser.storage.local.set({ runCodeInPageRules: mergedRun });
-          runAdded = addedCount;
-          for (const r of addedRules) {
-            opsToQueue.push(createWorkspaceOperation('RUN_CODE_CREATE', r.id, r));
-          }
-        }
-
-        if (opsToQueue.length > 0) {
-          try {
-            const curStored = await browser.storage.local.get('arcable_pending_ops');
-            const curOps = (curStored.arcable_pending_ops as WorkspaceOperation[]) || [];
-            curOps.push(...opsToQueue);
-            await browser.storage.local.set({ arcable_pending_ops: curOps });
-            void browser.runtime.sendMessage({ type: 'RAINDROP_SYNC_WORKSPACE' });
-          } catch (e) {
-            console.warn('Failed to queue Nenya import operations:', e);
-          }
-        }
-
-        showToast(
-          `Imported from Nenya: ${customAdded} Custom JS/CSS rule(s), ${runAdded} Run Code snippet(s)!`,
-          'success'
-        );
-      } catch (err: any) {
-        showToast(`Nenya import failed: ${err.message}`, 'warning');
-      } finally {
-        if (fileInputNenyaRef.current) fileInputNenyaRef.current.value = '';
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const handleClearCache = async () => {
     if (window.confirm('Are you sure you want to clear extension cache? Your cloud bookmarks in Raindrop will remain safe.')) {
       await browser.storage.local.remove(['arcable_items', 'arcable_workspace_snapshot', 'arcable_pending_ops']);
@@ -556,44 +488,7 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <input
-              type="file"
-              ref={fileInputNenyaRef}
-              accept=".json"
-              style={{ display: 'none' }}
-              onChange={handleGlobalNenyaImport}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputNenyaRef.current?.click()}
-              title="Import custom code rules and snippets from a full Nenya export JSON file"
-              style={{
-                borderRadius: '8px',
-                padding: '6px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              📥 Import from Nenya JSON
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void openWorkspaceSafely()}
-              style={{
-                borderRadius: '8px',
-                padding: '6px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              📑 Open Workspace
-            </Button>
-          </div>
+
         </div>
 
         {/* Segmented Navigation Tabs */}
@@ -1103,6 +998,37 @@ export const App: React.FC = () => {
                   </label>
                 </div>
               </div>
+            </Card>
+
+            <Card
+              title="Extension Action"
+              subtitle="Choose what opens when you click the extension toolbar button."
+              style={{ borderRadius: '16px', padding: '24px' }}
+            >
+              <label htmlFor="extension-action-mode" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                <span>Toolbar button opens</span>
+                <select
+                  id="extension-action-mode"
+                  value={actionMode}
+                  onChange={async (event) => {
+                    const mode = getActionMode(event.target.value);
+                    try {
+                      await browser.storage.local.set({ [STORAGE_KEY_ACTION_MODE]: mode });
+                      setActionMode(mode);
+                      showToast('Extension action updated', 'info');
+                    } catch {
+                      showToast('Failed to update extension action', 'warning');
+                    }
+                  }}
+                  style={{ padding: '8px 12px', borderRadius: '8px', background: 'var(--bg-card)', color: 'inherit', border: '1px solid var(--border-input)' }}
+                >
+                  <option value="sidepanel">Side panel (default)</option>
+                  <option value="popup">Popup</option>
+                </select>
+              </label>
+              <p style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginBottom: 0 }}>
+                Popup shows your workspace below the toolbar button and closes when focus leaves it.
+              </p>
             </Card>
 
             <Card

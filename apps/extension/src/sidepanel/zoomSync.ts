@@ -221,6 +221,11 @@ export async function isZenZoomSyncActive(): Promise<boolean> {
  * the extension side panel zoom level synchronized with Zen Browser settings and active tab.
  */
 export function setupZenZoomSync(): () => void {
+  // Toolbar popups have a browser-limited viewport. Scaling the document to the
+  // web page's zoom can clip dialogs and controls outside that fixed viewport.
+  if (typeof window !== 'undefined' && window.location?.pathname.endsWith('/popup/index.html')) {
+    return () => {};
+  }
   let isCleanedUp = false;
   let activeSync = false;
   let currentActiveTabId: number | null = null;

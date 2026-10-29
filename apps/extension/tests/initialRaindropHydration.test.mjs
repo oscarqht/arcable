@@ -12,12 +12,8 @@ assert.doesNotMatch(sidepanel, /replayOperations\(res\.data, pending\)/,
 assert.match(sidepanel, /clearStoredPendingOperations\(\);[\s\S]*applySidepanelActiveSpace\(res\.data/,
   'side-panel startup must clear the local outbox before applying Raindrop data');
 
-assert.match(popup, /void hydrateWorkspaceFromRaindrop\(\);/,
-  'the popup must hydrate from Raindrop instead of starting with a write-sync');
-assert.match(popup, /type:\s*'RAINDROP_FETCH_WORKSPACE'/,
-  'popup startup must fetch the authoritative Raindrop tree');
-assert.match(popup, /clearStoredPendingOperations\(\);[\s\S]*window\.localStorage\.setItem\('arcable_workspace_data'/,
-  'popup startup must replace its local workspace only after clearing the stale local outbox');
+assert.match(popup, /export \{ App \} from '..\/sidepanel\/App'/,
+  'the popup must share the side panel authoritative hydration and workspace behavior');
 
 assert.match(background, /arcable_workspace_snapshot:\s*result\.data,[\s\S]*arcable_pending_ops:\s*\[\]/,
   'the extension fetch handler must replace the persisted snapshot and clear its persisted outbox together');

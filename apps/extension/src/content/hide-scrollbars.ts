@@ -6,7 +6,7 @@ if (browser.storage?.local) {
   void browser.storage.local
     .get('arcable_hide_all_scrollbars')
     .then((stored) => {
-      if (stored?.arcable_hide_all_scrollbars === true) {
+      if (stored?.arcable_hide_all_scrollbars !== false) {
         return browser.runtime.sendMessage({ type: 'ARCABLE_APPLY_HIDE_SCROLLBARS' });
       }
       return undefined;

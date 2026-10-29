@@ -69,8 +69,9 @@ function connectPresence(): void {
   });
 }
 
-export function initSidepanelShortcuts(): void {
-  connectPresence();
+export function initSidepanelShortcuts({ reportPresence = true } = {}): void {
+  // A toolbar popup must not report itself as an open native side panel.
+  if (reportPresence) connectPresence();
 
   browser.runtime.onMessage.addListener((message: unknown) => {
     const input = message as { type?: string; windowId?: number };

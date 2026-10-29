@@ -16,7 +16,7 @@ export function applyHideScrollbars(target: browser.Scripting.InjectionTarget): 
     const details = { target, css: HIDE_SCROLLBARS_CSS, origin: 'USER' as const };
     // Remove first to avoid accumulating duplicate styles on startup or frame requests.
     await browser.scripting.removeCSS(details);
-    if (stored[STORAGE_KEY_HIDE_SCROLLBARS] === true) {
+    if (stored[STORAGE_KEY_HIDE_SCROLLBARS] !== false) {
       await browser.scripting.insertCSS(details);
     }
   }).catch(() => {
@@ -33,7 +33,7 @@ function syncRegisteredCss(): Promise<void> {
   pendingRegistration = pendingRegistration.then(async () => {
     const stored = await browser.storage.local.get(STORAGE_KEY_HIDE_SCROLLBARS);
     const existing = await browser.scripting.getRegisteredContentScripts({ ids: [REGISTERED_SCRIPT_ID] });
-    const enabled = stored[STORAGE_KEY_HIDE_SCROLLBARS] === true;
+    const enabled = stored[STORAGE_KEY_HIDE_SCROLLBARS] !== false;
     if (!enabled && existing.length > 0) {
       await browser.scripting.unregisterContentScripts({ ids: [REGISTERED_SCRIPT_ID] });
     } else if (enabled && existing.length === 0) {
@@ -64,11 +64,11 @@ export function initHideScrollbarsBackground(): void {
       void updateOpenTabs().catch(console.warn);
     }
   });
-  // Only style pages already open on startup when the preference is actually enabled.
+  // Enable on existing pages by default, preserving an explicit saved opt-out.
   void browser.storage.local
     .get(STORAGE_KEY_HIDE_SCROLLBARS)
     .then((stored) => {
-      if (stored?.[STORAGE_KEY_HIDE_SCROLLBARS] === true) {
+      if (stored?.[STORAGE_KEY_HIDE_SCROLLBARS] !== false) {
         return updateOpenTabs();
       }
       return undefined;

@@ -1,3 +1,4 @@
+import { initExtensionActionBehavior, syncExtensionActionBehavior } from './extensionAction';
 import browser from 'webextension-polyfill';
 import {
   ExtensionMessage,
@@ -197,22 +198,9 @@ initBackgroundThemeSync();
 
 // In-memory cached auth state
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
-/**
- * Ensures browser action opens the sidepanel directly when authenticated,
- * or opens the settings/options page when unauthenticated.
- */
-async function syncSidePanelBehavior(_isAuthenticated?: boolean): Promise<void> {
-  // Let toolbar button click always trigger openSidepanelTab() or native sidebar
-  // so the user can see the full sidebar interface immediately.
-  if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.setPanelBehavior === 'function') {
-    try {
-      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-    } catch {
-      // Ignore in non-supported environments
-    }
-  }
-}
-void syncSidePanelBehavior();
+// Auth changes must preserve the user's chosen toolbar behavior.
+const syncSidePanelBehavior = (_isAuthenticated?: boolean) => syncExtensionActionBehavior();
+initExtensionActionBehavior();
 
 // Load stored auth state on startup
 async function loadStoredAuthState(forceRefresh = false): Promise<RaindropAuthState> {
@@ -1281,38 +1269,15 @@ function consumeSidepanelSearchFocus(windowId: unknown): boolean {
   return true;
 }
 
-// Detect Android / mobile environment and configure action behavior appropriately
-async function initPlatformBehavior(): Promise<void> {
-  try {
-    if (typeof browser !== 'undefined' && browser.runtime?.getPlatformInfo) {
-      const platformInfo = await browser.runtime.getPlatformInfo();
-      if (platformInfo.os === 'android') {
-        // On Firefox for Android, there is no native sidebarAction or sidePanel.
-        // Ensure action popup is empty so tapping the action button directly
-        // triggers action.onClicked to open the side panel page instead of opening the popup page.
-        if (browser.action && typeof browser.action.setPopup === 'function') {
-          await browser.action.setPopup({ popup: '' });
-          console.log('[Arcable Background] Firefox for Android detected: cleared action popup so side panel opens directly on click');
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Arcable Background] Error setting platform behavior:', err);
-  }
-}
-void initPlatformBehavior();
-
 browser.runtime.onInstalled.addListener(() => {
   console.log('[Arcable Extension] Extension installed/updated.');
-  void initPlatformBehavior();
   void syncSidePanelBehavior();
   void fetchAndCacheRaindropWorkspace();
 });
 
 if (browser.runtime?.onStartup) {
   browser.runtime.onStartup.addListener(() => {
-    void initPlatformBehavior();
-    void syncSidePanelBehavior();
+      void syncSidePanelBehavior();
     void fetchAndCacheRaindropWorkspace();
   });
 }

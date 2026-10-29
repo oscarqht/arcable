@@ -34,8 +34,9 @@ const { applyHideScrollbars: apply, initHideScrollbarsBackground: init, HIDE_SCR
 const flush = () => new Promise(resolve => setImmediate(resolve));
 init();
 await flush();
-assert.equal(calls.filter(([operation]) => operation === 'insert').length, 0, 'off by default');
+assert.equal(calls.filter(([operation]) => operation === 'insert').length, 2, 'on by default');
 
+calls.length = 0;
 enabled = true;
 onChanged({ arcable_hide_all_scrollbars: { newValue: true } }, 'local');
 await flush();
