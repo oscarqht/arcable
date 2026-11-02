@@ -110,6 +110,10 @@ async function main() {
   assert.equal(storage.customCodeRules.find((r: any) => r.pattern === 'https://css.example/*').js, '');
   await act(async () => view!.unmount());
   await mount();
+  assert.equal(view!.root.findAllByType('button').filter((item) => text(item) === 'View').length, 0, 'saved rules must not show View buttons');
+  for (const action of ['Edit', 'Copy', 'Export', 'Delete']) {
+    assert.equal(view!.root.findAllByType('button').filter((item) => text(item) === action).length, 3, `${action} must remain available for every rule`);
+  }
   const editRule = async (url: string) => {
     const index = storage.customCodeRules.findIndex((r: any) => r.pattern === url);
     const buttons = view!.root.findAllByType('button').filter((item) => text(item) === 'Edit');
