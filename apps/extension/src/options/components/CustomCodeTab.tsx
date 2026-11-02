@@ -35,7 +35,6 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
   const [cssCode, setCssCode] = useState('');
   const [jsCode, setJsCode] = useState('');
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
-  const [selectedRule, setSelectedRule] = useState<CustomCodeRule | null>(null);
   const [activeCodeTab, setActiveCodeTab] = useState<'css' | 'js'>('css');
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -268,7 +267,6 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
     if (window.confirm(`Delete rule for "${rule.pattern}"?`)) {
       const remaining = rules.filter((r) => r.id !== rule.id);
       if (editingRuleId === rule.id) resetForm();
-      if (selectedRule?.id === rule.id) setSelectedRule(null);
       if (typeof window !== 'undefined') {
         try {
           const raw = window.localStorage.getItem('arcable_workspace_data');
@@ -702,13 +700,6 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setSelectedRule(selectedRule?.id === rule.id ? null : rule)}
-                    >
-                      {selectedRule?.id === rule.id ? 'Close' : 'View'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
                       onClick={() => handleEditRule(rule)}
                     >
                       Edit
@@ -743,54 +734,6 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
         )}
       </Card>
 
-      {/* Rule Detail View Card */}
-      {selectedRule && (
-        <Card
-          title={`Rule Preview: ${selectedRule.pattern}`}
-          subtitle={`Inspect code for rule ${selectedRule.id}`}
-          style={{ borderRadius: '16px', padding: '24px', animation: 'fadeIn 0.2s ease-out' }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {selectedRule.css?.trim() && (
-              <div>
-                <h4 style={{ margin: '0 0 8px', fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                  Custom CSS:
-                </h4>
-                <CodeEditor
-                  value={selectedRule.css}
-                  onChange={() => {}}
-                  mode="css"
-                  readOnly={true}
-                  height="160px"
-                />
-              </div>
-            )}
-            {selectedRule.js?.trim() && (
-              <div>
-                <h4 style={{ margin: '0 0 8px', fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                  Custom JavaScript:
-                </h4>
-                <CodeEditor
-                  value={selectedRule.js}
-                  onChange={() => {}}
-                  mode="javascript"
-                  readOnly={true}
-                  height="160px"
-                />
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedRule(null)}
-              >
-                Close Preview
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
     </div>
   );
 };
