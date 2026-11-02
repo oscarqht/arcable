@@ -513,6 +513,12 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
               </span>
             </div>
 
+            {activeCodeTab === 'js' && (
+              <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                Automatic JavaScript requires the browser to allow user scripts for Arcable. Enable it in the extension details if scripts do not run.
+              </span>
+            )}
+
             {activeCodeTab === 'css' ? (
               <CodeEditor
                 value={cssCode}

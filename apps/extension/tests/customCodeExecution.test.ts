@@ -3,41 +3,46 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 let executeScriptCalls = 0;
+let lastInjection: any;
 (globalThis as any).chrome = {
   runtime: { id: 'arcable-test-extension' },
-  scripting: {
-    executeScript: async (details: any) => {
+  userScripts: {
+    execute: async (details: any) => {
       executeScriptCalls += 1;
-      assert(details.args[0] === 'document.documentElement.dataset.arcableTest = "ran";', 'Custom JavaScript should be passed to the page evaluator.');
-      return [{ result: { success: true } }];
+      lastInjection = details;
+      return [{ result: null }];
     },
   },
 };
 
 const { executeAutomaticCustomCode, buildUserScriptCode } = await import('../src/background/runCodeRunner');
 
-// Verify buildUserScriptCode produces syntactically valid JavaScript
 for (const bgFetch of [true, false]) {
-  const generated = buildUserScriptCode(
-    'const x = 1 + 2;',
-    '[Test Label]',
-    'arcable-run-code-test.js',
-    bgFetch
-  );
-  // Parsing via new Function will throw SyntaxError if there is any syntax error in generated
+  const generated = buildUserScriptCode('const x = 1 + 2;', '[Test Label]', 'arcable-run-code-test.js', bgFetch);
   new Function(generated);
 }
 
-await executeAutomaticCustomCode(42, 'document.documentElement.dataset.arcableTest = "ran";');
+const code = 'document.documentElement.dataset.arcableTest = "ran";';
+await executeAutomaticCustomCode(42, code, 'document-1');
 assert(executeScriptCalls === 1, 'Non-empty custom JavaScript should execute once.');
+assert(lastInjection.world === 'MAIN', 'Custom JavaScript must run in the main page world.');
+assert(lastInjection.js[0].code === code, 'Custom JavaScript must be injected directly, not evaluated in the page.');
+assert(lastInjection.target.tabId === 42 && lastInjection.target.documentIds[0] === 'document-1', 'Injection must target the requesting document.');
+
+await executeAutomaticCustomCode(42, code);
+assert(lastInjection.target.frameIds[0] === 0, 'Without a document ID injection must target only the top frame.');
 
 await executeAutomaticCustomCode(42, '   ').then(
-  () => {
-    throw new Error('Blank custom JavaScript must be rejected.');
-  },
+  () => { throw new Error('Blank custom JavaScript must be rejected.'); },
   (error) => assert(error.message === 'Custom code contains no JavaScript.', 'Blank-code error should explain the problem.'),
 );
-assert(executeScriptCalls === 1, 'Blank custom JavaScript must not reach the page evaluator.');
+assert(executeScriptCalls === 2, 'Blank custom JavaScript must not be injected.');
+
+(globalThis as any).chrome.userScripts = undefined;
+await executeAutomaticCustomCode(42, code).then(
+  () => { throw new Error('Missing user-script permission must be reported.'); },
+  (error) => assert(error.message.includes('Allow user scripts'), 'Missing permission should have actionable guidance.'),
+);
 
 // Verify context menu matching rules are strictly ordered like the options page
 const mockStorageData: Record<string, any> = {

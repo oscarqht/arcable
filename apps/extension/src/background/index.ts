@@ -37,6 +37,7 @@ import {
   uploadCoverToLibrary,
   getRaindropRequestFailureDetails,
   isValidHttpUrl,
+  matchUrlPattern,
   replayOperations,
   setRaindropTokenResolver,
   getRaindropTokenExpiresAt,
@@ -46,6 +47,7 @@ import { createRaindropSessionManager, refreshExtensionRaindropToken } from './r
 
 import {
   initRunCodeBackgroundListeners,
+  executeAutomaticCustomCode,
   runCodeInPageRule,
   CUSTOM_CODE_STORAGE_KEY,
   RUN_CODE_IN_PAGE_STORAGE_KEY,
@@ -406,6 +408,26 @@ browser.runtime.onMessage.addListener(
     }
 
     switch (message.type) {
+      case 'INJECT_CUSTOM_JS': {
+        const payload = message.payload as { ruleId?: string; code?: string } | undefined;
+        const tabId = sender?.tab?.id;
+        if (typeof tabId !== 'number' || sender.frameId !== 0 || !sender.url || !payload?.ruleId) {
+          return { success: false, error: 'Custom JavaScript requires a top-level page and a rule ID.' };
+        }
+        try {
+          const stored = await browser.storage.local.get(CUSTOM_CODE_STORAGE_KEY);
+          const rules = stored[CUSTOM_CODE_STORAGE_KEY];
+          const rule = Array.isArray(rules) ? rules.find((item: CustomCodeRule) => item.id === payload.ruleId) : undefined;
+          if (!rule || rule.disabled || !rule.js?.trim() || rule.js !== payload.code || !matchUrlPattern(rule.pattern, sender.url)) {
+            return { success: false, error: 'The custom JavaScript rule is missing, disabled, changed, or does not match this page.' };
+          }
+          await executeAutomaticCustomCode(tabId, rule.js, sender.documentId);
+          return { success: true };
+        } catch (err: any) {
+          return { success: false, error: err?.message || String(err) };
+        }
+      }
+
       case 'GET_OS_THEME': {
         let isDark = false;
         if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {

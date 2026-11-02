@@ -248,39 +248,36 @@ export async function executeManualUserCode(
 }
 
 /**
- * Execute automatic custom code in page context (MAIN world).
+ * Execute automatic custom code directly in the page world. Unlike eval(),
+ * userScripts.execute is not blocked by the page unsafe-eval CSP directive.
  */
 export async function executeAutomaticCustomCode(
   tabId: number,
   code: string,
-  consoleLabel = '[Arcable CustomCode] Execution error:'
+  documentId?: string
 ): Promise<void> {
   if (!code || !code.trim()) {
     throw new Error('Custom code contains no JavaScript.');
   }
 
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: (jsCode: string, label: string) => {
-      try {
-        (0, eval)(jsCode);
-        return { success: true };
-      } catch (error: any) {
-        console.error(label, error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
-    args: [code, consoleLabel],
-  });
-
-  const failedResult = results.find((result) => result.result && result.result.success === false);
-  if (failedResult?.result?.error) {
-    throw new Error(failedResult.result.error);
+  let userScripts: any;
+  try {
+    userScripts = (chrome as any).userScripts;
+  } catch {
+    userScripts = null;
   }
+  if (!userScripts || typeof userScripts.execute !== 'function') {
+    throw new Error(isFirefox()
+      ? 'Custom JavaScript requires a browser that supports userScripts.execute and the Run user scripts permission.'
+      : 'Custom JavaScript requires user scripts. Enable Allow user scripts in the Arcable extension details page and use Chrome 135 or later.');
+  }
+
+  await userScripts.execute({
+    target: documentId ? { tabId, documentIds: [documentId] } : { tabId, frameIds: [0] },
+    world: 'MAIN',
+    injectImmediately: true,
+    js: [{ code }],
+  });
 }
 
 function normalizeBackgroundFetchUrl(rawUrl: string): string {

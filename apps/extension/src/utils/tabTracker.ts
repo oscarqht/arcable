@@ -413,6 +413,7 @@ class TabTracker {
   }
 
   private lastPersistedAssociations: TabAssociationMap | null = null;
+  private hasPersistedAssociationsOnce = false;
 
   private areAssociationsEqual(a: TabAssociationMap, b: TabAssociationMap): boolean {
     const keysA = Object.keys(a);

@@ -11,20 +11,54 @@ export function generateRuleId(prefix = 'rule'): string {
   return `${prefix}-${Date.now().toString(36)}-${random}`;
 }
 
+function globToRegex(glob: string): RegExp | null {
+  try {
+    let s = glob.trim();
+    let proto = '^';
+    if (s.startsWith('*://')) {
+      proto = '^https?://';
+      s = s.slice(4);
+    } else if (!s.includes('://')) {
+      proto = '^(?:https?://)?';
+    }
+
+    const hasPath = s.includes('/');
+    const parts = s.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+    let regexStr = '';
+    for (let i = 0; i < parts.length; i++) {
+      regexStr += parts[i];
+      if (i < parts.length - 1) {
+        if (parts[i + 1].startsWith('\\.')) {
+          regexStr += '(?:[^/]+\\.)?';
+          parts[i + 1] = parts[i + 1].slice(2);
+        } else {
+          regexStr += '.*';
+        }
+      }
+    }
+    if (!hasPath) {
+      regexStr += '(?:/.*)?';
+    }
+    return new RegExp(proto + regexStr + '$', 'i');
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Validate URLPattern syntax.
+ * Validate URLPattern or glob pattern syntax.
  */
 export function isValidUrlPattern(pattern: string): boolean {
   if (!pattern || typeof pattern !== 'string' || !pattern.trim()) {
     return false;
   }
+  const clean = pattern.trim();
   try {
     // @ts-ignore - URLPattern is standard in modern browser runtimes
-    new URLPattern(pattern.trim());
+    new URLPattern(clean);
     return true;
-  } catch {
-    return false;
-  }
+  } catch {}
+  return globToRegex(clean) !== null;
 }
 
 /**
@@ -32,17 +66,36 @@ export function isValidUrlPattern(pattern: string): boolean {
  */
 export function matchUrlPattern(pattern: string, url: string): boolean {
   if (!pattern || !url) return false;
+  const clean = pattern.trim();
+
   try {
     // @ts-ignore
-    const p = new URLPattern(pattern);
-    return p.test(url);
-  } catch {
+    const p = new URLPattern(clean);
+    if (p.test(url)) return true;
+  } catch {}
+
+  if (clean.startsWith('*://')) {
+    const rest = clean.slice(4);
     try {
-      return url.includes(pattern) || new RegExp(pattern).test(url);
-    } catch {
-      return false;
-    }
+      // @ts-ignore
+      const p1 = new URLPattern('https://' + rest);
+      if (p1.test(url)) return true;
+    } catch {}
+    try {
+      // @ts-ignore
+      const p2 = new URLPattern('http://' + rest);
+      if (p2.test(url)) return true;
+    } catch {}
   }
+
+  const re = globToRegex(clean);
+  if (re && re.test(url)) return true;
+
+  try {
+    if (url.includes(clean)) return true;
+  } catch {}
+
+  return false;
 }
 
 /**

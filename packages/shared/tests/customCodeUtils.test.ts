@@ -4,6 +4,8 @@ import {
   normalizeRunCodeRules,
   mergeCustomCodeRules,
   mergeRunCodeRules,
+  matchUrlPattern,
+  isValidUrlPattern,
 } from '../src/utils/customCodeUtils';
 import type { CustomCodeRule, RunCodeRule } from '../src/types/customCode';
 
@@ -98,7 +100,25 @@ function testMergeRules() {
   console.log('✓ mergeCustomCodeRules and mergeRunCodeRules clear raindropId on regenerated ids');
 }
 
+function testMatchUrlPattern() {
+  assert(isValidUrlPattern('*://*.seatalk.io/*'));
+  assert(isValidUrlPattern('https://seatalk.io/*'));
+  assert(isValidUrlPattern('seatalk.io'));
+  assert(isValidUrlPattern('http://localhost:*/*'));
+
+  assert(matchUrlPattern('*://*.seatalk.io/*', 'https://seatalk.io/'));
+  assert(matchUrlPattern('*://*.seatalk.io/*', 'https://web.seatalk.io/im'));
+  assert(matchUrlPattern('https://*.seatalk.io/*', 'https://seatalk.io/'));
+  assert(matchUrlPattern('https://*.seatalk.io/*', 'https://web.seatalk.io/im'));
+  assert(matchUrlPattern('seatalk.io', 'https://seatalk.io/'));
+  assert(matchUrlPattern('seatalk.io', 'https://web.seatalk.io/chat'));
+  assert(matchUrlPattern('http://localhost:*/*', 'http://localhost:3000/'));
+  assert(!matchUrlPattern('https://example.com/*', 'https://seatalk.io/'));
+  console.log('✓ matchUrlPattern and isValidUrlPattern handle glob patterns, protocols, and wildcards');
+}
+
 testNormalizeCustomCodeRules();
 testNormalizeRunCodeRules();
 testMergeRules();
+testMatchUrlPattern();
 console.log('All customCodeUtils tests passed.');
