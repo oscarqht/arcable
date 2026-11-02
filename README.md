@@ -79,6 +79,8 @@ Embedded directly in the workspace, supporting small, medium, and large sizes wi
 - **Cloud Synced**: Code rules and custom stylesheets are synced securely via dedicated `_custom_css` and `_run_code` Raindrop system collections.
 - **Nenya Rule Migration**: Easily import script and style rules exported from Nenya.
 
+Long Custom JS & CSS rules are stored as multiple verified bookmarks in `_custom_css`. Update every Arcable client before syncing these rules: older versions cannot read the new format. Do not edit or delete the part bookmarks manually. Older revisions are retained until the rule is deleted to keep concurrent readers safe. If an older sync already truncated a rule, restore its code from a local copy or backup and save it again.
+
 ---
 
 ### 📱 Device Presence & Workspace Backups

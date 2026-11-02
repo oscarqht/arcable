@@ -61,6 +61,10 @@ export const ARCABLE_WIDGET_TAG = 'arcable-widget';
 export const ARCABLE_SPACE_THEME_TAG = 'arcable-space-theme';
 export const ARCABLE_WIDGET_LINK_PREFIX = 'https://arcable.app/widget/';
 export const ARCABLE_CUSTOM_CSS_LINK_PREFIX = 'https://arcable.app/custom-css/';
+const CUSTOM_CODE_V2_LINK_PREFIX = 'https://arcable.app/custom-code-v2/';
+const CUSTOM_CODE_PART_LINK_PREFIX = 'https://arcable.app/custom-code-part/';
+const CUSTOM_CODE_CHUNK_SIZE = 200;
+
 export const ARCABLE_RUN_CODE_LINK_PREFIX = 'https://arcable.app/run-code/';
 export const ARCABLE_SPACE_THEME_LINK_PREFIX = 'https://arcable.app/space-theme/';
 export const ARCABLE_VARIANT_DELIMITER = ' ||| ';
@@ -533,6 +537,88 @@ function customCodeToRaindropItemInput(
     collectionId,
     pleaseParse: { disabled: true },
   };
+}
+
+// Large code is stored in short, immutable bookmark excerpts. A manifest is
+// published only after every part has been read back and checked. This avoids
+// field truncation and lets readers reject incomplete or mixed revisions.
+function customCodeChecksum(text: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+  return (hash >>> 0).toString(16);
+}
+
+function customCodePartPrefix(id: string, revision?: string): string {
+  return `${CUSTOM_CODE_PART_LINK_PREFIX}${encodeURIComponent(id)}/${revision ? `${revision}/` : ''}`;
+}
+
+function readChunkedCustomCode(item: RaindropBookmarkItem, parts: RaindropBookmarkItem[]): { css: string; js: string } {
+  const id = decodeURIComponent(item.link.slice(CUSTOM_CODE_V2_LINK_PREFIX.length));
+  let manifest: any;
+  try { manifest = JSON.parse(item.excerpt || ''); } catch {}
+  if (!manifest || manifest.v !== 2 || typeof manifest.revision !== 'string' ||
+      !Number.isSafeInteger(manifest.count) || manifest.count < 1 ||
+      !Number.isSafeInteger(manifest.length) || manifest.length < 1 ||
+      typeof manifest.hash !== 'string') {
+    throw new Error(`Invalid or truncated custom code manifest for ${id}.`);
+  }
+  const prefix = customCodePartPrefix(id, manifest.revision);
+  const byLink = new Map(parts.map((part) => [part.link, part]));
+  let encoded = '';
+  for (let i = 0; i < manifest.count; i++) {
+    const part = byLink.get(`${prefix}${i}`);
+    if (!part || typeof part.excerpt !== 'string' || !part.excerpt) {
+      throw new Error(`Missing custom code part ${i + 1} of ${manifest.count} for ${id}.`);
+    }
+    encoded += part.excerpt;
+  }
+  if (encoded.length !== manifest.length || customCodeChecksum(encoded) !== manifest.hash) {
+    throw new Error(`Incomplete or corrupted custom code for ${id}.`);
+  }
+  let code: any;
+  try { code = JSON.parse(decodeSafePayload(encoded)); } catch {}
+  if (!code || typeof code.css !== 'string' || typeof code.js !== 'string') {
+    throw new Error(`Invalid custom code content for ${id}.`);
+  }
+  return code;
+}
+
+async function prepareCustomCodeItem(
+  token: string, rule: CustomCodeRule, collectionId: number
+): Promise<Parameters<typeof createRaindropBookmarks>[1][number]> {
+  const legacy = customCodeToRaindropItemInput(rule, collectionId);
+  if ((legacy.excerpt || '').length <= 400 && (legacy.note || '').length <= 400) return legacy;
+
+  const revision = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const encoded = encodeSafePayload(JSON.stringify({ css: rule.css || '', js: rule.js || '' }));
+  const chunks: string[] = [];
+  for (let i = 0; i < encoded.length; i += CUSTOM_CODE_CHUNK_SIZE) chunks.push(encoded.slice(i, i + CUSTOM_CODE_CHUNK_SIZE));
+  const prefix = customCodePartPrefix(rule.id, revision);
+  const inputs = chunks.map((chunk, index) => ({
+    title: `Custom code part ${index + 1}`,
+    link: `${prefix}${index}`,
+    excerpt: chunk,
+    collectionId,
+    pleaseParse: { disabled: true },
+  }));
+  for (let start = 0; start < inputs.length; start += 100) {
+    const batch = inputs.slice(start, start + 100);
+    const created = await createRaindropBookmarks(token, batch);
+    if (created.length !== batch.length) throw new Error('Raindrop did not create every custom code part.');
+  }
+  const manifest = JSON.stringify({ v: 2, revision, count: chunks.length, length: encoded.length, hash: customCodeChecksum(encoded), disabled: Boolean(rule.disabled) });
+  const input = {
+    title: rule.pattern || 'Custom CSS',
+    link: `${CUSTOM_CODE_V2_LINK_PREFIX}${encodeURIComponent(rule.id)}`,
+    excerpt: manifest,
+    collectionId,
+    pleaseParse: { disabled: true },
+  };
+  const remoteParts = await fetchAllRaindropItems(token, collectionId, { cacheBust: `${Date.now()}-${Math.random()}` });
+  const recovered = readChunkedCustomCode({ _id: 0, ...input } as RaindropBookmarkItem, remoteParts);
+  if (recovered.css !== rule.css || recovered.js !== rule.js) throw new Error('Raindrop did not preserve the complete custom code.');
+  return input;
 }
 
 function runCodeToRaindropItemInput(
@@ -1403,25 +1489,53 @@ export async function syncIncrementalOperations(
     const customCssCollId = customCssColl._id;
 
     const customCodeCreates: Array<{ entityId: string; input: Parameters<typeof createRaindropBookmarks>[1][number] }> = [];
+    const chunkedRulesToVerify: CustomCodeRule[] = [];
     for (const [key, operations] of groups) {
       if (!key.startsWith('custom_code:') || operations.some((op) => op.type === 'CUSTOM_CODE_DELETE')) continue;
       const entityId = operations[0].entityId;
       const rule = latestSnapshot.customCodeRules?.find((r) => r.id === entityId);
       if (!rule) continue;
       const isCreate = operations.some((op) => op.type === 'CUSTOM_CODE_CREATE');
-      const input = customCodeToRaindropItemInput(rule, customCssCollId);
-      if (isCreate) {
+      const input = await prepareCustomCodeItem(token, rule, customCssCollId);
+      if (input.link.startsWith(CUSTOM_CODE_V2_LINK_PREFIX)) chunkedRulesToVerify.push(rule);
+      if (isCreate && input.link.startsWith(CUSTOM_CODE_V2_LINK_PREFIX)) {
+        // A previous attempt may have published the manifest before its final
+        // verification failed. Reuse it rather than creating duplicate rules.
+        const remote = await fetchAllRaindropItems(token, customCssCollId, { cacheBust: `${Date.now()}-${Math.random()}` });
+        const existing = remote.find((item) => item.link === input.link || item.link === `${ARCABLE_CUSTOM_CSS_LINK_PREFIX}${entityId}`);
+        if (existing) {
+          const updated = await updateRaindropItem(token, existing._id, {
+            title: input.title, link: input.link, excerpt: input.excerpt, note: '',
+          });
+          if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${existing._id}.`);
+          latestSnapshot = {
+            ...latestSnapshot,
+            customCodeRules: (latestSnapshot.customCodeRules || []).map((r) => r.id === entityId ? { ...r, raindropId: existing._id } : r),
+          };
+        } else {
+          customCodeCreates.push({ entityId, input });
+        }
+      } else if (isCreate) {
         customCodeCreates.push({ entityId, input });
       } else {
-        const remoteId = rule.raindropId || numericRaindropId(rule.id);
-        if (remoteId) {
-          const updated = await updateRaindropItem(token, remoteId, {
-            title: input.title,
-            excerpt: input.excerpt,
-            note: input.note,
-          });
-          if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${remoteId}.`);
+        let remoteId = rule.raindropId || numericRaindropId(rule.id);
+        if (!remoteId) {
+          const remote = await fetchAllRaindropItems(token, customCssCollId, { cacheBust: `${Date.now()}-${Math.random()}` });
+          remoteId = remote.find((item) => item.link === `${CUSTOM_CODE_V2_LINK_PREFIX}${encodeURIComponent(entityId)}` ||
+            item.link === `${ARCABLE_CUSTOM_CSS_LINK_PREFIX}${entityId}`)?._id;
         }
+        if (!remoteId) throw new Error(`Cannot find Raindrop custom code rule ${entityId}.`);
+        const updated = await updateRaindropItem(token, remoteId, {
+          title: input.title,
+          link: input.link,
+          excerpt: input.excerpt,
+          note: input.note || '',
+        });
+        if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${remoteId}.`);
+        latestSnapshot = {
+          ...latestSnapshot,
+          customCodeRules: (latestSnapshot.customCodeRules || []).map((r) => r.id === entityId ? { ...r, raindropId: remoteId } : r),
+        };
       }
     }
     for (let start = 0; start < customCodeCreates.length; start += 100) {
@@ -1437,21 +1551,37 @@ export async function syncIncrementalOperations(
       };
     }
 
+    if (chunkedRulesToVerify.length) {
+      const remoteItems = await fetchAllRaindropItems(token, customCssCollId, { cacheBust: `${Date.now()}-${Math.random()}` });
+      for (const rule of chunkedRulesToVerify) {
+        const item = remoteItems.find((entry) => entry.link === `${CUSTOM_CODE_V2_LINK_PREFIX}${encodeURIComponent(rule.id)}`);
+        if (!item) throw new Error(`Raindrop did not save the custom code manifest for ${rule.id}.`);
+        const code = readChunkedCustomCode(item, remoteItems);
+        const manifest = JSON.parse(item.excerpt!);
+        if (code.css !== rule.css || code.js !== rule.js || Boolean(manifest.disabled) !== Boolean(rule.disabled) ||
+            decodeRaindropTitle(item.title) !== rule.pattern) {
+          throw new Error(`Raindrop did not preserve the complete custom code rule ${rule.id}.`);
+        }
+      }
+    }
+
     const customCodeDeletes: Array<{ entityId: string; raindropId?: number }> = [];
     for (const [key, operations] of groups) {
       if (!key.startsWith('custom_code:') || !operations.some((op) => op.type === 'CUSTOM_CODE_DELETE')) continue;
-      if (operations.some((op) => op.type === 'CUSTOM_CODE_CREATE')) continue;
+      // A failed create may already have published a manifest or some parts.
       const deleteOp = [...operations].reverse().find((op) => op.type === 'CUSTOM_CODE_DELETE')!;
       const remoteId = Number(deleteOp.payload?.raindropId) || numericRaindropId(deleteOp.entityId);
       customCodeDeletes.push({ entityId: deleteOp.entityId, raindropId: remoteId });
     }
     const unresolvedCustomDeletes = customCodeDeletes.filter((d) => !d.raindropId);
-    if (unresolvedCustomDeletes.length > 0) {
-      const remoteBookmarks = await fetchAllRaindropItems(token, customCssCollId);
+    if (customCodeDeletes.length > 0) {
+      const remoteBookmarks = await fetchAllRaindropItems(token, customCssCollId, { cacheBust: `${Date.now()}-${Math.random()}` });
       for (const item of remoteBookmarks) {
         let ruleId = item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX)
           ? item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length)
-          : undefined;
+          : item.link?.startsWith(CUSTOM_CODE_V2_LINK_PREFIX)
+            ? decodeURIComponent(item.link.slice(CUSTOM_CODE_V2_LINK_PREFIX.length))
+            : undefined;
         if (!ruleId && item.excerpt) {
           try {
             const parsed = JSON.parse(item.excerpt);
@@ -1462,6 +1592,14 @@ export async function syncIncrementalOperations(
           const match = unresolvedCustomDeletes.find((d) => d.entityId === ruleId);
           if (match) match.raindropId = item._id;
         }
+      }
+      // Parts from older revisions are intentionally retained until deletion, so
+      // an in-flight reader of the previous manifest can still finish safely.
+      const partIds = remoteBookmarks.filter((item) => customCodeDeletes.some(
+        (d) => item.link?.startsWith(customCodePartPrefix(d.entityId))
+      )).map((item) => item._id);
+      for (let start = 0; start < partIds.length; start += 100) {
+        if (!await deleteRaindropBookmarks(token, customCssCollId, partIds.slice(start, start + 100))) throw new Error('Failed to delete custom code parts.');
       }
     }
     for (const d of customCodeDeletes) {
@@ -2017,7 +2155,20 @@ export function reconstructWorkspace(
   const customCssItems = customCssCollection
     ? tree.items.filter((item) => item.collectionId === customCssCollection._id || isCustomCssItem(item, customCssCollection._id))
     : tree.items.filter((item) => isCustomCssItem(item));
-  let customCodeRules: CustomCodeRule[] = customCssItems.map((item) => {
+  let customCodeRules: CustomCodeRule[] = customCssItems.filter((item) => !item.link?.startsWith(CUSTOM_CODE_PART_LINK_PREFIX)).map((item) => {
+    if (item.link?.startsWith(CUSTOM_CODE_V2_LINK_PREFIX)) {
+      const code = readChunkedCustomCode(item, customCssItems);
+      const manifest = JSON.parse(item.excerpt!);
+      return {
+        id: decodeURIComponent(item.link.slice(CUSTOM_CODE_V2_LINK_PREFIX.length)),
+        raindropId: item._id,
+        pattern: decodeRaindropTitle(item.title || ''),
+        ...code,
+        disabled: Boolean(manifest.disabled),
+        createdAt: item.created,
+        updatedAt: item.lastUpdate,
+      };
+    }
     let parsedExcerpt: any = {};
     try {
       if (item.excerpt) parsedExcerpt = JSON.parse(item.excerpt);
@@ -3024,6 +3175,7 @@ export async function syncWorkspaceWithRaindrop(
           const match = tree.items.find((item) => {
             if (!isCustomCssItem(item, customCssColl?._id)) return false;
             if (item.link?.startsWith(ARCABLE_CUSTOM_CSS_LINK_PREFIX) && item.link.slice(ARCABLE_CUSTOM_CSS_LINK_PREFIX.length) === op.entityId) return true;
+            if (item.link === `${CUSTOM_CODE_V2_LINK_PREFIX}${encodeURIComponent(op.entityId)}`) return true;
             if (item.excerpt) {
               try {
                 const parsed = JSON.parse(item.excerpt);
@@ -3051,6 +3203,14 @@ export async function syncWorkspaceWithRaindrop(
       if (remoteId && remoteItems.has(remoteId)) {
         await deleteRaindropBookmark(clean, remoteId);
         remoteItems.delete(remoteId);
+      }
+    }
+
+    // Delete all revisions for explicitly deleted rules, including failed writes.
+    for (const op of pendingOps.filter((entry) => entry.type === 'CUSTOM_CODE_DELETE')) {
+      const partIds = tree.items.filter((item) => item.link?.startsWith(customCodePartPrefix(op.entityId))).map((item) => item._id);
+      for (let start = 0; start < partIds.length; start += 100) {
+        if (!await deleteRaindropBookmarks(clean, customCssColl!._id, partIds.slice(start, start + 100))) throw new Error('Failed to delete custom code parts.');
       }
     }
 
@@ -3329,15 +3489,17 @@ export async function syncWorkspaceWithRaindrop(
         if (deletedIds.has(rule.id)) continue;
         const remoteId = rule.raindropId || numericRaindropId(rule.id);
         const existing = remoteId ? remoteItems.get(remoteId) : undefined;
-        const input = customCodeToRaindropItemInput(rule, customCssColl._id);
+        const input = await prepareCustomCodeItem(clean, rule, customCssColl._id);
         if (!existing) {
           bookmarksToCreate.push(input);
         } else {
-          await updateRaindropItem(clean, existing._id, {
+          const updated = await updateRaindropItem(clean, existing._id, {
             title: input.title,
+            link: input.link,
             excerpt: input.excerpt,
-            note: input.note,
+            note: input.note || '',
           });
+          if (!updated) throw new Error(`Failed to update Raindrop custom code rule ${existing._id}.`);
         }
       }
     }
@@ -3488,6 +3650,13 @@ export async function syncWorkspaceWithRaindrop(
 
     tree = await fetchRemoteArcableTree(clean);
     const latestSnapshot = reconstructWorkspace(tree, localState.activeSpaceId);
+    for (const rule of localState.customCodeRules || []) {
+      if (deletedIds.has(rule.id)) continue;
+      const saved = latestSnapshot.customCodeRules?.find((entry) => entry.id === rule.id);
+      if (!saved || saved.css !== rule.css || saved.js !== rule.js || saved.pattern !== rule.pattern || Boolean(saved.disabled) !== Boolean(rule.disabled)) {
+        throw new Error(`Raindrop did not preserve the complete custom code rule ${rule.id}.`);
+      }
+    }
 
     return {
       success: true,

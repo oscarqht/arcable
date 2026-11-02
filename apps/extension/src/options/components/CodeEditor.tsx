@@ -111,7 +111,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
   const [isAceReady, setIsAceReady] = useState(false);
-  const isInternalChangeRef = useRef(false);
+  const isSettingValueRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   useEffect(() => {
     let mounted = true;
@@ -151,10 +153,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     editor.setValue(value || '', -1);
 
     const handleChange = () => {
-      isInternalChangeRef.current = true;
-      const currentVal = editor.getValue();
-      onChange(currentVal);
-      isInternalChangeRef.current = false;
+      if (!isSettingValueRef.current) onChangeRef.current(editor.getValue());
     };
 
     editor.session.on('change', handleChange);
@@ -167,20 +166,31 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
     return () => {
       resizeObserver.disconnect();
+      editor.session.off('change', handleChange);
       editor.destroy();
       editorRef.current = null;
     };
+  }, [isAceReady]);
+
+  useEffect(() => {
+    editorRef.current?.session.setMode(`ace/mode/${mode}`);
   }, [isAceReady, mode]);
+
+  useEffect(() => {
+    editorRef.current?.setOptions({ readOnly });
+  }, [isAceReady, readOnly]);
 
   // Update editor value if changed externally
   useEffect(() => {
-    if (editorRef.current && !isInternalChangeRef.current) {
-      const cur = editorRef.current.getValue();
-      if (cur !== value) {
+    if (editorRef.current && editorRef.current.getValue() !== value) {
+      isSettingValueRef.current = true;
+      try {
         editorRef.current.setValue(value || '', -1);
+      } finally {
+        isSettingValueRef.current = false;
       }
     }
-  }, [value]);
+  }, [isAceReady, value]);
 
   return (
     <div
