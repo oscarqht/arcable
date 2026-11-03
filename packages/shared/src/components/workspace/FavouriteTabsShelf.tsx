@@ -28,6 +28,8 @@ import {
   shouldAllowClick,
 } from '../../utils/dragThreshold';
 import { TabFavicon } from './TabFavicon';
+import { NotificationBadge } from './NotificationBadge';
+import { getFavouriteGroupBadge } from '../../utils/favouriteGroupBadge';
 import { SpaceThemeTokens, getSpaceThemeStyles } from '../../utils/spaceTheme';
 import { CLEAR_HOVER_EVENT } from '../../utils/mouseTracker';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -757,6 +759,7 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
             const isAudible = Boolean(audibleInfo);
             const isMuted = audibleInfo?.muted === true;
             const badge = !isGroup ? assoc?.badge : undefined;
+            const groupBadge = isGroup ? getFavouriteGroupBadge(validVariants, tabAssociations) : undefined;
             const isGroupHighlighted = isGroup && Boolean(
               highlightedTabId && (
                 highlightedTabId === tab.id ||
@@ -1289,6 +1292,15 @@ export const FavouriteTabsShelf: React.FC<FavouriteTabsShelfProps> = ({
                     />
                   )}
                 </div>
+
+                {isGroup && (
+                  <NotificationBadge
+                    badge={groupBadge}
+                    size={26}
+                    isDarkTheme={shelfTheme.isDark}
+                    style={{ top: '3px', right: '3px' }}
+                  />
+                )}
 
                 {/* Arc-style active running indicator pill at bottom center */}
                 {isAssociated && (
