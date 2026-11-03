@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getFaviconCandidates, getDomain } from '../../utils/treeUtils';
 import { GlobeIcon } from '../Icons';
+import { NotificationBadge } from './NotificationBadge';
 
 export interface TabFaviconProps {
   url?: string;
@@ -127,37 +128,7 @@ export const TabFavicon: React.FC<TabFaviconProps> = ({
     >
       {renderIcon()}
 
-      {Boolean(badge) && (
-        <span
-          style={{
-            position: 'absolute',
-            top: size >= 24 ? '-4px' : '-4px',
-            right: size >= 24 ? '-7px' : '-6px',
-            backgroundColor: '#ef4444',
-            color: '#ffffff',
-            fontSize: size >= 24 ? '9.5px' : '9px',
-            fontWeight: 700,
-            lineHeight: 1,
-            minWidth: size >= 24 ? '15px' : '14px',
-            height: size >= 24 ? '15px' : '14px',
-            borderRadius: '9999px',
-            padding: size >= 24 ? '0 4px' : '0 3px',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
-            border: `1.5px solid ${isDarkTheme ? '#1e293b' : '#ffffff'}`,
-            pointerEvents: 'none',
-            zIndex: 2,
-            boxSizing: 'border-box',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-          }}
-        >
-          {badge}
-        </span>
-      )}
+      <NotificationBadge badge={badge} size={size} isDarkTheme={isDarkTheme} />
     </div>
   );
 };
