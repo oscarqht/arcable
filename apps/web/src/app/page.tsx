@@ -27,7 +27,7 @@ import {
   getStoredDeviceName,
 } from '@arcable/shared/utils';
 import { createBrowserRaindropResolver } from '@/lib/raindropBrowserSession';
-import { RaindropAuthState, TabOpenOptions, Folder } from '@arcable/shared/types';
+import { RaindropAuthState, Folder } from '@arcable/shared/types';
 
 // The workspace reads browser storage on its first render.
 const WorkspaceManager = dynamic(
@@ -778,22 +778,14 @@ export default function HomePage() {
           raindropToken={authState.accessToken}
           onListUploadedCovers={handleListUploadedCovers}
           onUploadCover={handleUploadCover}
-          onOpenTab={(url: string, _tabId?: string, _tmpTab?: any, options?: TabOpenOptions) => {
+          onOpenTab={(url: string) => {
             if (typeof window !== 'undefined' && url) {
-              if (options?.inNewTab) {
-                window.open(url, '_blank', 'noopener,noreferrer');
-              } else {
-                window.location.href = url;
-              }
+              window.open(url, '_blank', 'noopener,noreferrer');
             }
           }}
-          onOpenVariant={(url: string, _tab?: any, _variant?: any, options?: TabOpenOptions) => {
+          onOpenVariant={(url: string) => {
             if (typeof window !== 'undefined' && url) {
-              if (options?.inNewTab) {
-                window.open(url, '_blank', 'noopener,noreferrer');
-              } else {
-                window.location.href = url;
-              }
+              window.open(url, '_blank', 'noopener,noreferrer');
             }
           }}
           onSyncRaindrop={authState.isAuthenticated ? handleSyncWorkspace : undefined}
