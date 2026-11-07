@@ -77,6 +77,7 @@ const {
   writeFloatingPanels,
   clampPanel,
 } = require("../../../packages/shared/src/utils/floatingPanels.ts");
+const { nearestDockPosition } = require("../src/content/dockPosition.ts");
 const {
   attachGroupMetaToNote,
 } = require("../../../packages/shared/src/utils/raindropSync.ts");
@@ -102,6 +103,18 @@ const panel = {
   width: 440,
   height: 320,
 };
+// Nearest gaps preserve other handles, allow crossing them, and respect viewport bounds.
+assert.equal(nearestDockPosition(80, 30, 300, []), 80);
+assert.equal(nearestDockPosition(-20, 30, 300, []), 0);
+assert.equal(nearestDockPosition(500, 30, 300, []), 270);
+const occupied = [{ start: 100, end: 140 }, { start: 200, end: 240 }];
+assert.equal(nearestDockPosition(110, 30, 300, occupied), 145);
+assert.equal(nearestDockPosition(180, 30, 300, occupied), 165);
+assert.equal(nearestDockPosition(250, 30, 300, occupied), 250);
+assert.equal(nearestDockPosition(10, 30, 60, [{ start: 0, end: 40 }]), undefined);
+const positioned = { ...panel, dock: "right", dockPosition: 175 };
+assert.deepEqual(readFloatingPanels(writeFloatingPanels("", [positioned])), [positioned]);
+assert.deepEqual(readFloatingPanels(writeFloatingPanels("", [{ ...panel, dockPosition: "bad" }])), []);
 const original = 'Personal note\n<!--arcable-group:{"other":true}-->\n';
 const note = writeFloatingPanels(original, [panel]);
 const userText = "  User note\n\n";
@@ -344,7 +357,7 @@ assert.equal(
   false,
   "page content cannot bind other tabs",
 );
-const patch = { x: 12, y: 13, width: 300, height: 240, dock: "bottom" };
+const patch = { x: 12, y: 13, width: 300, height: 240, dock: "bottom", dockPosition: 175 };
 assert.equal(
   (
     await send(

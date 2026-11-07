@@ -192,6 +192,7 @@ export function handleFloatingPanelsMessage(
         ![patch.x, patch.y, patch.width, patch.height].every(Number.isFinite) ||
         patch.width <= 0 ||
         patch.height <= 0 ||
+        (patch.dockPosition != null && !Number.isFinite(patch.dockPosition)) ||
         (patch.dock != null &&
           !["left", "right", "top", "bottom"].includes(patch.dock))
       )
@@ -203,6 +204,7 @@ export function handleFloatingPanelsMessage(
         width: patch.width,
         height: patch.height,
         dock: patch.dock || undefined,
+        dockPosition: patch.dockPosition ?? undefined,
       };
       const note = writeFloatingPanels(
         target.note,
