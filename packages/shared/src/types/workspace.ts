@@ -11,6 +11,7 @@ export interface TabOpenOptions {
 }
 
 export interface TabUrlVariant {
+  note?: string;
   id: string;
   name: string;
   url: string;

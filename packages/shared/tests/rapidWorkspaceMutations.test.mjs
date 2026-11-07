@@ -289,3 +289,36 @@ test('extension options snapshot broadcasts do not discard another surface\'s pe
   assert.equal(saved.tabs.find(t => t.id === 'b').parentFolderId, 'f');
   assert.deepEqual(getStoredPendingOperations().map(op => op.id), ids);
 });
+
+test('panel notes survive tab creation, variant editing, duplication, and operation replay', () => {
+  const { hook, base, flush } = setup();
+  const note = '<!--arcable-floating-panels:[{"id":"p","url":"https://embed.test","x":40,"y":50,"width":400,"height":300}]-->';
+  const created = hook.createTab({ url: 'https://new.test', note, parentSpaceId: 's', customTitle: 'New panel owner' });
+  assert.equal(created.note, note);
+  const variants = [{ id: 'v-a', name: 'A', url: 'https://a.test', note }, { id: 'v-b', name: 'B', url: 'https://b.test', note: 'B note' }];
+  hook.updateTab('a', { urlVariants: variants, defaultVariantId: 'v-a' });
+  flush();
+  const duplicated = hook.duplicateTab('a');
+  assert.equal(duplicated.urlVariants[0].note, note);
+  const state = flush();
+  assert.equal(state.tabs.find(t => t.id === 'a').urlVariants[0].note, note);
+  const replayed = replayOperations(base, getStoredPendingOperations());
+  assert.equal(replayed.tabs.find(t => t.id === created.id).note, note);
+  assert.equal(replayed.tabs.find(t => t.id === 'a').urlVariants[1].note, 'B note');
+});
+
+test('grouping and ungrouping tabs retain each bookmark note in state and outbox', () => {
+  const { hook, base, flush } = setup();
+  hook.updateTab('a', { note: 'A panel note' });
+  hook.updateTab('b', { note: 'B panel note' });
+  hook.mergeTabsIntoGroup('b', 'a');
+  const grouped = flush().tabs.find(t => t.id === 'a');
+  assert.deepEqual(grouped.urlVariants.map(v => v.note), ['A panel note', 'B panel note']);
+  hook.ungroupTab('a');
+  const state = flush();
+  const replayed = replayOperations(base, getStoredPendingOperations());
+  for (const snapshot of [state, replayed]) {
+    assert.equal(snapshot.tabs.find(t => t.url === 'https://a.test').note, 'A panel note');
+    assert.equal(snapshot.tabs.find(t => t.url === 'https://b.test').note, 'B panel note');
+  }
+});

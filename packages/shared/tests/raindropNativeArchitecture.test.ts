@@ -1,3 +1,4 @@
+import { readFloatingPanels, writeFloatingPanels } from '../src/utils/floatingPanels';
 import assert from 'node:assert/strict';
 import {
   syncWorkspaceWithRaindrop,
@@ -261,8 +262,8 @@ async function runTests(): Promise<void> {
         parentSpaceId: 'space-work',
         order: 0,
         urlVariants: [
-          { id: 'v-main', name: 'Main', url: 'https://github.com' },
-          { id: 'v-issues', name: 'Issues', url: 'https://github.com/issues' },
+          { id: 'v-main', name: 'Main', url: 'https://github.com', note: writeFloatingPanels('Main user note', [{ id: 'main-panel', url: 'https://example.com', x: 50, y: 60, width: 440, height: 320 }]) },
+          { id: 'v-issues', name: 'Issues', url: 'https://github.com/issues', note: writeFloatingPanels('Issues user note', [{ id: 'issues-panel', url: 'https://example.org', x: 70, y: 80, width: 300, height: 400, dock: 'bottom' }]) },
           { id: 'v-prs', name: 'Pull Requests', url: 'https://github.com/pulls' },
         ],
         defaultVariantId: 'v-main',
@@ -357,7 +358,11 @@ async function runTests(): Promise<void> {
   assert(prsVariant, 'Variant "GitHub ||| Pull Requests" must exist');
   assert.equal(issuesVariant.link, 'https://github.com/issues');
   assert.equal(prsVariant.link, 'https://github.com/pulls');
-  console.log('✓ URL variants created with title delimiter');
+  assert.equal(readFloatingPanels(primaryTab.note)[0]?.id, 'main-panel');
+  assert.equal(readFloatingPanels(issuesVariant.note)[0]?.id, 'issues-panel');
+  assert.ok(primaryTab.note.startsWith('Main user note'));
+  assert.ok(issuesVariant.note.startsWith('Issues user note'));
+  console.log('✓ URL variants created with title delimiter and isolated floating panels');
 
   // 3. Reconstruct workspace from Raindrop (fetchRaindropWorkspace)
   calls.length = 0;
@@ -392,7 +397,11 @@ async function runTests(): Promise<void> {
   assert.equal(reconstructedGithub.urlVariants[2].name, 'Pull Requests');
   assert.equal(reconstructedGithub.urlVariants[2].url, 'https://github.com/pulls');
 
-  console.log('✓ Workspace reconstructed from native Raindrop items successfully');
+  assert.equal(readFloatingPanels(reconstructedGithub.urlVariants[0].note)[0]?.id, 'main-panel');
+  assert.equal(readFloatingPanels(reconstructedGithub.urlVariants[1].note)[0]?.id, 'issues-panel');
+  assert.equal(readFloatingPanels(reconstructedGithub.urlVariants[1].note)[0]?.dock, 'bottom');
+  assert.deepEqual(readFloatingPanels(reconstructedGithub.urlVariants[2].note), []);
+  console.log('✓ Workspace reconstructed from native Raindrop items including panel notes successfully');
 
   // 3b. Modify an existing tab without variants to add URL variants
   const hnTab = data.tabs.find(t => t.customTitle === 'Hacker News')!;

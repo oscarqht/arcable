@@ -1,3 +1,4 @@
+import { bindFloatingPanels } from './floatingPanels';
 import { Tab, TabAssociationMap, AssociatedTabInfo, TmpTab, TmpTabCustomTitleRecord, TabUrlVariant, Folder, ExtensionResponse } from '@arcable/shared/types';
 import {
   areUrlsMatching,
@@ -1852,12 +1853,13 @@ class TabTracker {
   }
 
   // Open a new browser tab and associate it with tab item (strictly 1-to-1)
-  public async openAndAssociateTab(tabItemId: string, url: string): Promise<void> {
+  public async openAndAssociateTab(tabItemId: string, url: string, variantId?: string): Promise<void> {
     try {
       this.registerPendingCreation(tabItemId, url);
       const newTab = await browser.tabs.create({ url, active: true });
       if (newTab && newTab.id !== undefined) {
         const newTabId = newTab.id;
+        await bindFloatingPanels(newTabId, tabItemId, url, variantId);
         const windowId = newTab.windowId || 0;
         const title = newTab.title || (newTab as any).pendingTitle;
         await this.runWithLock(async () => {
@@ -1913,18 +1915,19 @@ class TabTracker {
   }
 
   // Update the URL of an already-associated browser tab to a variant URL, and update its originalUrl/reference URL
-  public async updateAssociatedTabUrl(tabItemId: string, newUrl: string): Promise<void> {
+  public async updateAssociatedTabUrl(tabItemId: string, newUrl: string, variantId?: string): Promise<void> {
     const associations = await this.getAssociations();
     const assoc = associations[tabItemId];
 
     if (!assoc) {
-      await this.openAndAssociateTab(tabItemId, newUrl);
+      await this.openAndAssociateTab(tabItemId, newUrl, variantId);
       return;
     }
 
     let tabUpdated = false;
     try {
       if (typeof browser !== 'undefined' && browser.tabs) {
+        await bindFloatingPanels(assoc.browserTabId, tabItemId, newUrl, variantId);
         await browser.tabs.update(assoc.browserTabId, { url: newUrl, active: true });
         tabUpdated = true;
       } else if (typeof chrome !== 'undefined' && chrome.tabs) {
@@ -1941,7 +1944,7 @@ class TabTracker {
         delete fresh[tabItemId];
         await this.saveAssociations(fresh);
       });
-      await this.openAndAssociateTab(tabItemId, newUrl);
+      await this.openAndAssociateTab(tabItemId, newUrl, variantId);
       return;
     }
 

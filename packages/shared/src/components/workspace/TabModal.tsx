@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Tab, Folder, Space, TabUrlVariant } from '../../types/workspace';
+import { FloatingPanelEditor } from './FloatingPanelEditor';
 import { Button } from '../Button';
 import { StarIcon, GlobeIcon } from '../Icons';
 import { useSystemTheme } from '../../hooks/useSystemTheme';
@@ -361,6 +362,7 @@ interface TabModalProps extends UploadedCoverPickerProps {
   onDelete?: (tabId: string) => void;
   onSave: (tabData: {
     url: string;
+    note?: string;
     urlVariants?: TabUrlVariant[];
     defaultVariantId?: string;
     parentSpaceId?: string;
@@ -397,6 +399,8 @@ export const TabModal: React.FC<TabModalProps> = ({
 }) => {
   const { isDark } = useSystemTheme();
   const [url, setUrl] = useState('');
+  const [note, setNote] = useState<string | undefined>();
+  const [panelVariantId, setPanelVariantId] = useState('');
   const [customTitle, setCustomTitle] = useState('');
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [coverQuery, setCoverQuery] = useState('');
@@ -427,6 +431,8 @@ export const TabModal: React.FC<TabModalProps> = ({
 
     if (isNewlyOpened || tabChanged) {
       setActiveVariantCoverId(null);
+      setNote(tab?.note);
+      setPanelVariantId(tab?.urlVariants?.[0]?.id || '');
       if (tab) {
         setUrl(tab.url || '');
         setCustomTitle(tab.customTitle || '');
@@ -439,7 +445,8 @@ export const TabModal: React.FC<TabModalProps> = ({
 
         if (tab.urlVariants && tab.urlVariants.length > 0) {
           setShowVariants(true);
-          const rawVariants = tab.urlVariants.map((v) => ({ ...v }));
+          const originalDefaultId = tab.defaultVariantId || tab.urlVariants[0]?.id;
+          const rawVariants = tab.urlVariants.map((v) => ({ ...v, note: v.note ?? (v.id === originalDefaultId ? tab.note : '') }));
           if (tab.defaultVariantId) {
             const defIdx = rawVariants.findIndex((v) => v.id === tab.defaultVariantId);
             if (defIdx > 0) {
@@ -472,7 +479,7 @@ export const TabModal: React.FC<TabModalProps> = ({
           setShowVariants(true);
           const firstName = initialTitle || 'Group';
           const v1 = { id: generateId('var'), name: firstName, url: '' };
-          const v2 = { id: generateId('var'), name: '', url: '' };
+          const v2 = { id: generateId('var'), name: '', url: '', note: '' };
           setVariants([v1, v2]);
           setDefaultVariantId(v1.id);
           setCustomTitle(firstName);
@@ -538,6 +545,7 @@ export const TabModal: React.FC<TabModalProps> = ({
   }, [allFolders, parentSpaceId]);
 
   const isVariantsMode = showVariants && variants.length > 0;
+  const activePanelVariant = variants.find(v => v.id === panelVariantId) || variants[0];
   const firstVariantName = isVariantsMode ? (variants[0]?.name || '') : '';
   const activeCoverVariant = useMemo(
     () => variants.find((v) => v.id === activeVariantCoverId) || null,
@@ -613,11 +621,13 @@ export const TabModal: React.FC<TabModalProps> = ({
         name: initialFirstName,
         url: currentUrlVal || '',
         favIconUrl: coverUrl,
+        note,
       },
       {
         id: secondId,
         name: '',
         url: '',
+        note: '',
       },
     ];
     setVariants(initialVariants);
@@ -628,7 +638,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
   const handleAddVariantRow = () => {
     const newId = 'var_' + Date.now() + '_' + (variants.length + 1);
-    setVariants((prev) => [...prev, { id: newId, name: '', url: '' }]);
+    setVariants((prev) => [...prev, { id: newId, name: '', url: '', note: '' }]);
   };
 
   const handleRemoveVariantRow = (idToRemove: string) => {
@@ -679,6 +689,7 @@ export const TabModal: React.FC<TabModalProps> = ({
     if (def && def.favIconUrl) {
       setCoverUrl(def.favIconUrl);
     }
+    setNote(def?.note);
     setActiveVariantCoverId(null);
     setShowVariants(false);
     setVariants([]);
@@ -730,6 +741,7 @@ export const TabModal: React.FC<TabModalProps> = ({
 
     onSave({
       url: url.trim(),
+      note,
       urlVariants: undefined,
       defaultVariantId: undefined,
       isGroup: false,
@@ -770,6 +782,9 @@ export const TabModal: React.FC<TabModalProps> = ({
           padding: '24px',
           width: '100%',
           maxWidth: '480px',
+          maxHeight: 'calc(100dvh - 32px)',
+          overflowY: 'auto',
+          boxSizing: 'border-box',
           boxShadow: isDark
             ? '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3)'
             : '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -1356,6 +1371,16 @@ export const TabModal: React.FC<TabModalProps> = ({
             )}
           </div>
 
+
+          {isVariantsMode ? <>
+            <label style={{ fontSize: 13 }}>Panels for URL variant <select aria-label="Panel URL variant" value={activePanelVariant?.id || ''} onChange={e => setPanelVariantId(e.target.value)}>
+              {variants.map(v => <option key={v.id} value={v.id}>{v.name || v.url || 'New variant'}</option>)}
+            </select></label>
+            {activePanelVariant && <FloatingPanelEditor isDark={isDark} key={activePanelVariant.id}
+              note={activePanelVariant.note}
+              onChange={next => setVariants(prev => prev.map(v => v.id === activePanelVariant.id ? { ...v, note: next } : v))} />}
+
+          </> : <FloatingPanelEditor isDark={isDark} key={tab?.id || 'new'} note={note} onChange={setNote} />}
 
           <div style={{ display: 'flex', justifyContent: tab && onDelete ? 'space-between' : 'flex-end', alignItems: 'center', gap: '10px', marginTop: '12px' }}>
             {tab && onDelete && (
