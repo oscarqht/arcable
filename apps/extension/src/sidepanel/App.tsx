@@ -52,6 +52,18 @@ import {
 import { useZenZoomSync } from './zoomSync';
 export { resolveSidepanelActiveSpaceId };
 
+// Responsive layout detection also matches narrow/touch-enabled desktop panels.
+// Navigate the workspace itself only when a mobile workspace is really in a tab.
+async function getMobileWorkspaceTabId(): Promise<number | undefined> {
+  if (!isMobileDevice() && !(await isAndroidPlatform())) return undefined;
+  try {
+    return (await browser.tabs.getCurrent())?.id;
+  } catch (err) {
+    console.warn('browser.tabs.getCurrent failed:', err);
+    return undefined;
+  }
+}
+
 export const SIDEPANEL_LAST_SPACE_KEY = 'arcable_sidepanel_last_active_space';
 
 export function getStoredLastSpaceId(): string | null {
@@ -879,32 +891,17 @@ export const App: React.FC = () => {
     }
     const inNewTab = Boolean(options?.inNewTab);
 
-    // In mobile device:
-    // 1. Click tab item open URL in current tab;
-    // 2. Shift+click open in new tab.
-    if (isMobile) {
-      if (!inNewTab) {
-        try {
-          const currentTab = await browser.tabs?.getCurrent?.();
-          if (currentTab?.id !== undefined) {
-            await bindFloatingPanels(currentTab.id, tabId, url);
-            await browser.tabs.update(currentTab.id, { url, active: true });
-            return;
-          }
-        } catch (err) {
-          console.warn('browser.tabs.getCurrent failed:', err);
-        }
+    // A mobile workspace opened as a full page replaces its own browser tab.
+    const mobileWorkspaceTabId = !inNewTab ? await getMobileWorkspaceTabId() : undefined;
+    if (mobileWorkspaceTabId !== undefined) {
+      try {
+        await bindFloatingPanels(mobileWorkspaceTabId, tabId, url);
+        await browser.tabs.update(mobileWorkspaceTabId, { url, active: true });
+      } catch (err) {
+        console.warn('Failed to navigate mobile workspace tab:', err);
         window.location.href = url;
-        return;
-      } else {
-        try {
-          const opened = await browser.tabs.create({ url, active: true });
-          if (opened.id !== undefined) await bindFloatingPanels(opened.id, tabId, url);
-        } catch {
-          window.open(url, '_blank', 'noopener,noreferrer');
-        }
-        return;
       }
+      return;
     }
 
     try {
@@ -969,11 +966,7 @@ export const App: React.FC = () => {
       if (opened.id !== undefined) await bindFloatingPanels(opened.id, tabId, url);
     } catch (e) {
       console.warn('Failed to open tab via browser API, falling back to window.open:', e);
-      if (inNewTab) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      } else {
-        window.location.href = url;
-      }
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -1005,32 +998,16 @@ export const App: React.FC = () => {
 
       setHighlightedTabId(tab.id);
 
-      // In mobile device:
-      // 1. Click URL variant open URL in current tab;
-      // 2. Shift+click open in new tab.
-      if (isMobile) {
-        if (!inNewTab) {
-          try {
-            const currentTab = await browser.tabs?.getCurrent?.();
-            if (currentTab?.id !== undefined) {
-              await bindFloatingPanels(currentTab.id, tab.id, variantUrl, variant.id);
-              await browser.tabs.update(currentTab.id, { url: variantUrl, active: true });
-              return;
-            }
-          } catch (err) {
-            console.warn('browser.tabs.getCurrent failed:', err);
-          }
+      const mobileWorkspaceTabId = !inNewTab ? await getMobileWorkspaceTabId() : undefined;
+      if (mobileWorkspaceTabId !== undefined) {
+        try {
+          await bindFloatingPanels(mobileWorkspaceTabId, tab.id, variantUrl, variant.id);
+          await browser.tabs.update(mobileWorkspaceTabId, { url: variantUrl, active: true });
+        } catch (err) {
+          console.warn('Failed to navigate mobile workspace tab:', err);
           window.location.href = variantUrl;
-          return;
-        } else {
-          try {
-            const opened = await browser.tabs.create({ url: variantUrl, active: true });
-        if (opened.id !== undefined) await bindFloatingPanels(opened.id, tab.id, variantUrl, variant.id);
-          } catch {
-            window.open(variantUrl, '_blank', 'noopener,noreferrer');
-          }
-          return;
         }
+        return;
       }
 
       try {
@@ -1042,14 +1019,10 @@ export const App: React.FC = () => {
         }
       } catch (e) {
         console.warn('Failed to open variant via tabTracker, falling back to window.open:', e);
-        if (inNewTab) {
-          window.open(variantUrl, '_blank', 'noopener,noreferrer');
-        } else {
-          window.location.href = variantUrl;
-        }
+        window.open(variantUrl, '_blank', 'noopener,noreferrer');
       }
     },
-    [isMobile, tabAssociations]
+    [tabAssociations]
   );
 
   const handleActivateGroup = useCallback(
