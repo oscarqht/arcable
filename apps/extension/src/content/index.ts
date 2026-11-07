@@ -1,9 +1,12 @@
+import { initFloatingPanels } from './floatingPanels';
 import browser from 'webextension-polyfill';
 import { initCustomCodeInjector } from './custom-js-css';
 import { initOAuthBridge } from './oauth-bridge';
 import { initAutoPip, requestAutoPiP, exitAutoPiP } from './autoPip';
 
 console.log('[Arcable Extension] Content script loaded on:', window.location.href);
+
+initFloatingPanels();
 
 // Initialize auto Picture-in-Picture listeners
 initAutoPip();

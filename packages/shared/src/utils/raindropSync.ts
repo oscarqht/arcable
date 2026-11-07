@@ -114,9 +114,10 @@ export function parseGroupMeta(note?: string): GroupVariantMeta | null {
 export function attachGroupMetaToNote(existingNote: string | undefined, tab: Tab): string {
   const metaStr = serializeGroupMeta(tab);
   if (!existingNote) return metaStr;
-  const cleaned = existingNote.replace(/<!--arcable-group:[\s\S]*?-->/g, '').trim();
-  if (!metaStr) return cleaned;
-  return cleaned ? `${cleaned}\n${metaStr}` : metaStr;
+  const groupBlock = /<!--arcable-group:[\s\S]*?-->/g;
+  if (!metaStr) return existingNote.replace(/\n?<!--arcable-group:[\s\S]*?-->/g, '');
+  if (groupBlock.test(existingNote)) return existingNote.replace(groupBlock, () => metaStr);
+  return `${existingNote}\n${metaStr}`;
 }
 
 /** Legacy canonical non-tree workspace metadata stored directly under the Arcable root. */
@@ -919,7 +920,7 @@ export async function syncIncrementalOperations(
     const isCreate = operations.some((operation) => operation.type === 'TAB_CREATE');
     const targetOrder = calculateTabTargetOrder(tab, latestSnapshot.tabs, latestSnapshot.widgets);
     const rawTitle = tab.customTitle || tab.url;
-    const tabNote = attachGroupMetaToNote(tab.note, tab);
+    const tabNote = attachGroupMetaToNote(defaultVar?.note ?? tab.note, tab);
     const encodedTabTitle = encodeRaindropTitle(rawTitle);
     const mainBookmarkTitle = isMultiVariantOrGroup
       ? `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(defaultVar?.name || 'Default')}`
@@ -960,7 +961,7 @@ export async function syncIncrementalOperations(
             title: varTitle,
             link: variant.url,
             cover: variant.favIconUrl || payload.cover,
-            note: '',
+            note: variant.note || '',
             collectionId: parentId,
             order: variantOrder,
             sort: variantOrder,
@@ -1006,6 +1007,7 @@ export async function syncIncrementalOperations(
             payload: {
               title: varTitle,
               link: variant.url,
+              ...(variant.note !== undefined ? { note: variant.note } : {}),
               cover: variant.favIconUrl || payload.cover,
               collection: { $id: parentId },
               order: variantOrder,
@@ -1019,8 +1021,8 @@ export async function syncIncrementalOperations(
             input: {
               title: varTitle,
               link: variant.url,
+              note: variant.note || '',
               cover: variant.favIconUrl || payload.cover,
-              note: '',
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,
@@ -1120,7 +1122,8 @@ export async function syncIncrementalOperations(
     // If variant bookmarks were created or mapped, update the group note on the primary bookmark in Raindrop
     for (const tab of latestSnapshot.tabs) {
       if (tab.raindropId && tab.urlVariants && tab.urlVariants.length > 1) {
-        const updatedNote = attachGroupMetaToNote(tab.note, tab);
+        const selectedVariant = tab.urlVariants.find(v => v.id === tab.defaultVariantId) || tab.urlVariants[0];
+        const updatedNote = attachGroupMetaToNote(selectedVariant?.note ?? tab.note, tab);
         if (updatedNote !== tab.note) {
           try {
             await updateRaindropItem(token, tab.raindropId, { note: updatedNote });
@@ -2355,6 +2358,7 @@ export function reconstructWorkspace(
           id: defaultId,
           name: findMetaName(defaultId, item.link, groupMeta?.firstName || decodedTitle || 'Default'),
           url: item.link,
+          note: item.note,
           favIconUrl: item.cover,
         },
         ...variantItems.map((v) => {
@@ -2365,6 +2369,7 @@ export function reconstructWorkspace(
             id: String(v._id),
             name: findMetaName(String(v._id), v.link, variantName),
             url: v.link,
+            note: v.note,
             favIconUrl: v.cover,
           };
         }),
@@ -2417,6 +2422,7 @@ export function reconstructWorkspace(
             id: mv.id || (idx === 0 ? defaultId : `var-${idx}`),
             name: mv.name || (idx === 0 ? groupMeta?.firstName || decodedTitle || 'Default' : 'Variant'),
             url: mv.url || item.link,
+            note: mv.id === defaultId || (!mv.id && idx === 0) ? item.note : undefined,
             favIconUrl: idx === 0 ? item.cover : undefined,
           }));
         } else {
@@ -2428,6 +2434,7 @@ export function reconstructWorkspace(
               id: varId,
               name: varName,
               url: item.link,
+              note: item.note,
               favIconUrl: item.cover,
             },
           ];
@@ -2574,6 +2581,7 @@ export function reconstructWorkspace(
         id: String(v._id),
         name: findMetaName(String(v._id), v.link, variantName),
         url: v.link,
+        note: v.note,
         favIconUrl: v.cover,
       };
     });
@@ -3246,7 +3254,7 @@ export async function syncWorkspaceWithRaindrop(
       const isMultiVariantOrGroup = hasVariants || isGroup;
       const targetOrder = calculateTabTargetOrder(tab, localState.tabs || [], localState.widgets || []);
       const rawTitle = tab.customTitle || tab.url;
-      const tabNote = attachGroupMetaToNote(existing?.note || tab.note, tab);
+      const tabNote = attachGroupMetaToNote(defaultVar?.note ?? tab.note ?? existing?.note, tab);
       const encodedTabTitle = encodeRaindropTitle(rawTitle);
       const mainBookmarkTitle = isMultiVariantOrGroup
         ? `${encodedTabTitle}${ARCABLE_VARIANT_DELIMITER}${encodeRaindropTitle(defaultVar?.name || 'Default')}`
@@ -3297,6 +3305,7 @@ export async function syncWorkspaceWithRaindrop(
               payload: {
                 title: varTitle,
                 link: variant.url,
+                note: variant.note ?? varExisting?.note ?? '',
                 cover: variant.favIconUrl || payload.cover,
                 collection: { $id: parentId },
                 order: variantOrder,
@@ -3308,8 +3317,8 @@ export async function syncWorkspaceWithRaindrop(
             bookmarksToCreate.push({
               title: varTitle,
               link: variant.url,
+              note: variant.note || '',
               cover: variant.favIconUrl || payload.cover,
-              note: '',
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,
@@ -3370,6 +3379,7 @@ export async function syncWorkspaceWithRaindrop(
             const variantChanged =
               matchedItem.title !== expectedTitle ||
               matchedItem.link !== variant.url ||
+              (variant.note !== undefined && matchedItem.note !== variant.note) ||
               matchedItem.collectionId !== parentId ||
               matchedItem.cover !== expectedCover ||
               variantOrderChanged;
@@ -3379,6 +3389,7 @@ export async function syncWorkspaceWithRaindrop(
                 payload: {
                   title: expectedTitle,
                   link: variant.url,
+                  note: variant.note ?? matchedItem.note ?? '',
                   cover: expectedCover,
                   collection: { $id: parentId },
                   order: variantOrder,
@@ -3391,8 +3402,8 @@ export async function syncWorkspaceWithRaindrop(
             bookmarksToCreate.push({
               title: expectedTitle,
               link: variant.url,
+              note: variant.note || '',
               cover: variant.favIconUrl || payload.cover,
-              note: '',
               collectionId: parentId,
               order: variantOrder,
               sort: variantOrder,

@@ -1,3 +1,4 @@
+import { initFloatingPanels, handleFloatingPanelsMessage } from './floatingPanels';
 import { initExtensionActionBehavior, syncExtensionActionBehavior } from './extensionAction';
 import { handleTabActivationMessage } from './tabActivation';
 import browser from 'webextension-polyfill';
@@ -370,9 +371,13 @@ let isBackgroundSyncQueued = false;
 let queuedBackgroundSyncIsPendingOnly = true;
 let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
+initFloatingPanels();
+
 // Listen for internal messages from popup, options, or content scripts
 browser.runtime.onMessage.addListener(
   async (rawMessage: any, sender: any): Promise<ExtensionResponse | TabSwitcherResponse> => {
+    const panelResponse = handleFloatingPanelsMessage(rawMessage, sender);
+    if (panelResponse) return panelResponse;
     const activationResponse = handleTabActivationMessage(rawMessage, sender);
     if (activationResponse) return activationResponse;
     const switcherResponse = handleTabSwitcherMessage(rawMessage, sender);

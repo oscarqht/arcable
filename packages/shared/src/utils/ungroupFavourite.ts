@@ -17,6 +17,7 @@ export function ungroupFavourite(
     ...(index === 0 ? group : {}),
     id: index === 0 ? group.id : generateId('tab'),
     url: variant.url,
+    note: variant.note ?? (index === 0 ? group.note : undefined),
     customTitle: (variant.name || variant.url).split(ARCABLE_VARIANT_DELIMITER).pop()?.trim() || variant.url,
     favIconUrl: variant.favIconUrl ||
       data.tabs.find((tab) => tab.url === variant.url && tab.favIconUrl)?.favIconUrl ||
@@ -82,6 +83,7 @@ export function ungroupFavourite(
         title: tab.customTitle,
         customTitle: tab.customTitle,
         url: tab.url,
+        note: tab.note,
         favIconUrl: tab.favIconUrl,
         customEmojiIcon: tab.customEmojiIcon || null,
         isGroup: false,

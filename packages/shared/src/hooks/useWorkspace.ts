@@ -1008,6 +1008,7 @@ export function useWorkspace() {
   // ================= Tab CRUD =================
   const createTab = useCallback((tabInput: {
     url: string;
+    note?: string;
     urlVariants?: TabUrlVariant[];
     defaultVariantId?: string;
     parentSpaceId?: string;
@@ -1034,6 +1035,7 @@ export function useWorkspace() {
 
     if (tabInput.urlVariants && tabInput.urlVariants.length > 0) {
       cleanedVariants = tabInput.urlVariants.map((v) => ({
+        ...v,
         id: v.id || generateId('var'),
         name: v.name.trim(),
         url: normalizeUrl(v.url),
@@ -1115,6 +1117,7 @@ export function useWorkspace() {
     const newTab: Tab = {
       id: generateId('tab'),
       url: cleanUrl || 'https://arcable.dev',
+      note: tabInput.note,
       urlVariants: cleanedVariants && cleanedVariants.length > 0 ? cleanedVariants : undefined,
       defaultVariantId: cleanedVariants && cleanedVariants.length > 0 ? selectedDefaultId : undefined,
       pinned: isPinned,
@@ -1156,6 +1159,7 @@ export function useWorkspace() {
       if (normalizedUpdates.urlVariants !== undefined) {
         if (normalizedUpdates.urlVariants && normalizedUpdates.urlVariants.length > 0) {
           const cleanedVariants = normalizedUpdates.urlVariants.map((v) => ({
+            ...v,
             id: v.id || generateId('var'),
             name: v.name.trim(),
             url: normalizeUrl(v.url),
@@ -1510,6 +1514,7 @@ export function useWorkspace() {
       const clonedVariants =
         sourceTab.urlVariants && sourceTab.urlVariants.length > 0
           ? sourceTab.urlVariants.map((v) => ({
+              ...v,
               id: generateId('var'),
               name: v.name,
               url: v.url, // Original raw URL with template variables preserved
@@ -2868,6 +2873,7 @@ export function useWorkspace() {
         extractedVariantTab = {
           id: newTabId,
           url: variant.url,
+          note: variant.note,
           customTitle: variant.name,
           favIconUrl: matchingFavIcon,
           customEmojiIcon: variant.customEmojiIcon,
@@ -3204,6 +3210,7 @@ export function useWorkspace() {
                     id: targetBaseId || generateId('var'),
                     name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
                     url: targetTab.url,
+                    note: targetTab.note,
                     favIconUrl: targetTab.favIconUrl,
                     customEmojiIcon: targetTab.customEmojiIcon,
                   },
@@ -3273,6 +3280,7 @@ export function useWorkspace() {
                     id: sourceBaseId || generateId('var'),
                     name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 1',
                     url: sourceTab.url,
+                    note: sourceTab.note,
                     favIconUrl: sourceTab.favIconUrl,
                     customEmojiIcon: sourceTab.customEmojiIcon,
                   },
@@ -3349,6 +3357,7 @@ export function useWorkspace() {
                   id: targetBaseId || generateId('var'),
                   name: targetTab.customTitle?.trim() || getDomain(targetTab.url) || 'Item 1',
                   url: targetTab.url,
+                  note: targetTab.note,
                   favIconUrl: targetTab.favIconUrl,
                   customEmojiIcon: targetTab.customEmojiIcon,
                 },
@@ -3367,6 +3376,7 @@ export function useWorkspace() {
                   id: sourceBaseId || generateId('var'),
                   name: sourceTab.customTitle?.trim() || getDomain(sourceTab.url) || 'Item 2',
                   url: sourceTab.url,
+                  note: sourceTab.note,
                   favIconUrl: sourceTab.favIconUrl,
                   customEmojiIcon: sourceTab.customEmojiIcon,
                 },
@@ -3598,6 +3608,7 @@ export function useWorkspace() {
             ...groupTab,
             customTitle: variants[0]?.name || groupTab.customTitle,
             url: variants[0]?.url || groupTab.url,
+            note: variants[0]?.note ?? groupTab.note,
             favIconUrl: variants[0]?.favIconUrl || groupTab.favIconUrl,
             customEmojiIcon: variants[0]?.customEmojiIcon || groupTab.customEmojiIcon,
             isGroup: false,
@@ -3610,6 +3621,7 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: updatedTab.customTitle,
               url: updatedTab.url,
+              note: updatedTab.note,
               favIconUrl: updatedTab.favIconUrl,
               customEmojiIcon: updatedTab.customEmojiIcon,
               isGroup: false,
@@ -3652,6 +3664,7 @@ export function useWorkspace() {
           ...groupTab,
           customTitle: firstVariant.name || groupTab.customTitle,
           url: firstVariant.url,
+          note: firstVariant.note ?? groupTab.note,
           favIconUrl: firstVariant.favIconUrl || groupTab.favIconUrl,
           customEmojiIcon: firstVariant.customEmojiIcon || groupTab.customEmojiIcon,
           isGroup: false,
@@ -3671,6 +3684,7 @@ export function useWorkspace() {
           const newTab: Tab = {
             id: generateId('tab'),
             url: v.url,
+            note: v.note,
             customTitle: v.name,
             favIconUrl: matchingFavIcon,
             customEmojiIcon: v.customEmojiIcon,
@@ -3719,6 +3733,7 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: firstTabFinal.customTitle,
               url: firstTabFinal.url,
+              note: firstTabFinal.note,
               favIconUrl: firstTabFinal.favIconUrl,
               customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
@@ -3781,6 +3796,7 @@ export function useWorkspace() {
             createWorkspaceOperation('TAB_UPDATE', groupTab.id, {
               title: firstTabFinal.customTitle,
               url: firstTabFinal.url,
+              note: firstTabFinal.note,
               favIconUrl: firstTabFinal.favIconUrl,
               customEmojiIcon: firstTabFinal.customEmojiIcon,
               urlVariants: null,
@@ -3970,6 +3986,7 @@ export function useWorkspace() {
         const newTab: Tab = {
           id: newTabId,
           url: variant.url,
+          note: variant.note,
           customTitle: variant.name,
           favIconUrl: matchingFavIcon,
           customEmojiIcon: variant.customEmojiIcon,

@@ -1,3 +1,4 @@
+import { readFloatingPanels, writeFloatingPanels } from '../src/utils/floatingPanels';
 import { syncIncrementalOperations, syncWorkspaceWithRaindrop } from '../src/utils/raindropSync';
 import { fetchAllRaindropItems } from '../src/utils/raindropClient';
 import { mergeIncrementalSyncSnapshot, replayOperations } from '../src/utils/syncEngine';
@@ -550,7 +551,7 @@ const tabWithNewVariantState: ArcableWorkspaceData = {
       defaultVariantId: '501',
       urlVariants: [
         { id: '501', name: 'GitHub', url: 'https://github.com' },
-        { id: 'var-issues-new', name: 'Issues', url: 'https://github.com/issues' },
+        { id: 'var-issues-new', name: 'Issues', url: 'https://github.com/issues', note: writeFloatingPanels('Variant note', [{ id: 'p', url: 'https://example.org', x: 80, y: 90, width: 400, height: 300, dock: 'left' }]) },
       ],
     },
   ],
@@ -572,6 +573,7 @@ const addVariantPostCall = calls.find((c) => c.method === 'POST' && c.url.endsWi
 assert(addVariantPostCall, 'should call POST /raindrops to create secondary variant bookmark');
 assert(addVariantPostCall.body.items[0].title === 'GitHub ||| Issues', 'variant bookmark title should be formatted correctly');
 assert(addVariantPostCall.body.items[0].link === 'https://github.com/issues', 'variant bookmark link should match');
+assert(readFloatingPanels(addVariantPostCall.body.items[0].note)[0]?.dock === 'left', 'created variant must retain its panel note');
 const updatedVariants = addVariantSync.latestSnapshot?.tabs[0].urlVariants;
 assert(updatedVariants && updatedVariants.length === 2, 'snapshot should have 2 variants');
 assert(updatedVariants[1].id !== 'var-issues-new', 'new variant should receive assigned numeric Raindrop ID in snapshot');
@@ -591,7 +593,7 @@ const tabWithUpdatedVariantState: ArcableWorkspaceData = {
       defaultVariantId: '501',
       urlVariants: [
         { id: '501', name: 'GitHub', url: 'https://github.com' },
-        { id: '502', name: 'Issue Tracker', url: 'https://github.com/issues/assigned' },
+        { id: '502', name: 'Issue Tracker', url: 'https://github.com/issues/assigned', note: writeFloatingPanels('Variant note', [{ id: 'p', url: 'https://example.org', x: 120, y: 60, width: 300, height: 240, dock: 'right' }]) },
       ],
     },
   ],
@@ -613,6 +615,7 @@ const updateVariantPutCall = calls.find((c) => c.method === 'PUT' && c.url.endsW
 assert(updateVariantPutCall, 'should call PUT /raindrop/502 to update secondary variant bookmark');
 assert(updateVariantPutCall.body.title === 'GitHub ||| Issue Tracker', 'updated variant title should match');
 assert(updateVariantPutCall.body.link === 'https://github.com/issues/assigned', 'updated variant link should match');
+assert(readFloatingPanels(updateVariantPutCall.body.note)[0]?.dock === 'right', 'geometry/dock edits must sync in the variant note');
 
 // 3. Delete URL variant incrementally
 calls.length = 0;

@@ -1,3 +1,4 @@
+import { bindFloatingPanels } from '../utils/floatingPanels';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../utils/raindropSession';
 import {
@@ -884,6 +885,7 @@ export const App: React.FC = () => {
         try {
           const currentTab = await browser.tabs?.getCurrent?.();
           if (currentTab?.id !== undefined) {
+            await bindFloatingPanels(currentTab.id, tabId, url);
             await browser.tabs.update(currentTab.id, { url, active: true });
             return;
           }
@@ -894,7 +896,8 @@ export const App: React.FC = () => {
         return;
       } else {
         try {
-          await browser.tabs.create({ url, active: true });
+          const opened = await browser.tabs.create({ url, active: true });
+          if (opened.id !== undefined) await bindFloatingPanels(opened.id, tabId, url);
         } catch {
           window.open(url, '_blank', 'noopener,noreferrer');
         }
@@ -938,6 +941,7 @@ export const App: React.FC = () => {
       // Check if this specific tab item is already associated (unless shift-clicked for new tab)
       if (tabId && tabAssociations[tabId] && !inNewTab) {
         const assoc = tabAssociations[tabId];
+        await bindFloatingPanels(assoc.browserTabId, tabId, assoc.originalUrl || url, undefined, true);
         await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
         const winId = assoc.windowId ?? currentWindowIdRef.current;
         if (winId !== null && winId !== undefined) {
@@ -959,7 +963,8 @@ export const App: React.FC = () => {
       }
 
       // When tabId is not provided or shift+click, open a new browser tab
-      await browser.tabs.create({ url, active: true });
+      const opened = await browser.tabs.create({ url, active: true });
+      if (opened.id !== undefined) await bindFloatingPanels(opened.id, tabId, url);
     } catch (e) {
       console.warn('Failed to open tab via browser API, falling back to window.open:', e);
       if (inNewTab) {
@@ -983,6 +988,7 @@ export const App: React.FC = () => {
         setHighlightedTabId(variant.id);
         if (tabAssociations[variant.id] && !inNewTab) {
           const assoc = tabAssociations[variant.id];
+          await bindFloatingPanels(assoc.browserTabId, tab.id, variantUrl, variant.id);
           await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
           return;
         }
@@ -990,7 +996,8 @@ export const App: React.FC = () => {
           await tabTracker.openAndAssociateTab(variant.id, variantUrl);
           return;
         }
-        await browser.tabs.create({ url: variantUrl, active: true });
+        const opened = await browser.tabs.create({ url: variantUrl, active: true });
+        if (opened.id !== undefined) await bindFloatingPanels(opened.id, tab.id, variantUrl, variant.id);
         return;
       }
 
@@ -1004,6 +1011,7 @@ export const App: React.FC = () => {
           try {
             const currentTab = await browser.tabs?.getCurrent?.();
             if (currentTab?.id !== undefined) {
+              await bindFloatingPanels(currentTab.id, tab.id, variantUrl, variant.id);
               await browser.tabs.update(currentTab.id, { url: variantUrl, active: true });
               return;
             }
@@ -1014,7 +1022,8 @@ export const App: React.FC = () => {
           return;
         } else {
           try {
-            await browser.tabs.create({ url: variantUrl, active: true });
+            const opened = await browser.tabs.create({ url: variantUrl, active: true });
+        if (opened.id !== undefined) await bindFloatingPanels(opened.id, tab.id, variantUrl, variant.id);
           } catch {
             window.open(variantUrl, '_blank', 'noopener,noreferrer');
           }
@@ -1024,9 +1033,10 @@ export const App: React.FC = () => {
 
       try {
         if (inNewTab) {
-          await browser.tabs.create({ url: variantUrl, active: true });
+          const opened = await browser.tabs.create({ url: variantUrl, active: true });
+        if (opened.id !== undefined) await bindFloatingPanels(opened.id, tab.id, variantUrl, variant.id);
         } else {
-          await tabTracker.updateAssociatedTabUrl(tab.id, variantUrl);
+          await tabTracker.updateAssociatedTabUrl(tab.id, variantUrl, variant.id);
         }
       } catch (e) {
         console.warn('Failed to open variant via tabTracker, falling back to window.open:', e);
@@ -1090,6 +1100,7 @@ export const App: React.FC = () => {
 
       setHighlightedTabId(targetVariant.id);
       tabTracker.recordTabItemActivated(targetVariant.id);
+      await bindFloatingPanels(assoc.browserTabId, groupTab.id, targetVariant.url, targetVariant.id);
       await tabTracker.activateTab(assoc.browserTabId, assoc.windowId);
 
       const winId = assoc.windowId ?? currentWindowIdRef.current;
