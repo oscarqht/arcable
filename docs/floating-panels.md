@@ -12,7 +12,7 @@ In the tab editor, use **Floating panels** to add a URL and optional title. For 
 
 Panels belong to the saved item or selected variant, bound to the specific browser tab opened through Arcable. Navigation and reload retain that selection; selecting another variant switches it. Unrelated tabs with matching URLs do not receive panels. Browser internal pages and other protected pages cannot receive extension content scripts.
 
-Layout changes use the existing workspace operation queue and Raindrop sync. Each bookmark's note contains a dedicated `arcable-floating-panels` JSON comment; variant bookmark notes are retained during hydration. User note text and other metadata remain alongside it. Local persistence and workspace backups include these notes. Dock-chip reveal/pin state is temporary; geometry and docking edge are saved. Panels are clamped to the current viewport without overwriting the saved larger layout.
+Saving panel additions or removals updates the associated browser tab immediately from the local operation queue, without waiting for Raindrop sync. Layout changes use the same workspace operation queue and Raindrop sync. Each bookmark's note contains a dedicated `arcable-floating-panels` JSON comment; variant bookmark notes are retained during hydration. User note text and other metadata remain alongside it. Local persistence and workspace backups include these notes. Dock-chip reveal/pin state is temporary; geometry and docking edge are saved. Panels are clamped to the current viewport without overwriting the saved larger layout.
 
 ## Verification
 

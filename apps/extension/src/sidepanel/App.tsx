@@ -1,4 +1,4 @@
-import { bindFloatingPanels } from '../utils/floatingPanels';
+import { bindFloatingPanels, listenForFloatingPanelEdits } from '../utils/floatingPanels';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../utils/raindropSession';
 import {
@@ -299,6 +299,8 @@ export const App: React.FC = () => {
       }
     } catch {}
   }, []);
+
+  useEffect(() => listenForFloatingPanelEdits(), []);
 
   const handleTabsChange = useCallback((tabs: Tab[]) => {
     workspaceTabsRef.current = tabs;

@@ -20,6 +20,7 @@ for (const ext of [".ts", ".tsx"])
 const local = {};
 const session = {};
 const listeners = { removed: [], startup: [], changed: [] };
+const deliveries = [];
 const storage = (data) => ({
   get: async (keys) =>
     Object.fromEntries(
@@ -28,7 +29,17 @@ const storage = (data) => ({
         structuredClone(data[k]),
       ]),
     ),
-  set: async (patch) => Object.assign(data, structuredClone(patch)),
+  set: async (patch) => {
+    const changes = Object.fromEntries(
+      Object.entries(patch).map(([key, value]) => [
+        key,
+        { oldValue: data[key], newValue: value },
+      ]),
+    );
+    Object.assign(data, structuredClone(patch));
+    for (const listener of listeners.changed)
+      listener(changes, data === local ? "local" : "session");
+  },
   remove: async (key) => {
     delete data[key];
   },
@@ -46,7 +57,9 @@ const browser = {
   },
   tabs: {
     onRemoved: { addListener: (f) => listeners.removed.push(f) },
-    sendMessage: async () => {},
+    sendMessage: async (tabId, message) => {
+      deliveries.push({ tabId, message: structuredClone(message) });
+    },
   },
 };
 const load = Module._load;
@@ -73,7 +86,12 @@ const {
 } = require("../../../packages/shared/src/utils/workspaceBackup.ts");
 const {
   replayOperations,
+  savePendingOperation,
+  createWorkspaceOperation,
 } = require("../../../packages/shared/src/utils/syncEngine.ts");
+const {
+  listenForFloatingPanelEdits,
+} = require("../src/utils/floatingPanels.ts");
 Module._load = load;
 const panel = {
   id: "panel",
@@ -187,6 +205,126 @@ await send({
 });
 const first = await send({ type: "ARCABLE_PANELS_GET" }, content(42));
 assert.deepEqual(first.panels, [panel]);
+// Exercise the real UI outbox event -> background -> content-message path,
+// with no authenticated session, network request, or completed remote sync.
+const originalSnapshot = structuredClone(local.arcable_workspace_snapshot);
+const uiStorage = new Map();
+globalThis.window = Object.assign(new EventTarget(), {
+  localStorage: {
+    getItem: (key) => uiStorage.get(key) ?? null,
+    setItem: (key, value) => uiStorage.set(key, value),
+  },
+});
+const published = [];
+browser.runtime.sendMessage = (message) => {
+  const result = Promise.resolve(send(message));
+  published.push(result);
+  return result;
+};
+const stopPublishing = listenForFloatingPanelEdits();
+const added = { ...panel, id: "added-panel", url: "https://added.test" };
+const addOp = createWorkspaceOperation(
+  "TAB_UPDATE",
+  "item",
+  {
+    urlVariants: originalSnapshot.tabs[0].urlVariants.map((v) =>
+      v.id === "a"
+        ? { ...v, note: writeFloatingPanels(v.note, [panel, added]) }
+        : v,
+    ),
+  },
+  "device-test",
+);
+savePendingOperation(addOp);
+await published.at(-1);
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.deepEqual(
+  deliveries.at(-1).message.panels,
+  [panel, added],
+  "saved addition reaches the open tab before sync",
+);
+assert.deepEqual(
+  local.arcable_workspace_snapshot,
+  originalSnapshot,
+  "optimistic edit does not replace the authoritative snapshot",
+);
+assert.equal(local.arcable_pending_ops.length, 1);
+assert.ok(
+  deliveries.every((entry) => entry.tabId === 42),
+  "unrelated browser tabs receive no optimistic panels",
+);
+await browser.storage.local.set({
+  arcable_workspace_snapshot: originalSnapshot,
+});
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.deepEqual(
+  deliveries.at(-1).message.panels,
+  [panel, added],
+  "older sync snapshot cannot undo the pending addition",
+);
+const removeOp = createWorkspaceOperation(
+  "TAB_UPDATE",
+  "item",
+  {
+    urlVariants: originalSnapshot.tabs[0].urlVariants.map((v) =>
+      v.id === "a" ? { ...v, note: writeFloatingPanels(v.note, []) } : v,
+    ),
+  },
+  "device-test",
+  addOp.timestamp + 1,
+);
+savePendingOperation(removeOp);
+await published.at(-1);
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.deepEqual(
+  deliveries.at(-1).message.panels,
+  [],
+  "saved removal reaches the open tab before sync",
+);
+await browser.storage.local.set({
+  arcable_workspace_snapshot: originalSnapshot,
+});
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.deepEqual(
+  deliveries.at(-1).message.panels,
+  [],
+  "older sync snapshot cannot restore a removed panel",
+);
+await send({ type: "ARCABLE_PANELS_LOCAL_EDIT", operation: addOp });
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.equal(
+  local.arcable_pending_ops.length,
+  2,
+  "repeated delivery deduplicates the outbox by operation ID",
+);
+assert.deepEqual(
+  deliveries.at(-1).message.panels,
+  [],
+  "repeated older addition cannot override a newer removal",
+);
+
+assert.equal(
+  (
+    await send(
+      { type: "ARCABLE_PANELS_LOCAL_EDIT", operation: removeOp },
+      content(42),
+    )
+  ).success,
+  false,
+  "page content cannot publish workspace edits",
+);
+stopPublishing();
+const count = local.arcable_pending_ops.length;
+savePendingOperation({ ...removeOp, id: "unsubscribed-op" });
+await send({ type: "ARCABLE_PANELS_GET" }, content(42));
+assert.equal(
+  local.arcable_pending_ops.length,
+  count,
+  "unmounted UI stops publishing",
+);
+delete globalThis.window;
+local.arcable_pending_ops = [];
+
 assert.deepEqual(
   (await send({ type: "ARCABLE_PANELS_GET" }, content(43))).panels,
   [],
