@@ -112,10 +112,12 @@ export function initFloatingPanels() {
       footer { display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
       footer span { flex:1; } .resize { touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; }
       .edge { position:fixed; inset:0; pointer-events:none; color-scheme:var(--panel-scheme); }
-      .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
+      .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
+      .edge button span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .edge button:hover { background:var(--panel-hover); border-color:var(--panel-muted); }
       .edge button[aria-expanded="true"] { background:var(--panel-active); border-color:var(--panel-accent); color:var(--panel-accent); }
-      .left button, .right button { writing-mode:vertical-rl; text-orientation:sideways; writing-mode:sideways-rl; max-width:none; max-height:160px; }
+      .left button, .right button { width:30px; max-width:none; padding:0; }
+      .left button span, .right button span { position:absolute; top:50%; left:50%; width:max-content; max-width:142px; transform:translate(-50%, -50%) rotate(90deg); }
       .left button { left:4px; } .right button { right:4px; }
       .top button { top:4px; } .bottom button { bottom:4px; }
     `;
@@ -193,6 +195,8 @@ export function initFloatingPanels() {
     element.append(header, frame, footer);
     const chip = document.createElement("button");
     chip.setAttribute("aria-expanded", "false");
+    const chipLabel = document.createElement("span");
+    chip.append(chipLabel);
     const view: View = {
       panel,
       element,
@@ -215,12 +219,13 @@ export function initFloatingPanels() {
         let { x, y } = p;
         const edge = this.panel.dock;
         chip.hidden = !edge;
-        title.textContent = chip.textContent =
+        title.textContent = chipLabel.textContent =
           this.panel.title || new URL(this.panel.url).hostname;
         if (edge) {
           const container = shadow.querySelector(`[data-edge="${edge}"]`)!;
           if (chip.parentNode !== container) container.append(chip);
           const vertical = edge === "left" || edge === "right";
+          chip.style.height = vertical ? `${Math.min(chipLabel.scrollWidth, 142) + 18}px` : "";
           const measure = chip.getBoundingClientRect();
           const occupied = [...views.values()]
             .filter((other) => other !== this && other.panel.dock === edge && !other.chip.hidden)

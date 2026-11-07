@@ -94,11 +94,6 @@ const {
   listenForFloatingPanelEdits,
 } = require("../src/utils/floatingPanels.ts");
 Module._load = load;
-// Side handles rotate the entire label, including non-Latin glyphs, instead of
-// using vertical glyph forms that can change its proportions.
-const contentSource = readFileSync(new URL("../src/content/floatingPanels.ts", import.meta.url), "utf8");
-assert.match(contentSource, /\.left button, \.right button\s*\{[^}]*writing-mode:vertical-rl;[^}]*text-orientation:sideways;[^}]*writing-mode:sideways-rl;/);
-
 const panel = {
   id: "panel",
   url: "https://embed.test",
