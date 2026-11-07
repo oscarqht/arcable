@@ -115,7 +115,7 @@ export function initFloatingPanels() {
       .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
       .edge button:hover { background:var(--panel-hover); border-color:var(--panel-muted); }
       .edge button[aria-expanded="true"] { background:var(--panel-active); border-color:var(--panel-accent); color:var(--panel-accent); }
-      .left button, .right button { writing-mode:vertical-rl; max-width:none; max-height:160px; }
+      .left button, .right button { writing-mode:vertical-rl; text-orientation:sideways; writing-mode:sideways-rl; max-width:none; max-height:160px; }
       .left button { left:4px; } .right button { right:4px; }
       .top button { top:4px; } .bottom button { bottom:4px; }
     `;
