@@ -89,10 +89,14 @@ export function initFloatingPanels() {
     if (!browser.storage.session) void session.remove(key);
   });
   browser.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.arcable_workspace_snapshot)
-      void bindings().then((all) =>
-        Promise.all(Object.keys(all).map((id) => refresh(Number(id)))),
-      );
+    if (
+      area === "local" &&
+      (changes.arcable_workspace_snapshot || changes.arcable_pending_ops)
+    )
+      void serialized(async () => {
+        const all = await bindings();
+        await Promise.all(Object.keys(all).map((id) => refresh(Number(id))));
+      });
   });
 }
 export function handleFloatingPanelsMessage(
@@ -100,6 +104,34 @@ export function handleFloatingPanelsMessage(
   sender: browser.Runtime.MessageSender,
 ): Promise<any> | undefined {
   if (sender.id !== browser.runtime.id) return;
+  if (message?.type === "ARCABLE_PANELS_LOCAL_EDIT") {
+    const operation = message.operation;
+    if (
+      !sender.url?.startsWith(browser.runtime.getURL("")) ||
+      operation?.type !== "TAB_UPDATE" ||
+      typeof operation.id !== "string" ||
+      typeof operation.entityId !== "string" ||
+      !Number.isFinite(operation.timestamp) ||
+      !operation.payload ||
+      typeof operation.payload !== "object" ||
+      (!("note" in operation.payload) && !("urlVariants" in operation.payload))
+    ) {
+      return Promise.resolve({ success: false });
+    }
+    return serialized(async () => {
+      const stored = await browser.storage.local.get("arcable_pending_ops");
+      const operations = new Map(
+        ((stored.arcable_pending_ops || []) as any[]).map((op) => [op.id, op]),
+      );
+      operations.set(operation.id, operation);
+      // Keep the authoritative snapshot intact. Overlay reads replay this local
+      // outbox, including when an older in-flight sync publishes its result.
+      await browser.storage.local.set({
+        arcable_pending_ops: [...operations.values()],
+      });
+      return { success: true };
+    });
+  }
   if (message?.type === "ARCABLE_PANELS_BIND") {
     if (
       !sender.url?.startsWith(browser.runtime.getURL("")) ||
