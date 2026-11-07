@@ -1,4 +1,5 @@
 import browser from "webextension-polyfill";
+import { nearestDockPosition } from "./dockPosition";
 import {
   clampPanel,
   type FloatingPanel,
@@ -110,12 +111,13 @@ export function initFloatingPanels() {
       iframe { flex:1; min-height:0; width:100%; border:0; background:var(--panel-surface); }
       footer { display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
       footer span { flex:1; } .resize { touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; }
-      .edge { position:fixed; display:flex; gap:5px; padding:4px; max-width:100vw; max-height:100vh; overflow:auto; pointer-events:none; color-scheme:var(--panel-scheme); }
-      .edge button { pointer-events:auto; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
+      .edge { position:fixed; inset:0; pointer-events:none; color-scheme:var(--panel-scheme); }
+      .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
       .edge button:hover { background:var(--panel-hover); border-color:var(--panel-muted); }
       .edge button[aria-expanded="true"] { background:var(--panel-active); border-color:var(--panel-accent); color:var(--panel-accent); }
-      .left { left:0;top:40px;flex-direction:column; } .right { right:0;top:40px;flex-direction:column; }
-      .top { top:0;left:40px; } .bottom { bottom:0;left:40px; }
+      .left button, .right button { writing-mode:vertical-rl; max-width:none; max-height:160px; }
+      .left button { left:4px; } .right button { right:4px; }
+      .top button { top:4px; } .bottom button { bottom:4px; }
     `;
     shadow.append(style);
     for (const edge of ["left", "right", "top", "bottom"]) {
@@ -132,13 +134,13 @@ export function initFloatingPanels() {
     }
   }
   function save(view: View) {
-    const { x, y, width, height, dock } = view.panel;
+    const { x, y, width, height, dock, dockPosition } = view.panel;
     void browser.runtime
       .sendMessage({
         type: "ARCABLE_PANELS_PATCH",
         token,
         panelId: view.panel.id,
-        patch: { x, y, width, height, dock: dock || null },
+        patch: { x, y, width, height, dock: dock || null, dockPosition: dockPosition ?? null },
       })
       .catch(() => {});
   }
@@ -213,9 +215,33 @@ export function initFloatingPanels() {
         let { x, y } = p;
         const edge = this.panel.dock;
         chip.hidden = !edge;
+        title.textContent = chip.textContent =
+          this.panel.title || new URL(this.panel.url).hostname;
         if (edge) {
           const container = shadow.querySelector(`[data-edge="${edge}"]`)!;
           if (chip.parentNode !== container) container.append(chip);
+          const vertical = edge === "left" || edge === "right";
+          const measure = chip.getBoundingClientRect();
+          const occupied = [...views.values()]
+            .filter((other) => other !== this && other.panel.dock === edge && !other.chip.hidden)
+            .map((other) => {
+              const r = other.chip.getBoundingClientRect();
+              return { start: vertical ? r.top : r.left, end: vertical ? r.bottom : r.right };
+            });
+          const position = nearestDockPosition(
+            this.panel.dockPosition ?? (vertical ? p.y : p.x),
+            vertical ? measure.height : measure.width,
+            vertical ? innerHeight : innerWidth,
+            occupied,
+          );
+          // If the edge is full, retain the desired position and retry on the next layout.
+          chip.hidden = position === undefined;
+          if (position !== undefined) {
+            if (this.panel.dockPosition === undefined)
+              this.panel = { ...this.panel, dockPosition: position };
+            chip.style.top = vertical ? `${position}px` : "";
+            chip.style.left = vertical ? "" : `${position}px`;
+          }
           const rect = chip.getBoundingClientRect();
           if (edge === "left") {
             x = rect.right + 4;
@@ -244,8 +270,6 @@ export function initFloatingPanels() {
           height: `${p.height}px`,
         });
         select.value = edge || "";
-        title.textContent = chip.textContent =
-          this.panel.title || new URL(this.panel.url).hostname;
         frame.title = element.ariaLabel = this.panel.title || "Floating panel";
         this.show(edge ? this.visible : true);
       },
@@ -287,11 +311,48 @@ export function initFloatingPanels() {
       });
       target.addEventListener("focusout", scheduleHide);
     }
-    chip.onclick = () => {
+    let suppressClick = false;
+    chip.onclick = (event) => {
+      if (suppressClick && event.detail !== 0) { suppressClick = false; return; }
+      suppressClick = false;
       view.pinned = !view.pinned;
       view.show(view.pinned);
       view.layout();
     };
+    chip.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !view.panel.dock) return;
+      const edge = view.panel.dock;
+      const vertical = edge === "left" || edge === "right";
+      const rect = chip.getBoundingClientRect();
+      const origin = vertical ? event.clientY : event.clientX;
+      const start = vertical ? rect.top : rect.left;
+      const previous = view.panel.dockPosition;
+      let dragged = false;
+      suppressClick = false;
+      chip.setPointerCapture(event.pointerId);
+      const move = (e: PointerEvent) => {
+        const delta = (vertical ? e.clientY : e.clientX) - origin;
+        if (!dragged && Math.abs(delta) < 4) return;
+        dragged = true;
+        cancel();
+        view.panel = { ...view.panel, dockPosition: start + delta };
+        view.layout();
+      };
+      const end = (e: PointerEvent) => {
+        chip.removeEventListener("pointermove", move);
+        chip.removeEventListener("pointerup", end);
+        chip.removeEventListener("pointercancel", end);
+        if (!dragged) return;
+        suppressClick = e.type !== "pointercancel";
+        const r = chip.getBoundingClientRect();
+        view.panel = { ...view.panel, dockPosition: e.type === "pointercancel" ? previous : vertical ? r.top : r.left };
+        view.layout();
+        if (e.type !== "pointercancel") save(view);
+      };
+      chip.addEventListener("pointermove", move);
+      chip.addEventListener("pointerup", end);
+      chip.addEventListener("pointercancel", end);
+    });
     element.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && view.panel.dock) {
         view.pinned = false;
@@ -300,10 +361,19 @@ export function initFloatingPanels() {
       }
     });
     const dock = (edge?: FloatingPanel["dock"]) => {
-      view.panel = { ...view.panel, dock: edge };
+      const rect = element.getBoundingClientRect();
+      view.panel = {
+        ...view.panel,
+        dock: edge,
+        dockPosition: edge ? (edge === "left" || edge === "right" ? rect.top : rect.left) : undefined,
+      };
       view.pinned = false;
       view.visible = !edge;
       view.layout();
+      if (edge && !chip.hidden) {
+        const chipRect = chip.getBoundingClientRect();
+        view.panel = { ...view.panel, dockPosition: edge === "left" || edge === "right" ? chipRect.top : chipRect.left };
+      }
       save(view);
     };
     select.onchange = () =>
@@ -328,6 +398,7 @@ export function initFloatingPanels() {
         width: rect.width,
         height: rect.height,
         dock: undefined,
+        dockPosition: undefined,
       };
       const target = event.currentTarget as HTMLElement;
       target.setPointerCapture(event.pointerId);
@@ -369,7 +440,7 @@ export function initFloatingPanels() {
                   : innerHeight - r.bottom <= 24
                     ? "bottom"
                     : undefined;
-          view.panel = { ...view.panel, dock: edge };
+          view.panel = { ...view.panel, dock: edge, dockPosition: undefined };
           view.visible = !edge;
         }
         view.layout();
@@ -396,6 +467,7 @@ export function initFloatingPanels() {
         {
           ...p,
           dock: undefined,
+          dockPosition: undefined,
           x: sizing ? p.x : p.x + dx,
           y: sizing ? p.y : p.y + dy,
           width: sizing ? Math.max(240, p.width + dx) : p.width,
@@ -443,7 +515,9 @@ export function initFloatingPanels() {
           view.visible = !panel.dock;
           view.pinned = false;
         }
-        view.panel = panel;
+        view.panel = panel.dock && view.panel.dock === panel.dock && panel.dockPosition === undefined
+          ? { ...panel, dockPosition: view.panel.dockPosition }
+          : panel;
         view.layout();
       }
     }

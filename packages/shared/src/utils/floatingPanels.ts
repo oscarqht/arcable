@@ -7,6 +7,7 @@ export interface FloatingPanel {
   width: number;
   height: number;
   dock?: "left" | "right" | "top" | "bottom";
+  dockPosition?: number;
 }
 
 const block = /<!--arcable-floating-panels:([\s\S]*?)-->/;
@@ -32,6 +33,7 @@ export function readFloatingPanels(note?: string): FloatingPanel[] {
             p.width <= 0 ||
             p.height <= 0 ||
             (p.title !== undefined && typeof p.title !== "string") ||
+            (p.dockPosition !== undefined && !Number.isFinite(p.dockPosition)) ||
             (p.dock !== undefined &&
               !["left", "right", "top", "bottom"].includes(p.dock))
           )
