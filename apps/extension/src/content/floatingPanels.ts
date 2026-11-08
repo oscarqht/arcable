@@ -122,7 +122,8 @@ export function initFloatingPanels() {
       .login-help li { margin:8px 0; }
       .login-help a { color:var(--panel-accent); }
       .login-help a:focus-visible { outline:2px solid var(--panel-accent); outline-offset:2px; }
-      .login-help-button { flex:1; min-width:0; padding:4px; font-size:11px; }
+      .login-help-button { flex:1; min-width:0; padding:0; border:0; border-radius:0; background:transparent; color:var(--panel-muted); font-size:11px; text-align:left; }
+      .login-help-button:hover,.login-help-button:active { background:transparent; color:var(--panel-text); text-decoration:underline; }
       footer { flex-shrink:0; display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
       footer span { flex:1; } .resize { touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; }
       .edge { position:fixed; inset:0; pointer-events:none; color-scheme:var(--panel-scheme); }
