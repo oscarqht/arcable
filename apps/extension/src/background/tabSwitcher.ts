@@ -208,7 +208,8 @@ export function initTabSwitcherBackground(): void {
     activity.delete(id);
     visible.delete(id);
   });
-  browser.windows.onFocusChanged.addListener((windowId) => {
+  // Firefox for Android does not expose window focus events. Tab events still work.
+  browser.windows?.onFocusChanged?.addListener((windowId) => {
     invalidateCapture();
     if (windowId < 0) return;
     void browser.tabs.query({ active: true, windowId }).then(([tab]) => {
