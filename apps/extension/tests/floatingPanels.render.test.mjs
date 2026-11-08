@@ -30,6 +30,7 @@ Element.prototype.attachShadow = function(options) {
 const browser = {
   storage: { local: { get: async () => ({ arcable_config: { theme: 'dark' } }) }, onChanged: { addListener() {} } },
   runtime: {
+    getURL: () => "about:blank",
     onMessage: { addListener(fn) { fixture.listeners.push(fn); } },
     sendMessage: async (message) => {
       if (message.type === 'ARCABLE_PANELS_GET') return { token: 'render-test', panels: fixture.panels };

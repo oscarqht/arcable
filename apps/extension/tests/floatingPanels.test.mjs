@@ -47,6 +47,7 @@ const storage = (data) => ({
 const browser = {
   runtime: {
     id: "test",
+    getManifest: () => ({ permissions: [] }),
     getURL: (path) => `chrome-extension://test/${path}`,
     onStartup: { addListener: (f) => listeners.startup.push(f) },
   },
@@ -55,6 +56,13 @@ const browser = {
     session: storage(session),
     onChanged: { addListener: (f) => listeners.changed.push(f) },
   },
+  declarativeNetRequest: { getSessionRules: async () => [], updateSessionRules: async () => {} },
+  webRequest: {
+    onHeadersReceived: { addListener() {} },
+    onBeforeRequest: { addListener() {} },
+    onErrorOccurred: { addListener() {} },
+  },
+  webNavigation: { getFrame: async () => null, onErrorOccurred: { addListener() {} }, onBeforeNavigate: { addListener() {} }, onCommitted: { addListener() {} } },
   tabs: {
     onRemoved: { addListener: (f) => listeners.removed.push(f) },
     sendMessage: async (tabId, message) => {
@@ -218,6 +226,12 @@ await send({
 });
 const first = await send({ type: "ARCABLE_PANELS_GET" }, content(42));
 assert.deepEqual(first.panels, [panel]);
+const wrapper = { id: "test", url: "chrome-extension://test/panel/index.html", frameId: 2, tab: { id: 42 } };
+assert.deepEqual(await send({ type: "ARCABLE_PANEL_DOCUMENT", panelId: panel.id, token: first.token }, wrapper), { url: panel.url });
+assert.deepEqual(await send({ type: "ARCABLE_PANEL_DOCUMENT", panelId: panel.id, token: "stale" }, wrapper), {});
+assert.deepEqual(await send({ type: "ARCABLE_PANEL_DOCUMENT", panelId: panel.id, token: first.token }, { ...wrapper, url: "https://untrusted.test" }), {});
+assert.deepEqual(await send({ type: "ARCABLE_PANEL_DOCUMENT", panelId: "unknown", token: first.token }, wrapper), {});
+assert.deepEqual(await send({ type: "ARCABLE_PANEL_DOCUMENT", panelId: panel.id, token: first.token }, { ...wrapper, tab: { id: 999 } }), {});
 // Exercise the real UI outbox event -> background -> content-message path,
 // with no authenticated session, network request, or completed remote sync.
 const originalSnapshot = structuredClone(local.arcable_workspace_snapshot);
@@ -460,7 +474,7 @@ assert.equal(
   )[0].dock,
   "bottom",
 );
-listeners.removed[0](42);
+for (const listener of listeners.removed) listener(42);
 await send({ type: "ARCABLE_PANELS_GET" }, content(42));
 assert.deepEqual(
   (await send({ type: "ARCABLE_PANELS_GET" }, content(42))).panels,

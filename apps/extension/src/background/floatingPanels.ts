@@ -1,3 +1,9 @@
+import {
+  initPanelEmbedding,
+  preparePanelEmbedding,
+  forgetPanelEmbedding,
+  panelPage,
+} from "./panelEmbedding";
 import browser from "webextension-polyfill";
 import {
   readFloatingPanels,
@@ -68,9 +74,11 @@ async function state(tabId: number) {
 }
 async function refresh(tabId: number) {
   try {
+    const current = await state(tabId);
+    if (!current.panels.length) await forgetPanelEmbedding(tabId);
     await browser.tabs.sendMessage(
       tabId,
-      { type: "ARCABLE_PANELS_STATE", ...(await state(tabId)) },
+      { type: "ARCABLE_PANELS_STATE", ...current },
       { frameId: 0 },
     );
   } catch {
@@ -78,10 +86,12 @@ async function refresh(tabId: number) {
   }
 }
 export function initFloatingPanels() {
+  initPanelEmbedding();
   browser.tabs.onRemoved.addListener((tabId) => {
     void serialized(async () => {
       const all = await bindings();
       delete all[tabId];
+      await forgetPanelEmbedding(tabId);
       await session.set({ [key]: all });
     });
   });
@@ -169,6 +179,23 @@ export function handleFloatingPanelsMessage(
       await session.set({ [key]: all });
       await refresh(message.browserTabId);
       return { success: true };
+    });
+  }
+  if (message?.type === "ARCABLE_PANEL_DOCUMENT") {
+    if (
+      sender.tab?.id === undefined ||
+      !sender.frameId ||
+      sender.url?.split(/[?#]/)[0] !== browser.runtime.getURL(panelPage)
+    )
+      return Promise.resolve({});
+    const tabId = sender.tab.id;
+    return serialized(async () => {
+      const current = await state(tabId);
+      if (!current.token || current.token !== message.token) return {};
+      const panel = current.panels.find((p) => p.id === message.panelId);
+      if (!panel) return {};
+      await preparePanelEmbedding(tabId, sender.frameId!);
+      return { url: panel.url };
     });
   }
   if (sender.tab?.id === undefined || (sender.frameId ?? 0) !== 0) return;
