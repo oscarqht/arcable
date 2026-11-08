@@ -20,10 +20,13 @@ Saving panel additions or removals updates the associated browser tab immediatel
 pnpm typecheck
 pnpm build:extension
 node apps/extension/tests/floatingPanels.test.mjs
+CHROME_BIN="/path/to/chrome-or-brave" node apps/extension/tests/floatingPanels.render.test.mjs
 node packages/shared/tests/rapidWorkspaceMutations.test.mjs
 pnpm dlx tsx --test packages/shared/tests/raindropNativeArchitecture.test.ts packages/shared/tests/raindropIncremental.test.ts packages/shared/tests/ungroupFavourite.test.ts packages/shared/tests/widgetsOnlyGroupSync.test.ts
 ```
 
 Automated regressions cover metadata encoding/validation, note preservation, real backup export/import, CRUD/duplication/replay, full/incremental Raindrop sync and hydration, browser-tab isolation, retained selection during navigation, stale layout messages, remote variant ID reassignment, and tab closure.
+
+The rendering test runs the actual overlay in a disposable Chromium profile with extension messaging and storage mocked. It docks labels on both sides, compares their glyph dimensions with horizontal docking, and checks clipping for short, long, and multilingual labels. It saves a screenshot in the system temporary directory.
 
 Chrome interaction checks use the production overlay and tab editor with an isolated local transport fixture: independent dragging/resizing, edge docking, hover hide/reveal, iframe state retention, click toggling, variant-specific edits, small viewports, blocked embedding, and Open in tab. Final installation smoke checks should load `apps/extension/dist/chrome` as an unpacked extension or `apps/extension/dist/firefox/manifest.json` as a Firefox temporary add-on, then exercise saved-item opening, reload/navigation, switching variants, sync, and reopening.
