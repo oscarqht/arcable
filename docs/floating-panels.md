@@ -8,6 +8,7 @@ In the tab editor, use **Floating panels** to add a URL and optional title. For 
 - Click a chip (or activate it with Enter/Space) to keep the panel open; activate it again to hide it. Escape hides a docked panel. Keyboard focus keeps a revealed panel available until focus leaves.
 - Focus the header and use arrow keys to move; Shift + arrow keys resize. The resize handle also accepts arrow keys.
 - Choose **Float** to undock. Remove panels in the tab editor.
+- Use **Login not working?** in the footer for browser-specific cookie guidance. The guide identifies the hosting site, selects Brave/Chrome/Firefox automatically where detectable, and lets you choose another browser. Close it with ×, the footer button, or Escape; opening help retains the embedded webpage and its state.
 - Panel pages load through an extension-owned frame so the host tab's `frame-src` policy does not block them. The extension automatically relaxes embedding headers for panel documents. Use **Open in tab** for remaining failures.
 
 Panels belong to the saved item or selected variant, bound to the specific browser tab opened through Arcable. Navigation and reload retain that selection; selecting another variant switches it. Unrelated tabs with matching URLs do not receive panels. Browser internal pages and other protected pages cannot receive extension content scripts.

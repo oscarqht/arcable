@@ -15,6 +15,8 @@ const compile = (relative) => ts.transpileModule(
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } },
 ).outputText;
 const modules = {
+  "./loginHelp": compile("../src/content/loginHelp.ts"),
+  "../utils/browser": compile("../src/utils/browser.ts"),
   "./dockPosition": compile("../src/content/dockPosition.ts"),
   "../../../../packages/shared/src/utils/floatingPanels": compile("../../../packages/shared/src/utils/floatingPanels.ts"),
   renderer: compile("../src/content/floatingPanels.ts"),
