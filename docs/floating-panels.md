@@ -28,6 +28,14 @@ The reported GitLab pipelines URL responds with a redirect to `/users/sign_in` a
 
 Browser API references: [Chrome declarativeNetRequest](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest) and [Firefox MV3 header restrictions](https://github.com/mozilla-firefox/firefox/blob/main/toolkit/components/extensions/webrequest/WebRequest.sys.mjs).
 
+### Brave: signed in in a tab, signed out in the panel
+
+Brave's cross-site cookie blocking can withhold a website's existing session in the embedded panel. This can happen after frame-header compatibility succeeds. In a disposable Brave profile, a normal tab authenticated with a fixture session cookie while the panel showed a sign-in page; allowing cookies restored the existing session in the panel.
+
+On the **page hosting the floating panel**, open the Brave Shields (lion) menu, expand the advanced controls, set the cookie control to **Allow all cookies** for that site, then reload the hosting page. A setting on the standalone GitLab tab may not cover the panel's hosting page. Prefer the site-specific control when only that page needs the exception. See [Brave's Shields controls](https://support.brave.app/hc/en-us/articles/360022806212-How-do-I-use-Shields-while-browsing).
+
+Adding the iframe's Storage Access sandbox permission alone does not resolve this in Brave: [Brave rejects Storage Access API permission requests](https://github.com/brave/brave-browser/wiki/Deviations-from-Chromium-(features-we-disable-or-remove)). The extension does not copy session cookies or change browser cookie settings automatically. The authenticated GitLab request in the user's own profile still needs to be checked if the site-specific exception does not resolve the issue.
+
 ## Verification
 
 ```sh
