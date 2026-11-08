@@ -8,7 +8,13 @@ let focusTimer: ReturnType<typeof setInterval> | undefined;
 let switcherSequence = false;
 
 function getWindowId(): Promise<number | undefined> {
-  windowIdPromise ??= browser.windows.getCurrent().then(win => win.id).catch(() => undefined);
+  // Firefox on Android may not expose windows.getCurrent at all. Resolve it
+  // asynchronously so missing or synchronously throwing APIs cannot prevent
+  // either extension page from mounting.
+  windowIdPromise ??= Promise.resolve()
+    .then(() => browser.windows?.getCurrent?.())
+    .then(win => win?.id)
+    .catch(() => undefined);
   return windowIdPromise;
 }
 
