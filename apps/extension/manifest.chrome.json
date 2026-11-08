@@ -13,7 +13,10 @@
     "scripting",
     "userScripts",
     "contextMenus",
-    "clipboardWrite"
+    "clipboardWrite",
+    "webNavigation",
+    "webRequest",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -31,6 +34,14 @@
       "resources": [
         "libs/*",
         "src/libs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "panel/index.html"
       ],
       "matches": [
         "<all_urls>"

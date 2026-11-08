@@ -48,6 +48,7 @@ async function buildTarget(browserName) {
       emptyOutDir: false,
       rollupOptions: {
         input: {
+          panel: resolve(__dirname, 'src/panel/index.html'),
           popup: resolve(__dirname, 'src/popup/index.html'),
           options: resolve(__dirname, 'src/options/index.html'),
           sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
@@ -240,6 +241,10 @@ async function buildTarget(browserName) {
     sidepanelHtml = sidepanelHtml.replace(/\.\.\/\.\.\//g, '../');
     fs.writeFileSync(resolve(outDir, 'sidepanel/index.html'), sidepanelHtml);
   }
+
+  fs.mkdirSync(resolve(outDir, 'panel'), { recursive: true });
+  const panelHtml = fs.readFileSync(resolve(outDir, 'src/panel/index.html'), 'utf-8');
+  fs.writeFileSync(resolve(outDir, 'panel/index.html'), panelHtml.replace(/\.\.\/\.\.\//g, '../'));
 
   // 4.6. Copy libs directory (Ace editor, workers, tldraw)
   const libsSrc = resolve(__dirname, 'src/libs');

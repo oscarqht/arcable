@@ -25,7 +25,10 @@
     "alarms",
     "scripting",
     "contextMenus",
-    "clipboardWrite"
+    "clipboardWrite",
+    "webRequest",
+    "webNavigation",
+    "declarativeNetRequestWithHostAccess"
   ],
   "optional_permissions": [
     "userScripts"
@@ -46,6 +49,14 @@
       "resources": [
         "libs/*",
         "src/libs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "panel/index.html"
       ],
       "matches": [
         "<all_urls>"

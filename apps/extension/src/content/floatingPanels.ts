@@ -26,6 +26,7 @@ export function initFloatingPanels() {
   let shadow: ShadowRoot;
   const views = new Map<string, View>();
   let layer = 1;
+  let documentVersion = 0;
   let theme: "light" | "dark" | "system" = "system";
   const applyTheme = (config: { theme?: string } | undefined) => {
     theme =
@@ -146,6 +147,15 @@ export function initFloatingPanels() {
       })
       .catch(() => {});
   }
+  function panelSource(panel: FloatingPanel) {
+    // A query change forces a new document when a saved panel URL changes;
+    // assigning only the same fragment would retain the old remote page.
+    return (
+      browser.runtime.getURL("panel/index.html") +
+      `?load=${++documentVersion}#` +
+      new URLSearchParams({ panel: panel.id, token: token || "" })
+    );
+  }
   function create(panel: FloatingPanel): View {
     const element = document.createElement("section");
     element.setAttribute("aria-label", panel.title || "Floating panel");
@@ -174,11 +184,7 @@ export function initFloatingPanels() {
     header.append(title, select, hide);
     const frame = document.createElement("iframe");
     frame.title = panel.title || "Floating panel";
-    frame.src = panel.url;
-    frame.setAttribute(
-      "sandbox",
-      "allow-scripts allow-same-origin allow-forms allow-popups allow-downloads",
-    );
+    frame.src = panelSource(panel);
     const footer = document.createElement("footer");
     const hint = document.createElement("span");
     hint.textContent = "Blank or blocked?";
@@ -515,7 +521,7 @@ export function initFloatingPanels() {
       const view = views.get(panel.id);
       if (!view) views.set(panel.id, create(panel));
       else {
-        if (view.panel.url !== panel.url) view.frame.src = panel.url;
+        if (view.panel.url !== panel.url) view.frame.src = panelSource(panel);
         if (view.panel.dock !== panel.dock) {
           view.visible = !panel.dock;
           view.pinned = false;
