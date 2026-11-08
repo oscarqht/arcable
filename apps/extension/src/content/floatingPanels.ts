@@ -1,5 +1,6 @@
 import browser from "webextension-polyfill";
 import { nearestDockPosition } from "./dockPosition";
+import { createLoginHelp } from "./loginHelp";
 import {
   clampPanel,
   type FloatingPanel,
@@ -110,7 +111,20 @@ export function initFloatingPanels() {
       button:active { background:var(--panel-active); }
       button:focus-visible,select:focus-visible,header:focus-visible { outline:2px solid var(--panel-accent); outline-offset:-2px; }
       iframe { flex:1; min-height:0; width:100%; border:0; background:var(--panel-surface); }
-      footer { display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
+      .panel-content { position:relative; display:flex; flex:1; min-height:0; }
+      .login-help { position:absolute; inset:0; overflow:auto; padding:12px; background:var(--panel-surface); color:var(--panel-text); line-height:1.5; }
+      .login-help[hidden] { display:none; }
+      .login-help-heading { display:flex; align-items:center; gap:8px; }
+      .login-help h2 { flex:1; margin:0; font-size:14px; }
+      .login-help p { margin:10px 0; }
+      .login-help-context { overflow-wrap:anywhere; color:var(--panel-muted); }
+      .login-help ol { padding-left:20px; margin:10px 0; }
+      .login-help li { margin:8px 0; }
+      .login-help a { color:var(--panel-accent); }
+      .login-help a:focus-visible { outline:2px solid var(--panel-accent); outline-offset:2px; }
+      .login-help-button { flex:1; min-width:0; padding:0; border:0; border-radius:0; background:transparent; color:var(--panel-muted); font-size:11px; text-align:left; }
+      .login-help-button:hover,.login-help-button:active { background:transparent; color:var(--panel-text); text-decoration:underline; }
+      footer { flex-shrink:0; display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
       footer span { flex:1; } .resize { touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; }
       .edge { position:fixed; inset:0; pointer-events:none; color-scheme:var(--panel-scheme); }
       .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
@@ -186,8 +200,10 @@ export function initFloatingPanels() {
     frame.title = panel.title || "Floating panel";
     frame.src = panelSource(panel);
     const footer = document.createElement("footer");
-    const hint = document.createElement("span");
-    hint.textContent = "Blank or blocked?";
+    const content = document.createElement("div");
+    content.className = "panel-content";
+    const help = createLoginHelp(element, frame, () => view.panel.url);
+    content.append(frame, help.element);
     const open = document.createElement("button");
     open.textContent = "Open in tab";
     open.onclick = () => {
@@ -197,8 +213,8 @@ export function initFloatingPanels() {
     resize.textContent = "◢";
     resize.className = "resize";
     resize.setAttribute("aria-label", "Resize panel");
-    footer.append(hint, open, resize);
-    element.append(header, frame, footer);
+    footer.append(help.button, open, resize);
+    element.append(header, content, footer);
     const chip = document.createElement("button");
     chip.setAttribute("aria-expanded", "false");
     const chipLabel = document.createElement("span");

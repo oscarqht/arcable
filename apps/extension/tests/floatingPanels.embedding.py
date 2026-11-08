@@ -67,6 +67,29 @@ def call(node, function):
     return result.get('result', {}).get('value')
 
 js('document.querySelector("#state").value="retained"', target_id=next_target)
+# The footer helper covers the webpage without replacing or reloading it.
+helper = find_node('BUTTON', 'aria-label', 'Login not working?')
+rect = call(helper, 'function(){const r=this.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}')
+click_at_xy(rect['x'], rect['y'])
+guide = find_node('DIV', 'class', 'login-help')
+assert call(guide, 'function(){return !this.hidden}')
+assert call(find_node('SELECT', 'aria-label', 'Login help browser'), 'function(){return this.value}') == 'brave'
+for name, expected in [('brave','Allow all cookies'), ('chrome','Third-party cookies'), ('firefox','Enhanced Tracking Protection')]:
+    chooser = find_node('SELECT', 'aria-label', 'Login help browser')
+    call(chooser, 'function(){this.value='+json.dumps(name)+';this.dispatchEvent(new Event("change"))}')
+    assert expected in call(guide, 'function(){return this.innerText}')
+    assert '127.0.0.1' in call(guide, 'function(){return this.innerText}')
+capture_screenshot('/tmp/arcable-login-help.png')
+call(guide, 'function(){this.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))}')
+assert call(guide, 'function(){return this.hidden}')
+assert call(helper, 'function(){return this.getRootNode().activeElement===this}')
+assert js('document.querySelector("#state").value', target_id=next_target) == 'retained'
+# Footer controls remain inside the narrowest supported panel.
+call(find_node('SECTION'), 'function(){this.style.width="240px"}')
+for aria in ['Login not working?', 'Resize panel']:
+    assert call(find_node('BUTTON', 'aria-label', aria), 'function(){const r=this.getBoundingClientRect(),p=this.closest("section").getBoundingClientRect();return r.left>=p.left&&r.right<=p.right}')
+call(find_node('SECTION'), 'function(){this.style.width="600px"}')
+print('Login help guides, Brave detection, Escape/focus, retained webpage state and narrow footer verified.')
 select = find_node('SELECT', 'aria-label', 'Dock panel')
 call(select, 'function(){this.value="right";this.dispatchEvent(new Event("change"))}')
 assert call(find_node('SECTION'), 'function(){return getComputedStyle(this).visibility}') == 'hidden'
@@ -76,6 +99,12 @@ rect = call(chip, 'function(){const r=this.getBoundingClientRect();return {x:r.x
 click_at_xy(rect['x'], rect['y'])
 assert call(find_node('SECTION'), 'function(){return getComputedStyle(this).visibility}') == 'visible'
 assert js('document.querySelector("#state").value', target_id=next_target) == 'retained'
+# Escape from footer controls closes help before the docked panel handler.
+call(helper, 'function(){this.click()}')
+footer_open = next(n for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root']) if n['nodeName']=='BUTTON' and any(c.get('nodeValue')=='Open in tab' for c in n.get('children', [])))
+call(footer_open, 'function(){this.focus();this.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))}')
+assert call(guide, 'function(){return this.hidden}')
+assert call(find_node('SECTION'), 'function(){return getComputedStyle(this).visibility}') == 'visible'
 call(select, 'function(){this.value="";this.dispatchEvent(new Event("change"))}')
 header = find_node('HEADER')
 before = call(find_node('SECTION'), 'function(){return this.getBoundingClientRect().toJSON()}')
