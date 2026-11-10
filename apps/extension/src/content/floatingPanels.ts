@@ -162,7 +162,7 @@ export function initFloatingPanels() {
       .catch(() => {});
   }
   function panelSource(panel: FloatingPanel) {
-    // A query change forces a new document when a saved panel URL changes;
+    // A query change forces a new document on reload or a saved URL change;
     // assigning only the same fragment would retain the old remote page.
     return (
       browser.runtime.getURL("panel/index.html") +
@@ -191,11 +191,19 @@ export function initFloatingPanels() {
       option.textContent = label;
       select.append(option);
     }
+    const reload = document.createElement("button");
+    reload.type = "button";
+    reload.textContent = "↻";
+    reload.title = "Reload panel";
+    reload.setAttribute("aria-label", "Reload panel");
+    reload.onclick = () => {
+      frame.src = panelSource(view.panel);
+    };
     const hide = document.createElement("button");
     hide.textContent = "−";
     hide.title = "Dock to right edge";
     hide.setAttribute("aria-label", "Dock to right edge");
-    header.append(title, select, hide);
+    header.append(title, select, reload, hide);
     const frame = document.createElement("iframe");
     frame.title = panel.title || "Floating panel";
     frame.src = panelSource(panel);

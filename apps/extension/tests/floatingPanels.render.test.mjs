@@ -217,6 +217,96 @@ try {
       clickCount: 1,
     });
   };
+  // Reload only the selected embedded document, preserving the surrounding UI.
+  await evaluate(`fixture.setPanels(${JSON.stringify([
+    makePanel("Reload test", "", "reload"),
+    { ...makePanel("Other panel", "", "other"), x: 600, y: 400 },
+  ])});
+  fixture.reloadPanel = fixture.shadow.querySelector('section');
+  fixture.reloadButton = fixture.reloadPanel.querySelector('[aria-label="Reload panel"]');
+  fixture.reloadFrame = fixture.reloadPanel.querySelector('iframe');
+  fixture.otherFrame = fixture.shadow.querySelectorAll('section')[1].querySelector('iframe');
+  fixture.reloadSnapshot = () => ({
+    geometry: fixture.reloadPanel.getBoundingClientRect().toJSON(),
+    dock: fixture.reloadPanel.querySelector('select').value,
+    chips: [...fixture.shadow.querySelectorAll('.edge button')].map(b => b.outerHTML),
+    panels: fixture.panels,
+    patches: fixture.patches.length,
+    otherSource: fixture.otherFrame.src,
+    host: location.href,
+  });`);
+  assert.ok(
+    await evaluate("Boolean(fixture.reloadButton)"),
+    "Header has a reload button",
+  );
+  assert.equal(await evaluate("fixture.reloadButton.title"), "Reload panel");
+  assert.equal(
+    await evaluate("fixture.reloadButton.parentElement.tagName"),
+    "HEADER",
+  );
+  const reloadSource = () => evaluate("fixture.reloadFrame.src");
+  const checkReload = async (activate) => {
+    await evaluate(`fixture.oldDocument = fixture.reloadFrame.contentDocument;
+      fixture.otherDocument = fixture.otherFrame.contentDocument;`);
+    const before = await evaluate("fixture.reloadSnapshot()");
+    const source = await reloadSource();
+    await activate();
+    const next = await reloadSource();
+    assert.notEqual(
+      new URL(next).search,
+      new URL(source).search,
+      "Reload forces a fresh document",
+    );
+    assert.equal(
+      new URL(next).hash,
+      new URL(source).hash,
+      "Panel identity and token are preserved",
+    );
+    await until(
+      () => evaluate("fixture.reloadFrame.contentDocument !== fixture.oldDocument"),
+      "reloaded document",
+    );
+    assert.deepEqual(
+      await evaluate("fixture.reloadSnapshot()"),
+      before,
+      "Reload preserves layout, docking, other panels, and host page",
+    );
+    assert.ok(
+      await evaluate("fixture.otherFrame.contentDocument === fixture.otherDocument"),
+    );
+  };
+  await checkReload(() => drag('[aria-label="Reload panel"]', 0, 0));
+  for (const key of ["Enter", " "]) {
+    await evaluate("fixture.reloadButton.focus()");
+    await checkReload(async () => {
+      await send("Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key,
+        code: key === "Enter" ? "Enter" : "Space",
+        windowsVirtualKeyCode: key === "Enter" ? 13 : 32,
+        text: key === "Enter" ? "\r" : " ",
+      });
+      await send("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key,
+        code: key === "Enter" ? "Enter" : "Space",
+        windowsVirtualKeyCode: key === "Enter" ? 13 : 32,
+      });
+    });
+  }
+  await evaluate(
+    "fixture.dock('right'); fixture.shadow.querySelector('.right button').click()",
+  );
+  await checkReload(() => drag('[aria-label="Reload panel"]', 0, 0));
+  await evaluate(`fixture.setPanels(fixture.panels.map(p => p.id === 'reload'
+    ? { ...p, url: 'https://updated.example/panel' } : p))`);
+  await checkReload(() => evaluate("fixture.reloadButton.click()"));
+  console.log(
+    "Panel reload by pointer and keyboard preserves layout, docking, URL, other panels, and host page.",
+  );
+  await evaluate(
+    `fixture.setPanels(${JSON.stringify([makePanel("Pointer test", "")])})`,
+  );
   const beforeDrag = await geometry();
   await drag("header", 40, 24);
   const afterDrag = await geometry();
@@ -291,5 +381,6 @@ try {
     await exited;
   }
   server.close();
-  fs.rmSync(profile, { recursive: true, force: true });
+  // Browser helpers can briefly keep writing after the main process exits.
+  fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
