@@ -1061,7 +1061,8 @@ export async function uploadRaindropFile(
     formData.append('collectionId', String(collectionId));
     formData.append('collection', JSON.stringify({ $id: Number(collectionId) }));
   }
-  const blob = typeof content === 'string' ? new Blob([content], { type: safeFileName.endsWith('.json') ? 'application/json' : 'text/plain;charset=utf-8' }) : content;
+  // Raindrop rejects application/json uploads; keep JSON filenames and content but send plain text.
+  const blob = typeof content === 'string' ? new Blob([content], { type: 'text/plain;charset=utf-8' }) : content;
   formData.append('file', blob, safeFileName);
 
   const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/file`, {

@@ -2,6 +2,31 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { require, mockModules, event, storage } from "./testLoader.mjs";
 
+// Exercise the real multipart upload before installing snapshot client mocks.
+const { uploadRaindropFile } = require("../../../packages/shared/src/utils/raindropClient.ts");
+const originalFetch = globalThis.fetch;
+const jsonText = JSON.stringify({ format: "arcable-config", code: "console.log('✓')" }, null, 2);
+let uploadRequest;
+try {
+  globalThis.fetch = async (url, init) => {
+    uploadRequest = { url, ...init };
+    return new Response(JSON.stringify({ item: { _id: 42 } }), { status: 200 });
+  };
+  await uploadRaindropFile("test", 7, "arcable-config.json", jsonText);
+  assert.equal(uploadRequest.url, "https://api.raindrop.io/rest/v1/raindrop/file");
+  assert.equal(uploadRequest.method, "PUT");
+  assert.equal(new Headers(uploadRequest.headers).has("Content-Type"), false, "Fetch supplies the multipart boundary");
+  assert.deepEqual([...uploadRequest.body.keys()], ["collectionId", "collection", "file"]);
+  assert.equal(uploadRequest.body.get("collectionId"), "7");
+  assert.deepEqual(JSON.parse(uploadRequest.body.get("collection")), { $id: 7 });
+  const file = uploadRequest.body.get("file");
+  assert.equal(file.name, "arcable-config.json", "Keep the JSON filename");
+  assert.equal(file.type, "text/plain;charset=utf-8", "Raindrop requires a supported plain text MIME type");
+  assert.equal(await file.text(), jsonText, "Keep JSON content unchanged, including Unicode");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 let sequence = 100, corrupt = false, uploadFails = false, labelFails = false, deleteFails = false;
 let duringUpload;
 const collections = [{ _id: 1, title: "Arcable rules" }];
