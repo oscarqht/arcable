@@ -3,8 +3,8 @@
 Browser tools for Chrome and Firefox, with a shared library and a small Next.js information and authentication site.
 
 - **Side Panels:** automatically show all enabled panels whose URL patterns match the current page, including SPA navigation. Drag, resize, float, or dock using the existing panel controls.
-- **Local layouts:** one persistent layout per panel per browser profile. Positions, dimensions, docking edges, and dock-chip positions stay on that device.
-- **Raindrop sync:** panel definitions, Custom JS & CSS, and manual Run Code rules sync in a separate `Arcable rules` collection. Existing code rules remain readable. Legacy workspace records and cloud collections/bookmarks are left untouched.
+- **Local layouts:** one persistent layout per panel per browser profile. Positions, dimensions, docking edges, and dock-chip positions persist locally and are included in manual backups.
+- **Raindrop backups:** in **Options → Backup & Raindrop**, use **Save to Raindrop** to upload one dated `.json` snapshot to `Arcable snapshots`. It includes all three rule types, scrollbar/automatic Picture-in-Picture preferences, theme, and panel layouts. The upload is read back and validated before older Arcable snapshots are removed. **Load latest** validates the newest snapshot and, after an overwrite warning, replaces the included local configuration. Nothing syncs automatically. Authentication, bookmarks, and temporary state are excluded; legacy remote rule records are no longer read or modified.
 - **Browser tools:** custom scripts, background fetch, context-menu actions, screenshots, copying links, Markdown downloads, tab switching, scrollbar preferences, and automatic Picture-in-Picture.
 
 Click the extension toolbar icon to save the current page to **Raindrop Unsorted**, with a screenshot of the visible page as its cover. Connect Raindrop first in **Options**, available from the extension’s browser menu. The Side Panels tab supports titles, HTTP(S) panel URLs, enabled switches, and one or more matching patterns per rule. Patterns use the same URLPattern, wildcard, and substring behavior as Custom JS & CSS.

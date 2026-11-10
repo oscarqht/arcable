@@ -1049,9 +1049,9 @@ export async function uploadRaindropFile(
     throw new Error('Missing Raindrop authorization token.');
   }
 
-  // Ensure filename has a supported document extension (.txt) for Raindrop upload
+  // Preserve explicit JSON filenames for configuration snapshots.
   let safeFileName = fileName;
-  if (typeof content === 'string' && !safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md')) {
+  if (typeof content === 'string' && !safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md') && !safeFileName.endsWith('.json')) {
     safeFileName = `${safeFileName}.txt`;
   }
 
@@ -1061,7 +1061,7 @@ export async function uploadRaindropFile(
     formData.append('collectionId', String(collectionId));
     formData.append('collection', JSON.stringify({ $id: Number(collectionId) }));
   }
-  const blob = typeof content === 'string' ? new Blob([content], { type: 'text/plain;charset=utf-8' }) : content;
+  const blob = typeof content === 'string' ? new Blob([content], { type: safeFileName.endsWith('.json') ? 'application/json' : 'text/plain;charset=utf-8' }) : content;
   formData.append('file', blob, safeFileName);
 
   const res = await fetchRaindropApi(`${RAINDROP_API_BASE}/raindrop/file`, {

@@ -4,7 +4,7 @@ import { isPanelUrl } from "./floatingPanels";
 import { matchAnyUrlPattern, isValidUrlPattern } from "./customCodeUtils";
 export const SIDE_PANEL_RULES_KEY = "arcable_side_panel_rules";
 export const PANEL_LAYOUTS_KEY = "arcable_panel_layouts";
-/** Explicit allowlist prevents local layout or imported fields entering sync. */
+/** Explicit allowlist keeps panel definitions separate from local layouts. */
 export function normalizeSidePanelRules(value: unknown): SidePanelRule[] {
   const seen = new Set<string>();
   return !Array.isArray(value)

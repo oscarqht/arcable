@@ -1,6 +1,6 @@
 export * from './format';
 export * from './raindropClient';
-export * from './raindropSync';
+export * from './configSnapshot';
 export * from './customCodeUtils';
 export * from './floatingPanels';
 export * from './sidePanels';

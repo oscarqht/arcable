@@ -17,7 +17,8 @@ import {
   getRaindropTokenExpiresAt,
   RaindropReauthenticationError,
 } from "@arcable/shared/utils";
-import { initRuleSync, syncRules, queueRuleOperations } from "./ruleSync";
+import { applyRuleOperations } from "./localRules";
+import { saveConfiguration, loadConfiguration, retireRuleSync } from "./configSnapshots";
 import {
   createRaindropSessionManager,
   refreshExtensionRaindropToken,
@@ -316,7 +317,6 @@ async function processOAuthTokens(tokens: {
   };
 
   await saveAuthState(authState);
-  void syncRules().catch(() => {});
   return authState;
 }
 
@@ -525,7 +525,6 @@ browser.runtime.onMessage.addListener(
         };
 
         await saveAuthState(authState);
-        void syncRules().catch(() => {});
         return { success: true, data: authState };
       }
 
@@ -629,20 +628,28 @@ browser.runtime.onMessage.addListener(
         return { success: true };
       }
 
-      case "ARCABLE_SYNC_RULES": {
+      case "ARCABLE_SAVE_SNAPSHOT":
+      case "ARCABLE_LOAD_SNAPSHOT": {
+        if (!sender.url?.startsWith(browser.runtime.getURL("")))
+          return { success: false, error: "Only extension pages can manage snapshots" };
         try {
-          return { success: true, data: await syncRules() };
+          const auth = await getStoredAuthState();
+          if (!auth.isAuthenticated || !auth.accessToken)
+            throw new Error("Not authenticated with Raindrop");
+          if (message.type === "ARCABLE_LOAD_SNAPSHOT" && rawMessage.confirmOverwrite !== true)
+            throw new Error("Replacing local configuration requires confirmation");
+          const data = message.type === "ARCABLE_SAVE_SNAPSHOT"
+            ? await saveConfiguration(auth.accessToken)
+            : await loadConfiguration(auth.accessToken);
+          return { success: true, data };
         } catch (error) {
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : "Sync failed",
-          };
+          return { success: false, error: error instanceof Error ? error.message : "Snapshot operation failed" };
         }
       }
-      case "ARCABLE_QUEUE_RULE_OPS": {
+      case "ARCABLE_APPLY_RULE_OPS": {
         if (!sender.url?.startsWith(browser.runtime.getURL("")))
           return { success: false };
-        await queueRuleOperations(rawMessage.operations);
+        await applyRuleOperations(rawMessage.operations);
         return { success: true };
       }
       default:
@@ -681,15 +688,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (changes.arcable_raindrop_auth) {
       const newAuth = changes.arcable_raindrop_auth.newValue as
         RaindropAuthState | undefined;
-      const oldAuth = changes.arcable_raindrop_auth.oldValue as
-        RaindropAuthState | undefined;
       cachedAuthState = newAuth || { isAuthenticated: false };
-      if (
-        cachedAuthState.isAuthenticated &&
-        (!oldAuth || !oldAuth.isAuthenticated)
-      ) {
-        void syncRules().catch(() => {});
-      }
     } else if (changes.arcable_token || changes.arcable_config) {
       void getStoredAuthState(true).then((auth) => {});
     }
@@ -720,15 +719,5 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-browser.runtime.onInstalled.addListener(() => {
-  console.log("[Arcable Extension] Extension installed/updated.");
-  void syncRules().catch(() => {});
-});
-
-if (browser.runtime?.onStartup) {
-  browser.runtime.onStartup.addListener(() => {
-    void syncRules().catch(() => {});
-  });
-}
-
-initRuleSync(getStoredAuthState);
+// Clear the old periodic sync and local outbox on upgrade/startup. Never read legacy remote rules.
+void retireRuleSync().catch(console.warn);

@@ -46,17 +46,10 @@ export function SidePanelsTab({
   };
   const publish = async (operation: RuleOperation) => {
     const res = (await browser.runtime.sendMessage({
-      type: "ARCABLE_QUEUE_RULE_OPS",
+      type: "ARCABLE_APPLY_RULE_OPS",
       operations: [operation],
     })) as { success: boolean };
     if (!res.success) throw new Error("Could not save panel rule");
-    void browser.runtime
-      .sendMessage({ type: "ARCABLE_SYNC_RULES" })
-      .then((r: any) => {
-        if (!r.success && r.error !== "Not authenticated with Raindrop")
-          showToast(`Saved locally. Sync failed: ${r.error}`);
-      })
-      .catch(() => {});
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -118,7 +111,7 @@ export function SidePanelsTab({
     <div style={{ display: "grid", gap: 24 }}>
       <Card
         title="Side Panels"
-        subtitle="Show panels automatically on matching websites. Definitions sync; position, size, and docking stay in this browser."
+        subtitle="Show panels automatically on matching websites. Rules and layouts are saved locally. Back up or restore them manually in Raindrop."
       >
         {!rules.length && <p>No side panels yet. Add your first rule below.</p>}
         {rules.map((rule) => (

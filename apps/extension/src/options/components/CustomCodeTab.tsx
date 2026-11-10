@@ -43,16 +43,6 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const patternInputRef = useRef<HTMLInputElement>(null);
 
-  const syncToRaindropImmediately = async () => {
-    try {
-      return (await browser.runtime.sendMessage({
-        type: "ARCABLE_SYNC_RULES",
-      })) as { success: boolean; error?: string };
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
-  };
-
   useEffect(() => {
     loadRules();
 
@@ -94,9 +84,9 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
     }
   };
 
-  const queueOperations = async (ops: RuleOperation | RuleOperation[]) => {
+  const applyOperations = async (ops: RuleOperation | RuleOperation[]) => {
     const response = (await browser.runtime.sendMessage({
-      type: "ARCABLE_QUEUE_RULE_OPS",
+      type: "ARCABLE_APPLY_RULE_OPS",
       operations: Array.isArray(ops) ? ops : [ops],
     })) as { success: boolean };
     if (!response.success) throw new Error("Could not save rule changes");
@@ -170,7 +160,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
           return r;
         });
         await saveRulesToStorage(updated);
-        await queueOperations(
+        await applyOperations(
           createRuleOperation("CUSTOM_CODE_UPDATE", editingRuleId, {
             pattern: cleanPattern,
             css: cssCode,
@@ -188,36 +178,12 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
           updatedAt: now,
         };
         await saveRulesToStorage([...rules, newRule]);
-        await queueOperations(
+        await applyOperations(
           createRuleOperation("CUSTOM_CODE_CREATE", newRule.id, newRule),
         );
       }
 
-      // Immediately save the changes to Raindrop
-      const syncRes = await syncToRaindropImmediately();
-      if (syncRes?.success) {
-        showToast(
-          editingRuleId
-            ? "Rule updated and saved to Raindrop!"
-            : "Rule created and saved to Raindrop!",
-          "success",
-        );
-      } else if (
-        syncRes?.error &&
-        syncRes.error !== "Not authenticated with Raindrop"
-      ) {
-        showToast(
-          `Rule saved locally, but Raindrop sync failed: ${syncRes.error}`,
-          "warning",
-        );
-      } else {
-        showToast(
-          editingRuleId
-            ? "Rule updated successfully!"
-            : "Rule created successfully!",
-          "success",
-        );
-      }
+      showToast(editingRuleId ? "Rule updated locally!" : "Rule created locally!", "success");
 
       resetForm();
     } catch (err: any) {
@@ -253,10 +219,9 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       updatedAt: now,
     };
     await saveRulesToStorage([...rules, dup]);
-    await queueOperations(
+    await applyOperations(
       createRuleOperation("CUSTOM_CODE_CREATE", dup.id, dup),
     );
-    void syncToRaindropImmediately();
     showToast("Rule duplicated!", "info");
   };
 
@@ -265,13 +230,12 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       const remaining = rules.filter((r) => r.id !== rule.id);
       if (editingRuleId === rule.id) resetForm();
       await saveRulesToStorage(remaining);
-      await queueOperations(
+      await applyOperations(
         createRuleOperation("CUSTOM_CODE_DELETE", rule.id, {
           raindropId: rule.raindropId,
         }),
       );
-      void syncToRaindropImmediately();
-      showToast("Rule deleted", "info");
+        showToast("Rule deleted", "info");
     }
   };
 
@@ -283,12 +247,11 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       return r;
     });
     await saveRulesToStorage(updated);
-    await queueOperations(
+    await applyOperations(
       createRuleOperation("CUSTOM_CODE_UPDATE", rule.id, {
         disabled: !rule.disabled,
       }),
     );
-    void syncToRaindropImmediately();
   };
 
   const handleExportSingleRule = (rule: CustomCodeRule) => {
@@ -351,7 +314,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
 
         let customAdded = 0;
         let runAdded = 0;
-        const opsToQueue: RuleOperation[] = [];
+        const operations: RuleOperation[] = [];
 
         if (extractedCustom.length > 0) {
           const { merged, addedCount, addedRules } = mergeCustomCodeRules(
@@ -361,7 +324,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
           await saveRulesToStorage(merged);
           customAdded = addedCount;
           for (const r of addedRules) {
-            opsToQueue.push(createRuleOperation("CUSTOM_CODE_CREATE", r.id, r));
+            operations.push(createRuleOperation("CUSTOM_CODE_CREATE", r.id, r));
           }
         }
 
@@ -377,13 +340,12 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
           await browser.storage.local.set({ runCodeInPageRules: mergedRun });
           runAdded = addedCount;
           for (const r of addedRules) {
-            opsToQueue.push(createRuleOperation("RUN_CODE_CREATE", r.id, r));
+            operations.push(createRuleOperation("RUN_CODE_CREATE", r.id, r));
           }
         }
 
-        if (opsToQueue.length > 0) {
-          await queueOperations(opsToQueue);
-          void syncToRaindropImmediately();
+        if (operations.length > 0) {
+          await applyOperations(operations);
         }
 
         if (customAdded > 0 && runAdded > 0) {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Arcable",
   "version": "0.204.0",
-  "description": "URL-matched side panels, custom scripts, and browser tools with Raindrop.io sync",
+  "description": "URL-matched side panels, custom scripts, and browser tools with manual Raindrop.io backups",
   "permissions": [
     "storage",
     "activeTab",
