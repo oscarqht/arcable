@@ -23,6 +23,8 @@ export const App: React.FC = () => {
   const [auth, setAuth] = useState<RaindropAuthState>({
     isAuthenticated: false,
   });
+  const visibleTabs = auth.isAuthenticated ? tabs : tabs.filter(([id]) => id === "sync");
+  const visibleTab = auth.isAuthenticated ? activeTab : "sync";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState("");
@@ -81,6 +83,9 @@ export const App: React.FC = () => {
     return () => browser.storage.onChanged.removeListener(changed);
   }, []);
   useEffect(() => {
+    if (!loading && !auth.isAuthenticated) setActiveTab("sync");
+  }, [auth.isAuthenticated, loading]);
+  useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(""), 4500);
       return () => clearTimeout(timer);
@@ -131,7 +136,7 @@ export const App: React.FC = () => {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <main style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 24px" }}>
+      <main style={{ maxWidth: 1100, margin: "0 auto", padding: auth.isAuthenticated ? "40px 24px 180px" : "40px 24px" }}>
         <header>
           <h1>
             Arcable{" "}
@@ -148,31 +153,19 @@ export const App: React.FC = () => {
             margin: "28px 0",
           }}
         >
-          {tabs.map(([id, title]) => (
+          {visibleTabs.map(([id, title]) => (
             <Button
               key={id}
-              variant={id === activeTab ? "primary" : "outline"}
+              variant={id === visibleTab ? "primary" : "outline"}
               onClick={() => setActiveTab(id)}
-              aria-current={id === activeTab ? "page" : undefined}
+              aria-current={id === visibleTab ? "page" : undefined}
             >
               {title}
             </Button>
           ))}
         </nav>
-        {toast && (
-          <p
-            role="status"
-            style={{
-              padding: 12,
-              border: "1px solid #0284c7",
-              borderRadius: 8,
-            }}
-          >
-            {toast}
-          </p>
-        )}
-        {activeTab === "side-panels" && <SidePanelsTab showToast={showToast} />}
-        {activeTab === "custom-code" && (
+        {visibleTab === "side-panels" && <SidePanelsTab showToast={showToast} />}
+        {visibleTab === "custom-code" && (
           <CustomCodeTab
             isDark={isDark}
             showToast={showToast}
@@ -180,10 +173,10 @@ export const App: React.FC = () => {
             onClearInitialPattern={() => setPrefill(undefined)}
           />
         )}
-        {activeTab === "run-code" && (
+        {visibleTab === "run-code" && (
           <RunCodeTab isDark={isDark} showToast={showToast} />
         )}
-        {activeTab === "sync" && (
+        {visibleTab === "sync" && (
           <Card
             title="Raindrop"
             subtitle="Manually save or restore one JSON snapshot of all rules, general settings, and panel layouts. Nothing syncs automatically."
@@ -202,19 +195,11 @@ export const App: React.FC = () => {
               <>
                 <p>Saving uploads a dated JSON file, verifies it, then removes older Arcable snapshots. Legacy rule records and unrelated bookmarks are left untouched.</p>
                 <p>Loading replaces local configuration, including deleted rules and layouts. Authentication is never included.</p>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <Button onClick={() => manageSnapshot("save")} disabled={snapshotAction !== null || loading}>
-                    {snapshotAction === "save" ? "Saving…" : "Save to Raindrop"}
-                  </Button>
-                  <Button variant="outline" onClick={() => manageSnapshot("load")} disabled={snapshotAction !== null || loading}>
-                    {snapshotAction === "load" ? "Loading…" : "Load latest"}
-                  </Button>
-                </div>
               </>
             )}
           </Card>
         )}
-        {activeTab === "about" && (
+        {visibleTab === "about" && (
           <Card
             title="Settings & About"
             subtitle={`Arcable ${browser.runtime.getManifest().version}`}
@@ -260,6 +245,62 @@ export const App: React.FC = () => {
           </Card>
         )}
       </main>
+      {(auth.isAuthenticated || toast) && (
+        <div
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            zIndex: 100,
+            maxWidth: "calc(100vw - 32px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 8,
+          }}
+        >
+          {toast && (
+            <p
+              role="status"
+              style={{
+                padding: 12,
+                border: "1px solid #0284c7",
+                borderRadius: 8,
+                margin: 0,
+                maxWidth: 420,
+                overflowWrap: "anywhere",
+                background: isDark ? "#1e293b" : "#ffffff",
+              }}
+            >
+              {toast}
+            </p>
+          )}
+          {auth.isAuthenticated && (
+            <div
+              role="group"
+              aria-label="Raindrop snapshot actions"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+                gap: 8,
+                padding: 12,
+                borderRadius: 10,
+                border: `1px solid ${isDark ? "#334155" : "#e2e8f0"}`,
+                background: isDark ? "#1e293b" : "#ffffff",
+                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
+              }}
+            >
+              <Button onClick={() => manageSnapshot("save")} disabled={snapshotAction !== null || loading}>
+                {snapshotAction === "save" ? "Saving…" : "Save to Raindrop"}
+              </Button>
+              <Button variant="outline" onClick={() => manageSnapshot("load")} disabled={snapshotAction !== null || loading}>
+                {snapshotAction === "load" ? "Loading…" : "Load latest"}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
