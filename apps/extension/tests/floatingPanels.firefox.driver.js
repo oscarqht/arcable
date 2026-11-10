@@ -36,20 +36,8 @@ async function until(fn, label) {
     width: 600,
     height: 440,
   };
-  const note = () =>
-    "<!--arcable-floating-panels:" + JSON.stringify([panel]) + "-->";
-  await browser.storage.local.set({
-    arcable_workspace_snapshot: {
-      version: 1,
-      spaces: [],
-      groups: [],
-      folders: [],
-      tabs: [
-        { id: "fixture", url: base + "/host", title: "Fixture", note: note() },
-      ],
-    },
-    arcable_pending_ops: [],
-  });
+  panel.patterns = [base + '/host'];
+  await browser.storage.local.set({ arcable_side_panel_rules: [panel], arcable_panel_layouts: { embed: { x: 80, y: 80, width: 600, height: 440 } } });
   const tab = await browser.tabs.create({ url: base + "/host", active: false });
   await until(
     async () =>
@@ -57,11 +45,6 @@ async function until(fn, label) {
       (await browser.tabs.get(tab.id)).url === base + "/host",
     "host loaded",
   );
-  await browser.runtime.sendMessage({
-    type: "ARCABLE_PANELS_BIND",
-    browserTabId: tab.id,
-    itemId: "fixture",
-  });
   const inspect = async () => [...documents.values()];
   const loaded = await until(
     async () =>
@@ -117,16 +100,7 @@ async function until(fn, label) {
   }
   documents.clear();
   panel = { ...panel, url: base + "/blocked" };
-  await browser.runtime.sendMessage({
-    type: "ARCABLE_PANELS_LOCAL_EDIT",
-    operation: {
-      type: "TAB_UPDATE",
-      id: crypto.randomUUID(),
-      entityId: "fixture",
-      timestamp: Date.now(),
-      payload: { note: note() },
-    },
-  });
+  await browser.storage.local.set({ arcable_side_panel_rules: [panel] });
   await until(
     async () =>
       (await inspect()).find(

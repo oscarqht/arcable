@@ -8,7 +8,7 @@ import TestRenderer from 'react-test-renderer';
 const storage: Record<string, any> = {};
 const listeners = new Set<(changes: any, area: string) => void>();
 const browser = {
-  runtime: { id: 'test', sendMessage: async () => ({ success: false, error: 'Not authenticated with Raindrop' }), getURL: (path: string) => path },
+  runtime: { id: 'test', sendMessage: async (message: any) => { if (message.type === 'ARCABLE_QUEUE_RULE_OPS') { storage.arcable_rule_ops = [...(storage.arcable_rule_ops || []), ...message.operations]; return { success: true }; } return { success: false, error: 'Not authenticated with Raindrop' }; }, getURL: (path: string) => path },
   storage: {
     local: {
       get: async (key: string) => ({ [key]: structuredClone(storage[key]) }),
@@ -77,8 +77,8 @@ async function main() {
   await save();
   assert.equal(storage.customCodeRules[0].css, css);
   assert.equal(storage.customCodeRules[0].js, js);
-  assert.equal(storage.arcable_pending_ops[0].payload.css, css);
-  assert.equal(storage.arcable_pending_ops[0].payload.js, js);
+  assert.equal(storage.arcable_rule_ops[0].payload.css, css);
+  assert.equal(storage.arcable_rule_ops[0].payload.js, js);
   await act(async () => view!.unmount());
   await mount();
   await click('Edit');
@@ -94,8 +94,8 @@ async function main() {
   await save();
   assert.equal(storage.customCodeRules[0].css, editedCss);
   assert.equal(storage.customCodeRules[0].js, editedJs);
-  assert.equal(storage.arcable_pending_ops.at(-1).payload.css, editedCss);
-  assert.equal(storage.arcable_pending_ops.at(-1).payload.js, editedJs);
+  assert.equal(storage.arcable_rule_ops.at(-1).payload.css, editedCss);
+  assert.equal(storage.arcable_rule_ops.at(-1).payload.js, editedJs);
 
   await pattern('https://js.example/*');
   await type(js);

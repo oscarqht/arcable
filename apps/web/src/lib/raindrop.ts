@@ -10,13 +10,6 @@ import {
   fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
-  syncWorkspaceWithRaindrop,
-  fetchRaindropWorkspace,
-  fetchRaindropDevices,
-  renameRaindropDevice,
-  deleteRaindropDevice,
-  deleteAllOtherRaindropDevices,
-  getDefaultDeviceName,
   searchRaindrop,
 } from '@arcable/shared/utils';
 
@@ -85,13 +78,6 @@ export {
   fetchRaindropItem,
   getRaindropOAuthUrl,
   exchangeRaindropOAuthCode,
-  syncWorkspaceWithRaindrop,
-  fetchRaindropWorkspace,
-  fetchRaindropDevices,
-  renameRaindropDevice,
-  deleteRaindropDevice,
-  deleteAllOtherRaindropDevices,
-  getDefaultDeviceName,
   searchRaindrop,
 };
 

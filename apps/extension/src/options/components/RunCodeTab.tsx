@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, Button, Badge } from '@arcable/shared/components';
-import { RunCodeRule, WorkspaceOperation } from '@arcable/shared/types';
+import React, { useState, useEffect, useRef } from "react";
+import { Card, Button, Badge } from "@arcable/shared/components";
+import { RunCodeRule, RuleOperation } from "@arcable/shared/types";
 import {
   isValidUrlPattern,
   normalizeRunCodeRules,
@@ -10,35 +10,40 @@ import {
   extractRulesFromNenyaExport,
   mergeCustomCodeRules,
   mergeRunCodeRules,
-  createWorkspaceOperation,
-} from '@arcable/shared/utils';
+  createRuleOperation,
+} from "@arcable/shared/utils";
 import {
   browser,
   checkUserScriptsAvailable,
   openExtensionDetailsPage,
   isBrave,
   isFirefox,
-} from '../../utils/browser';
-import { CodeEditor } from './CodeEditor';
+} from "../../utils/browser";
+import { CodeEditor } from "./CodeEditor";
 
-const STORAGE_KEY = 'runCodeInPageRules';
+const STORAGE_KEY = "runCodeInPageRules";
 
 interface RunCodeTabProps {
   isDark: boolean;
-  showToast: (msg: string, type?: 'info' | 'success' | 'warning') => void;
+  showToast: (msg: string, type?: "info" | "success" | "warning") => void;
 }
 
-export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => {
+export const RunCodeTab: React.FC<RunCodeTabProps> = ({
+  isDark,
+  showToast,
+}) => {
   const [rules, setRules] = useState<RunCodeRule[]>([]);
-  const [titleInput, setTitleInput] = useState('');
+  const [titleInput, setTitleInput] = useState("");
   const [patterns, setPatterns] = useState<string[]>([]);
-  const [newPatternInput, setNewPatternInput] = useState('');
-  const [code, setCode] = useState('');
+  const [newPatternInput, setNewPatternInput] = useState("");
+  const [code, setCode] = useState("");
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [patternError, setPatternError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [userScriptsAvailable, setUserScriptsAvailable] = useState<boolean | null>(null);
+  const [userScriptsAvailable, setUserScriptsAvailable] = useState<
+    boolean | null
+  >(null);
   const [isCheckingScripts, setIsCheckingScripts] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,14 +56,20 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       setUserScriptsAvailable(available);
       if (!silent) {
         if (available) {
-          showToast('"Allow user scripts" is enabled! You can now run code in pages.', 'success');
+          showToast(
+            '"Allow user scripts" is enabled! You can now run code in pages.',
+            "success",
+          );
         } else {
-          showToast('"Allow user scripts" is still disabled in browser settings.', 'warning');
+          showToast(
+            '"Allow user scripts" is still disabled in browser settings.',
+            "warning",
+          );
         }
       }
       return available;
     } catch (err) {
-      console.warn('[RunCodeTab] Failed to verify user scripts status:', err);
+      console.warn("[RunCodeTab] Failed to verify user scripts status:", err);
       setUserScriptsAvailable(false);
       return false;
     } finally {
@@ -68,29 +79,11 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
   const syncToRaindropImmediately = async () => {
     try {
-      let localState: any = undefined;
-      if (typeof window !== 'undefined') {
-        const stored = window.localStorage.getItem('arcable_workspace_data');
-        if (stored) {
-          try {
-            localState = JSON.parse(stored);
-          } catch {}
-        }
-      }
-      const res = (await browser.runtime.sendMessage({
-        type: 'RAINDROP_SYNC_WORKSPACE',
-        payload: { localState },
-      })) as { success: boolean; data?: { latestSnapshot?: any }; latestSnapshot?: any; error?: string };
-      const latestSnapshot = res?.data?.latestSnapshot || (res as any)?.latestSnapshot;
-      if (res?.success && latestSnapshot && typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(latestSnapshot));
-        } catch {}
-      }
-      return res;
-    } catch (err: any) {
-      console.warn('[RunCodeTab] Immediate Raindrop sync error:', err);
-      return { success: false, error: err?.message };
+      return (await browser.runtime.sendMessage({
+        type: "ARCABLE_SYNC_RULES",
+      })) as { success: boolean; error?: string };
+    } catch (error) {
+      return { success: false, error: String(error) };
     }
   };
 
@@ -99,8 +92,10 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     void verifyUserScripts(true);
 
     const handleStorageChange = (changes: any, area: string) => {
-      if (area === 'local' && changes[STORAGE_KEY]) {
-        const { rules: normalized } = normalizeRunCodeRules(changes[STORAGE_KEY].newValue);
+      if (area === "local" && changes[STORAGE_KEY]) {
+        const { rules: normalized } = normalizeRunCodeRules(
+          changes[STORAGE_KEY].newValue,
+        );
         setRules(normalized);
       }
     };
@@ -109,38 +104,35 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     const handleWindowFocus = () => {
       void verifyUserScripts(true);
     };
-    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener("focus", handleWindowFocus);
 
     return () => {
       browser.storage.onChanged.removeListener(handleStorageChange);
-      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener("focus", handleWindowFocus);
     };
   }, []);
 
   const loadRules = async () => {
     try {
       const stored = await browser.storage.local.get(STORAGE_KEY);
-      const { rules: normalized, mutated } = normalizeRunCodeRules(stored[STORAGE_KEY]);
+      const { rules: normalized, mutated } = normalizeRunCodeRules(
+        stored[STORAGE_KEY],
+      );
       setRules(normalized);
       if (mutated) {
         await browser.storage.local.set({ [STORAGE_KEY]: normalized });
       }
     } catch (err) {
-      console.warn('[RunCodeTab] Failed to load rules:', err);
+      console.warn("[RunCodeTab] Failed to load rules:", err);
     }
   };
 
-  const queueOperations = async (ops: WorkspaceOperation | WorkspaceOperation[]) => {
-    const opList = Array.isArray(ops) ? ops : [ops];
-    if (opList.length === 0) return;
-    try {
-      const stored = await browser.storage.local.get('arcable_pending_ops');
-      const cur = (stored.arcable_pending_ops as WorkspaceOperation[]) || [];
-      cur.push(...opList);
-      await browser.storage.local.set({ arcable_pending_ops: cur });
-    } catch (e) {
-      console.warn('[RunCodeTab] Failed to queue operations:', e);
-    }
+  const queueOperations = async (ops: RuleOperation | RuleOperation[]) => {
+    const response = (await browser.runtime.sendMessage({
+      type: "ARCABLE_QUEUE_RULE_OPS",
+      operations: Array.isArray(ops) ? ops : [ops],
+    })) as { success: boolean };
+    if (!response.success) throw new Error("Could not save rule changes");
   };
 
   const saveRulesToStorage = async (newRules: RunCodeRule[]) => {
@@ -154,14 +146,16 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     if (!clean) return;
 
     if (!isValidUrlPattern(clean)) {
-      setPatternError('Invalid URL pattern. Example: *://*.github.com/* or https://example.com/*');
+      setPatternError(
+        "Invalid URL pattern. Example: *://*.github.com/* or https://example.com/*",
+      );
       return;
     }
 
     if (!patterns.includes(clean)) {
       setPatterns([...patterns, clean]);
     }
-    setNewPatternInput('');
+    setNewPatternInput("");
     setPatternError(null);
   };
 
@@ -171,10 +165,10 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
   const resetForm = () => {
     setEditingRuleId(null);
-    setTitleInput('');
+    setTitleInput("");
     setPatterns([]);
-    setNewPatternInput('');
-    setCode('');
+    setNewPatternInput("");
+    setCode("");
     setPatternError(null);
     setFormError(null);
   };
@@ -185,12 +179,12 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
     const cleanTitle = titleInput.trim();
     if (!cleanTitle) {
-      setFormError('Please enter a snippet title.');
+      setFormError("Please enter a snippet title.");
       return;
     }
 
     if (!code.trim()) {
-      setFormError('Please provide JavaScript code.');
+      setFormError("Please provide JavaScript code.");
       return;
     }
 
@@ -213,15 +207,15 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
         });
         await saveRulesToStorage(updated);
         await queueOperations(
-          createWorkspaceOperation('RUN_CODE_UPDATE', editingRuleId, {
+          createRuleOperation("RUN_CODE_UPDATE", editingRuleId, {
             title: cleanTitle,
             patterns,
             code,
-          })
+          }),
         );
       } else {
         const newRule: RunCodeRule = {
-          id: generateRuleId('run'),
+          id: generateRuleId("run"),
           title: cleanTitle,
           patterns,
           code,
@@ -230,22 +224,34 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
           updatedAt: now,
         };
         await saveRulesToStorage([...rules, newRule]);
-        await queueOperations(createWorkspaceOperation('RUN_CODE_CREATE', newRule.id, newRule));
+        await queueOperations(
+          createRuleOperation("RUN_CODE_CREATE", newRule.id, newRule),
+        );
       }
 
       // Immediately save the changes to Raindrop
       const syncRes = await syncToRaindropImmediately();
       if (syncRes?.success) {
         showToast(
-          editingRuleId ? 'Snippet updated and saved to Raindrop!' : 'Snippet created and saved to Raindrop!',
-          'success'
+          editingRuleId
+            ? "Snippet updated and saved to Raindrop!"
+            : "Snippet created and saved to Raindrop!",
+          "success",
         );
-      } else if (syncRes?.error && syncRes.error !== 'Not authenticated with Raindrop') {
-        showToast(`Snippet saved locally, but Raindrop sync failed: ${syncRes.error}`, 'warning');
+      } else if (
+        syncRes?.error &&
+        syncRes.error !== "Not authenticated with Raindrop"
+      ) {
+        showToast(
+          `Snippet saved locally, but Raindrop sync failed: ${syncRes.error}`,
+          "warning",
+        );
       } else {
         showToast(
-          editingRuleId ? 'Snippet updated successfully!' : 'Snippet created successfully!',
-          'success'
+          editingRuleId
+            ? "Snippet updated successfully!"
+            : "Snippet created successfully!",
+          "success",
         );
       }
 
@@ -261,10 +267,10 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     setEditingRuleId(rule.id);
     setTitleInput(rule.title);
     setPatterns([...rule.patterns]);
-    setCode(rule.code || '');
+    setCode(rule.code || "");
     setPatternError(null);
     setFormError(null);
-    titleInputRef.current?.scrollIntoView({ behavior: 'smooth' });
+    titleInputRef.current?.scrollIntoView({ behavior: "smooth" });
     titleInputRef.current?.focus();
   };
 
@@ -272,35 +278,29 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     const now = new Date().toISOString();
     const dup: RunCodeRule = {
       ...rule,
-      id: generateRuleId('run'),
+      id: generateRuleId("run"),
       title: `${rule.title} (Copy)`,
       createdAt: now,
       updatedAt: now,
     };
     await saveRulesToStorage([...rules, dup]);
-    await queueOperations(createWorkspaceOperation('RUN_CODE_CREATE', dup.id, dup));
+    await queueOperations(createRuleOperation("RUN_CODE_CREATE", dup.id, dup));
     void syncToRaindropImmediately();
-    showToast('Snippet duplicated!', 'info');
+    showToast("Snippet duplicated!", "info");
   };
 
   const handleDeleteRule = async (rule: RunCodeRule) => {
     if (window.confirm(`Delete snippet "${rule.title}"?`)) {
       const remaining = rules.filter((r) => r.id !== rule.id);
       if (editingRuleId === rule.id) resetForm();
-      if (typeof window !== 'undefined') {
-        try {
-          const raw = window.localStorage.getItem('arcable_workspace_data');
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            parsed.runCodeInPageRules = remaining;
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(parsed));
-          }
-        } catch {}
-      }
       await saveRulesToStorage(remaining);
-      await queueOperations(createWorkspaceOperation('RUN_CODE_DELETE', rule.id, { raindropId: rule.raindropId }));
+      await queueOperations(
+        createRuleOperation("RUN_CODE_DELETE", rule.id, {
+          raindropId: rule.raindropId,
+        }),
+      );
       void syncToRaindropImmediately();
-      showToast('Snippet deleted', 'info');
+      showToast("Snippet deleted", "info");
     }
   };
 
@@ -313,40 +313,47 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     });
     await saveRulesToStorage(updated);
     await queueOperations(
-      createWorkspaceOperation('RUN_CODE_UPDATE', rule.id, { disabled: !rule.disabled })
+      createRuleOperation("RUN_CODE_UPDATE", rule.id, {
+        disabled: !rule.disabled,
+      }),
     );
     void syncToRaindropImmediately();
   };
 
   const handleExportSingleRule = (rule: RunCodeRule) => {
     try {
-      const clean = rule.title.replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 30) || 'snippet';
+      const clean =
+        rule.title.replace(/[^a-zA-Z0-9.-]/g, "_").slice(0, 30) || "snippet";
       const fileName = `arcable-run-${clean}.json`;
-      const blob = new Blob([JSON.stringify(rule, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(rule, null, 2)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
-      showToast(`Exported ${fileName}`, 'success');
+      showToast(`Exported ${fileName}`, "success");
     } catch {
-      showToast('Export failed', 'warning');
+      showToast("Export failed", "warning");
     }
   };
 
   const handleExportAllRules = () => {
     try {
-      const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(rules, null, 2)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `arcable-run-code-rules-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('All snippets exported', 'success');
+      showToast("All snippets exported", "success");
     } catch {
-      showToast('Export failed', 'warning');
+      showToast("Export failed", "warning");
     }
   };
 
@@ -357,38 +364,49 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = String(event.target?.result || '');
+        const text = String(event.target?.result || "");
         const parsed = JSON.parse(text);
 
         const { customCodeRules: extractedCustom, runCodeRules: extractedRun } =
           extractRulesFromNenyaExport(parsed);
 
         if (extractedCustom.length === 0 && extractedRun.length === 0) {
-          showToast('No valid Run Code snippets or Custom JS/CSS rules found in JSON file.', 'warning');
+          showToast(
+            "No valid Run Code snippets or Custom JS/CSS rules found in JSON file.",
+            "warning",
+          );
           return;
         }
 
         let runAdded = 0;
         let customAdded = 0;
-        const opsToQueue: WorkspaceOperation[] = [];
+        const opsToQueue: RuleOperation[] = [];
 
         if (extractedRun.length > 0) {
-          const { merged, addedCount, addedRules } = mergeRunCodeRules(rules, extractedRun);
+          const { merged, addedCount, addedRules } = mergeRunCodeRules(
+            rules,
+            extractedRun,
+          );
           await saveRulesToStorage(merged);
           runAdded = addedCount;
           for (const r of addedRules) {
-            opsToQueue.push(createWorkspaceOperation('RUN_CODE_CREATE', r.id, r));
+            opsToQueue.push(createRuleOperation("RUN_CODE_CREATE", r.id, r));
           }
         }
 
         if (extractedCustom.length > 0) {
-          const storedCustom = await browser.storage.local.get('customCodeRules');
+          const storedCustom =
+            await browser.storage.local.get("customCodeRules");
           const existingCustom = (storedCustom.customCodeRules as any[]) || [];
-          const { merged: mergedCustom, addedCount, addedRules } = mergeCustomCodeRules(existingCustom, extractedCustom);
+          const {
+            merged: mergedCustom,
+            addedCount,
+            addedRules,
+          } = mergeCustomCodeRules(existingCustom, extractedCustom);
           await browser.storage.local.set({ customCodeRules: mergedCustom });
           customAdded = addedCount;
           for (const r of addedRules) {
-            opsToQueue.push(createWorkspaceOperation('CUSTOM_CODE_CREATE', r.id, r));
+            opsToQueue.push(createRuleOperation("CUSTOM_CODE_CREATE", r.id, r));
           }
         }
 
@@ -398,28 +416,37 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
         }
 
         if (runAdded > 0 && customAdded > 0) {
-          showToast(`Imported ${runAdded} Run Code snippet(s) & ${customAdded} Custom JS/CSS rule(s) from Nenya export!`, 'success');
+          showToast(
+            `Imported ${runAdded} Run Code snippet(s) & ${customAdded} Custom JS/CSS rule(s) from Nenya export!`,
+            "success",
+          );
         } else if (runAdded > 0) {
-          showToast(`Imported ${runAdded} Run Code snippet(s) successfully!`, 'success');
+          showToast(
+            `Imported ${runAdded} Run Code snippet(s) successfully!`,
+            "success",
+          );
         } else {
-          showToast(`Imported ${customAdded} Custom JS/CSS rule(s) successfully!`, 'success');
+          showToast(
+            `Imported ${customAdded} Custom JS/CSS rule(s) successfully!`,
+            "success",
+          );
         }
       } catch (err: any) {
-        showToast(`Import failed: ${err.message}`, 'warning');
+        showToast(`Import failed: ${err.message}`, "warning");
       } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
     reader.readAsText(file);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <input
         type="file"
         ref={fileInputRef}
         accept=".json"
-        style={{ display: 'none' }}
+        style={{ display: "none" }}
         onChange={handleImportFile}
       />
 
@@ -427,66 +454,88 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       {userScriptsAvailable === false && (
         <div
           style={{
-            borderRadius: '16px',
-            padding: '20px 24px',
-            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.1)' : '#fffbeb',
-            border: isDark ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid #fde68a',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '14px',
+            borderRadius: "16px",
+            padding: "20px 24px",
+            backgroundColor: isDark ? "rgba(245, 158, 11, 0.1)" : "#fffbeb",
+            border: isDark
+              ? "1px solid rgba(245, 158, 11, 0.35)"
+              : "1px solid #fde68a",
+            display: "flex",
+            flexDirection: "column",
+            gap: "14px",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-            <span style={{ fontSize: '24px', lineHeight: 1 }}>⚠️</span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div
+            style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}
+          >
+            <span style={{ fontSize: "24px", lineHeight: 1 }}>⚠️</span>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+            >
               <div
                 style={{
-                  fontSize: '15px',
+                  fontSize: "15px",
                   fontWeight: 700,
-                  color: isDark ? '#fef3c7' : '#92400e',
+                  color: isDark ? "#fef3c7" : "#92400e",
                 }}
               >
                 "Allow user scripts" must be enabled to run code in page
               </div>
               <div
                 style={{
-                  fontSize: '13px',
-                  lineHeight: '1.5',
-                  color: isDark ? '#d1d5db' : '#78350f',
+                  fontSize: "13px",
+                  lineHeight: "1.5",
+                  color: isDark ? "#d1d5db" : "#78350f",
                 }}
               >
                 {isBrave()
-                  ? 'Brave requires user scripts to be explicitly enabled for this extension before running custom JavaScript in pages.'
+                  ? "Brave requires user scripts to be explicitly enabled for this extension before running custom JavaScript in pages."
                   : isFirefox()
-                  ? 'Firefox requires explicit permission to execute custom user scripts in web pages.'
-                  : 'Chrome requires user scripts permission (or Developer Mode on older versions) before executing custom JavaScript in pages.'}
+                    ? "Firefox requires explicit permission to execute custom user scripts in web pages."
+                    : "Chrome requires user scripts permission (or Developer Mode on older versions) before executing custom JavaScript in pages."}
               </div>
             </div>
           </div>
 
           <div
             style={{
-              padding: '12px 16px',
-              borderRadius: '10px',
-              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.7)',
-              border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid #fcd34d',
-              fontSize: '13px',
-              lineHeight: '1.6',
-              color: isDark ? '#f1f5f9' : '#1e293b',
+              padding: "12px 16px",
+              borderRadius: "10px",
+              backgroundColor: isDark
+                ? "rgba(0, 0, 0, 0.25)"
+                : "rgba(255, 255, 255, 0.7)",
+              border: isDark
+                ? "1px solid rgba(255, 255, 255, 0.08)"
+                : "1px solid #fcd34d",
+              fontSize: "13px",
+              lineHeight: "1.6",
+              color: isDark ? "#f1f5f9" : "#1e293b",
             }}
           >
-            <div style={{ fontWeight: 600, marginBottom: '6px' }}>Quick 2-Step Setup:</div>
-            <ol style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ fontWeight: 600, marginBottom: "6px" }}>
+              Quick 2-Step Setup:
+            </div>
+            <ol
+              style={{
+                margin: 0,
+                paddingLeft: "20px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+              }}
+            >
               <li>
-                Click <strong>"Open Extension Settings"</strong> below to view Arcable's extension details.
+                Click <strong>"Open Extension Settings"</strong> below to view
+                Arcable's extension details.
               </li>
               <li>
-                Scroll down to locate the <strong>"Allow user scripts"</strong> toggle and turn it <strong>ON</strong>.
+                Scroll down to locate the <strong>"Allow user scripts"</strong>{" "}
+                toggle and turn it <strong>ON</strong>.
               </li>
             </ol>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <Button
               size="sm"
               variant="primary"
@@ -494,8 +543,8 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                 await openExtensionDetailsPage();
               }}
               style={{
-                backgroundColor: '#d97706',
-                borderColor: '#d97706',
+                backgroundColor: "#d97706",
+                borderColor: "#d97706",
                 fontWeight: 600,
               }}
             >
@@ -507,7 +556,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
               onClick={() => verifyUserScripts(false)}
               disabled={isCheckingScripts}
             >
-              {isCheckingScripts ? 'Checking...' : '🔄 Recheck Status'}
+              {isCheckingScripts ? "Checking..." : "🔄 Recheck Status"}
             </Button>
           </div>
         </div>
@@ -515,19 +564,24 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
 
       {/* Editor Card */}
       <Card
-        title={editingRuleId ? 'Edit Run Code Snippet' : 'Create Run Code Snippet'}
+        title={
+          editingRuleId ? "Edit Run Code Snippet" : "Create Run Code Snippet"
+        }
         subtitle="Author manual snippets callable via right-click context menu, popup, or sidepanel with arcableFetch cross-origin capability."
-        style={{ borderRadius: '16px', padding: '24px' }}
+        style={{ borderRadius: "16px", padding: "24px" }}
       >
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+        >
           {formError && (
             <div
               style={{
-                padding: '10px 14px',
-                borderRadius: '8px',
-                backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fee2e2',
-                color: isDark ? '#fca5a5' : '#b91c1c',
-                fontSize: '13.5px',
+                padding: "10px 14px",
+                borderRadius: "8px",
+                backgroundColor: isDark ? "rgba(239, 68, 68, 0.15)" : "#fee2e2",
+                color: isDark ? "#fca5a5" : "#b91c1c",
+                fontSize: "13.5px",
                 fontWeight: 500,
               }}
             >
@@ -536,8 +590,14 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
           )}
 
           {/* Title Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <label
+              style={{
+                fontSize: "13.5px",
+                fontWeight: 600,
+                color: isDark ? "#f8fafc" : "#0f172a",
+              }}
+            >
               Snippet Title
             </label>
             <input
@@ -547,29 +607,35 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
               onChange={(e) => setTitleInput(e.target.value)}
               placeholder="e.g. Extract Page Links, Unblur Elements, Raindrop Quick Sync..."
               style={{
-                padding: '10px 14px',
-                borderRadius: '8px',
-                fontSize: '13.5px',
-                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                color: isDark ? '#f8fafc' : '#0f172a',
-                outline: 'none',
+                padding: "10px 14px",
+                borderRadius: "8px",
+                fontSize: "13.5px",
+                border: isDark ? "1px solid #334155" : "1px solid #cbd5e1",
+                backgroundColor: isDark ? "#0f172a" : "#ffffff",
+                color: isDark ? "#f8fafc" : "#0f172a",
+                outline: "none",
               }}
             />
           </div>
 
           {/* URL Patterns Tags Manager */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <label
+              style={{
+                fontSize: "13.5px",
+                fontWeight: 600,
+                color: isDark ? "#f8fafc" : "#0f172a",
+              }}
+            >
               Target URL Patterns
             </label>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: "flex", gap: "8px" }}>
               <input
                 type="text"
                 value={newPatternInput}
                 onChange={(e) => setNewPatternInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === "Enter") {
                     e.preventDefault();
                     handleAddPattern();
                   }
@@ -577,44 +643,58 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                 placeholder="e.g. *://*.github.com/* (leave empty / add *://*/* for all sites)"
                 style={{
                   flex: 1,
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
+                  padding: "9px 12px",
+                  borderRadius: "8px",
+                  fontSize: "13px",
                   fontFamily: 'Consolas, Monaco, "Courier New", monospace',
                   border: patternError
-                    ? '1px solid #ef4444'
+                    ? "1px solid #ef4444"
                     : isDark
-                    ? '1px solid #334155'
-                    : '1px solid #cbd5e1',
-                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                  color: isDark ? '#f8fafc' : '#0f172a',
-                  outline: 'none',
+                      ? "1px solid #334155"
+                      : "1px solid #cbd5e1",
+                  backgroundColor: isDark ? "#0f172a" : "#ffffff",
+                  color: isDark ? "#f8fafc" : "#0f172a",
+                  outline: "none",
                 }}
               />
-              <Button type="button" variant="outline" size="sm" onClick={handleAddPattern}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddPattern}
+              >
                 + Add Pattern
               </Button>
             </div>
             {patternError && (
-              <span style={{ fontSize: '12px', color: '#ef4444' }}>{patternError}</span>
+              <span style={{ fontSize: "12px", color: "#ef4444" }}>
+                {patternError}
+              </span>
             )}
 
             {/* Pattern Chips */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '26px' }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                minHeight: "26px",
+              }}
+            >
               {patterns.map((p, idx) => (
                 <div
                   key={idx}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    backgroundColor: isDark ? '#1e293b' : '#e2e8f0',
-                    border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
-                    fontSize: '12px',
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "4px 10px",
+                    borderRadius: "16px",
+                    backgroundColor: isDark ? "#1e293b" : "#e2e8f0",
+                    border: isDark ? "1px solid #334155" : "1px solid #cbd5e1",
+                    fontSize: "12px",
                     fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                    color: isDark ? '#38bdf8' : '#0369a1',
+                    color: isDark ? "#38bdf8" : "#0369a1",
                   }}
                 >
                   <span>{p}</span>
@@ -622,12 +702,12 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                     type="button"
                     onClick={() => handleRemovePattern(idx)}
                     style={{
-                      border: 'none',
-                      background: 'none',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      color: isDark ? '#94a3b8' : '#64748b',
-                      padding: '0 2px',
+                      border: "none",
+                      background: "none",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      color: isDark ? "#94a3b8" : "#64748b",
+                      padding: "0 2px",
                     }}
                   >
                     ✕
@@ -635,7 +715,13 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                 </div>
               ))}
               {patterns.length === 0 && (
-                <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: isDark ? "#94a3b8" : "#64748b",
+                    fontStyle: "italic",
+                  }}
+                >
                   No pattern restrictions (runs on all web pages).
                 </span>
               )}
@@ -643,12 +729,29 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
           </div>
 
           {/* JavaScript Editor */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <label
+                style={{
+                  fontSize: "13.5px",
+                  fontWeight: 600,
+                  color: isDark ? "#f8fafc" : "#0f172a",
+                }}
+              >
                 JavaScript Code (Supports async/await & arcableFetch)
               </label>
-              <span style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: isDark ? "#94a3b8" : "#64748b",
+                }}
+              >
                 CSP-exempt USER_SCRIPT context
               </span>
             </div>
@@ -662,12 +765,28 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
           </div>
 
           {/* Form Actions */}
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '4px' }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              marginTop: "4px",
+            }}
+          >
             <Button variant="primary" type="submit" disabled={isSaving}>
-              {isSaving ? 'Saving...' : editingRuleId ? 'Save Changes' : 'Add Snippet'}
+              {isSaving
+                ? "Saving..."
+                : editingRuleId
+                  ? "Save Changes"
+                  : "Add Snippet"}
             </Button>
             {editingRuleId && (
-              <Button variant="outline" type="button" onClick={resetForm} disabled={isSaving}>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={resetForm}
+                disabled={isSaving}
+              >
                 Cancel Edit
               </Button>
             )}
@@ -679,22 +798,25 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
       <Card
         title={`Saved Snippets (${rules.length})`}
         subtitle="Snippets are executed via right-click context menu and popup."
-        style={{ borderRadius: '16px', padding: '24px' }}
+        style={{ borderRadius: "16px", padding: "24px" }}
       >
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px',
-            flexWrap: 'wrap',
-            gap: '8px',
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "16px",
+            flexWrap: "wrap",
+            gap: "8px",
           }}
         >
-          <span style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
-            Snippets run automatically via right-click context menu or matching URL patterns.
+          <span
+            style={{ fontSize: "13px", color: isDark ? "#94a3b8" : "#64748b" }}
+          >
+            Snippets run automatically via right-click context menu or matching
+            URL patterns.
           </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: "flex", gap: "8px" }}>
             <Button
               variant="outline"
               size="sm"
@@ -717,46 +839,79 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
         {rules.length === 0 ? (
           <div
             style={{
-              padding: '36px 20px',
-              textAlign: 'center',
-              borderRadius: '12px',
-              border: isDark ? '1px dashed #334155' : '1px dashed #cbd5e1',
-              color: isDark ? '#94a3b8' : '#64748b',
-              fontSize: '14px',
+              padding: "36px 20px",
+              textAlign: "center",
+              borderRadius: "12px",
+              border: isDark ? "1px dashed #334155" : "1px dashed #cbd5e1",
+              color: isDark ? "#94a3b8" : "#64748b",
+              fontSize: "14px",
             }}
           >
-            No manual snippets created yet. Add a snippet above to run custom scripts with 1 click!
+            No manual snippets created yet. Add a snippet above to run custom
+            scripts with 1 click!
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
             {rules.map((rule) => {
               return (
                 <div
                   key={rule.id}
                   style={{
-                    padding: '14px 18px',
-                    borderRadius: '12px',
-                    backgroundColor: isDark ? '#151e2e' : '#f8fafc',
-                    border: isDark ? '1px solid #243247' : '1px solid #e2e8f0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
+                    padding: "14px 18px",
+                    borderRadius: "12px",
+                    backgroundColor: isDark ? "#151e2e" : "#f8fafc",
+                    border: isDark ? "1px solid #243247" : "1px solid #e2e8f0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "12px",
                     opacity: rule.disabled ? 0.55 : 1,
-                    transition: 'opacity 0.2s ease',
+                    transition: "opacity 0.2s ease",
                   }}
                 >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '240px', flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      minWidth: "240px",
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: 600,
+                          color: isDark ? "#f8fafc" : "#0f172a",
+                        }}
+                      >
                         {rule.title}
                       </span>
-                      {rule.disabled && <Badge variant="default">Disabled</Badge>}
+                      {rule.disabled && (
+                        <Badge variant="default">Disabled</Badge>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <div
+                      style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+                    >
                       {rule.patterns.length === 0 ? (
-                        <span style={{ fontSize: '11.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                        <span
+                          style={{
+                            fontSize: "11.5px",
+                            color: isDark ? "#94a3b8" : "#64748b",
+                          }}
+                        >
                           All sites
                         </span>
                       ) : (
@@ -764,12 +919,13 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                           <span
                             key={i}
                             style={{
-                              fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                              fontSize: '11px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: isDark ? '#1e293b' : '#e2e8f0',
-                              color: isDark ? '#94a3b8' : '#475569',
+                              fontFamily:
+                                'Consolas, Monaco, "Courier New", monospace',
+                              fontSize: "11px",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              backgroundColor: isDark ? "#1e293b" : "#e2e8f0",
+                              color: isDark ? "#94a3b8" : "#475569",
                             }}
                           >
                             {p}
@@ -778,23 +934,37 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                       )}
                     </div>
                     {rule.updatedAt && (
-                      <span style={{ fontSize: '11.5px', color: isDark ? '#64748b' : '#94a3b8' }}>
-                        Updated: {formatDate(new Date(rule.updatedAt).getTime())}
+                      <span
+                        style={{
+                          fontSize: "11.5px",
+                          color: isDark ? "#64748b" : "#94a3b8",
+                        }}
+                      >
+                        Updated:{" "}
+                        {formatDate(new Date(rule.updatedAt).getTime())}
                       </span>
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
                     {/* Toggle Switch */}
                     <label
-                      title={rule.disabled ? 'Enable snippet' : 'Disable snippet'}
+                      title={
+                        rule.disabled ? "Enable snippet" : "Disable snippet"
+                      }
                       style={{
-                        position: 'relative',
-                        display: 'inline-block',
-                        width: '38px',
-                        height: '22px',
-                        cursor: 'pointer',
-                        marginRight: '6px',
+                        position: "relative",
+                        display: "inline-block",
+                        width: "38px",
+                        height: "22px",
+                        cursor: "pointer",
+                        marginRight: "6px",
                       }}
                     >
                       <input
@@ -805,29 +975,33 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                       />
                       <span
                         style={{
-                          position: 'absolute',
-                          cursor: 'pointer',
+                          position: "absolute",
+                          cursor: "pointer",
                           top: 0,
                           left: 0,
                           right: 0,
                           bottom: 0,
-                          backgroundColor: !rule.disabled ? '#10b981' : isDark ? '#334155' : '#cbd5e1',
-                          borderRadius: '34px',
-                          transition: '0.2s',
+                          backgroundColor: !rule.disabled
+                            ? "#10b981"
+                            : isDark
+                              ? "#334155"
+                              : "#cbd5e1",
+                          borderRadius: "34px",
+                          transition: "0.2s",
                         }}
                       >
                         <span
                           style={{
-                            position: 'absolute',
+                            position: "absolute",
                             content: '""',
-                            height: '16px',
-                            width: '16px',
-                            left: !rule.disabled ? '18px' : '3px',
-                            bottom: '3px',
-                            backgroundColor: '#ffffff',
-                            borderRadius: '50%',
-                            transition: '0.2s',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                            height: "16px",
+                            width: "16px",
+                            left: !rule.disabled ? "18px" : "3px",
+                            bottom: "3px",
+                            backgroundColor: "#ffffff",
+                            borderRadius: "50%",
+                            transition: "0.2s",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
                           }}
                         />
                       </span>
@@ -858,7 +1032,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({ isDark, showToast }) => 
                       variant="outline"
                       size="sm"
                       onClick={() => handleDeleteRule(rule)}
-                      style={{ color: '#ef4444' }}
+                      style={{ color: "#ef4444" }}
                     >
                       Delete
                     </Button>

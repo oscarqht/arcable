@@ -11,6 +11,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    open: '/src/popup/index.html',
+    open: '/src/options/index.html',
   },
 });

@@ -6,31 +6,5 @@ export * from './RaindropAuthCard';
 
 
 export * from './Icons';
-export * from './workspace/SpaceModal';
-export * from './workspace/ZenThemePicker';
-export * from './workspace/ConvertSpaceModal';
-export * from './workspace/FolderModal';
-export * from './workspace/TabModal';
-export * from './workspace/TabRow';
-export * from './workspace/FolderItem';
-export * from './workspace/PinnedTabsShelf';
-export * from './workspace/FavouriteTabsShelf';
-export * from './workspace/FavouriteGroupPopover';
-export * from './workspace/WidgetsSection';
-export * from './workspace/SpaceCard';
-export * from './workspace/WorkspaceManager';
 export * from './EmojiPicker';
-export * from './workspace/TabFavicon';
-export * from './workspace/DeviceModal';
-export * from './workspace/ActionDropdown';
-export * from './workspace/TmpTabRow';
-export * from './workspace/TmpTabsList';
-export * from './workspace/RaindropSearchInput';
-export * from './workspace/AudibleTabsWidget';
-export * from './workspace/BackupRestoreModal';
-export * from './workspace/ConfirmModal';
-export * from './workspace/VirtualSyncedSpaceCard';
-export * from './workspace/CopyLinkButton';
-export * from './workspace/SettingsModal';
-export * from './workspace/widgets';
 

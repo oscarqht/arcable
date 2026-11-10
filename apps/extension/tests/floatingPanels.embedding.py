@@ -13,15 +13,44 @@ ext = targets[0]['url'].split('/')[2]
 settings = new_tab('chrome-extension://' + ext + '/options/index.html')
 wait_for_load()
 print('Initial screenshot:', capture_screenshot('/tmp/arcable-embedding-initial.png'))
-# Seed a saved item, then use the production binding/message/overlay path.
-panel = dict(id='embed', title='Compatibility test', url=base+'/redirect', x=80, y=80, width=600, height=440)
-note = '<!--arcable-floating-panels:' + json.dumps([panel], separators=(',', ':')) + '-->'
-print(js('(async()=>{await chrome.storage.local.set({arcable_workspace_snapshot:{version:1,spaces:[],groups:[],folders:[],tabs:[{id:"fixture",url:'+json.dumps(base+'/host')+',title:"Fixture",note:'+json.dumps(note)+'}]},arcable_pending_ops:[]});return true})()'))
+until(lambda: js('Boolean(document.querySelector("form textarea"))'), 'Options form hydration')
+# Exercise the visible Options form through real pointer and text input events.
+cdp('Emulation.setDeviceMetricsOverride', width=1280, height=1000, deviceScaleFactor=1, mobile=False)
+def center(selector):
+    return js('(()=>{const e=document.querySelector('+json.dumps(selector)+');e.scrollIntoView({block:"center"});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()')
+def fill(selector, value):
+    rect=center(selector)
+    click_at_xy(rect['x'], rect['y'])
+    js('document.querySelector('+json.dumps(selector)+').select()')
+    cdp('Input.insertText', text=value)
+def button_text(text):
+    return js('(()=>{const e=Array.from(document.querySelectorAll("button")).find(e=>e.textContent==='+json.dumps(text)+');e.scrollIntoView({block:"center"});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()')
+def click_button(text):
+    rect=button_text(text)
+    click_at_xy(rect['x'],rect['y'])
+fill('form input:not([type])', 'UI-created panel')
+fill('form input[type="url"]', base+'/blocked')
+fill('form textarea', base+'/host')
+click_button('Save panel')
+until(lambda: 'UI-created panel' in js('document.querySelector("article")?.innerText || ""'), 'Options creation')
+click_button('Edit')
+fill('form input:not([type])', 'Edited panel')
+click_button('Save panel')
+until(lambda: 'Edited panel' in js('document.querySelector("article")?.innerText || ""'), 'Options editing')
+rect=center('article input[type="checkbox"]')
+click_at_xy(rect['x'],rect['y'])
+until(lambda: js('!document.querySelector("article input").checked'), 'Options disable')
+click_at_xy(rect['x'],rect['y'])
+until(lambda: js('document.querySelector("article input").checked'), 'Options enable')
+js('window.confirm=()=>true')
+click_button('Remove')
+until(lambda: js('!document.querySelector("article")'), 'Options removal')
+print('Options create/edit/enable/disable/remove verified through the visible UI.')
+# Configure a URL rule through production storage; matching no longer needs tab bindings.
+panel = dict(id='embed', title='Compatibility test', url=base+'/redirect', patterns=[base+'/host'])
+print(js('(async()=>{await chrome.storage.local.set({arcable_side_panel_rules:'+json.dumps([panel])+',arcable_panel_layouts:{embed:{x:80,y:80,width:600,height:440}}});return true})()'))
 host = new_tab(base+'/host')
 wait_for_load()
-switch_tab(settings)
-print(js('(async()=>{const tabs=await chrome.tabs.query({});const tab=tabs.find(t=>t.url==='+json.dumps(base+'/host')+');return chrome.runtime.sendMessage({type:"ARCABLE_PANELS_BIND",browserTabId:tab.id,itemId:"fixture"})})()'))
-switch_tab(host)
 cdp('Emulation.setDeviceMetricsOverride', width=1280, height=900, deviceScaleFactor=1, mobile=False)
 def remote_targets(url):
     targets = cdp('Target.getTargets')['targetInfos']
@@ -73,7 +102,7 @@ rect = call(helper, 'function(){const r=this.getBoundingClientRect();return {x:r
 click_at_xy(rect['x'], rect['y'])
 guide = find_node('DIV', 'class', 'login-help')
 assert call(guide, 'function(){return !this.hidden}')
-assert call(find_node('SELECT', 'aria-label', 'Login help browser'), 'function(){return this.value}') == 'brave'
+assert call(find_node('SELECT', 'aria-label', 'Login help browser'), 'function(){return this.value}') == ('brave' if 'Brave' in os.environ.get('CHROME_BIN', '') else 'chrome')
 for name, expected in [('brave','Allow all cookies'), ('chrome','Third-party cookies'), ('firefox','Enhanced Tracking Protection')]:
     chooser = find_node('SELECT', 'aria-label', 'Login help browser')
     call(chooser, 'function(){this.value='+json.dumps(name)+';this.dispatchEvent(new Event("change"))}')
@@ -123,10 +152,18 @@ switch_tab(settings)
 frames = js('(async()=>{const tabs=await chrome.tabs.query({});return chrome.webNavigation.getAllFrames({tabId:tabs.find(t=>t.url==='+json.dumps(base+'/host')+').id})})()')
 assert any(f['parentFrameId']==0 and f['url']==base+'/blocked' and f['errorOccurred'] for f in frames)
 assert any(f['url']==base+'/nested' and f['errorOccurred'] for f in frames)
+# SPA URL changes remove and restore matching overlays without reloading the host.
+switch_tab(host)
+js('history.pushState({}, "", "/unmatched")')
+until(lambda: not any(n['nodeName']=='SECTION' for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root'])), 'SPA exit')
+js('history.pushState({}, "", "/host")')
+until(lambda: any(n['nodeName']=='SECTION' for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root'])), 'SPA re-entry')
+print('Real SPA navigation removes and restores URL-matched panels.')
+switch_tab(settings)
 # Saved panel source changes reuse the overlay and load a new wrapper document.
+prior_remote_ids = {t['targetId'] for t in remote_targets(base+'/blocked')}
 panel['url'] = os.environ.get('ARCABLE_TEST_URL', base+'/blocked')
-note = '<!--arcable-floating-panels:' + json.dumps([panel], separators=(',', ':')) + '-->'
-js('chrome.runtime.sendMessage({type:"ARCABLE_PANELS_LOCAL_EDIT",operation:{type:"TAB_UPDATE",id:crypto.randomUUID(),entityId:"fixture",timestamp:Date.now(),payload:{note:'+json.dumps(note)+'}}})')
+js('chrome.storage.local.set({arcable_side_panel_rules:'+json.dumps([panel])+'})')
 switch_tab(host)
 if os.environ.get('ARCABLE_TEST_URL'):
     gitlab = until(lambda: [t for t in cdp('Target.getTargets')['targetInfos'] if t['type']=='iframe' and t['url'].startswith('https://git.insea.io/users/sign_in')], 'GitLab sign-in redirect')[0]['targetId']
@@ -135,10 +172,40 @@ if os.environ.get('ARCABLE_TEST_URL'):
     capture_screenshot('/tmp/arcable-embedding-gitlab.png')
     print('Reported GitLab URL displays its sign-in page inside the floating panel (no login attempted).')
 else:
-    reloaded = until(lambda: remote_targets(base+'/blocked'), 'updated panel URL')[0]['targetId']
-    until(lambda: 'Blocked page loaded' in js('document.body.innerText', target_id=reloaded), 'updated content')
+    def updated_document():
+        for target in remote_targets(base+'/blocked'):
+            if target['targetId'] in prior_remote_ids:
+                continue
+            try:
+                if 'Blocked page loaded' in js('document.body.innerText', target_id=target['targetId']):
+                    return target['targetId']
+            except RuntimeError:
+                pass  # A frame can detach during the source-change navigation.
+        return None
+    until(updated_document, 'updated panel URL and content')
 print('Same-URL ordinary frames retain blocking; nested frame protection and saved URL updates verified.')
 
+# Reload remounts the panel from persistent browser-local geometry.
+switch_tab(settings)
+saved_layout = js('chrome.storage.local.get("arcable_panel_layouts").then(s=>s.arcable_panel_layouts.embed)')
+switch_tab(host)
+js('location.reload()')
+wait_for_load()
+until(lambda: any(n['nodeName']=='SECTION' for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root'])), 'panel after reload')
+restored = call(find_node('SECTION'), 'function(){return this.getBoundingClientRect().toJSON()}')
+assert restored['x']==saved_layout['x'] and restored['width']==saved_layout['width'] and restored['height']==saved_layout['height']
+# A second matching definition appears alongside the first and can be disabled independently.
+switch_tab(settings)
+second_panel = dict(panel, id='second', title='Second panel')
+js('chrome.storage.local.set({arcable_side_panel_rules:'+json.dumps([panel,second_panel])+'})')
+switch_tab(host)
+until(lambda: sum(n['nodeName']=='SECTION' for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root']))==2, 'two matching panels')
+switch_tab(settings)
+second_panel['disabled'] = True
+js('chrome.storage.local.set({arcable_side_panel_rules:'+json.dumps([panel,second_panel])+'})')
+switch_tab(host)
+until(lambda: sum(n['nodeName']=='SECTION' for n in nodes(cdp('DOM.getDocument', depth=-1, pierce=True)['root']))==1, 'disable second panel')
+print('Reload persistence and multiple matching panels verified in the installed extension.')
 switch_tab(settings)
 js('(async()=>{const tabs=await chrome.tabs.query({});await chrome.tabs.remove(tabs.find(t=>t.url==='+json.dumps(base+'/host')+').id);return true})()')
 until(lambda: js('chrome.declarativeNetRequest.getSessionRules().then(r=>r.length===0)'), 'rule cleanup after tab closure')
