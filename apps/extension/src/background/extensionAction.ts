@@ -27,7 +27,7 @@ async function saveCurrentTab(tab: browser.Tabs.Tab, getAuth: () => Promise<Rain
   let bookmarkCreated = false;
   try {
     if (!tab.url || !isPanelUrl(tab.url)) {
-      status('!', 'Only HTTP(S) pages can be saved', '#ef4444');
+      status('❌', 'Only HTTP(S) pages can be saved', '#ef4444');
       return;
     }
     status('…', 'Saving page and screenshot to Unsorted…', '#0284c7');
@@ -35,7 +35,7 @@ async function saveCurrentTab(tab: browser.Tabs.Tab, getAuth: () => Promise<Rain
     if (!auth.isAuthenticated || !auth.accessToken) {
       await browser.storage.local.set({ optionsInitialTab: 'sync' });
       await openOptionsPageSafely();
-      status('!', 'Connect Raindrop in Options, then click again to save this page', '#ef4444');
+      status('❌', 'Connect Raindrop in Options, then click again to save this page', '#ef4444');
       return;
     }
     // captureVisibleTab captures the active tab in the window. Do not pair an
@@ -55,9 +55,9 @@ async function saveCurrentTab(tab: browser.Tabs.Tab, getAuth: () => Promise<Rain
     bookmarkCreated = true;
     const cover = await uploadRaindropCover(auth.accessToken, bookmark._id, screenshot);
     if (!cover) throw new Error('Screenshot cover upload failed');
-    status('✓', 'Saved to Unsorted with screenshot cover', '#10b981');
+    status('✅', 'Saved to Unsorted with screenshot cover', '#10b981');
   } catch {
-    status('!', bookmarkCreated
+    status('❌', bookmarkCreated
       ? 'Page saved to Unsorted, but screenshot cover upload failed'
       : 'Could not save page with screenshot. Check Raindrop connection and keep the tab active.', '#ef4444');
   } finally {
