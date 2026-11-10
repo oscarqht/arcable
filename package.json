@@ -2,7 +2,7 @@
   "name": "arcable-monorepo",
   "version": "0.199.0",
   "private": true,
-  "description": "Arcable monorepo containing Chrome/Firefox extension, Next.js webapp, and shared libraries.",
+  "description": "URL-matched side panels, custom scripts, and browser tools with Raindrop.io rule sync",
   "scripts": {
     "dev": "pnpm --filter @arcable/web run dev",
     "dev:web": "pnpm --filter @arcable/web run dev",
@@ -19,7 +19,8 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "lint": "pnpm -r --if-present run lint",
     "clean": "pnpm -r --if-present run clean",
-    "version:bump:minor": "node scripts/bump-version.mjs"
+    "version:bump:minor": "node scripts/bump-version.mjs",
+    "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/ruleSync.test.mjs && node apps/extension/tests/extensionAction.test.mjs"
   },
   "keywords": [
     "arcable",

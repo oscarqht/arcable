@@ -29,7 +29,7 @@ async function buildTarget(browserName) {
   }
   fs.mkdirSync(outDir, { recursive: true });
 
-  // 1. Build Popup & Options HTML
+  // 1. Build Options and embedded panel document
   await build({
     configFile: false,
     root: __dirname,
@@ -49,9 +49,7 @@ async function buildTarget(browserName) {
       rollupOptions: {
         input: {
           panel: resolve(__dirname, 'src/panel/index.html'),
-          popup: resolve(__dirname, 'src/popup/index.html'),
           options: resolve(__dirname, 'src/options/index.html'),
-          sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
         },
         output: {
           entryFileNames: 'assets/[name].js',
@@ -221,32 +219,21 @@ async function buildTarget(browserName) {
     fs.cpSync(iconsSrc, iconsDest, { recursive: true });
   }
 
-  // If Vite outputs src/popup/index.html, ensure it matches manifest path (popup/index.html)
-  if (fs.existsSync(resolve(outDir, 'src/popup/index.html'))) {
-    fs.mkdirSync(resolve(outDir, 'popup'), { recursive: true });
-    let popupHtml = fs.readFileSync(resolve(outDir, 'src/popup/index.html'), 'utf-8');
-    // Fix relative paths from 2 levels deep (src/popup) to 1 level deep (popup)
-    popupHtml = popupHtml.replace(/\.\.\/\.\.\//g, '../');
-    fs.writeFileSync(resolve(outDir, 'popup/index.html'), popupHtml);
-  }
+  // Normalize the Options HTML path to match the manifest
+
   if (fs.existsSync(resolve(outDir, 'src/options/index.html'))) {
     fs.mkdirSync(resolve(outDir, 'options'), { recursive: true });
     let optionsHtml = fs.readFileSync(resolve(outDir, 'src/options/index.html'), 'utf-8');
     optionsHtml = optionsHtml.replace(/\.\.\/\.\.\//g, '../');
     fs.writeFileSync(resolve(outDir, 'options/index.html'), optionsHtml);
   }
-  if (fs.existsSync(resolve(outDir, 'src/sidepanel/index.html'))) {
-    fs.mkdirSync(resolve(outDir, 'sidepanel'), { recursive: true });
-    let sidepanelHtml = fs.readFileSync(resolve(outDir, 'src/sidepanel/index.html'), 'utf-8');
-    sidepanelHtml = sidepanelHtml.replace(/\.\.\/\.\.\//g, '../');
-    fs.writeFileSync(resolve(outDir, 'sidepanel/index.html'), sidepanelHtml);
-  }
+
 
   fs.mkdirSync(resolve(outDir, 'panel'), { recursive: true });
   const panelHtml = fs.readFileSync(resolve(outDir, 'src/panel/index.html'), 'utf-8');
   fs.writeFileSync(resolve(outDir, 'panel/index.html'), panelHtml.replace(/\.\.\/\.\.\//g, '../'));
 
-  // 4.6. Copy libs directory (Ace editor, workers, tldraw)
+  // 4.6. Copy libs directory (Ace editor and workers)
   const libsSrc = resolve(__dirname, 'src/libs');
   const libsDest = resolve(outDir, 'libs');
   if (fs.existsSync(libsSrc)) {

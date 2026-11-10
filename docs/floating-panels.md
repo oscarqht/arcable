@@ -1,25 +1,24 @@
-# Floating panels
+# URL-matched side panels
 
-In the tab editor, use **Floating panels** to add a URL and optional title. For a tab with URL variants, select which variant owns the panels. Save the tab, then open it from the Chrome or Firefox extension.
+Open Options from the extension toolbar icon and choose **Side Panels**. Each rule has a title, an HTTP(S) panel URL, an enabled switch, and one or more matching URL patterns (one per line). Matching uses exactly the Custom JS & CSS URLPattern, wildcard, and substring semantics. Every enabled matching panel appears on normal page loads and SPA history or fragment navigation.
 
-- Drag the panel header to move it. Drag its lower-right handle to resize it.
-- Select a docking edge in the header, or drag the panel within 24 pixels of an edge. The minus button docks to the right.
-- Hover a dock chip to reveal its panel. Leaving both chip and panel hides it after 200 ms. The iframe stays mounted, retaining its document state while hidden.
-- Click a chip (or activate it with Enter/Space) to keep the panel open; activate it again to hide it. Escape hides a docked panel. Keyboard focus keeps a revealed panel available until focus leaves.
-- Focus the header and use arrow keys to move; Shift + arrow keys resize. The resize handle also accepts arrow keys.
-- Choose **Float** to undock. Remove panels in the tab editor.
-- Use **Login not working?** in the footer for browser-specific cookie guidance. The guide identifies the hosting site, selects Brave/Chrome/Firefox automatically where detectable, and lets you choose another browser. Close it with ×, the footer button, or Escape; opening help retains the embedded webpage and its state.
-- Panel pages load through an extension-owned frame so the host tab's `frame-src` policy does not block them. The extension automatically relaxes embedding headers for panel documents. Use **Open in tab** for remaining failures.
+- New panels float at 440 × 360, within the viewport. Drag the header to move or the resize handle to resize.
+- Select a docking edge in the header, or drag within 24 pixels of an edge. The minus button docks to the right.
+- Hover a dock chip to reveal its panel. Leaving both chip and panel hides it after 200 ms, keeping the iframe mounted.
+- Click a chip (or use Enter/Space) to pin it open; activate again to hide it. Escape hides a docked panel.
+- Focus the header and use arrow keys to move; Shift + arrows resize. The resize handle also accepts arrow keys.
+- Choose **Float** to undock. Edit or remove definitions in Options.
+- **Login not working?** offers browser-specific cookie guidance. **Open in tab** handles sites that cannot be embedded.
 
-Panels belong to the saved item or selected variant, bound to the specific browser tab opened through Arcable. Navigation and reload retain that selection; selecting another variant switches it. Unrelated tabs with matching URLs do not receive panels. Browser internal pages and other protected pages cannot receive extension content scripts.
+Definitions sync through the separate **Arcable rules** Raindrop collection. Only title, URL, matching patterns, enabled status, identifiers, and definition timestamps are synced for panels. Each browser profile persists one layout per panel in `browser.storage.local` under `arcable_panel_layouts`, shared by all matching tabs and URLs. Geometry, docking edge, and dock-chip position never enter cloud sync. Temporary reveal/pin state is not persisted. Other profiles initialize their own layouts.
 
-Saving panel additions or removals updates the associated browser tab immediately from the local operation queue, without waiting for Raindrop sync. Layout changes use the same workspace operation queue and Raindrop sync. Each bookmark's note contains a dedicated `arcable-floating-panels` JSON comment; variant bookmark notes are retained during hydration. User note text and other metadata remain alongside it. Local persistence and workspace backups include these notes. Dock-chip reveal/pin state is temporary; geometry and docking edge are saved. Panels are clamped to the current viewport without overwriting the saved larger layout.
+Panel rules start empty. Legacy local workspace records, old Raindrop workspace collections, and bookmarks are left untouched. Existing Custom JS & CSS and Run Code rules can be read from their legacy code collections; subsequent edits are published in the separate rules collection. Startup hydration is read-only. A separate durable rule outbox keeps offline edits and changes made during a sync. Deleted-rule tombstones prevent old code rules reappearing from legacy collections. Immutable content chunks are read back before a manifest is published so long rules cannot be silently truncated.
 
 ## Webpage compatibility
 
-The extension-owned frame requests its saved URL from the background. The background checks the browser tab binding, panel ID and binding token before enabling compatibility and returning the URL. The host page cannot supply an arbitrary target URL through the frame URL.
+The extension-owned frame requests its saved URL from the background. The background checks the current URL match, panel ID and document token before enabling compatibility and returning the URL. The host page cannot supply an arbitrary target URL through the frame URL.
 
-- **Chrome and Firefox:** session-only `declarativeNetRequest` rules remove `X-Frame-Options` and the response `Content-Security-Policy` header for HTTP(S) subframe requests initiated by this extension, only in panel-bound browser tabs. The declarative API cannot remove just the `frame-ancestors` directive, so other response CSP directives on that panel document are also removed. Meta CSP and browser security checks still apply. Rules are removed on top-level navigation, removal of all panels and tab closure, then re-established by authorized panels as needed. Firefox MV3's blocking webRequest API refuses to weaken these headers, so both browser builds use declarative rules.
+- **Chrome and Firefox:** session-only `declarativeNetRequest` rules remove `X-Frame-Options` and the response `Content-Security-Policy` header for HTTP(S) subframe requests initiated by this extension, only in browser tabs with matching panels. The declarative API cannot remove just the `frame-ancestors` directive, so other response CSP directives on that panel document are also removed. Meta CSP and browser security checks still apply. Rules are removed on top-level navigation, removal of all panels and tab closure, then re-established by authorized panels as needed. Firefox MV3's blocking webRequest API refuses to weaken these headers, so both browser builds use declarative rules.
 - Ordinary host-page iframes, nested iframes inside a panel website, top-level pages, scripts and other subresources retain their headers. The workaround does not alter cookies, CORS, certificates, or authentication.
 - Redirects are supported. The extension retries blocked in-panel GET navigations from the extension frame, with one retry until a successful document commit re-arms future visits because site-initiated navigations do not match its narrowly scoped rule. POST submissions are never automatically replayed. Some form submissions, meta CSP policies, authentication providers, cookie restrictions, protected browser pages and site-side frame-detection scripts may still require **Open in tab**. The remote document stays sandboxed against navigating the host tab; popups may escape its sandbox for login flows.
 

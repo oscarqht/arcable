@@ -8,8 +8,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Arcable - Web App',
-  description: 'Arcable web dashboard and knowledge management platform',
+  title: 'Arcable - Browser tools',
+  description: 'URL-matched side panels, custom scripts, and browser tools',
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },

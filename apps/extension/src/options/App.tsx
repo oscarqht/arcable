@@ -1,1215 +1,262 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import '../utils/raindropSession';
-import {
-  Button,
-  Badge,
-  Card,
-  RaindropAuthCard,
-  ExternalLinkIcon,
-  RefreshIcon,
-  ArchiveIcon,
-} from '@arcable/shared/components';
-import { RaindropAuthState, ExtensionResponse, SyncResult, ArcableWorkspaceData } from '@arcable/shared/types';
-import { useSystemTheme, setLocalFolderExpanded } from '@arcable/shared/hooks';
-import {
-  formatDate,
-  clearStoredPendingOperations,
-  getStoredPendingOperations,
-  removeStoredPendingOperations,
-  replayOperations,
-  resolveRaindropArchiveCollectionId,
-} from '@arcable/shared/utils';
-import { browser, isZenBrowser, getPlatformOS } from '../utils/browser';
-import { CustomCodeTab } from './components/CustomCodeTab';
-import { RunCodeTab } from './components/RunCodeTab';
-import { STORAGE_KEY_HIDE_SCROLLBARS } from '../background/hideScrollbars';
-import { STORAGE_KEY_AUTO_PIP } from '../background/autoPip';
-import { STORAGE_KEY_ZEN_ZOOM_SYNC } from '../sidepanel/zoomSync';
-import { STORAGE_KEY_ACTION_MODE, getActionMode, type ExtensionActionMode } from '../utils/actionMode';
-import packageJson from '../../package.json';
-
-const extensionVersion = browser.runtime?.getManifest?.()?.version || packageJson.version;
-
-type OptionsTab = 'sync' | 'custom-code' | 'run-code' | 'about';
-
-interface ToastInfo {
-  message: string;
-  type?: 'info' | 'success' | 'warning';
-}
-
+import React, { useState, useEffect } from "react";
+import "../utils/raindropSession";
+import { Button, Card, RaindropAuthCard } from "@arcable/shared/components";
+import type {
+  RaindropAuthState,
+  ExtensionResponse,
+} from "@arcable/shared/types";
+import { useSystemTheme } from "@arcable/shared/hooks";
+import { formatDate } from "@arcable/shared/utils";
+import browser from "webextension-polyfill";
+import { CustomCodeTab } from "./components/CustomCodeTab";
+import { RunCodeTab } from "./components/RunCodeTab";
+import { SidePanelsTab } from "./components/SidePanelsTab";
+const tabs = [
+  ["side-panels", "Side Panels"],
+  ["custom-code", "Custom JS & CSS"],
+  ["run-code", "Run Code"],
+  ["sync", "Sync & Raindrop"],
+  ["about", "Settings & About"],
+] as const;
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
-  const [activeTab, setActiveTab] = useState<OptionsTab>('sync');
-
-  // Raindrop Auth State
-  const [authState, setAuthState] = useState<RaindropAuthState>({
+  const [activeTab, setActiveTab] = useState<string>("side-panels");
+  const [auth, setAuth] = useState<RaindropAuthState>({
     isAuthenticated: false,
   });
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  // Sync state
-  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  // Toast feedback
-  const [toast, setToast] = useState<ToastInfo | null>(null);
-
-  // Custom code prefill pattern (from popup/sidepanel quick trigger)
-  const [initialCustomCodePattern, setInitialCustomCodePattern] = useState<string | undefined>(undefined);
-
-  const [hideScrollbarsEnabled, setHideScrollbarsEnabled] = useState(true);
-  const [actionMode, setActionMode] = useState<ExtensionActionMode>('sidepanel');
-
-  // Auto Picture-in-Picture state (default enabled)
-  const [autoPipEnabled, setAutoPipEnabled] = useState(true);
-
-  // Zen Browser zoom sync state (default enabled for Zen)
-  const [zenZoomSyncEnabled, setZenZoomSyncEnabled] = useState(true);
-
-  // Zen Browser state
-  const [isZen, setIsZen] = useState(false);
-  const [hasCopiedZenCommand, setHasCopiedZenCommand] = useState(false);
-  const [showManualZenCss, setShowManualZenCss] = useState(false);
-  const [detectedOS, setDetectedOS] = useState<'win' | 'mac' | 'linux' | 'other' | null>(null);
-  const [zenPlatform, setZenPlatform] = useState<'windows' | 'mac'>('mac');
-
-  const zenScriptMacCommand = 'curl -fsSL https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.sh | bash';
-  const zenScriptWindowsCommand = 'irm https://raw.githubusercontent.com/oscarqht/arcable/main/scripts/zen-hide-sidebar-header.ps1 | iex';
-  const activeZenCommand = zenPlatform === 'windows' ? zenScriptWindowsCommand : zenScriptMacCommand;
-
-  const showToast = useCallback((message: string, type: 'info' | 'success' | 'warning' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 3500);
-  }, []);
-
-  const handleCopyZenCommand = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(activeZenCommand);
-      setHasCopiedZenCommand(true);
-      showToast(`${zenPlatform === 'windows' ? 'Windows' : 'macOS / Linux'} command copied to clipboard!`, 'success');
-      setTimeout(() => {
-        setHasCopiedZenCommand(false);
-      }, 2500);
-    } catch {
-      showToast('Failed to copy command to clipboard', 'warning');
-    }
-  }, [activeZenCommand, zenPlatform, showToast]);
-
-  const handleToggleHideScrollbars = useCallback(async (enabled: boolean) => {
-    try {
-      await browser.storage.local.set({ [STORAGE_KEY_HIDE_SCROLLBARS]: enabled });
-      setHideScrollbarsEnabled(enabled);
-      showToast(enabled ? 'Scrollbars hidden on all websites' : 'Website scrollbars restored', 'info');
-    } catch {
-      showToast('Failed to update scrollbar setting', 'warning');
-    }
-  }, [showToast]);
-
-  const handleToggleAutoPip = useCallback(async (enabled: boolean) => {
-    try {
-      await browser.storage.local.set({ [STORAGE_KEY_AUTO_PIP]: enabled });
-      setAutoPipEnabled(enabled);
-      showToast(
-        enabled ? 'Auto Picture-in-Picture enabled' : 'Auto Picture-in-Picture disabled',
-        'info'
-      );
-    } catch {
-      showToast('Failed to update Auto Picture-in-Picture setting', 'warning');
-    }
-  }, [showToast]);
-
-  const handleToggleZenZoomSync = useCallback(async (enabled: boolean) => {
-    try {
-      await browser.storage.local.set({ [STORAGE_KEY_ZEN_ZOOM_SYNC]: enabled });
-      setZenZoomSyncEnabled(enabled);
-      showToast(
-        enabled ? 'Sidebar zoom synchronization enabled' : 'Sidebar zoom synchronization disabled',
-        'info'
-      );
-    } catch {
-      showToast('Failed to update zoom synchronization setting', 'warning');
-    }
-  }, [showToast]);
-
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<number>();
+  const [prefill, setPrefill] = useState<string>();
+  const [hideScrollbars, setHideScrollbars] = useState(true);
+  const [autoPip, setAutoPip] = useState(true);
+  const showToast = (message: string) => {
+    setToast(message);
+  };
+  const refreshAuth = async () => {
+    const res = (await browser.runtime.sendMessage({
+      type: "RAINDROP_GET_AUTH_STATE",
+    })) as ExtensionResponse<RaindropAuthState>;
+    if (res.data) setAuth(res.data);
+  };
   useEffect(() => {
-    void isZenBrowser().then((val) => {
-      setIsZen(val);
-    });
-
-    void getPlatformOS().then((os) => {
-      setDetectedOS(os);
-      if (os === 'win') {
-        setZenPlatform('windows');
-      } else {
-        setZenPlatform('mac');
-      }
-    });
-
-    // Check for prefill URL (e.g. from "Customize this site" action)
-    browser.storage.local.get('customCodePrefillUrl').then((res: any) => {
-      if (res.customCodePrefillUrl) {
-        setActiveTab('custom-code');
-        setInitialCustomCodePattern(res.customCodePrefillUrl);
-        void browser.storage.local.remove('customCodePrefillUrl');
-      }
-    });
-
-    // Check for requested tab (e.g. from "Run Code in Page..." action)
-    browser.storage.local.get('optionsInitialTab').then((res: any) => {
-      if (res.optionsInitialTab) {
-        setActiveTab(res.optionsInitialTab);
-        void browser.storage.local.remove('optionsInitialTab');
-      }
-    });
-
-    // 1. Load Raindrop auth state
-    fetchAuthState();
-
-    // 2. Load sync info and preferences from storage
-    browser.storage.local.get([
-      'arcable_last_synced_at',
-      STORAGE_KEY_HIDE_SCROLLBARS,
-      STORAGE_KEY_ACTION_MODE,
-      STORAGE_KEY_AUTO_PIP,
-      STORAGE_KEY_ZEN_ZOOM_SYNC,
-    ]).then((res: any) => {
-      setHideScrollbarsEnabled(res[STORAGE_KEY_HIDE_SCROLLBARS] !== false);
-      setActionMode(getActionMode(res[STORAGE_KEY_ACTION_MODE]));
-      if (res.arcable_last_synced_at) {
-        setLastSyncAt(res.arcable_last_synced_at);
-      }
-      if (res[STORAGE_KEY_AUTO_PIP] !== undefined) {
-        setAutoPipEnabled(res[STORAGE_KEY_AUTO_PIP] !== false);
-      }
-      if (res[STORAGE_KEY_ZEN_ZOOM_SYNC] !== undefined) {
-        setZenZoomSyncEnabled(res[STORAGE_KEY_ZEN_ZOOM_SYNC] !== false);
-      }
-    });
-
-    // 3. Listen to storage changes
-    const handleStorageChange = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
-      if (area === 'local') {
-        if (changes[STORAGE_KEY_ACTION_MODE]) {
-          setActionMode(getActionMode(changes[STORAGE_KEY_ACTION_MODE].newValue));
+    void refreshAuth()
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+    void browser.storage.local
+      .get([
+        "optionsInitialTab",
+        "customCodePrefillUrl",
+        "arcable_last_synced_at",
+        "arcable_hide_all_scrollbars",
+        "arcable_auto_pip",
+      ])
+      .then((s) => {
+        if (tabs.some(([id]) => id === s.optionsInitialTab))
+          setActiveTab(s.optionsInitialTab as string);
+        if (s.customCodePrefillUrl) {
+          setPrefill(s.customCodePrefillUrl as string);
+          setActiveTab("custom-code");
         }
-        if (changes[STORAGE_KEY_HIDE_SCROLLBARS]) {
-          setHideScrollbarsEnabled(changes[STORAGE_KEY_HIDE_SCROLLBARS].newValue !== false);
-        }
-        if (changes[STORAGE_KEY_AUTO_PIP]) {
-          setAutoPipEnabled(changes[STORAGE_KEY_AUTO_PIP].newValue !== false);
-        }
-        if (changes[STORAGE_KEY_ZEN_ZOOM_SYNC]) {
-          setZenZoomSyncEnabled(changes[STORAGE_KEY_ZEN_ZOOM_SYNC].newValue !== false);
-        }
-        if (changes.arcable_raindrop_auth) {
-          const newAuth = changes.arcable_raindrop_auth.newValue as RaindropAuthState | undefined;
-          if (newAuth && newAuth.isAuthenticated) {
-            setAuthState(newAuth);
-            setAuthError(null);
-          } else {
-            setAuthState({ isAuthenticated: false });
-            if (newAuth?.reauthenticationRequired) setAuthError('Your Raindrop session has expired. Please log in again.');
-          }
-        }
-        if (changes.arcable_last_synced_at) {
-          setLastSyncAt(changes.arcable_last_synced_at.newValue as number);
-        }
-        if (changes.arcable_workspace_snapshot?.newValue && typeof window !== 'undefined') {
-          // A background save can finish while another extension surface is
-          // still editing. A broadcast is not an acknowledgement of its outbox.
-          const snapshot = replayOperations(changes.arcable_workspace_snapshot.newValue as ArcableWorkspaceData, getStoredPendingOperations());
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snapshot));
-          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: snapshot }));
-        }
-      }
+        setLastSync(s.arcable_last_synced_at as number);
+        setHideScrollbars(s.arcable_hide_all_scrollbars !== false);
+        setAutoPip(s.arcable_auto_pip !== false);
+        void browser.storage.local.remove([
+          "optionsInitialTab",
+          "customCodePrefillUrl",
+        ]);
+      });
+    const changed = (changes: Record<string, any>, area: string) => {
+      if (area !== "local") return;
+      if (changes.arcable_raindrop_auth)
+        setAuth(
+          changes.arcable_raindrop_auth.newValue || { isAuthenticated: false },
+        );
+      if (changes.arcable_last_synced_at)
+        setLastSync(changes.arcable_last_synced_at.newValue);
+      if (changes.arcable_hide_all_scrollbars)
+        setHideScrollbars(
+          changes.arcable_hide_all_scrollbars.newValue !== false,
+        );
+      if (changes.arcable_auto_pip)
+        setAutoPip(changes.arcable_auto_pip.newValue !== false);
     };
-
-    browser.storage.onChanged.addListener(handleStorageChange);
-    return () => {
-      browser.storage.onChanged.removeListener(handleStorageChange);
-    };
+    browser.storage.onChanged.addListener(changed);
+    return () => browser.storage.onChanged.removeListener(changed);
   }, []);
-
-  const fetchAuthState = async () => {
-    setAuthLoading(true);
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(""), 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+  const authenticate = async (type: string, payload?: any) => {
+    setLoading(true);
+    setError(null);
     try {
       const res = (await browser.runtime.sendMessage({
-        type: 'RAINDROP_GET_AUTH_STATE',
+        type,
+        payload,
       })) as ExtensionResponse<RaindropAuthState>;
-      if (res && res.success && res.data) {
-        setAuthState(res.data);
-        if (res.data.reauthenticationRequired) setAuthError('Your Raindrop session has expired. Please log in again.');
-      } else {
-        setAuthState({ isAuthenticated: false });
-      }
+      if (!res.success) throw new Error(res.error || "Authentication failed");
+      await refreshAuth();
     } catch (e) {
-      console.warn('Error fetching Raindrop auth state in options:', e);
+      setError(String(e));
     } finally {
-      setAuthLoading(false);
+      setLoading(false);
     }
   };
-
-  const handleLoginWithToken = async (token: string) => {
-    setAuthError(null);
-    setAuthLoading(true);
+  const sync = async () => {
+    setSyncing(true);
     try {
       const res = (await browser.runtime.sendMessage({
-        type: 'RAINDROP_LOGIN_TOKEN',
-        payload: { token },
-      })) as ExtensionResponse<RaindropAuthState>;
-      if (res && res.success && res.data) {
-        setAuthState(res.data);
-        showToast('Connected to Raindrop.io successfully!', 'success');
-        void browser.runtime.sendMessage({ type: 'RAINDROP_FETCH_WORKSPACE', payload: { collapseFolders: true } }).then((fetchRes: any) => {
-          if (fetchRes?.success && fetchRes.data && typeof window !== 'undefined') {
-            clearStoredPendingOperations();
-            const folders = (fetchRes.data.folders || []).map((f: any) => {
-              setLocalFolderExpanded(f.id, false);
-              return { ...f, isExpanded: false };
-            });
-            const collapsedData = { ...fetchRes.data, folders };
-            window.localStorage.setItem('arcable_workspace_data', JSON.stringify(collapsedData));
-            window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: collapsedData }));
-          }
-        });
-      } else {
-        throw new Error(res?.error || 'Failed to authenticate token with Raindrop.');
-      }
-    } catch (err: any) {
-      setAuthError(err.message || 'Token authentication failed');
-      throw err;
+        type: "ARCABLE_SYNC_RULES",
+      })) as ExtensionResponse;
+      if (!res.success) throw new Error(res.error);
+      showToast("Rules synced with Raindrop.io");
+    } catch (e) {
+      showToast(String(e));
     } finally {
-      setAuthLoading(false);
+      setSyncing(false);
     }
   };
-
-  const handleLoginWithOAuth = async () => {
-    setAuthError(null);
-    try {
-      await browser.runtime.sendMessage({
-        type: 'RAINDROP_START_OAUTH',
-      });
-      showToast('Opening Raindrop authentication...', 'info');
-    } catch (err: any) {
-      setAuthError(err.message || 'Failed to start OAuth');
-    }
-  };
-
-  const handleLogout = async () => {
-    setAuthLoading(true);
-    try {
-      await browser.runtime.sendMessage({
-        type: 'RAINDROP_LOGOUT',
-      });
-      setAuthState({ isAuthenticated: false });
-      showToast('Disconnected from Raindrop', 'info');
-    } catch (err: any) {
-      console.error('Logout failed:', err);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleManualSync = async () => {
-    if (!authState.isAuthenticated) {
-      showToast('Please connect to Raindrop first.', 'warning');
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      let localState: any = undefined;
-      if (typeof window !== 'undefined') {
-        const stored = window.localStorage.getItem('arcable_workspace_data');
-        if (stored) {
-          try {
-            localState = JSON.parse(stored);
-          } catch {}
-        }
-      }
-
-      const pendingOps = getStoredPendingOperations();
-      const res = (await browser.runtime.sendMessage({
-        type: 'RAINDROP_SYNC_WORKSPACE',
-        payload: {
-          localState,
-          pendingOps,
-        },
-      })) as ExtensionResponse<SyncResult>;
-
-      if (res && res.success) {
-        if (res.data?.latestSnapshot && typeof window !== 'undefined') {
-          removeStoredPendingOperations(pendingOps.map((op) => op.id));
-          const snapshot = replayOperations(res.data.latestSnapshot, getStoredPendingOperations());
-          window.localStorage.setItem('arcable_workspace_data', JSON.stringify(snapshot));
-          window.dispatchEvent(new CustomEvent('arcable_workspace_updated', { detail: snapshot }));
-        }
-        const now = res.data?.syncedAt || Date.now();
-        setLastSyncAt(now);
-        await browser.storage.local.set({ arcable_last_synced_at: now });
-        showToast('Workspace synced with Raindrop.io cloud!', 'success');
-      } else {
-        showToast(`Sync issue: ${res?.error || 'Unknown'}`, 'warning');
-      }
-    } catch (err: any) {
-      showToast(`Sync failed: ${err.message}`, 'warning');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleOpenRaindropArchive = async () => {
-    try {
-      const stored = (await browser.storage.local.get(['arcable_workspace_snapshot', 'arcable_raindrop_auth'])) as {
-        arcable_workspace_snapshot?: ArcableWorkspaceData;
-        arcable_raindrop_auth?: { accessToken?: string };
-      };
-      const snapshot = stored.arcable_workspace_snapshot;
-      let archiveId = snapshot?.raindropArchiveCollectionId;
-      if (!archiveId) {
-        const token = stored.arcable_raindrop_auth?.accessToken;
-        if (token) {
-          archiveId = await resolveRaindropArchiveCollectionId(token);
-          if (archiveId && snapshot) {
-            void browser.storage.local.set({
-              arcable_workspace_snapshot: { ...snapshot, raindropArchiveCollectionId: archiveId },
-            });
-          }
-        }
-      }
-      const url = archiveId ? `https://app.raindrop.io/my/${archiveId}` : 'https://app.raindrop.io';
-      window.open(url, '_blank');
-    } catch {
-      window.open('https://app.raindrop.io', '_blank');
-    }
-  };
-
-  const handleClearCache = async () => {
-    if (window.confirm('Are you sure you want to clear extension cache? Your cloud bookmarks in Raindrop will remain safe.')) {
-      await browser.storage.local.remove(['arcable_items', 'arcable_workspace_snapshot', 'arcable_pending_ops']);
-      showToast('Extension local cache cleared', 'info');
-    }
-  };
-
   return (
     <div
       style={{
-        minHeight: '100vh',
-        padding: '36px 20px 80px',
-        maxWidth: '880px',
-        margin: '0 auto',
-        boxSizing: 'border-box',
-        color: isDark ? '#f8fafc' : '#0f172a',
+        minHeight: "100vh",
+        background: isDark ? "#0f172a" : "#f8fafc",
+        color: isDark ? "#e2e8f0" : "#172033",
+        fontFamily: "system-ui, sans-serif",
       }}
     >
-      {/* Floating Toast Notification */}
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '24px',
-            right: '24px',
-            zIndex: 9999,
-            padding: '12px 20px',
-            borderRadius: '12px',
-            backgroundColor: isDark ? '#1e293b' : '#0f172a',
-            color: '#ffffff',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-            fontSize: '13.5px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            animation: 'fadeIn 0.2s ease-out',
-            border: isDark ? '1px solid #334155' : '1px solid #1e293b',
-          }}
-        >
-          <span>{toast.type === 'success' ? '✓' : toast.type === 'warning' ? '⚠️' : 'ℹ️'}</span>
-          <span>{toast.message}</span>
-        </div>
-      )}
-
-      {/* Cozy Header Banner */}
-      <header
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-          marginBottom: '28px',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <img
-              src={browser.runtime.getURL('icons/icon48.png')}
-              alt="Arcable Logo"
-              style={{
-                width: '42px',
-                height: '42px',
-                borderRadius: '10px',
-                boxShadow: '0 4px 12px rgba(56, 189, 248, 0.25)',
-                display: 'block',
-              }}
-            />
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h1
-                  style={{
-                    margin: 0,
-                    fontSize: '24px',
-                    fontWeight: 700,
-                    letterSpacing: '-0.025em',
-                    color: isDark ? '#f8fafc' : '#0f172a',
-                  }}
-                >
-                  Arcable Settings
-                </h1>
-                <Badge variant="info">v{extensionVersion}</Badge>
-              </div>
-              <p
-                style={{
-                  margin: '4px 0 0',
-                  fontSize: '14px',
-                  color: isDark ? '#94a3b8' : '#64748b',
-                }}
-              >
-                Customize your workspace, cloud sync, and device preferences.
-              </p>
-            </div>
-          </div>
-
-
-        </div>
-
-        {/* Segmented Navigation Tabs */}
+      <main style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 24px" }}>
+        <header>
+          <h1>
+            Arcable{" "}
+            <small style={{ fontSize: 14, fontWeight: 400 }}>Options</small>
+          </h1>
+          <p>Side panels, scripts, and browser tools for the way you browse.</p>
+        </header>
         <nav
+          aria-label="Options"
           style={{
-            display: 'flex',
-            gap: '6px',
-            backgroundColor: isDark ? '#151e2e' : '#f1f5f9',
-            padding: '6px',
-            borderRadius: '12px',
-            border: isDark ? '1px solid #243247' : '1px solid #e2e8f0',
-            overflowX: 'auto',
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            margin: "28px 0",
           }}
         >
-          {[
-            { id: 'sync', label: 'Sync & Raindrop', icon: '💧' },
-            { id: 'custom-code', label: 'Custom JS & CSS', icon: '🎨' },
-            { id: 'run-code', label: 'Run Code', icon: '⚡' },
-            { id: 'about', label: 'About', icon: 'ℹ️' },
-          ].map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id as OptionsTab)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '9px 18px',
-                  borderRadius: '8px',
-                  fontSize: '13.5px',
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive
-                    ? (isDark ? '#f8fafc' : '#0f172a')
-                    : (isDark ? '#94a3b8' : '#64748b'),
-                  backgroundColor: isActive
-                    ? (isDark ? '#1e293b' : '#ffffff')
-                    : 'transparent',
-                  boxShadow: isActive
-                    ? (isDark ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 6px rgba(0,0,0,0.06)')
-                    : 'none',
-                  border: isActive
-                    ? (isDark ? '1px solid #334155' : '1px solid #e2e8f0')
-                    : '1px solid transparent',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+          {tabs.map(([id, title]) => (
+            <Button
+              key={id}
+              variant={id === activeTab ? "primary" : "outline"}
+              onClick={() => setActiveTab(id)}
+              aria-current={id === activeTab ? "page" : undefined}
+            >
+              {title}
+            </Button>
+          ))}
         </nav>
-      </header>
-
-      {/* Main Content Sections */}
-      <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {isZen && activeTab !== 'about' && (
-          <div
+        {toast && (
+          <p
+            role="status"
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '12px',
-              padding: '12px 18px',
-              borderRadius: '12px',
-              backgroundColor: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(56, 189, 248, 0.08)',
-              border: `1px solid ${isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.3)'}`,
+              padding: 12,
+              border: "1px solid #0284c7",
+              borderRadius: 8,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '18px' }}>🧘</span>
-              <div>
-                <div style={{ fontSize: '13.5px', fontWeight: 600, color: isDark ? '#38bdf8' : '#0284c7' }}>
-                  Zen Browser Detected
-                </div>
-                <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                  Want to hide the native white extension sidebar header? Run our one-line setup command.
-                </div>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setActiveTab('about')}
-              style={{
-                borderRadius: '8px',
-                borderColor: isDark ? 'rgba(56, 189, 248, 0.4)' : '#38bdf8',
-                color: isDark ? '#38bdf8' : '#0284c7',
-                fontWeight: 600,
-              }}
-            >
-              Configure Sidebar Header →
-            </Button>
-          </div>
+            {toast}
+          </p>
         )}
-
-        {/* TAB 1: SYNC & RAINDROP */}
-        {activeTab === 'sync' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <RaindropAuthCard
-              authState={authState}
-              isLoading={authLoading}
-              errorMessage={authError}
-              onLoginWithToken={handleLoginWithToken}
-              onLoginWithOAuth={handleLoginWithOAuth}
-              onLogout={handleLogout}
-              onClearError={() => setAuthError(null)}
-              title="Raindrop.io Cloud Sync"
-              subtitle="Connect your Raindrop account to sync spaces, folders, and tabs seamlessly across browsers."
-            />
-
-            {authState.isAuthenticated && (
-              <Card
-                title="Sync Status"
-                subtitle="Manage your cloud synchronization with Raindrop"
-                style={{ borderRadius: '16px', padding: '24px' }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                    padding: '14px 18px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                    borderRadius: '12px',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                      Last Cloud Sync
-                    </div>
-                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                      {lastSyncAt ? formatDate(lastSyncAt) : 'Not synced yet in this session'}
-                    </div>
-                  </div>
-
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleManualSync}
-                    isLoading={isSyncing}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    <RefreshIcon size={14} />
-                    <span>Sync Now</span>
-                  </Button>
-                </div>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                    padding: '14px 18px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#f8fafc',
-                    borderRadius: '12px',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                    marginTop: '12px',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                      Raindrop Archive
-                    </div>
-                    <div style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
-                      Archived spaces, folders, and tabs are moved to &quot;Arcable v2 / Archive&quot; in Raindrop
-                    </div>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenRaindropArchive}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 16px',
-                      borderRadius: '8px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    <ArchiveIcon size={14} />
-                    <span>Open Raindrop Archive</span>
-                  </Button>
-                </div>
-              </Card>
-            )}
-          </div>
-        )}
-
-        {/* TAB 3: CUSTOM JS & CSS */}
-        {activeTab === 'custom-code' && (
+        {activeTab === "side-panels" && <SidePanelsTab showToast={showToast} />}
+        {activeTab === "custom-code" && (
           <CustomCodeTab
             isDark={isDark}
             showToast={showToast}
-            initialPattern={initialCustomCodePattern}
-            onClearInitialPattern={() => setInitialCustomCodePattern(undefined)}
+            initialPattern={prefill}
+            onClearInitialPattern={() => setPrefill(undefined)}
           />
         )}
-
-        {/* TAB 4: RUN CODE IN PAGE */}
-        {activeTab === 'run-code' && (
-          <RunCodeTab
-            isDark={isDark}
-            showToast={showToast}
-          />
+        {activeTab === "run-code" && (
+          <RunCodeTab isDark={isDark} showToast={showToast} />
         )}
-
-        {/* TAB 5: ABOUT */}
-        {activeTab === 'about' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {/* Zen Browser Sidebar Optimization Card */}
-            <Card
-              title="Zen Browser Sidebar Setup"
-              extra={isZen ? <Badge variant="info">Zen Detected</Badge> : undefined}
-              subtitle="Hide the native white extension sidebar header across all your Zen profiles for a seamless, Arc-like experience."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <p style={{ fontSize: '13.5px', lineHeight: 1.6, color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
-                  By default, Zen Browser displays a browser chrome header above extension side panels. You can remove it across all your Zen profiles by copying and running this one-line command:
+        {activeTab === "sync" && (
+          <Card
+            title="Sync & Raindrop"
+            subtitle="Sync panel definitions and code rules. Panel layout stays in this browser."
+          >
+            <RaindropAuthCard
+              authState={auth}
+              isLoading={loading}
+              errorMessage={error}
+              onLoginWithToken={(token) =>
+                authenticate("RAINDROP_LOGIN_TOKEN", { token })
+              }
+              onLoginWithOAuth={() => authenticate("RAINDROP_START_OAUTH")}
+              onLogout={() => authenticate("RAINDROP_LOGOUT")}
+            />
+            {auth.isAuthenticated && (
+              <>
+                <p>
+                  Last sync:{" "}
+                  {lastSync ? formatDate(lastSync) : "Not yet synced"}
                 </p>
-
-                {/* Platform Selector */}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => setZenPlatform('windows')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 14px',
-                      borderRadius: '8px',
-                      fontSize: '12.5px',
-                      fontWeight: zenPlatform === 'windows' ? 600 : 500,
-                      color: zenPlatform === 'windows' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                      backgroundColor: zenPlatform === 'windows' ? (isDark ? '#1e293b' : '#f1f5f9') : 'transparent',
-                      border: zenPlatform === 'windows' ? (isDark ? '1px solid #38bdf8' : '1px solid #0284c7') : (isDark ? '1px solid #334155' : '1px solid #e2e8f0'),
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <span>🪟 Windows (PowerShell)</span>
-                    {detectedOS === 'win' && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          background: isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe',
-                          color: isDark ? '#38bdf8' : '#0369a1',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        Detected
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setZenPlatform('mac')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 14px',
-                      borderRadius: '8px',
-                      fontSize: '12.5px',
-                      fontWeight: zenPlatform === 'mac' ? 600 : 500,
-                      color: zenPlatform === 'mac' ? (isDark ? '#f8fafc' : '#0f172a') : (isDark ? '#94a3b8' : '#64748b'),
-                      backgroundColor: zenPlatform === 'mac' ? (isDark ? '#1e293b' : '#f1f5f9') : 'transparent',
-                      border: zenPlatform === 'mac' ? (isDark ? '1px solid #38bdf8' : '1px solid #0284c7') : (isDark ? '1px solid #334155' : '1px solid #e2e8f0'),
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <span>🍎 macOS & Linux (Terminal)</span>
-                    {(detectedOS === 'mac' || detectedOS === 'linux') && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          background: isDark ? 'rgba(56, 189, 248, 0.2)' : '#e0f2fe',
-                          color: isDark ? '#38bdf8' : '#0369a1',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        Detected
-                      </span>
-                    )}
-                  </button>
-                </div>
-
-                {/* Command Box - Clickable & Wrapped */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={handleCopyZenCommand}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      void handleCopyZenCommand();
-                    }
-                  }}
-                  title="Click to copy command"
-                  style={{
-                    position: 'relative',
-                    padding: '14px 16px',
-                    backgroundColor: isDark ? '#0b1120' : '#1e293b',
-                    borderRadius: '10px',
-                    border: hasCopiedZenCommand
-                      ? '1px solid #10b981'
-                      : isDark
-                      ? '1px solid #243247'
-                      : '1px solid #334155',
-                    cursor: 'pointer',
-                    transition: 'border-color 0.15s ease, background-color 0.15s ease',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                    <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8', fontWeight: 600 }}>
-                      {zenPlatform === 'windows' ? 'PowerShell Command' : 'Terminal Command'}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '11.5px',
-                        fontWeight: 600,
-                        color: hasCopiedZenCommand ? '#34d399' : '#94a3b8',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                    >
-                      {hasCopiedZenCommand ? '✓ Copied to clipboard!' : '📋 Click anywhere to copy'}
-                    </span>
-                  </div>
-
-                  <code
-                    style={{
-                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                      fontSize: '13px',
-                      lineHeight: 1.55,
-                      color: '#38bdf8',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {activeZenCommand}
-                  </code>
-                </div>
-
-                <div style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                  <strong>Steps:</strong>
-                  {zenPlatform === 'windows' ? (
-                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
-                      <li>Open <strong>PowerShell</strong> or <strong>Windows Terminal</strong>.</li>
-                      <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
-                      <li>Restart Zen Browser to apply the changes.</li>
-                    </ol>
-                  ) : (
-                    <ol style={{ margin: '4px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
-                      <li>Open <strong>Terminal</strong> (Terminal.app on macOS, or your terminal on Linux).</li>
-                      <li>Paste and press <kbd style={{ padding: '2px 5px', borderRadius: '4px', background: isDark ? '#334155' : '#e2e8f0', fontSize: '11px' }}>Enter</kbd> to run the command.</li>
-                      <li>Restart Zen Browser to apply the changes.</li>
-                    </ol>
-                  )}
-                  {zenPlatform === 'windows' && (
-                    <p style={{ margin: '6px 0 0', fontSize: '11.5px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                      💡 Tip: Using Git Bash or WSL on Windows? Switch to the <em>macOS & Linux</em> tab above to run the Bash script.
-                    </p>
-                  )}
-                </div>
-
-                {/* Manual toggle */}
-                <div style={{ paddingTop: '8px', borderTop: isDark ? '1px solid #243247' : '1px solid #f1f5f9' }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowManualZenCss((prev) => !prev)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      color: isDark ? '#38bdf8' : '#0284c7',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span>{showManualZenCss ? '▼ Hide manual CSS snippet' : '▶ Prefer manual setup? View userChrome.css instructions'}</span>
-                  </button>
-
-                  {showManualZenCss && (
-                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <p style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b', margin: 0 }}>
-                        1. In Zen Browser, navigate to <code>about:config</code> and ensure <code>toolkit.legacyUserProfileCustomizations.stylesheets</code> is set to <strong>true</strong>.<br />
-                        2. Navigate to <code>about:support</code>, open your <strong>Profile Folder</strong>, and create or append to <code>chrome/userChrome.css</code>:
-                      </p>
-                      <pre
-                        style={{
-                          margin: 0,
-                          padding: '10px 14px',
-                          backgroundColor: isDark ? '#0b1120' : '#f8fafc',
-                          borderRadius: '8px',
-                          border: isDark ? '1px solid #1e293b' : '1px solid #e2e8f0',
-                          fontSize: '12px',
-                          color: isDark ? '#e2e8f0' : '#1e293b',
-                          fontFamily: 'ui-monospace, monospace',
-                          overflowX: 'auto',
-                        }}
-                      >{`#zen-sidebar-web-header,
-#sidebar-header {
-  display: none !important;
-}`}</pre>
-                    </div>
-                  )}
-                </div>
-
-                {/* Zen Zoom Sync Toggle */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '16px',
-                    padding: '14px 16px',
-                    borderRadius: '12px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                    marginTop: '4px',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '15px' }}>🔍</span>
-                      <span style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                        Synchronize sidebar zoom with active tab
-                      </span>
-                      <Badge variant={zenZoomSyncEnabled ? 'success' : 'default'}>
-                        {zenZoomSyncEnabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
-                    </div>
-                    <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: 0, lineHeight: 1.5 }}>
-                      Automatically reads and matches the main page zoom factor in Zen Browser, dynamically scaling the extension side panel UI so text and proportions stay consistent.
-                    </p>
-                  </div>
-
-                  <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                    <input
-                      type="checkbox"
-                      checked={zenZoomSyncEnabled}
-                      onChange={(e) => void handleToggleZenZoomSync(e.target.checked)}
-                      style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
-                    />
-                    <div
-                      style={{
-                        width: '44px',
-                        height: '24px',
-                        backgroundColor: zenZoomSyncEnabled ? '#0284c7' : (isDark ? '#334155' : '#cbd5e1'),
-                        borderRadius: '9999px',
-                        position: 'relative',
-                        transition: 'background-color 0.2s ease',
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '2px',
-                          left: zenZoomSyncEnabled ? '22px' : '2px',
-                          width: '20px',
-                          height: '20px',
-                          backgroundColor: '#ffffff',
-                          borderRadius: '9999px',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                          transition: 'left 0.2s ease',
-                        }}
-                      />
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </Card>
-
-            <Card
-              title="Extension Action"
-              subtitle="Choose what opens when you click the extension toolbar button."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <label htmlFor="extension-action-mode" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-                <span>Toolbar button opens</span>
-                <select
-                  id="extension-action-mode"
-                  value={actionMode}
-                  onChange={async (event) => {
-                    const mode = getActionMode(event.target.value);
-                    try {
-                      await browser.storage.local.set({ [STORAGE_KEY_ACTION_MODE]: mode });
-                      setActionMode(mode);
-                      showToast('Extension action updated', 'info');
-                    } catch {
-                      showToast('Failed to update extension action', 'warning');
-                    }
-                  }}
-                  style={{ padding: '8px 12px', borderRadius: '8px', background: 'var(--bg-card)', color: 'inherit', border: '1px solid var(--border-input)' }}
-                >
-                  <option value="sidepanel">Side panel (default)</option>
-                  <option value="popup">Popup</option>
-                </select>
-              </label>
-              <p style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b', marginBottom: 0 }}>
-                Popup shows your workspace below the toolbar button and closes when focus leaves it.
-              </p>
-            </Card>
-
-            <Card
-              title="Website Appearance"
-              subtitle="Customize how websites look in this browser."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
-                <div>
-                  <span style={{ fontSize: '14px', fontWeight: 600 }}>Hide all scrollbars</span>
-                  <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: '4px 0 0', lineHeight: 1.5 }}>
-                    Hide page and nested scrollbars on all websites while keeping scrolling enabled. Applies immediately to open and new pages. Browser-protected pages are excluded.
-                  </p>
-                </div>
+                <Button onClick={sync} disabled={syncing}>
+                  {syncing ? "Syncing…" : "Sync now"}
+                </Button>
+              </>
+            )}
+          </Card>
+        )}
+        {activeTab === "about" && (
+          <Card
+            title="Settings & About"
+            subtitle={`Arcable ${browser.runtime.getManifest().version}`}
+          >
+            <p>The toolbar button opens Options.</p>
+            <p>
+              <label>
                 <input
                   type="checkbox"
-                  role="switch"
-                  checked={hideScrollbarsEnabled}
-                  onChange={(e) => void handleToggleHideScrollbars(e.target.checked)}
-                  style={{ width: '20px', height: '20px', flexShrink: 0, accentColor: '#0284c7' }}
-                />
+                  checked={hideScrollbars}
+                  onChange={(e) => {
+                    void browser.storage.local.set({
+                      arcable_hide_all_scrollbars: e.target.checked,
+                    });
+                  }}
+                />{" "}
+                Hide website scrollbars
               </label>
-            </Card>
-
-            <Card
-              title="Media & Playback"
-              subtitle="Configure automatic Picture-in-Picture and background media behaviors."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '16px',
-                    padding: '14px 16px',
-                    borderRadius: '12px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+            </p>
+            <p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={autoPip}
+                  onChange={(e) => {
+                    void browser.storage.local.set({
+                      arcable_auto_pip: e.target.checked,
+                    });
                   }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '15px' }}>📺</span>
-                      <span style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#f8fafc' : '#0f172a' }}>
-                        Auto Picture-in-Picture on tab switch
-                      </span>
-                      <Badge variant={autoPipEnabled ? 'success' : 'default'}>
-                        {autoPipEnabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
-                    </div>
-                    <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: 0, lineHeight: 1.5 }}>
-                      Automatically pops out playing videos into a floating window when navigating away from the tab, and restores them inline when you return. Closing the floating window while away pauses the video.
-                    </p>
-                  </div>
-
-                  <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                    <input
-                      type="checkbox"
-                      checked={autoPipEnabled}
-                      onChange={(e) => void handleToggleAutoPip(e.target.checked)}
-                      style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }}
-                    />
-                    <div
-                      style={{
-                        width: '44px',
-                        height: '24px',
-                        backgroundColor: autoPipEnabled ? '#0284c7' : (isDark ? '#334155' : '#cbd5e1'),
-                        borderRadius: '9999px',
-                        position: 'relative',
-                        transition: 'background-color 0.2s ease',
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '2px',
-                          left: autoPipEnabled ? '22px' : '2px',
-                          width: '20px',
-                          height: '20px',
-                          backgroundColor: '#ffffff',
-                          borderRadius: '9999px',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                          transition: 'left 0.2s ease',
-                        }}
-                      />
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </Card>
-
-            <Card
-              title="About Arcable"
-              subtitle="Arc-like workspaces and tab management with Raindrop.io sync."
-              style={{ borderRadius: '16px', padding: '24px' }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <p style={{ fontSize: '14px', lineHeight: 1.6, color: isDark ? '#cbd5e1' : '#475569', margin: 0 }}>
-                  Arcable brings the modern sidebar experience to all browsers with spaces, folders, pinned tabs, and seamless multi-device synchronization powered by Raindrop.io.
-                </p>
-
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: '12px',
-                    padding: '16px',
-                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc',
-                    borderRadius: '12px',
-                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Version</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>{extensionVersion} (Beta)</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Platform</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>
-                      {isZen ? 'Zen Browser' : 'WebExtension'} (Manifest V3)
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', color: isDark ? '#94a3b8' : '#64748b' }}>Cloud Provider</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '2px' }}>Raindrop.io REST API</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px' }}>
-                  <a
-                    href="https://raindrop.io"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: 'none' }}
-                  >
-                    <Button variant="outline" size="sm" style={{ borderRadius: '8px', display: 'flex', gap: '6px' }}>
-                      <span>Raindrop.io Website</span>
-                      <ExternalLinkIcon size={12} />
-                    </Button>
-                  </a>
-                  <a
-                    href="https://github.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ textDecoration: 'none' }}
-                  >
-                    <Button variant="outline" size="sm" style={{ borderRadius: '8px', display: 'flex', gap: '6px' }}>
-                      <span>GitHub Repository</span>
-                      <ExternalLinkIcon size={12} />
-                    </Button>
-                  </a>
-                </div>
-
-                <div style={{ paddingTop: '16px', borderTop: isDark ? '1px solid #243247' : '1px solid #f1f5f9' }}>
-                  <div style={{ fontSize: '13.5px', fontWeight: 600, marginBottom: '6px', color: isDark ? '#f87171' : '#dc2626' }}>
-                    Troubleshooting & Diagnostics
-                  </div>
-                  <p style={{ fontSize: '12.5px', color: isDark ? '#94a3b8' : '#64748b', margin: '0 0 12px' }}>
-                    If you experience local state issues or tab cache conflicts, you can safely clear extension storage.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClearCache}
-                    style={{
-                      color: isDark ? '#f87171' : '#dc2626',
-                      borderColor: isDark ? '#7f1d1d' : '#fecaca',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    Clear Extension Local Cache
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
+                />{" "}
+                Automatic Picture-in-Picture on tab switch
+              </label>
+            </p>
+            <p>
+              Use the context menu for scripts, copying links, screenshots, and
+              Markdown downloads.
+            </p>
+            <p>
+              <a href="https://raindrop.io" target="_blank" rel="noreferrer">
+                Raindrop.io
+              </a>
+            </p>
+          </Card>
         )}
       </main>
-
     </div>
   );
 };

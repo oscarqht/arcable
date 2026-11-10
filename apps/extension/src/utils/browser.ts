@@ -1,4 +1,4 @@
-import browser from 'webextension-polyfill';
+import browser from "webextension-polyfill";
 
 export { browser };
 
@@ -9,128 +9,75 @@ export async function getActiveTab(): Promise<browser.Tabs.Tab | undefined> {
   try {
     let tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tabs || tabs.length === 0) {
-      tabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+      tabs = await browser.tabs.query({
+        active: true,
+        lastFocusedWindow: true,
+      });
     }
     return tabs[0];
   } catch (error) {
-    console.error('Error getting active tab:', error);
+    console.error("Error getting active tab:", error);
     return undefined;
   }
 }
 
 /**
- * Checks whether a URL is an internal or extension URL (e.g. side panel, popup, options, chrome://, etc.)
+ * Checks whether a URL is an internal or extension URL (e.g. Options, chrome://, etc.)
  */
 export function isInternalOrExtensionUrl(url?: string): boolean {
   if (!url) return true;
   return (
-    url.startsWith('chrome-extension://') ||
-    url.startsWith('moz-extension://') ||
-    url.startsWith('extension://') ||
-    url.startsWith('chrome://') ||
-    url.startsWith('edge://') ||
-    url.startsWith('about:') ||
-    url.includes('/sidepanel/index.html') ||
-    url.includes('/options/index.html') ||
-    url.includes('/popup/index.html')
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("moz-extension://") ||
+    url.startsWith("extension://") ||
+    url.startsWith("chrome://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("about:") ||
+    url.includes("/options/index.html")
   );
-}
-
-export interface StoredActiveWebTab {
-  id?: number;
-  windowId?: number;
-  url: string;
-  title?: string;
-  favIconUrl?: string;
-  lastAccessed?: number;
-}
-
-export const LAST_ACTIVE_WEB_TAB_STORAGE_KEY = 'arcable_last_active_web_tab';
-
-/**
- * Retrieves the previous active web tab (skipping extension/internal pages like the side panel).
- * Useful in mobile browser environments where the side panel is rendered in an active browser tab.
- */
-export async function getPreviousActiveTab(trackerPreviousTabId?: number): Promise<browser.Tabs.Tab | StoredActiveWebTab | undefined> {
-  // 1. Check if tracker-provided previous tab ID is available and valid
-  if (trackerPreviousTabId !== undefined && trackerPreviousTabId > 0) {
-    try {
-      const tab = await browser.tabs.get(trackerPreviousTabId);
-      if (tab && tab.url && !isInternalOrExtensionUrl(tab.url)) {
-        return tab;
-      }
-    } catch {}
-  }
-
-  // 2. Check storage (session first, then local) for the last tracked web tab
-  try {
-    let lastWebTab: StoredActiveWebTab | undefined;
-    if (browser.storage?.session) {
-      const sessionStored = await browser.storage.session.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
-      lastWebTab = sessionStored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
-    }
-    if (!lastWebTab) {
-      const stored = await browser.storage.local.get(LAST_ACTIVE_WEB_TAB_STORAGE_KEY);
-      lastWebTab = stored?.[LAST_ACTIVE_WEB_TAB_STORAGE_KEY] as StoredActiveWebTab | undefined;
-    }
-    if (lastWebTab?.id) {
-      try {
-        const liveTab = await browser.tabs.get(lastWebTab.id);
-        if (liveTab && liveTab.url && !isInternalOrExtensionUrl(liveTab.url)) {
-          return liveTab;
-        }
-      } catch {}
-    }
-    if (lastWebTab?.url && !isInternalOrExtensionUrl(lastWebTab.url)) {
-      return lastWebTab;
-    }
-  } catch {}
-
-  // 3. Fallback: Query all tabs, filter out extension/internal URLs, and sort by lastAccessed descending
-  try {
-    const allTabs = await browser.tabs.query({});
-    const candidateTabs = (allTabs || []).filter((t) => t.url && !isInternalOrExtensionUrl(t.url));
-    if (candidateTabs.length > 0) {
-      candidateTabs.sort((a, b) => {
-        const timeA = (a as any).lastAccessed || 0;
-        const timeB = (b as any).lastAccessed || 0;
-        return timeB - timeA;
-      });
-      return candidateTabs[0];
-    }
-  } catch (err) {
-    console.warn('[Arcable] Failed to query tabs for previous active tab:', err);
-  }
-
-  return undefined;
 }
 
 /**
  * Captures a screenshot of the visible area of the active tab.
  * Returns a data URL (e.g. "data:image/jpeg;base64,...") or null if capture fails.
  */
-export async function captureActiveTabScreenshot(windowId?: number): Promise<string | null> {
-  const options = { format: 'jpeg' as const, quality: 85 };
+export async function captureActiveTabScreenshot(
+  windowId?: number,
+): Promise<string | null> {
+  const options = { format: "jpeg" as const, quality: 85 };
 
   // 1. Try webextension-polyfill browser.tabs.captureVisibleTab
   try {
-    if (typeof browser !== 'undefined' && typeof (browser.tabs as any)?.captureVisibleTab === 'function') {
-      const dataUrl = windowId !== undefined
-        ? await (browser.tabs as any).captureVisibleTab(windowId, options)
-        : await (browser.tabs as any).captureVisibleTab(options);
+    if (
+      typeof browser !== "undefined" &&
+      typeof (browser.tabs as any)?.captureVisibleTab === "function"
+    ) {
+      const dataUrl =
+        windowId !== undefined
+          ? await (browser.tabs as any).captureVisibleTab(windowId, options)
+          : await (browser.tabs as any).captureVisibleTab(options);
       if (dataUrl) return dataUrl;
     }
   } catch (err) {
-    console.warn('[Arcable] browser.tabs.captureVisibleTab failed, trying chrome fallback:', err);
+    console.warn(
+      "[Arcable] browser.tabs.captureVisibleTab failed, trying chrome fallback:",
+      err,
+    );
   }
 
   // 2. Try chrome.tabs.captureVisibleTab directly
-  if (typeof chrome !== 'undefined' && typeof (chrome.tabs as any)?.captureVisibleTab === 'function') {
+  if (
+    typeof chrome !== "undefined" &&
+    typeof (chrome.tabs as any)?.captureVisibleTab === "function"
+  ) {
     return new Promise((resolve) => {
       try {
         const callback = (dataUrl?: string) => {
           if (chrome.runtime.lastError || !dataUrl) {
-            console.warn('[Arcable] chrome.tabs.captureVisibleTab failed:', chrome.runtime.lastError?.message);
+            console.warn(
+              "[Arcable] chrome.tabs.captureVisibleTab failed:",
+              chrome.runtime.lastError?.message,
+            );
             resolve(null);
           } else {
             resolve(dataUrl);
@@ -143,7 +90,7 @@ export async function captureActiveTabScreenshot(windowId?: number): Promise<str
           chrome.tabs.captureVisibleTab(options, callback);
         }
       } catch (e) {
-        console.warn('[Arcable] chrome.tabs.captureVisibleTab threw:', e);
+        console.warn("[Arcable] chrome.tabs.captureVisibleTab threw:", e);
         resolve(null);
       }
     });
@@ -188,12 +135,16 @@ export const storage = {
  */
 export async function isAndroidPlatform(): Promise<boolean> {
   try {
-    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.getPlatformInfo) {
+    if (
+      typeof browser !== "undefined" &&
+      browser.runtime &&
+      browser.runtime.getPlatformInfo
+    ) {
       const info = await browser.runtime.getPlatformInfo();
-      return info.os === 'android';
+      return info.os === "android";
     }
   } catch (error) {
-    console.warn('Could not determine platform:', error);
+    console.warn("Could not determine platform:", error);
   }
   return false;
 }
@@ -201,101 +152,37 @@ export async function isAndroidPlatform(): Promise<boolean> {
 /**
  * Detects the host operating system platform ('mac' | 'win' | 'linux' | 'other').
  */
-export async function getPlatformOS(): Promise<'mac' | 'win' | 'linux' | 'other'> {
+export async function getPlatformOS(): Promise<
+  "mac" | "win" | "linux" | "other"
+> {
   try {
-    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.getPlatformInfo) {
+    if (
+      typeof browser !== "undefined" &&
+      browser.runtime &&
+      browser.runtime.getPlatformInfo
+    ) {
       const info = await browser.runtime.getPlatformInfo();
-      if (info.os === 'win') return 'win';
-      if (info.os === 'mac') return 'mac';
-      if (info.os === 'linux') return 'linux';
+      if (info.os === "win") return "win";
+      if (info.os === "mac") return "mac";
+      if (info.os === "linux") return "linux";
     }
   } catch (error) {
-    console.warn('Could not determine platform via runtime API:', error);
+    console.warn("Could not determine platform via runtime API:", error);
   }
 
-  if (typeof navigator !== 'undefined') {
-    const platform = ((navigator as any).userAgentData?.platform || navigator.platform || '').toLowerCase();
-    const ua = (navigator.userAgent || '').toLowerCase();
-    if (platform.includes('win') || ua.includes('windows')) return 'win';
-    if (platform.includes('mac') || ua.includes('macintosh')) return 'mac';
-    if (platform.includes('linux') || ua.includes('linux')) return 'linux';
+  if (typeof navigator !== "undefined") {
+    const platform = (
+      (navigator as any).userAgentData?.platform ||
+      navigator.platform ||
+      ""
+    ).toLowerCase();
+    const ua = (navigator.userAgent || "").toLowerCase();
+    if (platform.includes("win") || ua.includes("windows")) return "win";
+    if (platform.includes("mac") || ua.includes("macintosh")) return "mac";
+    if (platform.includes("linux") || ua.includes("linux")) return "linux";
   }
 
-  return 'other';
-}
-
-/**
- * Robust helper to open the options/settings page.
- * On Firefox for Android, browser.runtime.openOptionsPage can fail or behave erratically;
- * this automatically falls back to opening options/index.html in a tab.
- */
-export async function openOptionsPageSafely(): Promise<void> {
-  try {
-    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.openOptionsPage) {
-      await browser.runtime.openOptionsPage();
-      return;
-    }
-  } catch (err) {
-    console.warn('[Arcable] openOptionsPage failed, falling back to tab:', err);
-  }
-
-  try {
-    await browser.tabs.create({ url: browser.runtime.getURL('options/index.html') });
-  } catch (tabErr) {
-    console.error('[Arcable] Failed to open options tab:', tabErr);
-  }
-}
-
-/**
- * Robust helper to open the Arcable workspace/sidepanel.
- * Uses Chrome SidePanel on Chrome, Firefox Sidebar on desktop Firefox,
- * or opens the sidepanel workspace in a new tab on mobile (Firefox for Android).
- */
-export async function openWorkspaceSafely(): Promise<void> {
-  // 1. Chrome SidePanel
-  if (typeof chrome !== 'undefined' && chrome.sidePanel && typeof chrome.sidePanel.open === 'function') {
-    try {
-      const win = await new Promise<chrome.windows.Window | undefined>((resolve) => {
-        if (chrome.windows && chrome.windows.getCurrent) {
-          chrome.windows.getCurrent(resolve);
-        } else {
-          resolve(undefined);
-        }
-      });
-      if (win?.id !== undefined) {
-        await chrome.sidePanel.open({ windowId: win.id });
-        return;
-      }
-    } catch (err) {
-      console.warn('[Arcable] chrome.sidePanel.open failed:', err);
-    }
-  }
-
-  // 2. Firefox Desktop Sidebar
-  if (typeof browser !== 'undefined' && (browser as any).sidebarAction && typeof (browser as any).sidebarAction.open === 'function') {
-    try {
-      await (browser as any).sidebarAction.open();
-      return;
-    } catch (err) {
-      console.warn('[Arcable] sidebarAction.open failed:', err);
-    }
-  }
-
-  // 3. Firefox for Android or fallback: open workspace in a tab (or focus existing tab)
-  try {
-    const sidepanelUrl = browser.runtime.getURL('sidepanel/index.html');
-    const tabs = await browser.tabs.query({});
-    const existingTab = tabs.find(
-      (t) => t.url === sidepanelUrl || (t.url && t.url.startsWith(sidepanelUrl))
-    );
-    if (existingTab && existingTab.id !== undefined) {
-      await browser.tabs.update(existingTab.id, { active: true });
-      return;
-    }
-    await browser.tabs.create({ url: sidepanelUrl });
-  } catch (tabErr) {
-    console.error('[Arcable] Failed to open workspace tab:', tabErr);
-  }
+  return "other";
 }
 
 /**
@@ -303,18 +190,27 @@ export async function openWorkspaceSafely(): Promise<void> {
  * Checks navigator.userAgent as well as the Gecko browser.runtime.getBrowserInfo API.
  */
 export async function isZenBrowser(): Promise<boolean> {
-  if (typeof navigator !== 'undefined') {
-    const ua = navigator.userAgent || '';
-    const appVersion = (navigator as any).appVersion || '';
+  if (typeof navigator !== "undefined") {
+    const ua = navigator.userAgent || "";
+    const appVersion = (navigator as any).appVersion || "";
     if (/Zen\/|zen/i.test(ua) || /Zen\/|zen/i.test(appVersion)) {
       return true;
     }
   }
 
   try {
-    if (typeof browser !== 'undefined' && browser.runtime && (browser.runtime as any).getBrowserInfo) {
+    if (
+      typeof browser !== "undefined" &&
+      browser.runtime &&
+      (browser.runtime as any).getBrowserInfo
+    ) {
       const info = await (browser.runtime as any).getBrowserInfo();
-      if (info && (/zen/i.test(info.name) || /zen/i.test(info.vendor) || /zen/i.test(info.version || ''))) {
+      if (
+        info &&
+        (/zen/i.test(info.name) ||
+          /zen/i.test(info.vendor) ||
+          /zen/i.test(info.version || ""))
+      ) {
         return true;
       }
     }
@@ -329,18 +225,29 @@ export async function isZenBrowser(): Promise<boolean> {
  * Detects whether the extension is running inside Firefox.
  */
 export function isFirefox(): boolean {
-  if (typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)) {
+  if (
+    typeof navigator !== "undefined" &&
+    /firefox/i.test(navigator.userAgent)
+  ) {
     return true;
   }
-  return typeof browser !== 'undefined' && typeof (browser.runtime as any)?.getBrowserInfo === 'function';
+  return (
+    typeof browser !== "undefined" &&
+    typeof (browser.runtime as any)?.getBrowserInfo === "function"
+  );
 }
 
 /**
  * Detects whether the extension is running inside Brave browser.
  */
 export function isBrave(): boolean {
-  if (typeof navigator !== 'undefined') {
-    if (Boolean((navigator as any).brave && typeof (navigator as any).brave.isBrave === 'function')) {
+  if (typeof navigator !== "undefined") {
+    if (
+      Boolean(
+        (navigator as any).brave &&
+        typeof (navigator as any).brave.isBrave === "function",
+      )
+    ) {
       return true;
     }
     if (/Brave/i.test(navigator.userAgent)) {
@@ -358,7 +265,8 @@ export function isUserScriptsAvailable(): boolean {
     const userScripts = (chrome as any)?.userScripts;
     return Boolean(
       userScripts &&
-        (typeof userScripts.execute === 'function' || typeof userScripts.register === 'function')
+      (typeof userScripts.execute === "function" ||
+        typeof userScripts.register === "function"),
     );
   } catch {
     return false;
@@ -371,8 +279,10 @@ export function isUserScriptsAvailable(): boolean {
 export async function checkUserScriptsAvailable(): Promise<boolean> {
   if (isFirefox()) {
     try {
-      if (typeof browser !== 'undefined' && browser.permissions?.contains) {
-        return await browser.permissions.contains({ permissions: ['userScripts'] });
+      if (typeof browser !== "undefined" && browser.permissions?.contains) {
+        return await browser.permissions.contains({
+          permissions: ["userScripts"],
+        });
       }
     } catch {
       return false;
@@ -386,14 +296,14 @@ export async function checkUserScriptsAvailable(): Promise<boolean> {
  */
 export function getExtensionDetailsUrl(): string {
   const extensionId =
-    (typeof chrome !== 'undefined' && chrome.runtime?.id) ||
-    (typeof browser !== 'undefined' && browser.runtime?.id) ||
-    '';
+    (typeof chrome !== "undefined" && chrome.runtime?.id) ||
+    (typeof browser !== "undefined" && browser.runtime?.id) ||
+    "";
   if (isBrave()) {
     return `brave://extensions/?id=${extensionId}`;
   }
   if (isFirefox()) {
-    return 'about:addons';
+    return "about:addons";
   }
   return `chrome://extensions/?id=${extensionId}`;
 }
@@ -405,12 +315,14 @@ export function getExtensionDetailsUrl(): string {
 export async function openExtensionDetailsPage(): Promise<void> {
   if (isFirefox()) {
     try {
-      if (typeof browser !== 'undefined' && browser.permissions?.request) {
-        const granted = await browser.permissions.request({ permissions: ['userScripts'] });
+      if (typeof browser !== "undefined" && browser.permissions?.request) {
+        const granted = await browser.permissions.request({
+          permissions: ["userScripts"],
+        });
         if (granted) return;
       }
     } catch (err) {
-      console.warn('[Arcable] browser.permissions.request failed:', err);
+      console.warn("[Arcable] browser.permissions.request failed:", err);
     }
   }
 
@@ -418,7 +330,34 @@ export async function openExtensionDetailsPage(): Promise<void> {
   try {
     await browser.tabs.create({ url });
   } catch (err) {
-    console.warn('[Arcable] Failed to open extension details page tab:', err);
+    console.warn("[Arcable] Failed to open extension details page tab:", err);
   }
 }
 
+/**
+ * Robust helper to open the options/settings page.
+ * On Firefox for Android, browser.runtime.openOptionsPage can fail or behave erratically;
+ * this automatically falls back to opening options/index.html in a tab.
+ */
+export async function openOptionsPageSafely(): Promise<void> {
+  try {
+    if (
+      typeof browser !== "undefined" &&
+      browser.runtime &&
+      browser.runtime.openOptionsPage
+    ) {
+      await browser.runtime.openOptionsPage();
+      return;
+    }
+  } catch (err) {
+    console.warn("[Arcable] openOptionsPage failed, falling back to tab:", err);
+  }
+
+  try {
+    await browser.tabs.create({
+      url: browser.runtime.getURL("options/index.html"),
+    });
+  } catch (tabErr) {
+    console.error("[Arcable] Failed to open options tab:", tabErr);
+  }
+}

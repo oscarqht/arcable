@@ -1,6 +1,8 @@
 {
   "name": "Arcable",
-  "description": "Arcable web dashboard and knowledge management platform with Raindrop.io sync",
+  "description": "URL-matched side panels, custom scripts, and browser tools with Raindrop.io rule sync",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
