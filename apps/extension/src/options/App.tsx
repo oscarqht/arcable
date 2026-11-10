@@ -11,15 +11,15 @@ import { CustomCodeTab } from "./components/CustomCodeTab";
 import { RunCodeTab } from "./components/RunCodeTab";
 import { SidePanelsTab } from "./components/SidePanelsTab";
 const tabs = [
+  ["sync", "Raindrop"],
   ["side-panels", "Side Panels"],
   ["custom-code", "Custom JS & CSS"],
   ["run-code", "Run Code"],
-  ["sync", "Backup & Raindrop"],
   ["about", "Settings & About"],
 ] as const;
 export const App: React.FC = () => {
   const { isDark } = useSystemTheme();
-  const [activeTab, setActiveTab] = useState<string>("side-panels");
+  const [activeTab, setActiveTab] = useState<string>(tabs[0][0]);
   const [auth, setAuth] = useState<RaindropAuthState>({
     isAuthenticated: false,
   });
@@ -185,7 +185,7 @@ export const App: React.FC = () => {
         )}
         {activeTab === "sync" && (
           <Card
-            title="Backup & Raindrop"
+            title="Raindrop"
             subtitle="Manually save or restore one JSON snapshot of all rules, general settings, and panel layouts. Nothing syncs automatically."
           >
             <RaindropAuthCard
