@@ -216,7 +216,7 @@ export const App: React.FC = () => {
             title="Settings & About"
             subtitle={`Arcable ${browser.runtime.getManifest().version}`}
           >
-            <p>The toolbar button opens Options.</p>
+            <p>The toolbar button saves the current page to Raindrop Unsorted with a screenshot cover. Open Options from the extension’s browser menu.</p>
             <p>
               <label>
                 <input

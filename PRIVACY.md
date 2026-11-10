@@ -8,6 +8,8 @@ Panel definitions, scripts, preferences, and Raindrop authentication tokens are 
 
 URLs are checked locally against your configured rules. Scripts and panel websites run when their enabled rules match. Content extraction and screenshots are initiated by the corresponding browser actions. Scripts can request background fetch; those requests contact the endpoints specified by the script.
 
+Clicking the toolbar action saves the current page URL and title to Raindrop Unsorted and uploads a screenshot of its visible viewport as the bookmark cover.
+
 ## Optional synchronization and authentication
 
 Connecting Raindrop.io enables synchronization of panel definitions and code rules over HTTPS to `api.raindrop.io`. The separate `Arcable rules` collection contains rule definitions, content chunks, and deletion records. Existing code rules may be read from the former code-rule collections for compatibility. The removed workspace's local records, collections, and bookmarks are not modified or deleted.
