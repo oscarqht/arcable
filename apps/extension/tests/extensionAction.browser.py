@@ -25,5 +25,12 @@ assert calls['bookmark']['title']
 assert calls['cover']['type'] == 'image/png'
 assert calls['cover']['length'] > 1000
 assert calls['cover']['header'] == [137,80,78,71,13,10,26,10]
-assert js('chrome.action.getBadgeText({})') == '✓'
+assert js('chrome.action.getBadgeText({})') == '✅'
 print('PASS registered toolbar action captures the real page and sends Unsorted bookmark plus PNG cover through the production API client (mock provider)')
+
+until(lambda: js('chrome.action.getBadgeText({})') == '', 'success badge clears')
+# Trying to save the extension's own Options page exercises failure feedback.
+js('(async()=>{const tab=await chrome.tabs.getCurrent();return chrome.runtime.sendMessage({type:"ARCABLE_TEST_TOOLBAR_CLICK",tabId:tab.id})})()')
+assert js('chrome.action.getBadgeText({})') == '❌'
+until(lambda: js('chrome.action.getBadgeText({})') == '', 'failure badge clears')
+print('PASS temporary ✅ success and ❌ failure badges clear after three seconds')
