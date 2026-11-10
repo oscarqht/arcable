@@ -20,7 +20,7 @@ export interface ConfigSnapshot extends RuleDefinitions {
 export const SNAPSHOT_COLLECTION = "Arcable snapshots";
 export const SNAPSHOT_MARKER = "arcable-config-snapshot-v1";
 const PREFIX = "Arcable configuration ";
-const FILE_PATTERN = /^arcable-config-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json$/;
+const FILE_PATTERN = /^arcable-config-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.json(?:\.txt)?$/;
 function check(condition: unknown): asserts condition {
   if (!condition) throw new Error("Invalid or unsupported Arcable configuration snapshot");
 }
@@ -113,7 +113,7 @@ export async function loadLatestConfigSnapshot(token: string): Promise<ConfigSna
 export async function saveConfigSnapshot(token: string, value: ConfigSnapshot): Promise<{ savedAt: string; warning?: string }> {
   const snapshot = validateConfigSnapshot(value);
   const { collectionId, items } = await listSnapshots(token, true);
-  const fileName = `arcable-config-${snapshot.savedAt.replace(/:/g, "-")}.json`;
+  const fileName = `arcable-config-${snapshot.savedAt.replace(/:/g, "-")}.json.txt`;
   const uploaded = await uploadRaindropFile(token, collectionId!, fileName, JSON.stringify(snapshot, null, 2));
   const id = uploaded?.item?._id;
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Raindrop did not return an uploaded snapshot item");

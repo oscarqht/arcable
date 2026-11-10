@@ -1049,9 +1049,9 @@ export async function uploadRaindropFile(
     throw new Error('Missing Raindrop authorization token.');
   }
 
-  // Preserve explicit JSON filenames for configuration snapshots.
+  // Raindrop validates extensions as well as MIME types; JSON strings need a TXT suffix.
   let safeFileName = fileName;
-  if (typeof content === 'string' && !safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md') && !safeFileName.endsWith('.json')) {
+  if (typeof content === 'string' && !safeFileName.endsWith('.txt') && !safeFileName.endsWith('.md')) {
     safeFileName = `${safeFileName}.txt`;
   }
 
@@ -1061,7 +1061,7 @@ export async function uploadRaindropFile(
     formData.append('collectionId', String(collectionId));
     formData.append('collection', JSON.stringify({ $id: Number(collectionId) }));
   }
-  // Raindrop rejects application/json uploads; keep JSON filenames and content but send plain text.
+  // Keep string content unchanged and use a supported plain text MIME type.
   const blob = typeof content === 'string' ? new Blob([content], { type: 'text/plain;charset=utf-8' }) : content;
   formData.append('file', blob, safeFileName);
 

@@ -20,7 +20,7 @@ try {
   assert.equal(uploadRequest.body.get("collectionId"), "7");
   assert.deepEqual(JSON.parse(uploadRequest.body.get("collection")), { $id: 7 });
   const file = uploadRequest.body.get("file");
-  assert.equal(file.name, "arcable-config.json", "Keep the JSON filename");
+  assert.equal(file.name, "arcable-config.json.txt", "Use a supported TXT extension for JSON content");
   assert.equal(file.type, "text/plain;charset=utf-8", "Raindrop requires a supported plain text MIME type");
   assert.equal(await file.text(), jsonText, "Keep JSON content unchanged, including Unicode");
 } finally {
@@ -46,7 +46,7 @@ const client = {
   },
   uploadRaindropFile: async (_token, collectionId, name, text) => {
     if (uploadFails) throw new Error("Upload failed");
-    assert.match(name, /\.json$/);
+    assert.match(name, /\.json\.txt$/, "Snapshots must use a supported TXT extension");
     const item = { _id: ++sequence, collectionId, title: name, link: `https://up.raindrop.io/${sequence}`, file: { name, path: `https://up.raindrop.io/${sequence}` } };
     items.set(item._id, item);
     contents.set(item.file.path, corrupt ? "broken json" : text);
@@ -114,14 +114,20 @@ assert.equal(collections.length, 1, "Loading never creates collections");
 await save("test", base);
 assert.deepEqual(await load("test"), canonical);
 const first = sequence;
+const firstFile = items.get(first).file;
+assert.match(firstFile.name, /\.json\.txt$/);
+// Older snapshots used bare .json; they must still load and be safely pruned.
+firstFile.name = firstFile.name.replace(/\.txt$/, "");
+assert.deepEqual(await load("test"), canonical, "Legacy JSON snapshots remain readable");
 const snapshotsCollection = collections.find(c => c.title === snapshotUtils.SNAPSHOT_COLLECTION)._id;
 items.set(2, { _id: 2, collectionId: snapshotsCollection, title: "Ordinary bookmark", link: "https://example.com" });
 items.set(3, { _id: 3, collectionId: snapshotsCollection, title: "Unrelated JSON", file: { name: "other.json" } });
+items.set(4, { _id: 4, collectionId: snapshotsCollection, title: "Unrelated text", file: { name: "other.json.txt" } });
 const secondSnapshot = { ...base, savedAt: "2026-11-11T06:40:43.563Z", customCodeRules: [], panelLayouts: {} };
 const beforeCleanup = calls.length;
 await save("test", secondSnapshot);
 assert.ok(!items.has(first), "Older snapshot pruned");
-assert.ok(items.has(1) && items.has(2) && items.has(3), "Legacy and unrelated data untouched");
+assert.ok(items.has(1) && items.has(2) && items.has(3) && items.has(4), "Legacy and unrelated data untouched");
 const cleanupCalls = calls.slice(beforeCleanup);
 assert.ok(cleanupCalls.findIndex(c => c[0] === "read") < cleanupCalls.findIndex(c => c[0] === "delete"), "Read back before pruning");
 assert.deepEqual(await load("test"), validate(secondSnapshot));
