@@ -63,6 +63,9 @@ const base = {
   panelLayouts: { panel: { x: -2, y: 24, width: 440, height: 360, dock: "right", dockPosition: 120 } },
   accessToken: "excluded", bookmarks: ["excluded"],
 };
+const allSitesRunRule = { ...base.runCodeInPageRules[0], patterns: [] };
+const allSitesSnapshot = { ...base, runCodeInPageRules: [allSitesRunRule] };
+assert.deepEqual(validate(allSitesSnapshot).runCodeInPageRules[0].patterns, [], "Run Code permits all-sites snippets without URL patterns");
 const canonical = validate(base);
 assert.deepEqual(validate(JSON.parse(JSON.stringify(canonical))), canonical, "Round trip all rule types and layouts");
 assert.ok(!JSON.stringify(canonical).includes("excluded"));
@@ -72,6 +75,9 @@ for (const patch of [
   { customCodeRules: null }, { customCodeRules: [...base.customCodeRules, ...base.customCodeRules] },
   { customCodeRules: [{ ...base.customCodeRules[0], js: 2 }] },
   { runCodeInPageRules: [{ ...base.runCodeInPageRules[0], patterns: [42] }] },
+  { runCodeInPageRules: [{ ...base.runCodeInPageRules[0], patterns: [""] }] },
+  { runCodeInPageRules: [{ ...base.runCodeInPageRules[0], patterns: null }] },
+  { sidePanelRules: [{ ...base.sidePanelRules[0], patterns: [] }] },
   { sidePanelRules: [{ ...base.sidePanelRules[0], url: "javascript:alert(1)" }] },
   { sidePanelRules: [{ ...base.sidePanelRules[0], disabled: "false" }] },
   { panelLayouts: { panel: { ...base.panelLayouts.panel, width: 0 } } },
@@ -114,6 +120,10 @@ await save("test", { ...base, savedAt: "2026-11-09T06:40:43.563Z" });
 assert.ok(items.has(newest), "Clock skew/newer snapshot preserved");
 assert.equal((await load("test")).savedAt, "2026-11-13T06:40:43.563Z", "Latest ignores list order and lastUpdate");
 
+// Isolate local saves from the future-dated snapshots used to test clock skew.
+items.clear();
+contents.clear();
+
 const { saveConfiguration, loadConfiguration, retireRuleSync } = require("../src/background/configSnapshots.ts");
 const { applyRuleOperations } = require("../src/background/localRules.ts");
 await retireRuleSync();
@@ -125,7 +135,7 @@ await applyRuleOperations([{ id: "op", type: "SIDE_PANEL_CREATE", entityId: "pan
 assert.equal(calls.length, beforeEdit, "Local edits never access Raindrop");
 assert.equal(local.arcable_rule_ops, undefined, "No sync outbox");
 local.customCodeRules = base.customCodeRules;
-local.runCodeInPageRules = base.runCodeInPageRules;
+local.runCodeInPageRules = [allSitesRunRule];
 local.arcable_panel_layouts = base.panelLayouts;
 local.arcable_hide_all_scrollbars = false;
 local.arcable_auto_pip = false;
@@ -133,6 +143,7 @@ await saveConfiguration("test");
 const localSnapshot = await load("test");
 assert.equal(localSnapshot.customCodeRules[0].js, base.customCodeRules[0].js);
 assert.deepEqual(localSnapshot.panelLayouts, base.panelLayouts);
+assert.deepEqual(localSnapshot.runCodeInPageRules, validate(allSitesSnapshot).runCodeInPageRules, "Save and read back all-sites Run Code snippets");
 assert.ok(!JSON.stringify(localSnapshot).includes("private"));
 local.customCodeRules = [{ id: "delete-me" }];
 local.runCodeInPageRules = [];

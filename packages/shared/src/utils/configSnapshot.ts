@@ -45,8 +45,9 @@ function rules(value: any, kind: "custom" | "run" | "panel"): any[] {
       return { ...base, pattern: r.pattern, css: r.css, js: r.js };
     }
     check(typeof r.title === "string" && r.title.trim());
-    check(Array.isArray(r.patterns) && r.patterns.length && r.patterns.every((p: unknown) => typeof p === "string" && isValidUrlPattern(p)));
+    check(Array.isArray(r.patterns) && r.patterns.every((p: unknown) => typeof p === "string" && isValidUrlPattern(p)));
     if (kind === "panel") {
+      check(r.patterns.length);
       check(typeof r.url === "string" && isPanelUrl(r.url));
       return { ...base, title: r.title, patterns: [...r.patterns], url: r.url };
     }
