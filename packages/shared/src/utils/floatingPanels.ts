@@ -1,13 +1,64 @@
-export interface FloatingPanel {
+import type { PanelAnchor, PanelLayout } from "../types/sidePanels";
+
+export interface FloatingPanel extends PanelLayout {
   id: string;
   url: string;
   title?: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  dock?: "left" | "right" | "top" | "bottom";
-  dockPosition?: number;
+}
+
+export function nearestPanelAnchor(
+  start: number,
+  size: number,
+  extent: number,
+): PanelAnchor {
+  const end = extent - start - size;
+  return start <= end
+    ? { edge: "start", distance: start }
+    : { edge: "end", distance: end };
+}
+
+export function anchoredPosition(
+  anchor: PanelAnchor | undefined,
+  fallback: number,
+  size: number,
+  extent: number,
+): number {
+  return !anchor
+    ? fallback
+    : anchor.edge === "start"
+      ? anchor.distance
+      : extent - size - anchor.distance;
+}
+
+/** Capture user intent from rendered geometry; viewport layout never calls this. */
+export function anchorPanel(
+  p: FloatingPanel,
+  width: number,
+  height: number,
+): FloatingPanel {
+  return {
+    ...p,
+    anchorX: nearestPanelAnchor(p.x, p.width, width),
+    anchorY: nearestPanelAnchor(p.y, p.height, height),
+  };
+}
+
+export function positionPanel(
+  p: FloatingPanel,
+  width: number,
+  height: number,
+): FloatingPanel {
+  // Resolve using the temporarily fitted size, retaining the original saved size.
+  const fitted = clampPanel(p, width, height);
+  return clampPanel(
+    {
+      ...fitted,
+      x: anchoredPosition(p.anchorX, p.x, fitted.width, width),
+      y: anchoredPosition(p.anchorY, p.y, fitted.height, height),
+    },
+    width,
+    height,
+  );
 }
 
 export function isPanelUrl(value: string): boolean {

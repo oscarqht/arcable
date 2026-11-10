@@ -105,6 +105,9 @@ const layout = {
   height: 480,
   dock: "left",
   dockPosition: 244,
+  anchorX: { edge: "end", distance: 70 },
+  anchorY: { edge: "start", distance: 180 },
+  dockAnchor: { edge: "end", distance: 90 },
 };
 assert.deepEqual(
   await handleFloatingPanelsMessage(
@@ -120,6 +123,7 @@ assert.deepEqual(
 );
 assert.deepEqual(local[PANEL_LAYOUTS_KEY].one, layout);
 assert.equal((await get(2)).panels[0].dockPosition, 244);
+assert.deepEqual((await get(2)).panels[0].dockAnchor, layout.dockAnchor);
 assert.deepEqual(
   await handleFloatingPanelsMessage(
     {
@@ -170,6 +174,7 @@ delete require.cache[require.resolve("../src/background/floatingPanels.ts")];
   handleFloatingPanelsMessage,
 } = require("../src/background/floatingPanels.ts"));
 assert.equal((await get(1)).panels[0].width, 600);
+assert.deepEqual((await get(1)).panels[0].anchorX, layout.anchorX);
 // A separate profile with identical definitions initializes an independent layout.
 delete local[PANEL_LAYOUTS_KEY];
 assert.equal((await get(2)).panels[0].width, 440);
