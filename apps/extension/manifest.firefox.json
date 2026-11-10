@@ -76,7 +76,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "Arcable"
+    "default_title": "Save page to Raindrop Unsorted with screenshot cover"
   },
   "options_ui": {
     "page": "options/index.html",

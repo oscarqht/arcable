@@ -183,8 +183,7 @@ initBackgroundThemeSync();
 
 // In-memory cached auth state
 let cachedAuthState: RaindropAuthState = { isAuthenticated: false };
-// Auth changes must preserve the user's chosen toolbar behavior.
-initExtensionActionBehavior();
+initExtensionActionBehavior(getStoredAuthState);
 
 // Load stored auth state on startup
 async function loadStoredAuthState(
