@@ -14,7 +14,7 @@ const nodeEnv = isDev ? 'development' : 'production';
 
 let target = 'all';
 for (const arg of args) {
-  if (arg === 'chrome' || arg === 'firefox' || arg === 'all') {
+  if (arg === 'chrome' || arg === 'firefox' || arg === 'safari' || arg === 'all') {
     target = arg;
     break;
   }
@@ -269,6 +269,9 @@ async function buildTarget(browserName) {
 async function main() {
   if (target === 'chrome' || target === 'all') {
     await buildTarget('chrome');
+  }
+  if (target === 'safari' || target === 'all') {
+    await buildTarget('safari');
   }
   if (target === 'firefox' || target === 'all') {
     await buildTarget('firefox');

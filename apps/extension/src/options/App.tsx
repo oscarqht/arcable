@@ -10,6 +10,7 @@ import browser from "webextension-polyfill";
 import { CustomCodeTab } from "./components/CustomCodeTab";
 import { RunCodeTab } from "./components/RunCodeTab";
 import { SidePanelsTab } from "./components/SidePanelsTab";
+import { isSafari, SAFARI_SCRIPT_LIMITATION } from "../utils/browser";
 const tabs = [
   ["sync", "Raindrop"],
   ["side-panels", "Side Panels"],
@@ -144,6 +145,14 @@ export const App: React.FC = () => {
           </h1>
           <p>Side panels, scripts, and browser tools for the way you browse.</p>
         </header>
+        {isSafari() && (
+          <aside role="note" style={{ padding: 16, border: "1px solid #d97706", borderRadius: 8, marginBottom: 16 }}>
+            <strong>Safari support</strong>
+            <p>Allow Arcable access to websites in Safari Settings → Extensions. Login opens a tab; allow access to oh-auth.vercel.app and arcable.vercel.app to complete it. You can also use a Raindrop API token below.</p>
+            <p>{SAFARI_SCRIPT_LIMITATION}</p>
+            <p>Panels use normal iframes. Sites that block embedding or require third-party cookies may need Open in tab. Automatic Picture-in-Picture is unavailable; use Safari’s video Picture-in-Picture control. Use context menus for shortcuts reserved by Safari.</p>
+          </aside>
+        )}
         <nav
           aria-label="Options"
           style={{
@@ -223,7 +232,8 @@ export const App: React.FC = () => {
               <label>
                 <input
                   type="checkbox"
-                  checked={autoPip}
+                  checked={!isSafari() && autoPip}
+                  disabled={isSafari()}
                   onChange={(e) => {
                     void browser.storage.local.set({
                       arcable_auto_pip: e.target.checked,

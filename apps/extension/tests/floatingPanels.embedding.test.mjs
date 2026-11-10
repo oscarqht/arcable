@@ -40,7 +40,12 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "arcable-embedding-"));
-const extension = fileURLToPath(new URL("../dist/chrome", import.meta.url));
+const extension = path.join(profile, 'extension');
+fs.cpSync(fileURLToPath(new URL('../dist/chrome', import.meta.url)), extension, { recursive: true });
+// The options page requires login. Mock only auth/snapshot responses in this
+// disposable copy, as in options.browser.test.mjs; never use real credentials.
+const worker = path.join(extension, 'background.js');
+fs.writeFileSync(worker, fs.readFileSync(new URL('./options.browser.bootstrap.js', import.meta.url), 'utf8') + '\n' + fs.readFileSync(worker, 'utf8'));
 const proc = spawn(
   chrome,
   [

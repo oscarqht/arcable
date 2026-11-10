@@ -1,5 +1,7 @@
 import browser from 'webextension-polyfill';
 
+import { isSafari } from '../utils/browser';
+
 export const STORAGE_KEY_AUTO_PIP = 'arcable_auto_pip';
 
 /**
@@ -8,6 +10,7 @@ export const STORAGE_KEY_AUTO_PIP = 'arcable_auto_pip';
  * When switching to a tab, sends AUTO_PIP_EXIT to restore the video inline.
  */
 export function initAutoPipBackground(): void {
+  if (isSafari()) return;
   // Store the active tab ID for each browser window
   const activeTabByWindow = new Map<number, number>();
 

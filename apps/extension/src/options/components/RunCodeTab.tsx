@@ -18,6 +18,8 @@ import {
   openExtensionDetailsPage,
   isBrave,
   isFirefox,
+  isSafari,
+  SAFARI_SCRIPT_LIMITATION,
 } from "../../utils/browser";
 import { CodeEditor } from "./CodeEditor";
 
@@ -413,7 +415,8 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({
       />
 
       {/* User Scripts Permission Warning Banner */}
-      {userScriptsAvailable === false && (
+      {isSafari() && <p role="note">{SAFARI_SCRIPT_LIMITATION}</p>}
+      {userScriptsAvailable === false && !isSafari() && (
         <div
           style={{
             borderRadius: "16px",

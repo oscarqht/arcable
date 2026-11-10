@@ -2,7 +2,7 @@ import browser from 'webextension-polyfill';
 import { RunCodeRule } from '@arcable/shared/types';
 import { matchAnyUrlPattern, sortRunCodeRules } from '@arcable/shared/utils';
 import { RUN_CODE_IN_PAGE_STORAGE_KEY, runCodeInPageRule } from './runCodeRunner';
-import { openExtensionDetailsPage } from '../utils/browser';
+import { openExtensionDetailsPage, isSafari } from '../utils/browser';
 import { handleScreenshotCapture } from './screenshot';
 import { DOWNLOAD_MARKDOWN_MENU_ID, handleMarkdownDownload } from './markdownDownload';
 import {
@@ -80,7 +80,7 @@ export async function updateRunCodeContextMenus(currentUrl?: string, forceRebuil
       targetUrl = tabs[0]?.url;
     }
 
-    const matchingRules = targetUrl ? await getMatchingCodeRules(targetUrl) : [];
+    const matchingRules = !isSafari() && targetUrl ? await getMatchingCodeRules(targetUrl) : [];
     const signature = matchingRules.map((r) => `${r.id}:${r.title || 'Untitled Snippet'}`).join('|');
 
     if (!forceRebuild && lastRenderedRuleSignature === signature) {

@@ -1,5 +1,7 @@
 import browser from 'webextension-polyfill';
 
+import { isSafari } from '../utils/browser';
+
 export const STORAGE_KEY_AUTO_PIP = 'arcable_auto_pip';
 
 let isAutoPipActive = false;
@@ -116,6 +118,7 @@ function bindPiPListeners(video: HTMLVideoElement): void {
  * Requests Picture-in-Picture for the active video when switching away from this tab.
  */
 export async function requestAutoPiP(): Promise<boolean> {
+  if (isSafari()) return false;
   if (!document.pictureInPictureEnabled) {
     return false;
   }
@@ -185,6 +188,7 @@ export async function exitAutoPiP(): Promise<boolean> {
  * and global enterpictureinpicture tracking.
  */
 export function initAutoPip(): void {
+  if (isSafari()) return;
   // Listen for any video entering PiP on the page (native or extension triggered)
   document.addEventListener(
     'enterpictureinpicture',

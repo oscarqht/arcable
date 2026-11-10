@@ -1,3 +1,4 @@
+import { isSafari, SAFARI_SCRIPT_LIMITATION } from "../../utils/browser";
 import React, { useState, useEffect, useRef } from "react";
 import { Card, Button, Badge } from "@arcable/shared/components";
 import { CustomCodeRule, RuleOperation } from "@arcable/shared/types";
@@ -558,9 +559,8 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
                   color: isDark ? "#94a3b8" : "#64748b",
                 }}
               >
-                Automatic JavaScript requires the browser to allow user scripts
-                for Arcable. Enable it in the extension details if scripts do
-                not run.
+                {isSafari() ? SAFARI_SCRIPT_LIMITATION : "Automatic JavaScript requires the browser to allow user scripts for Arcable. Enable it in the extension details if scripts do not run."}
+
               </span>
             )}
 

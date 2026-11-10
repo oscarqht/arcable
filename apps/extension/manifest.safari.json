@@ -1,0 +1,151 @@
+{
+  "manifest_version": 3,
+  "name": "Arcable",
+  "version": "0.207.0",
+  "description": "URL-matched side panels, custom scripts, and browser tools with manual Raindrop.io backups",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "alarms",
+    "scripting",
+    "contextMenus",
+    "clipboardWrite",
+    "webNavigation",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.raindrop.io/*",
+    "https://raindrop.io/*",
+    "https://oh-auth.vercel.app/*",
+    "https://arcable.vercel.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.arcable.dev/*",
+    "https://cdn.jsdelivr.net/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "libs/*",
+        "src/libs/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "panel/index.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Save page to Raindrop Unsorted with screenshot cover"
+  },
+  "options_ui": {
+    "page": "options/index.html"
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "hide-scrollbars.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "tab-switcher.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://oh-auth.vercel.app/*",
+        "https://arcable.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.arcable.dev/*"
+      ],
+      "js": [
+        "oauth-bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+A",
+        "mac": "Alt+A"
+      }
+    },
+    "take-screenshot": {
+      "suggested_key": {
+        "default": "Alt+K",
+        "mac": "Alt+K"
+      },
+      "description": "\ud83d\udcf8 Take Screenshot"
+    },
+    "capture-full-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "\ud83d\udcdc Capture Full Page"
+    },
+    "copy-url": {
+      "description": "\ud83d\udd17 Copy URL"
+    },
+    "copy-title-dash-url": {
+      "description": "\ud83d\udd24 Copy Title - URL"
+    },
+    "copy-title-url": {
+      "description": "\ud83d\udd24 Copy Title\\nURL"
+    },
+    "copy-markdown-link": {
+      "description": "\u24c2\ufe0f Copy [Title](URL)"
+    },
+    "copy-title": {
+      "description": "\ud83d\udd24 Copy Title"
+    }
+  }
+}

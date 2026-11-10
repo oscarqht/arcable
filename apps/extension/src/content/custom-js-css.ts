@@ -2,6 +2,8 @@ import browser from 'webextension-polyfill';
 import { CustomCodeRule } from '@arcable/shared/types';
 import { matchUrlPattern } from '@arcable/shared/utils';
 
+import { isSafari } from '../utils/browser';
+
 const STORAGE_KEY = 'customCodeRules';
 const INJECTED_CSS_PREFIX = 'arcable-custom-css-';
 const INJECTED_JS_PREFIX = 'arcable-custom-js-';
@@ -21,6 +23,17 @@ export class CustomCodeInjector {
 
       this.applyMatchingRules();
       this.setupStorageListener();
+      if (isSafari()) {
+        // Safari lacks webNavigation history/fragment events. Observe location in
+        // the isolated world, including pushState and replaceState.
+        let lastUrl = location.href;
+        window.setInterval(() => {
+          if (location.href === lastUrl) return;
+          lastUrl = location.href;
+          this.applyMatchingRules();
+          void browser.runtime.sendMessage({ type: "ARCABLE_LOCATION_CHANGED" }).catch(() => {});
+        }, 500);
+      }
     } catch (err) {
       console.warn('[CustomCodeInjector] Failed to initialize:', err);
     }
@@ -61,7 +74,7 @@ export class CustomCodeInjector {
   }
 
   async injectJS(ruleId: string, js: string): Promise<void> {
-    if (!js || !js.trim()) return;
+    if (isSafari() || !js || !js.trim()) return;
 
     const scriptKey = INJECTED_JS_PREFIX + ruleId;
     if (this.injectedScripts.has(scriptKey)) {

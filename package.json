@@ -20,7 +20,9 @@
     "lint": "pnpm -r --if-present run lint",
     "clean": "pnpm -r --if-present run clean",
     "version:bump:minor": "node scripts/bump-version.mjs",
-    "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/configSnapshots.test.mjs && node apps/extension/tests/extensionAction.test.mjs"
+    "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/configSnapshots.test.mjs && node apps/extension/tests/extensionAction.test.mjs",
+    "build:extension:safari": "pnpm --filter @arcable/extension run build:safari",
+    "package:safari": "pnpm --filter @arcable/extension run package:safari"
   },
   "keywords": [
     "arcable",

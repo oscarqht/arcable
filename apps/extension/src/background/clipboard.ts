@@ -66,6 +66,8 @@ export function isExtensionOrSystemPage(url?: string): boolean {
     url.startsWith('edge://') ||
     url.startsWith('about:') ||
     url.startsWith('moz-extension://') ||
+    url.startsWith('safari-web-extension://') ||
+    url.startsWith('safari-extension://') ||
     url.startsWith('devtools://') ||
     url.startsWith('view-source:')
   );

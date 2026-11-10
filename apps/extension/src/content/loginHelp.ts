@@ -1,6 +1,6 @@
-import { isBrave, isFirefox } from "../utils/browser";
+import { isBrave, isFirefox, isSafari } from "../utils/browser";
 
-type Guide = "brave" | "chrome" | "firefox" | "other";
+type Guide = "brave" | "chrome" | "firefox" | "safari" | "other";
 const guides: Record<Guide, { name: string; steps: string[]; url: string }> = {
   brave: {
     name: "Brave",
@@ -28,6 +28,15 @@ const guides: Record<Guide, { name: string; steps: string[]; url: string }> = {
       "Firefox reloads the page. Open the panel again and check whether your website login is available.",
     ],
     url: "https://support.mozilla.org/en-US/kb/third-party-cookies-firefox-tracking-protection",
+  },
+  safari: {
+    name: "Safari",
+    steps: [
+      "Use Open in tab to sign in directly on the panel website in Safari.",
+      "Safari's cross-site tracking protection may keep that login unavailable in an embedded panel. The website may also block embedding.",
+      "If the panel still cannot sign in, continue in the separate tab. Arcable does not change Safari's privacy settings.",
+    ],
+    url: "https://support.apple.com/guide/safari/prevent-cross-site-tracking-sfri40732/mac",
   },
   other: {
     name: "Other browser",
@@ -84,7 +93,7 @@ export function createLoginHelp(
     option.textContent = guide.name;
     select.append(option);
   }
-  select.value = isBrave()
+  select.value = isSafari() ? "safari" : isBrave()
     ? "brave"
     : isFirefox()
       ? "firefox"
@@ -102,7 +111,7 @@ export function createLoginHelp(
   element.append(row, intro, context, label, steps, link, fallback);
 
   const render = () => {
-    context.textContent = `Hosting page: ${location.host || "this page"}. Panel website: ${new URL(panelUrl()).hostname}. Apply the exception to the hosting page in the address bar.`;
+    context.textContent = `Hosting page: ${location.host || "this page"}. Panel website: ${new URL(panelUrl()).hostname}. ${select.value === "safari" ? "Use Open in tab if this website cannot sign in inside a panel." : "Apply the exception to the hosting page in the address bar."}`;
     const guide = guides[select.value as Guide];
     steps.replaceChildren(
       ...guide.steps.map((text) => {

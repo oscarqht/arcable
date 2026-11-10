@@ -87,8 +87,8 @@ export function initFloatingPanels() {
       await refresh(details.tabId);
     });
   });
-  browser.webNavigation.onHistoryStateUpdated.addListener(navigate);
-  browser.webNavigation.onReferenceFragmentUpdated.addListener(navigate);
+  browser.webNavigation.onHistoryStateUpdated?.addListener(navigate);
+  browser.webNavigation.onReferenceFragmentUpdated?.addListener(navigate);
   browser.storage.onChanged.addListener((changes, area) => {
     if (
       area === "local" &&
@@ -126,6 +126,8 @@ export function handleFloatingPanelsMessage(
   }
   if (sender.tab?.id === undefined || (sender.frameId ?? 0) !== 0) return;
   const tabId = sender.tab.id;
+  if (message?.type === "ARCABLE_LOCATION_CHANGED")
+    return serialized(() => refresh(tabId));
   if (message?.type === "ARCABLE_PANELS_GET")
     return serialized(() => state(tabId));
   if (message?.type === "ARCABLE_PANELS_PATCH")

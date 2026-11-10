@@ -9,7 +9,7 @@ export const RUN_CODE_BACKGROUND_FETCH_MESSAGE = 'runCodeInPage:backgroundFetch'
 export const RUN_CODE_IN_PAGE_STORAGE_KEY = 'runCodeInPageRules';
 export const CUSTOM_CODE_STORAGE_KEY = 'customCodeRules';
 
-import { isFirefox, isBrave } from '../utils/browser';
+import { isFirefox, isBrave, isSafari, SAFARI_SCRIPT_LIMITATION } from '../utils/browser';
 
 const ALLOWED_BACKGROUND_FETCH_INIT_KEYS = new Set([
   'body',
@@ -205,6 +205,7 @@ export async function executeManualUserCode(
   consoleLabel = '[Arcable RunCode] Execution error:',
   sourceName = 'arcable-user-code.js'
 ): Promise<void> {
+  if (isSafari()) throw new Error(SAFARI_SCRIPT_LIMITATION);
   const setupMessage = isFirefox()
     ? 'Arcable Run Code requires the "Run user scripts" permission. Please enable it in about:addons.'
     : isBrave()
@@ -256,6 +257,7 @@ export async function executeAutomaticCustomCode(
   code: string,
   documentId?: string
 ): Promise<void> {
+  if (isSafari()) throw new Error(SAFARI_SCRIPT_LIMITATION);
   if (!code || !code.trim()) {
     throw new Error('Custom code contains no JavaScript.');
   }

@@ -29,6 +29,8 @@ export function isInternalOrExtensionUrl(url?: string): boolean {
   return (
     url.startsWith("chrome-extension://") ||
     url.startsWith("moz-extension://") ||
+    url.startsWith("safari-web-extension://") ||
+    url.startsWith("safari-extension://") ||
     url.startsWith("extension://") ||
     url.startsWith("chrome://") ||
     url.startsWith("edge://") ||
@@ -261,6 +263,7 @@ export function isBrave(): boolean {
  * Synchronous check whether chrome.userScripts is available in the current context.
  */
 export function isUserScriptsAvailable(): boolean {
+  if (isSafari()) return false;
   try {
     const userScripts = (chrome as any)?.userScripts;
     return Boolean(
@@ -277,6 +280,7 @@ export function isUserScriptsAvailable(): boolean {
  * Asynchronous cross-browser check whether user scripts are permitted and available.
  */
 export async function checkUserScriptsAvailable(): Promise<boolean> {
+  if (isSafari()) return false;
   if (isFirefox()) {
     try {
       if (typeof browser !== "undefined" && browser.permissions?.contains) {
@@ -313,6 +317,10 @@ export function getExtensionDetailsUrl(): string {
  * In Firefox, attempts to prompt for userScripts permission directly first.
  */
 export async function openExtensionDetailsPage(): Promise<void> {
+  if (isSafari()) {
+    await openOptionsPageSafely();
+    return;
+  }
   if (isFirefox()) {
     try {
       if (typeof browser !== "undefined" && browser.permissions?.request) {
@@ -361,3 +369,14 @@ export async function openOptionsPageSafely(): Promise<void> {
     console.error("[Arcable] Failed to open options tab:", tabErr);
   }
 }
+
+/** Extension URL detection also works in Safari's background context. */
+export function isSafari(): boolean {
+  try {
+    if (browser.runtime.getURL("").startsWith("safari-web-extension://")) return true;
+  } catch { /* Browser APIs may be unavailable in a preview. */ }
+  return typeof navigator !== "undefined" && /Safari\//.test(navigator.userAgent) &&
+    !/Chrome|Chromium|Edg\//.test(navigator.userAgent);
+}
+
+export const SAFARI_SCRIPT_LIMITATION = "Safari does not support Arcable's custom JavaScript or Run Code execution API. CSS rules still work. Scripts can be saved and backed up for use in Chrome or Firefox.";

@@ -1,5 +1,7 @@
 import browser from "webextension-polyfill";
 
+import { isSafari } from "../utils/browser";
+
 export const panelPage = "panel/index.html";
 const ruleId = 817001;
 const frameKey = "arcable_panel_wrapper_frames";
@@ -10,6 +12,8 @@ let ready: Promise<void> | undefined;
 // Declarative rules cannot edit an individual CSP directive. Header removal is
 // limited to subframe requests initiated by our extension, in bound panel tabs.
 export async function preparePanelEmbedding(tabId: number, frameId: number) {
+  // Safari uses ordinary iframes; do not broaden header stripping rules.
+  if (isSafari()) return;
   const dnr = browser.declarativeNetRequest;
   const previous = ready || Promise.resolve();
   ready = previous
@@ -56,6 +60,7 @@ export async function forgetPanelEmbedding(
   tabId: number,
   navigationStartedAt?: number,
 ) {
+  if (isSafari()) return;
   const previous = ready || Promise.resolve();
   ready = previous
     .catch(() => {})
@@ -86,6 +91,7 @@ export async function forgetPanelEmbedding(
 }
 
 export function initPanelEmbedding() {
+  if (isSafari()) return;
   const retry = async (
     tabId: number,
     parentFrameId: number,

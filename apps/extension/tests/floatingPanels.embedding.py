@@ -13,6 +13,15 @@ ext = targets[0]['url'].split('/')[2]
 settings = new_tab('chrome-extension://' + ext + '/options/index.html')
 wait_for_load()
 print('Initial screenshot:', capture_screenshot('/tmp/arcable-embedding-initial.png'))
+until(lambda: js('[...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="💧 Sign in with Raindrop OAuth")'), 'login button')
+def click_label(label):
+    js('([...document.querySelectorAll("button")].find(b=>b.textContent.trim()==='+json.dumps(label)+'))?.scrollIntoView({block:"center"})')
+    capture_screenshot('/tmp/arcable-embedding-options.png')
+    rect = js('(()=>{const b=[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==='+json.dumps(label)+');const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()')
+    click_at_xy(rect['x'], rect['y'])
+click_label('💧 Sign in with Raindrop OAuth')
+until(lambda: js('[...document.querySelectorAll("nav button")].some(b=>b.textContent.trim()==="Side Panels")'), 'authenticated tabs')
+click_label('Side Panels')
 until(lambda: js('Boolean(document.querySelector("form textarea"))'), 'Options form hydration')
 # Exercise the visible Options form through real pointer and text input events.
 cdp('Emulation.setDeviceMetricsOverride', width=1280, height=1000, deviceScaleFactor=1, mobile=False)
@@ -103,7 +112,7 @@ click_at_xy(rect['x'], rect['y'])
 guide = find_node('DIV', 'class', 'login-help')
 assert call(guide, 'function(){return !this.hidden}')
 assert call(find_node('SELECT', 'aria-label', 'Login help browser'), 'function(){return this.value}') == ('brave' if 'Brave' in os.environ.get('CHROME_BIN', '') else 'chrome')
-for name, expected in [('brave','Allow all cookies'), ('chrome','Third-party cookies'), ('firefox','Enhanced Tracking Protection')]:
+for name, expected in [('brave','Allow all cookies'), ('chrome','Third-party cookies'), ('firefox','Enhanced Tracking Protection'), ('safari','Open in tab')]:
     chooser = find_node('SELECT', 'aria-label', 'Login help browser')
     call(chooser, 'function(){this.value='+json.dumps(name)+';this.dispatchEvent(new Event("change"))}')
     assert expected in call(guide, 'function(){return this.innerText}')

@@ -14,7 +14,11 @@
     "lint:firefox": "pnpm dlx web-ext lint --source-dir dist/firefox",
     "package:firefox": "pnpm dlx web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --overwrite-dest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "build:safari": "node build.mjs safari",
+    "build:dev:safari": "node build.mjs safari --dev",
+    "package:safari": "node scripts/packageSafari.mjs",
+    "test:safari": "node tests/safariCompatibility.test.mjs"
   },
   "dependencies": {
     "@arcable/shared": "workspace:*",

@@ -13,6 +13,7 @@ const FILES_TO_UPDATE = [
   'packages/shared/package.json',
   'apps/extension/manifest.chrome.json',
   'apps/extension/manifest.firefox.json',
+  'apps/extension/manifest.safari.json',
 ];
 const SHARED_VERSION_SOURCE = 'packages/shared/src/version.ts';
 
