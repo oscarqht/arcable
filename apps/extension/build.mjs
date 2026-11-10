@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { checkScreenshotEditorAssets } from './scripts/editorAssets.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,6 +21,7 @@ for (const arg of args) {
 }
 
 async function buildTarget(browserName) {
+  checkScreenshotEditorAssets(resolve(__dirname, 'src'));
   console.log(`\n📦 Building Arcable extension for ${browserName.toUpperCase()} [${nodeEnv.toUpperCase()}]...`);
   const outDir = resolve(__dirname, `dist/${browserName}`);
 
@@ -233,7 +235,7 @@ async function buildTarget(browserName) {
   const panelHtml = fs.readFileSync(resolve(outDir, 'src/panel/index.html'), 'utf-8');
   fs.writeFileSync(resolve(outDir, 'panel/index.html'), panelHtml.replace(/\.\.\/\.\.\//g, '../'));
 
-  // 4.6. Copy libs directory (Ace editor and workers)
+  // 4.6. Copy libs directory (Ace editor, workers, and screenshot annotation assets)
   const libsSrc = resolve(__dirname, 'src/libs');
   const libsDest = resolve(outDir, 'libs');
   if (fs.existsSync(libsSrc)) {
@@ -258,6 +260,8 @@ async function buildTarget(browserName) {
     fs.mkdirSync(resolve(outDir, 'src'), { recursive: true });
     fs.cpSync(libsSrc, srcLibsDest, { recursive: true });
   }
+
+  checkScreenshotEditorAssets(outDir);
 
   console.log(`✅ ${browserName.toUpperCase()} extension build complete in dist/${browserName}`);
 }
