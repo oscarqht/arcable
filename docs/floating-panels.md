@@ -2,8 +2,9 @@
 
 Open Options from the extension toolbar icon and choose **Side Panels**. Each rule has a title, an HTTP(S) panel URL, an enabled switch, and one or more matching URL patterns (one per line). Matching uses exactly the Custom JS & CSS URLPattern, wildcard, and substring semantics. Every enabled matching panel appears on normal page loads and SPA history or fragment navigation.
 
-- New panels float at 440 × 360, within the viewport. Drag the header to move or the resize handle to resize.
-- Select a docking edge in the header, or drag within 24 pixels of an edge. The minus button docks to the right.
+- New panels float at 440 × 360, within the viewport. Drag the header to move or the resize handle to resize. Free panels remember their distance to the nearest horizontal and vertical viewport edges independently. Moving or resizing picks new anchors; viewport resizing retains them. Equal distances prefer left/top.
+- Select a docking edge in the header, or drag within 24 pixels of an edge. The minus button docks to the right. Dock chips remember their dock edge and the distance from their nearest end to the closest corner. Drag a chip along its edge to reposition it; equal corner distances prefer top/left. Chip overlap avoidance remains active.
+- Small viewports temporarily fit panels and chips into view without changing saved sizes or anchor distances. They return to their intended placement when space returns. Older layouts acquire anchors from their initial rendered placement.
 - Hover a dock chip to reveal its panel. Leaving both chip and panel hides it after 200 ms, keeping the iframe mounted.
 - Click a chip (or use Enter/Space) to pin it open; activate again to hide it. Escape hides a docked panel.
 - Focus the header and use arrow keys to move; Shift + arrows resize. The resize handle also accepts arrow keys.
@@ -41,7 +42,9 @@ Adding the iframe's Storage Access sandbox permission alone does not resolve thi
 ```sh
 pnpm typecheck
 pnpm build:extension
-node apps/extension/tests/floatingPanels.test.mjs
+node apps/extension/tests/sidePanels.test.mjs
+node apps/extension/tests/panelAnchoring.test.mjs
+CHROME_BIN="/path/to/chrome-or-brave" node apps/extension/tests/panelAnchoring.browser.test.mjs
 node apps/extension/tests/panelEmbedding.test.mjs
 FIREFOX_BIN="/path/to/firefox" node apps/extension/tests/floatingPanels.firefox.test.mjs
 CHROME_BIN="/path/to/brave" node apps/extension/tests/floatingPanels.embedding.test.mjs
@@ -59,3 +62,5 @@ Chrome interaction checks use the production overlay and tab editor with an isol
 The embedding test requires `browser-harness` and an extension-capable Chromium executable (Brave supports command-line unpacked extension loading). It uses the built Chrome extension in a disposable profile with real messaging, storage, network header rules and the production overlay. It verifies combined XFO/CSP blocking, redirects, host CSP isolation, in-panel navigation, ordinary/nested frame isolation, dock/reveal document retention, geometry controls, Open in tab, and saved URL updates. Screenshots are saved under the system temporary directory. Set `ARCABLE_TEST_URL=https://git.insea.io/alpha/projects/chatgpt/bro/-/pipelines` to additionally verify the reported site's sign-in form without logging in.
 
 The Firefox runtime test uses `web-ext` (resolved with pnpm) and a disposable Firefox profile. A test-only extension page and content observer verify real document loading, redirect handling, in-panel navigation, saved URL changes, repeated A-B-A-B navigation, reload persistence, cleanup, and unrelated/nested frame isolation. The production background and overlay are unchanged in the temporary test copy.
+
+The anchoring browser test requires a Chrome extension build and an extension-capable Chromium executable (for example Brave). It uses `browser-harness` with the production overlay and mocked extension messaging/storage, then verifies real extension storage, migration and page reloads. It covers all four free-panel edge combinations, all eight dock corners, legacy migration, saved-layout remounting, move/resize updates, no writes on viewport resizing, shrink/grow restoration, and dock-chip collision avoidance. The side-panel background test verifies anchor persistence across matching tabs and worker restarts.

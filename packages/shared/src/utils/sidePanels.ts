@@ -46,13 +46,20 @@ export function normalizeSidePanelRules(value: unknown): SidePanelRule[] {
       });
 }
 export function normalizePanelLayout(p: any): PanelLayout | undefined {
+  const validAnchor = (a: any) =>
+    a == null ||
+    (typeof a === "object" &&
+      ["start", "end"].includes(a.edge) &&
+      Number.isFinite(a.distance) &&
+      a.distance >= 0);
   if (
     !p ||
     ![p.x, p.y, p.width, p.height].every(Number.isFinite) ||
     p.width <= 0 ||
     p.height <= 0 ||
     (p.dock != null && !["left", "right", "top", "bottom"].includes(p.dock)) ||
-    (p.dockPosition != null && !Number.isFinite(p.dockPosition))
+    (p.dockPosition != null && !Number.isFinite(p.dockPosition)) ||
+    ![p.anchorX, p.anchorY, p.dockAnchor].every(validAnchor)
   )
     return;
   return {
@@ -62,6 +69,11 @@ export function normalizePanelLayout(p: any): PanelLayout | undefined {
     height: p.height,
     dock: p.dock || undefined,
     dockPosition: p.dockPosition ?? undefined,
+    ...Object.fromEntries(
+      ["anchorX", "anchorY", "dockAnchor"]
+        .filter((key) => p[key] != null)
+        .map((key) => [key, { edge: p[key].edge, distance: p[key].distance }]),
+    ),
   };
 }
 export function matchingPanels(

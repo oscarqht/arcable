@@ -3,6 +3,10 @@ import { nearestDockPosition } from "./dockPosition";
 import { createLoginHelp } from "./loginHelp";
 import {
   clampPanel,
+  anchorPanel,
+  positionPanel,
+  nearestPanelAnchor,
+  anchoredPosition,
   type FloatingPanel,
 } from "../../../../packages/shared/src/utils/floatingPanels";
 
@@ -151,13 +155,33 @@ export function initFloatingPanels() {
     }
   }
   function save(view: View) {
-    const { x, y, width, height, dock, dockPosition } = view.panel;
+    const {
+      x,
+      y,
+      width,
+      height,
+      dock,
+      dockPosition,
+      anchorX,
+      anchorY,
+      dockAnchor,
+    } = view.panel;
     void browser.runtime
       .sendMessage({
         type: "ARCABLE_PANELS_PATCH",
         token,
         panelId: view.panel.id,
-        patch: { x, y, width, height, dock: dock || null, dockPosition: dockPosition ?? null },
+        patch: {
+          x,
+          y,
+          width,
+          height,
+          dock: dock || null,
+          dockPosition: dockPosition ?? null,
+          anchorX: anchorX ?? null,
+          anchorY: anchorY ?? null,
+          dockAnchor: dockAnchor ?? null,
+        },
       })
       .catch(() => {});
   }
@@ -245,7 +269,7 @@ export function initFloatingPanels() {
         if (visible) element.style.zIndex = String(++layer);
       },
       layout() {
-        const p = clampPanel(this.panel, innerWidth, innerHeight);
+        const p = positionPanel(this.panel, innerWidth, innerHeight);
         let { x, y } = p;
         const edge = this.panel.dock;
         chip.hidden = !edge;
@@ -255,16 +279,31 @@ export function initFloatingPanels() {
           const container = shadow.querySelector(`[data-edge="${edge}"]`)!;
           if (chip.parentNode !== container) container.append(chip);
           const vertical = edge === "left" || edge === "right";
-          chip.style.height = vertical ? `${Math.min(chipLabel.scrollWidth, 142) + 18}px` : "";
+          chip.style.height = vertical
+            ? `${Math.min(chipLabel.scrollWidth, 142) + 18}px`
+            : "";
           const measure = chip.getBoundingClientRect();
           const occupied = [...views.values()]
-            .filter((other) => other !== this && other.panel.dock === edge && !other.chip.hidden)
+            .filter(
+              (other) =>
+                other !== this &&
+                other.panel.dock === edge &&
+                !other.chip.hidden,
+            )
             .map((other) => {
               const r = other.chip.getBoundingClientRect();
-              return { start: vertical ? r.top : r.left, end: vertical ? r.bottom : r.right };
+              return {
+                start: vertical ? r.top : r.left,
+                end: vertical ? r.bottom : r.right,
+              };
             });
           const position = nearestDockPosition(
-            this.panel.dockPosition ?? (vertical ? p.y : p.x),
+            anchoredPosition(
+              this.panel.dockAnchor,
+              this.panel.dockPosition ?? (vertical ? p.y : p.x),
+              vertical ? measure.height : measure.width,
+              vertical ? innerHeight : innerWidth,
+            ),
             vertical ? measure.height : measure.width,
             vertical ? innerHeight : innerWidth,
             occupied,
@@ -272,8 +311,16 @@ export function initFloatingPanels() {
           // If the edge is full, retain the desired position and retry on the next layout.
           chip.hidden = position === undefined;
           if (position !== undefined) {
-            if (this.panel.dockPosition === undefined)
-              this.panel = { ...this.panel, dockPosition: position };
+            if (!this.panel.dockAnchor)
+              this.panel = {
+                ...this.panel,
+                dockPosition: position,
+                dockAnchor: nearestPanelAnchor(
+                  position,
+                  vertical ? measure.height : measure.width,
+                  vertical ? innerHeight : innerWidth,
+                ),
+              };
             chip.style.top = vertical ? `${position}px` : "";
             chip.style.left = vertical ? "" : `${position}px`;
           }
@@ -348,7 +395,10 @@ export function initFloatingPanels() {
     }
     let suppressClick = false;
     chip.onclick = (event) => {
-      if (suppressClick && event.detail !== 0) { suppressClick = false; return; }
+      if (suppressClick && event.detail !== 0) {
+        suppressClick = false;
+        return;
+      }
       suppressClick = false;
       view.pinned = !view.pinned;
       view.show(view.pinned);
@@ -361,7 +411,7 @@ export function initFloatingPanels() {
       const rect = chip.getBoundingClientRect();
       const origin = vertical ? event.clientY : event.clientX;
       const start = vertical ? rect.top : rect.left;
-      const previous = view.panel.dockPosition;
+      const previous = view.panel;
       let dragged = false;
       suppressClick = false;
       chip.setPointerCapture(event.pointerId);
@@ -370,7 +420,11 @@ export function initFloatingPanels() {
         if (!dragged && Math.abs(delta) < 4) return;
         dragged = true;
         cancel();
-        view.panel = { ...view.panel, dockPosition: start + delta };
+        view.panel = {
+          ...view.panel,
+          dockPosition: start + delta,
+          dockAnchor: undefined,
+        };
         view.layout();
       };
       const end = (e: PointerEvent) => {
@@ -380,7 +434,18 @@ export function initFloatingPanels() {
         if (!dragged) return;
         suppressClick = e.type !== "pointercancel";
         const r = chip.getBoundingClientRect();
-        view.panel = { ...view.panel, dockPosition: e.type === "pointercancel" ? previous : vertical ? r.top : r.left };
+        view.panel =
+          e.type === "pointercancel"
+            ? previous
+            : {
+                ...view.panel,
+                dockPosition: vertical ? r.top : r.left,
+                dockAnchor: nearestPanelAnchor(
+                  vertical ? r.top : r.left,
+                  vertical ? r.height : r.width,
+                  vertical ? innerHeight : innerWidth,
+                ),
+              };
         view.layout();
         if (e.type !== "pointercancel") save(view);
       };
@@ -400,14 +465,48 @@ export function initFloatingPanels() {
       view.panel = {
         ...view.panel,
         dock: edge,
-        dockPosition: edge ? (edge === "left" || edge === "right" ? rect.top : rect.left) : undefined,
+        dockAnchor: undefined,
+        dockPosition: edge
+          ? edge === "left" || edge === "right"
+            ? rect.top
+            : rect.left
+          : undefined,
       };
+      if (!edge) {
+        const anchored = anchorPanel(
+          {
+            ...view.panel,
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          },
+          innerWidth,
+          innerHeight,
+        );
+        view.panel = {
+          ...view.panel,
+          x: rect.left,
+          y: rect.top,
+          anchorX: anchored.anchorX,
+          anchorY: anchored.anchorY,
+        };
+      }
       view.pinned = false;
       view.visible = !edge;
       view.layout();
       if (edge && !chip.hidden) {
         const chipRect = chip.getBoundingClientRect();
-        view.panel = { ...view.panel, dockPosition: edge === "left" || edge === "right" ? chipRect.top : chipRect.left };
+        const vertical = edge === "left" || edge === "right";
+        view.panel = {
+          ...view.panel,
+          dockPosition: vertical ? chipRect.top : chipRect.left,
+          dockAnchor: nearestPanelAnchor(
+            vertical ? chipRect.top : chipRect.left,
+            vertical ? chipRect.height : chipRect.width,
+            vertical ? innerHeight : innerWidth,
+          ),
+        };
       }
       save(view);
     };
@@ -426,14 +525,18 @@ export function initFloatingPanels() {
       const startX = event.clientX,
         startY = event.clientY;
       const rect = element.getBoundingClientRect();
+      const previous = view.panel;
       const start = {
         ...view.panel,
         x: rect.left,
         y: rect.top,
-        width: rect.width,
-        height: rect.height,
+        width: sizing ? rect.width : view.panel.width,
+        height: sizing ? rect.height : view.panel.height,
         dock: undefined,
         dockPosition: undefined,
+        dockAnchor: undefined,
+        anchorX: undefined,
+        anchorY: undefined,
       };
       const target = event.currentTarget as HTMLElement;
       target.setPointerCapture(event.pointerId);
@@ -454,6 +557,12 @@ export function initFloatingPanels() {
           innerWidth,
           innerHeight,
         );
+        if (!sizing)
+          view.panel = {
+            ...view.panel,
+            width: start.width,
+            height: start.height,
+          };
         view.visible = true;
         view.layout();
       };
@@ -475,11 +584,36 @@ export function initFloatingPanels() {
                   : innerHeight - r.bottom <= 24
                     ? "bottom"
                     : undefined;
-          view.panel = { ...view.panel, dock: edge, dockPosition: undefined };
+          view.panel = {
+            ...view.panel,
+            dock: edge,
+            dockPosition: undefined,
+            dockAnchor: undefined,
+          };
           view.visible = !edge;
         }
+        if (e.type === "pointercancel") view.panel = previous;
+        else {
+          const r = element.getBoundingClientRect();
+          const anchored = anchorPanel(
+            {
+              ...view.panel,
+              x: r.left,
+              y: r.top,
+              width: r.width,
+              height: r.height,
+            },
+            innerWidth,
+            innerHeight,
+          );
+          view.panel = {
+            ...view.panel,
+            anchorX: anchored.anchorX,
+            anchorY: anchored.anchorY,
+          };
+        }
         view.layout();
-        save(view);
+        if (e.type !== "pointercancel") save(view);
       };
       target.addEventListener("pointermove", move);
       target.addEventListener("pointerup", end);
@@ -497,12 +631,22 @@ export function initFloatingPanels() {
         event.key === "ArrowLeft" ? -16 : event.key === "ArrowRight" ? 16 : 0;
       const dy =
         event.key === "ArrowUp" ? -16 : event.key === "ArrowDown" ? 16 : 0;
-      const p = view.panel;
+      const rect = element.getBoundingClientRect();
+      const p = {
+        ...view.panel,
+        x: rect.left,
+        y: rect.top,
+        width: sizing ? rect.width : view.panel.width,
+        height: sizing ? rect.height : view.panel.height,
+      };
       view.panel = clampPanel(
         {
           ...p,
           dock: undefined,
           dockPosition: undefined,
+          dockAnchor: undefined,
+          anchorX: undefined,
+          anchorY: undefined,
           x: sizing ? p.x : p.x + dx,
           y: sizing ? p.y : p.y + dy,
           width: sizing ? Math.max(240, p.width + dx) : p.width,
@@ -511,6 +655,15 @@ export function initFloatingPanels() {
         innerWidth,
         innerHeight,
       );
+      const fitted = clampPanel(view.panel, innerWidth, innerHeight);
+      const anchored = anchorPanel(fitted, innerWidth, innerHeight);
+      view.panel = {
+        ...view.panel,
+        width: sizing ? view.panel.width : p.width,
+        height: sizing ? view.panel.height : p.height,
+        anchorX: anchored.anchorX,
+        anchorY: anchored.anchorY,
+      };
       view.layout();
       save(view);
     };
@@ -541,6 +694,9 @@ export function initFloatingPanels() {
         view.chip.remove();
         views.delete(id);
       }
+    const migratingDock = new Set(
+      panels.filter((p) => p.dock && !p.dockAnchor).map((p) => p.id),
+    );
     for (const panel of panels) {
       const view = views.get(panel.id);
       if (!view) views.set(panel.id, create(panel));
@@ -550,14 +706,24 @@ export function initFloatingPanels() {
           view.visible = !panel.dock;
           view.pinned = false;
         }
-        view.panel = panel.dock && view.panel.dock === panel.dock && panel.dockPosition === undefined
-          ? { ...panel, dockPosition: view.panel.dockPosition }
-          : panel;
+        view.panel = panel;
         view.layout();
       }
     }
-    // Lay out after all chips have their final positions.
-    for (const view of views.values()) view.layout();
+    layoutAll();
+    for (const view of views.values()) {
+      if (!view.panel.anchorX || !view.panel.anchorY) {
+        const fitted = positionPanel(view.panel, innerWidth, innerHeight);
+        const anchored = anchorPanel(fitted, innerWidth, innerHeight);
+        view.panel = {
+          ...view.panel,
+          anchorX: view.panel.anchorX ?? anchored.anchorX,
+          anchorY: view.panel.anchorY ?? anchored.anchorY,
+        };
+        save(view);
+      } else if (migratingDock.has(view.panel.id) && view.panel.dockAnchor)
+        save(view);
+    }
   }
   browser.runtime.onMessage.addListener((message: any) => {
     if (message?.type === "ARCABLE_PANELS_STATE") render(message);
@@ -569,7 +735,10 @@ export function initFloatingPanels() {
       render(state as { panels?: FloatingPanel[]; token?: string }),
     )
     .catch(() => {});
-  window.addEventListener("resize", () => {
+  function layoutAll() {
+    // Resolve collisions in stable order against this viewport, not stale chip positions.
+    for (const view of views.values()) view.chip.hidden = true;
     for (const view of views.values()) view.layout();
-  });
+  }
+  window.addEventListener("resize", layoutAll);
 }
