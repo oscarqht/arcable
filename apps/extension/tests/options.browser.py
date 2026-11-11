@@ -47,6 +47,19 @@ print('PASS signed-out gating, stored shortcuts, OAuth transition, every tab and
 until(lambda: js('document.querySelector("[aria-label~=sync]")?.textContent.includes("Saved to Raindrop")'), 'initial automatic save')
 assert not js('[...document.querySelectorAll("button")].some(b=>["Save to Raindrop","Load latest"].includes(b.textContent.trim()))')
 assert js('chrome.alarms.get("arcable-config-sync").then(a=>a.periodInMinutes)') == 10
+# Populated rules/layouts must settle after a real Chrome storage round trip.
+js('chrome.runtime.sendMessage({type:"ARCABLE_APPLY_RULE_OPS",operations:[{id:"test-css-op",type:"CUSTOM_CODE_CREATE",entityId:"test-css",payload:{pattern:"example.test",css:"body { color: red; }",js:""}},{id:"test-run-op",type:"RUN_CODE_CREATE",entityId:"test-run",payload:{title:"Test snippet",patterns:[],code:"return 42"}},{id:"test-panel-op",type:"SIDE_PANEL_CREATE",entityId:"test-panel",payload:{title:"Test panel",patterns:["example.test"],url:"https://example.test/"}}]})')
+js('chrome.runtime.sendMessage({type:"ARCABLE_UPDATE_CONFIGURATION",patch:{arcable_panel_layouts:{"test-panel":{x:20,y:30,width:440,height:360,anchorX:{edge:"start",distance:20}}}}})')
+try:
+    until(lambda: js('document.querySelector("[aria-label~=sync]")?.textContent.includes("Saved to Raindrop")'), 'populated configuration settles')
+except AssertionError:
+    print('Sync diagnostic:', js('chrome.storage.local.get("arcable_config_sync").then(s=>{const j=s.arcable_config_sync;return {state:j.status.state,revision:j.revision,pending:Object.keys(j.pending),observedKeys:Object.keys(j.observed.customCodeRules[0]||{})}})'))
+    raise
+counts_after_rules = js('chrome.storage.local.get("optionsTestCloud").then(s=>({uploads:s.optionsTestCloud.uploads,reads:s.optionsTestCloud.reads}))')
+time.sleep(4)
+assert js('document.querySelector("[aria-label~=sync]")?.textContent.includes("Saved to Raindrop")'), 'saved state remains stable'
+assert js('chrome.storage.local.get("optionsTestCloud").then(s=>s.optionsTestCloud.uploads)') == counts_after_rules['uploads'], 'unchanged rules must not re-upload'
+print('PASS populated configuration settles and remains saved without repeated uploads')
 click('Settings & About')
 # Real Options setting saves go through the background writer and trigger automatic upload.
 capture_screenshot('/tmp/arcable-options-settings.png')

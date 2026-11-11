@@ -8,6 +8,14 @@ const event = () => {
 const changed = event(), alarm = event(), startup = event(), installed = event();
 const local = {};
 const localStorage = storage(local, changed);
+// Chrome persists dictionaries with reordered keys and omits undefined fields.
+// structuredClone alone misses this serialization boundary.
+const store = localStorage.set;
+localStorage.set = patch => store(JSON.parse(JSON.stringify(patch, (_key, value) =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
+    : value,
+)));
 const alarms = new Map();
 const timers = new Map();
 let nextTimer = 0;

@@ -22,7 +22,16 @@ interface Journal {
   revision: number;
   status: SyncStatus;
 }
-const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// Browser storage can reorder dictionary keys and omit undefined properties.
+// Compare JSON values independently of object insertion order; array order matters.
+function comparableJSON(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, item) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+      : item,
+  );
+}
+const equal = (a: unknown, b: unknown) => comparableJSON(a) === comparableJSON(b);
 // Keys are JSON tuples, so rule IDs containing dots/slashes cannot collide.
 function entries(s: ConfigSnapshot): Map<string, unknown> {
   const result = new Map<string, unknown>();
