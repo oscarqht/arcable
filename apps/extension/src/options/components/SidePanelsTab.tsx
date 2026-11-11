@@ -111,7 +111,7 @@ export function SidePanelsTab({
     <div style={{ display: "grid", gap: 24 }}>
       <Card
         title="Side Panels"
-        subtitle="Show panels automatically on matching websites. Rules and layouts are saved locally. Back up or restore them manually in Raindrop."
+        subtitle="Show panels automatically on matching websites. Rules and layouts are saved locally and sync automatically with Raindrop."
       >
         {!rules.length && <p>No side panels yet. Add your first rule below.</p>}
         {rules.map((rule) => (

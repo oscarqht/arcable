@@ -17,6 +17,11 @@ export function withConfigurationStorage<T>(action: () => Promise<T>): Promise<T
   storageTail = result.catch(() => {});
   return result;
 }
+// Local configuration and its durable journal are written in one storage operation.
+// The sync worker installs the writer before handling extension events.
+let configurationWriter = (patch: Record<string, unknown>) => browser.storage.local.set(patch);
+export function setConfigurationWriter(writer: typeof configurationWriter) { configurationWriter = writer; }
+export function writeConfiguration(patch: Record<string, unknown>) { return configurationWriter(patch); }
 function applyOperations(local: Record<string, any>, ops: RuleOperation[]) {
   for (const op of ops) {
     const kind = op.type.replace(
@@ -63,6 +68,6 @@ export function applyRuleOperations(ops: RuleOperation[]) {
       ),
       ops,
     );
-    await browser.storage.local.set(local);
+    await writeConfiguration(local);
   });
 }

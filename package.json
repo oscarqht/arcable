@@ -2,7 +2,7 @@
   "name": "arcable-monorepo",
   "version": "0.207.0",
   "private": true,
-  "description": "URL-matched side panels, custom scripts, and browser tools with manual Raindrop.io configuration backups",
+  "description": "URL-matched side panels, custom scripts, and browser tools with automatic Raindrop.io configuration sync",
   "scripts": {
     "dev": "pnpm --filter @arcable/web run dev",
     "dev:web": "pnpm --filter @arcable/web run dev",
@@ -20,7 +20,7 @@
     "lint": "pnpm -r --if-present run lint",
     "clean": "pnpm -r --if-present run clean",
     "version:bump:minor": "node scripts/bump-version.mjs",
-    "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/configSnapshots.test.mjs && node apps/extension/tests/extensionAction.test.mjs",
+    "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/configSnapshots.test.mjs && node apps/extension/tests/configSync.test.mjs && node apps/extension/tests/extensionAction.test.mjs",
     "build:extension:safari": "pnpm --filter @arcable/extension run build:safari",
     "package:safari": "pnpm --filter @arcable/extension run package:safari",
     "build:safari:app": "pnpm --filter @arcable/extension run build:safari:app"

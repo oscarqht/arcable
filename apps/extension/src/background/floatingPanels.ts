@@ -11,11 +11,12 @@ import {
   SIDE_PANEL_RULES_KEY,
   PANEL_LAYOUTS_KEY,
 } from "@arcable/shared/utils";
+import { withConfigurationStorage, writeConfiguration } from "./localRules";
 const TOKENS = "arcable_panel_document_tokens";
 const session = browser.storage.session || browser.storage.local;
 let queue = Promise.resolve();
 function serialized<T>(action: () => Promise<T>): Promise<T> {
-  const result = queue.then(action);
+  const result = queue.then(() => withConfigurationStorage(action));
   queue = result.then(
     () => {},
     () => {},
@@ -47,7 +48,7 @@ async function state(tabId: number) {
     }
   }
   if (initialized)
-    await browser.storage.local.set({ [PANEL_LAYOUTS_KEY]: layouts });
+    await writeConfiguration({ [PANEL_LAYOUTS_KEY]: layouts });
   return { panels, token: all[tabId] };
 }
 async function refresh(tabId: number) {
@@ -96,9 +97,7 @@ export function initFloatingPanels() {
     )
       void serialized(async () => {
         const tabs = await browser.tabs.query({});
-        await Promise.all(
-          tabs.filter((t) => t.id !== undefined).map((t) => refresh(t.id!)),
-        );
+        for (const tab of tabs) if (tab.id !== undefined) await refresh(tab.id);
       });
   });
 }
@@ -141,7 +140,7 @@ export function handleFloatingPanelsMessage(
       )
         return { success: false };
       const stored = await browser.storage.local.get(PANEL_LAYOUTS_KEY);
-      await browser.storage.local.set({
+      await writeConfiguration({
         [PANEL_LAYOUTS_KEY]: {
           ...((stored[PANEL_LAYOUTS_KEY] as object) || {}),
           [message.panelId]: layout,

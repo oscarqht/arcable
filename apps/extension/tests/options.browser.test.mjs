@@ -14,7 +14,7 @@ if (!chrome)
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), "arcable-options-"));
 const extension = path.join(profile, 'extension');
 fs.cpSync(fileURLToPath(new URL('../dist/chrome', import.meta.url)), extension, { recursive: true });
-// Only the disposable test copy mocks auth and snapshot responses.
+// Only the disposable test copy mocks auth and provider responses.
 const bootstrap = fs.readFileSync(new URL('./options.browser.bootstrap.js', import.meta.url), 'utf8');
 const worker = path.join(extension, 'background.js');
 fs.writeFileSync(worker, bootstrap + '\n' + fs.readFileSync(worker, 'utf8'));

@@ -1,4 +1,5 @@
 import { isSafari, SAFARI_SCRIPT_LIMITATION } from "../../utils/browser";
+import { updateConfiguration } from "../../utils/configuration";
 import React, { useState, useEffect, useRef } from "react";
 import { Card, Button, Badge } from "@arcable/shared/components";
 import { CustomCodeRule, RuleOperation } from "@arcable/shared/types";
@@ -78,7 +79,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
       );
       setRules(normalized);
       if (mutated) {
-        await browser.storage.local.set({ [STORAGE_KEY]: normalized });
+        await updateConfiguration({ [STORAGE_KEY]: normalized });
       }
     } catch (err) {
       console.warn("[CustomCodeTab] Failed to load rules:", err);
@@ -96,7 +97,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
   const saveRulesToStorage = async (newRules: CustomCodeRule[]) => {
     const sorted = sortCustomCodeRules(newRules);
     setRules(sorted);
-    await browser.storage.local.set({ [STORAGE_KEY]: sorted });
+    await updateConfiguration({ [STORAGE_KEY]: sorted });
   };
 
   const handlePatternChange = (val: string) => {
@@ -338,7 +339,7 @@ export const CustomCodeTab: React.FC<CustomCodeTabProps> = ({
             addedCount,
             addedRules,
           } = mergeRunCodeRules(existingRun, extractedRun);
-          await browser.storage.local.set({ runCodeInPageRules: mergedRun });
+          await updateConfiguration({ runCodeInPageRules: mergedRun });
           runAdded = addedCount;
           for (const r of addedRules) {
             operations.push(createRuleOperation("RUN_CODE_CREATE", r.id, r));

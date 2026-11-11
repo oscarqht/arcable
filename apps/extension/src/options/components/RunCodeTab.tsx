@@ -1,3 +1,4 @@
+import { updateConfiguration } from "../../utils/configuration";
 import React, { useState, useEffect, useRef } from "react";
 import { Card, Button, Badge } from "@arcable/shared/components";
 import { RunCodeRule, RuleOperation } from "@arcable/shared/types";
@@ -112,7 +113,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({
       );
       setRules(normalized);
       if (mutated) {
-        await browser.storage.local.set({ [STORAGE_KEY]: normalized });
+        await updateConfiguration({ [STORAGE_KEY]: normalized });
       }
     } catch (err) {
       console.warn("[RunCodeTab] Failed to load rules:", err);
@@ -130,7 +131,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({
   const saveRulesToStorage = async (newRules: RunCodeRule[]) => {
     const sorted = sortRunCodeRules(newRules);
     setRules(sorted);
-    await browser.storage.local.set({ [STORAGE_KEY]: sorted });
+    await updateConfiguration({ [STORAGE_KEY]: sorted });
   };
 
   const handleAddPattern = () => {
@@ -368,7 +369,7 @@ export const RunCodeTab: React.FC<RunCodeTabProps> = ({
             addedCount,
             addedRules,
           } = mergeCustomCodeRules(existingCustom, extractedCustom);
-          await browser.storage.local.set({ customCodeRules: mergedCustom });
+          await updateConfiguration({ customCodeRules: mergedCustom });
           customAdded = addedCount;
           for (const r of addedRules) {
             operations.push(createRuleOperation("CUSTOM_CODE_CREATE", r.id, r));

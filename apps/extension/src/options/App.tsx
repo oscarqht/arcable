@@ -1,3 +1,5 @@
+import type { SyncStatus } from "../background/configSync";
+import { updateConfiguration } from "../utils/configuration";
 import React, { useState, useEffect } from "react";
 import "../utils/raindropSession";
 import { Button, Card, RaindropAuthCard } from "@arcable/shared/components";
@@ -29,7 +31,7 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState("");
-  const [snapshotAction, setSnapshotAction] = useState<"save" | "load" | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ state: "pending" });
   const [prefill, setPrefill] = useState<string>();
   const [hideScrollbars, setHideScrollbars] = useState(true);
   const [autoPip, setAutoPip] = useState(true);
@@ -48,12 +50,15 @@ export const App: React.FC = () => {
       .finally(() => setLoading(false));
     void browser.storage.local
       .get([
+        "arcable_config_sync",
         "optionsInitialTab",
         "customCodePrefillUrl",
         "arcable_hide_all_scrollbars",
         "arcable_auto_pip",
       ])
       .then((s) => {
+        const storedSync = s.arcable_config_sync as { status?: typeof syncStatus } | undefined;
+        if (storedSync?.status) setSyncStatus(storedSync.status);
         if (tabs.some(([id]) => id === s.optionsInitialTab))
           setActiveTab(s.optionsInitialTab as string);
         if (s.customCodePrefillUrl) {
@@ -69,6 +74,7 @@ export const App: React.FC = () => {
       });
     const changed = (changes: Record<string, any>, area: string) => {
       if (area !== "local") return;
+      if (changes.arcable_config_sync?.newValue?.status) setSyncStatus(changes.arcable_config_sync.newValue.status);
       if (changes.arcable_raindrop_auth)
         setAuth(
           changes.arcable_raindrop_auth.newValue || { isAuthenticated: false },
@@ -106,26 +112,6 @@ export const App: React.FC = () => {
       setError(String(e));
     } finally {
       setLoading(false);
-    }
-  };
-  const manageSnapshot = async (action: "save" | "load") => {
-    if (action === "load" && !window.confirm(
-      "Load the latest Raindrop snapshot? This replaces ALL local panel rules, Custom JS & CSS, Run Code rules, general settings, and saved panel layouts. Scripts in the snapshot may run on matching websites. Local changes not saved to Raindrop will be lost.",
-    )) return;
-    setSnapshotAction(action);
-    try {
-      const res = (await browser.runtime.sendMessage({
-        type: action === "save" ? "ARCABLE_SAVE_SNAPSHOT" : "ARCABLE_LOAD_SNAPSHOT",
-        ...(action === "load" ? { confirmOverwrite: true } : {}),
-      })) as ExtensionResponse<{ savedAt: string; warning?: string }>;
-      if (!res.success) throw new Error(res.error || "Snapshot operation failed");
-      showToast(res.data?.warning || (action === "save"
-        ? "Configuration saved to Raindrop and verified."
-        : "Local configuration replaced with the latest Raindrop snapshot."));
-    } catch (e) {
-      showToast(String(e));
-    } finally {
-      setSnapshotAction(null);
     }
   };
   return (
@@ -188,7 +174,7 @@ export const App: React.FC = () => {
         {visibleTab === "sync" && (
           <Card
             title="Raindrop"
-            subtitle="Manually save or restore one JSON snapshot of all rules, general settings, and panel layouts. Nothing syncs automatically."
+            subtitle="Automatically sync all rules, general settings, and panel layouts with Raindrop."
           >
             <RaindropAuthCard
               authState={auth}
@@ -202,8 +188,8 @@ export const App: React.FC = () => {
             />
             {auth.isAuthenticated && (
               <>
-                <p>Saving uploads a dated JSON file, verifies it, then removes older Arcable snapshots. Legacy rule records and unrelated bookmarks are left untouched.</p>
-                <p>Loading replaces local configuration, including deleted rules and layouts. Authentication is never included.</p>
+                <p>Sync runs on browser launch, after login and local changes, and every 10 minutes while the browser is running—even with Options closed.</p>
+                <p>Remote changes are fetched first, then pending local edits and deletions are applied. Your pending changes win conflicts. Authentication is never included.</p>
               </>
             )}
           </Card>
@@ -220,9 +206,9 @@ export const App: React.FC = () => {
                   type="checkbox"
                   checked={hideScrollbars}
                   onChange={(e) => {
-                    void browser.storage.local.set({
+                    void updateConfiguration({
                       arcable_hide_all_scrollbars: e.target.checked,
-                    });
+                    }).catch(() => showToast("Could not save scrollbar preference."));
                   }}
                 />{" "}
                 Hide website scrollbars
@@ -235,9 +221,9 @@ export const App: React.FC = () => {
                   checked={!isSafari() && autoPip}
                   disabled={isSafari()}
                   onChange={(e) => {
-                    void browser.storage.local.set({
+                    void updateConfiguration({
                       arcable_auto_pip: e.target.checked,
-                    });
+                    }).catch(() => showToast("Could not save Picture-in-Picture preference."));
                   }}
                 />{" "}
                 Automatic Picture-in-Picture on tab switch
@@ -287,8 +273,9 @@ export const App: React.FC = () => {
           )}
           {auth.isAuthenticated && (
             <div
-              role="group"
-              aria-label="Raindrop snapshot actions"
+              role="status"
+              aria-live="polite"
+              aria-label="Raindrop sync status"
               style={{
                 display: "flex",
                 flexWrap: "wrap",
@@ -301,12 +288,14 @@ export const App: React.FC = () => {
                 boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
               }}
             >
-              <Button onClick={() => manageSnapshot("save")} disabled={snapshotAction !== null || loading}>
-                {snapshotAction === "save" ? "Saving…" : "Save to Raindrop"}
-              </Button>
-              <Button variant="outline" onClick={() => manageSnapshot("load")} disabled={snapshotAction !== null || loading}>
-                {snapshotAction === "load" ? "Loading…" : "Load latest"}
-              </Button>
+              <span>
+                {syncStatus.state === "syncing" ? "Syncing with Raindrop…"
+                  : syncStatus.state === "saved" ? "Saved to Raindrop"
+                  : syncStatus.state === "error" ? syncStatus.error || "Sync failed. Retrying automatically."
+                  : "Changes pending sync…"}
+                {syncStatus.lastSyncedAt && <small style={{ display: "block" }}>Last synced: {new Date(syncStatus.lastSyncedAt).toLocaleString()}</small>}
+                {syncStatus.warning && <small style={{ display: "block" }}>{syncStatus.warning}</small>}
+              </span>
             </div>
           )}
         </div>

@@ -17,8 +17,9 @@ import {
   getRaindropTokenExpiresAt,
   RaindropReauthenticationError,
 } from "@arcable/shared/utils";
-import { applyRuleOperations } from "./localRules";
-import { saveConfiguration, loadConfiguration, retireRuleSync } from "./configSnapshots";
+import { applyRuleOperations, withConfigurationStorage, writeConfiguration } from "./localRules";
+import { createConfigurationSync } from "./configSync";
+import { CONFIG_KEYS } from "./configSnapshots";
 import {
   createRaindropSessionManager,
   refreshExtensionRaindropToken,
@@ -628,23 +629,13 @@ browser.runtime.onMessage.addListener(
         return { success: true };
       }
 
-      case "ARCABLE_SAVE_SNAPSHOT":
-      case "ARCABLE_LOAD_SNAPSHOT": {
-        if (!sender.url?.startsWith(browser.runtime.getURL("")))
-          return { success: false, error: "Only extension pages can manage snapshots" };
-        try {
-          const auth = await getStoredAuthState();
-          if (!auth.isAuthenticated || !auth.accessToken)
-            throw new Error("Not authenticated with Raindrop");
-          if (message.type === "ARCABLE_LOAD_SNAPSHOT" && rawMessage.confirmOverwrite !== true)
-            throw new Error("Replacing local configuration requires confirmation");
-          const data = message.type === "ARCABLE_SAVE_SNAPSHOT"
-            ? await saveConfiguration(auth.accessToken)
-            : await loadConfiguration(auth.accessToken);
-          return { success: true, data };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : "Snapshot operation failed" };
-        }
+      case "ARCABLE_UPDATE_CONFIGURATION": {
+        if (!sender.url?.startsWith(browser.runtime.getURL(""))) return { success: false };
+        const patch = rawMessage.patch;
+        if (!patch || typeof patch !== "object" || Object.keys(patch).some(key => !CONFIG_KEYS.includes(key)))
+          return { success: false, error: "Invalid configuration update" };
+        await withConfigurationStorage(() => writeConfiguration(patch));
+        return { success: true };
       }
       case "ARCABLE_APPLY_RULE_OPS": {
         if (!sender.url?.startsWith(browser.runtime.getURL("")))
@@ -719,5 +710,5 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Clear the old periodic sync and local outbox on upgrade/startup. Never read legacy remote rules.
-void retireRuleSync().catch(console.warn);
+// Runs independently of Options, including MV3 worker restarts.
+createConfigurationSync(() => getStoredAuthState()).start();
