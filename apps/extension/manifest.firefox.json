@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arcable",
-  "version": "0.207.0",
+  "version": "0.208.0",
   "description": "URL-matched side panels, custom scripts, and browser tools with automatic Raindrop.io sync",
   "browser_specific_settings": {
     "gecko": {

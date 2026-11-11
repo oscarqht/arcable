@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arcable",
-  "version": "0.207.0",
+  "version": "0.208.0",
   "description": "URL-matched side panels, custom scripts, and browser tools with manual Raindrop.io backups",
   "permissions": [
     "storage",
@@ -123,29 +123,29 @@
         "default": "Alt+K",
         "mac": "Alt+K"
       },
-      "description": "\ud83d\udcf8 Take Screenshot"
+      "description": "📸 Take Screenshot"
     },
     "capture-full-page": {
       "suggested_key": {
         "default": "Alt+Shift+F",
         "mac": "Command+Shift+F"
       },
-      "description": "\ud83d\udcdc Capture Full Page"
+      "description": "📜 Capture Full Page"
     },
     "copy-url": {
-      "description": "\ud83d\udd17 Copy URL"
+      "description": "🔗 Copy URL"
     },
     "copy-title-dash-url": {
-      "description": "\ud83d\udd24 Copy Title - URL"
+      "description": "🔤 Copy Title - URL"
     },
     "copy-title-url": {
-      "description": "\ud83d\udd24 Copy Title\\nURL"
+      "description": "🔤 Copy Title\\nURL"
     },
     "copy-markdown-link": {
-      "description": "\u24c2\ufe0f Copy [Title](URL)"
+      "description": "Ⓜ️ Copy [Title](URL)"
     },
     "copy-title": {
-      "description": "\ud83d\udd24 Copy Title"
+      "description": "🔤 Copy Title"
     }
   }
 }
