@@ -22,7 +22,8 @@
     "version:bump:minor": "node scripts/bump-version.mjs",
     "test:side-panels": "node apps/extension/tests/sidePanels.test.mjs && node apps/extension/tests/configSnapshots.test.mjs && node apps/extension/tests/extensionAction.test.mjs",
     "build:extension:safari": "pnpm --filter @arcable/extension run build:safari",
-    "package:safari": "pnpm --filter @arcable/extension run package:safari"
+    "package:safari": "pnpm --filter @arcable/extension run package:safari",
+    "build:safari:app": "pnpm --filter @arcable/extension run build:safari:app"
   },
   "keywords": [
     "arcable",

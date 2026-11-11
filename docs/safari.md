@@ -21,17 +21,17 @@ pnpm package:safari
 
 The generated project references the built resources. Regenerate after changing the resource file list. Packaging replaces only the generated wrapper directory; keep any hand-written native changes elsewhere. Both `dist/` and `build/` are ignored by Git. The source manifest, packaging script, and shared code are the reproducible wrapper inputs.
 
-To compile without a development account for a local build:
+Build the host app with a local Apple Development certificate:
 
 ```sh
-xcodebuild \
-  -project apps/extension/build/safari/Arcable/Arcable.xcodeproj \
-  -scheme Arcable -configuration Debug \
-  -derivedDataPath apps/extension/build/safari-derived \
-  CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES build
+pnpm build:safari:app
 ```
 
-The result is `apps/extension/build/safari-derived/Build/Products/Debug/Arcable.app`. This run also installed a local copy at `~/Applications/Arcable Safari.app` and registered its extension with PlugInKit; that does not enable it in Safari. Open the app, then enable Arcable in **Safari → Settings → Extensions**. Local ad hoc builds may require **Safari → Settings → Advanced → Show features for web developers**, then **Develop → Developer Settings → Allow unsigned extensions**. Enable that developer option yourself only for local testing. Alternatively, select your own development team for both targets in Xcode and Run the app.
+This generates the wrapper, selects an available local Apple Development signing identity, builds both targets, and verifies the app signature. Set `SAFARI_SIGNING_IDENTITY` to select a particular certificate when needed. No certificate identifiers or private keys are stored in the repository. If no development certificate is available, configure signing for both targets in Xcode, or test `apps/extension/dist/safari` through Safari's Developer → Add Temporary Extension control.
+
+The signed result is `apps/extension/build/safari-developed/Build/Products/Debug/Arcable.app`. Copy the real app bundle into Applications, open it, then enable Arcable in **Safari → Settings → Extensions**. The installed copy for this run is `/Applications/Arcable Safari.app`.
+
+**Ad hoc signing is insufficient on the tested Safari installation.** Although the ad hoc app launched and passed `codesign --verify`, Safari logged “Computing the code signing dictionary failed” and “does not have a code signature” and hid its extension even with **Allow unsigned extensions** enabled. Rebuilding with a local Apple Development certificate made Arcable appear in the actual Safari Extensions list. The build command therefore requires a development identity and never falls back to ad hoc signing. Keep one canonical registered installed copy to avoid ambiguity between old builds.
 
 When installing locally, copy the actual `.app` directory in Finder or with `ditto`. A chat/download link to a local app directory can save an HTML page with a `.app` filename instead; that file is not an application.
 
@@ -77,6 +77,10 @@ Local environment: **macOS 27.0.1 (26A434), Safari 27.0.1, Xcode 27.2 (27B52)**.
 ## Local launch follow-up — 2026-11-11
 
 The `/Applications/Arcable Safari.app` copied from the chat link was a 4 KB HTML document, which caused macOS to report that the app was unsupported. The HTML download was preserved in Downloads and replaced with the actual app bundle from `~/Applications/Arcable Safari.app`. Code-signature verification passed, and native desktop inspection confirmed the app launches with its Arcable window and Safari extension preferences button. This verifies the host app launch; extension enablement and live Safari feature acceptance remain pending.
+
+## Extension discovery follow-up — 2026-11-11
+
+Confirmed in the live Safari UI that Allow unsigned extensions was already enabled while Arcable remained missing. Safari's logs rejected the ad hoc signature. Rebuilt the host and extension with an existing Apple Development identity, verified signatures, updated the local installed copies, and removed duplicate PlugInKit registrations. Safari Settings → Extensions then visibly listed **Arcable** with its checkbox off. Extension discovery is verified; enablement, website permissions and functional acceptance still require completion.
 
 ## Remaining Safari acceptance checklist
 

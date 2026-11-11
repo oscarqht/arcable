@@ -18,7 +18,8 @@
     "build:safari": "node build.mjs safari",
     "build:dev:safari": "node build.mjs safari --dev",
     "package:safari": "node scripts/packageSafari.mjs",
-    "test:safari": "node tests/safariCompatibility.test.mjs"
+    "test:safari": "node tests/safariCompatibility.test.mjs",
+    "build:safari:app": "node scripts/packageSafari.mjs --build-app"
   },
   "dependencies": {
     "@arcable/shared": "workspace:*",
