@@ -33,6 +33,8 @@ xcodebuild \
 
 The result is `apps/extension/build/safari-derived/Build/Products/Debug/Arcable.app`. This run also installed a local copy at `~/Applications/Arcable Safari.app` and registered its extension with PlugInKit; that does not enable it in Safari. Open the app, then enable Arcable in **Safari → Settings → Extensions**. Local ad hoc builds may require **Safari → Settings → Advanced → Show features for web developers**, then **Develop → Developer Settings → Allow unsigned extensions**. Enable that developer option yourself only for local testing. Alternatively, select your own development team for both targets in Xcode and Run the app.
 
+When installing locally, copy the actual `.app` directory in Finder or with `ditto`. A chat/download link to a local app directory can save an HTML page with a `.app` filename instead; that file is not an application.
+
 Allow website access for each site used by Arcable. Login also needs access to `oh-auth.vercel.app` and `arcable.vercel.app`; snapshots use `api.raindrop.io`. Reopen existing tabs after enabling the extension. Open Arcable's options from the extension's Safari controls. Safari-reserved shortcuts may require using Arcable's context menus instead.
 
 Do not change the host and extension bundle identifiers independently. The extension ID must have the host ID as its prefix. The packager uses `dev.arcable.Arcable` and the converter produces its `.Extension` child.
@@ -71,6 +73,10 @@ Local environment: **macOS 27.0.1 (26A434), Safari 27.0.1, Xcode 27.2 (27B52)**.
 - Focused shared behavior tests cover panels, snapshots, toolbar save, tab switching, scrollbar settings, OAuth redirects and token refresh.
 - Chromium installed-extension options and panel embedding regressions passed using isolated Brave profiles. The embedding fixture was updated to enter its existing mock-auth flow before opening the panel form. Firefox installed-extension embedding/navigation/persistence regression passed using an isolated Firefox profile.
 - **Live Safari installation/enabling and feature checks are blocked:** native computer access returned `cgWindowNotFound` for Safari and ScreenCaptureKit error `-3811` (audio/video capture failure) for Finder. No Safari options screen or extension-enabled state could be observed. No real account login, backup, clipboard, screenshot, Markdown, or PiP result is claimed.
+
+## Local launch follow-up — 2026-11-11
+
+The `/Applications/Arcable Safari.app` copied from the chat link was a 4 KB HTML document, which caused macOS to report that the app was unsupported. The HTML download was preserved in Downloads and replaced with the actual app bundle from `~/Applications/Arcable Safari.app`. Code-signature verification passed, and native desktop inspection confirmed the app launches with its Arcable window and Safari extension preferences button. This verifies the host app launch; extension enablement and live Safari feature acceptance remain pending.
 
 ## Remaining Safari acceptance checklist
 
