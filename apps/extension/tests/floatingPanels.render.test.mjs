@@ -174,7 +174,7 @@ try {
   );
   assert.equal(await evaluate("fixture.reloadButton.title"), "Reload panel");
   assert.equal(
-    await evaluate("fixture.reloadButton.parentElement.tagName"),
+    await evaluate("fixture.reloadButton.closest('header').tagName"),
     "HEADER",
   );
   const reloadSource = () => evaluate("fixture.reloadFrame.src");
@@ -240,8 +240,151 @@ try {
   await evaluate(
     `fixture.setPanels(${JSON.stringify([makePanel("Pointer test", "")])})`,
   );
+  // Footer controls now live in the header; the resize handle overlays the frame.
+  for (const theme of ["light", "dark"]) {
+    for (const width of [240, 320, 440, 522, 523, 700]) {
+      await evaluate(`fixture.setPanels([{ ...fixture.panels[0], width: ${width} }]);
+        document.querySelector('[data-arcable-floating-panels]').dataset.theme = '${theme}'`);
+      const layout = await evaluate(`(() => {
+        const panel = fixture.shadow.querySelector('section');
+        const header = panel.querySelector('header').getBoundingClientRect();
+        const frame = panel.querySelector('iframe').getBoundingClientRect();
+        const resize = panel.querySelector('.resize');
+        const handle = resize.getBoundingClientRect();
+        const bounds = panel.getBoundingClientRect();
+        const css = getComputedStyle(panel);
+        return {
+          compact: ['.login-help-button', '.open-tab', '.dock-control select'].every(selector =>
+            getComputedStyle(panel.querySelector(selector)).fontSize === '0px'),
+          singleRow: [...panel.querySelectorAll('header button, header select')].every(b =>
+            Math.abs(b.getBoundingClientRect().top - panel.querySelector('header > span').getBoundingClientRect().top) < 8),
+          accessible: [...panel.querySelectorAll('header button, header select')].every(b => b.getAttribute('aria-label') && b.title),
+          footer: Boolean(panel.querySelector('footer')),
+          rounded: css.borderBottomLeftRadius === '10px' && css.borderBottomRightRadius === '10px' && css.overflow === 'hidden',
+          headerControls: Boolean(panel.querySelector('header .login-help-button')) &&
+            [...panel.querySelectorAll('header button')].some(b => b.textContent === 'Open in tab'),
+          controlsFit: [...panel.querySelectorAll('header button, header select')].every(b => {
+            const r = b.getBoundingClientRect();
+            return r.left >= header.left && r.right <= header.right && r.bottom <= header.bottom;
+          }),
+          fillsBottom: Math.abs(frame.bottom - (bounds.bottom - 1)) < 1,
+          floating: getComputedStyle(resize).position === 'absolute' &&
+            handle.right < frame.right && handle.bottom < frame.bottom && handle.top >= frame.top,
+          onTop: fixture.shadow.elementFromPoint(handle.x + handle.width / 2, handle.y + handle.height / 2) === resize,
+        };
+      })()`);
+      assert.deepEqual(
+        layout,
+        {
+          compact: width <= 522,
+          singleRow: true,
+          accessible: true,
+          footer: false,
+          rounded: true,
+          headerControls: true,
+          controlsFit: true,
+          fillsBottom: true,
+          floating: true,
+          onTop: true,
+        },
+        `${theme} panel at ${width}px keeps controls visible and resize above the iframe`,
+      );
+    }
+  }
+  await evaluate(`fixture.setPanels([{ ...fixture.panels[0], width: 440, url: 'https://reference.example/' }]);
+    fixture.controlPanel = fixture.shadow.querySelector('section');
+    fixture.controlFrame = fixture.controlPanel.querySelector('iframe');
+    fixture.controlSource = fixture.controlFrame.src;
+    fixture.controlDocument = fixture.controlFrame.contentDocument;
+    fixture.openCalls = [];
+    fixture.originalOpen = window.open;
+    window.open = (...args) => fixture.openCalls.push(args)`);
+  await until(
+    () =>
+      evaluate(
+        'fixture.controlFrame.contentDocument?.readyState === \"complete\" && fixture.controlFrame.contentDocument?.URL === fixture.controlFrame.src',
+      ),
+    "control iframe document",
+  );
+  await evaluate(
+    "fixture.controlDocument = fixture.controlFrame.contentDocument",
+  );
+  assert.ok(await evaluate(`(() => {
+    const select = fixture.controlPanel.querySelector('select');
+    const r = select.getBoundingClientRect();
+    return fixture.shadow.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === select;
+  })()`), "Compact dock icon forwards pointer input to the native select");
+  await evaluate("fixture.dock('left')");
+  assert.equal(await evaluate("fixture.controlPanel.querySelector('select').value"), "left");
+  await evaluate("fixture.dock('')");
+  const beforeHelp = await geometry();
+  await drag(".login-help-button", 0, 0);
+  assert.deepEqual(
+    await geometry(),
+    beforeHelp,
+    "Header help does not drag the panel",
+  );
+  assert.ok(
+    await evaluate(`!fixture.controlPanel.querySelector('.login-help').hidden &&
+    fixture.controlFrame.inert && fixture.controlFrame.getAttribute('aria-hidden') === 'true' &&
+    fixture.controlPanel.querySelector('.login-help-button').getAttribute('aria-expanded') === 'true'`),
+  );
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Escape",
+    code: "Escape",
+    windowsVirtualKeyCode: 27,
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Escape",
+    code: "Escape",
+    windowsVirtualKeyCode: 27,
+  });
+  assert.ok(
+    await evaluate(`fixture.controlPanel.querySelector('.login-help').hidden &&
+    !fixture.controlFrame.inert && !fixture.controlFrame.hasAttribute('aria-hidden') &&
+    fixture.shadow.activeElement === fixture.controlPanel.querySelector('.login-help-button') &&
+    fixture.controlFrame.src === fixture.controlSource &&
+    fixture.controlFrame.contentDocument === fixture.controlDocument`),
+    "Closing help restores focus without reloading the iframe",
+  );
+  await evaluate(`fixture.openButton = [...fixture.controlPanel.querySelectorAll('header button')].find(b => b.textContent === 'Open in tab');
+    fixture.openButton.dataset.testOpen = ''`);
+  await drag("[data-test-open]", 0, 0);
+  await evaluate("fixture.openButton.focus()");
+  await send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    text: "\r",
+  });
+  await send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+  });
+  assert.deepEqual(
+    await evaluate("fixture.openCalls"),
+    Array(2).fill([
+      "https://reference.example/",
+      "_blank",
+      "noopener,noreferrer",
+    ]),
+  );
+  assert.deepEqual(
+    await geometry(),
+    beforeHelp,
+    "Opening a tab does not drag the panel",
+  );
+  await evaluate("window.open = fixture.originalOpen");
+  console.log(
+    "Header controls, login help, iframe state, rounded corners, and floating resize passed in both themes at 240–700px.",
+  );
   const beforeDrag = await geometry();
-  await drag("header", 40, 24);
+  await drag("header > span", 40, 24);
   const afterDrag = await geometry();
   assert.equal(afterDrag.x, beforeDrag.x + 40);
   assert.equal(afterDrag.y, beforeDrag.y + 24);
@@ -249,9 +392,33 @@ try {
   const afterResize = await geometry();
   assert.equal(afterResize.width, afterDrag.width + 40);
   assert.equal(afterResize.height, afterDrag.height + 24);
+  await evaluate("fixture.shadow.querySelector('.resize').focus()");
+  for (const key of ["ArrowRight", "ArrowDown"]) {
+    await send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key,
+      code: key,
+      windowsVirtualKeyCode: key === "ArrowRight" ? 39 : 40,
+    });
+    await send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key,
+      code: key,
+      windowsVirtualKeyCode: key === "ArrowRight" ? 39 : 40,
+    });
+  }
+  const afterKeyboardResize = await geometry();
+  assert.equal(afterKeyboardResize.width, afterResize.width + 16);
+  assert.equal(afterKeyboardResize.height, afterResize.height + 16);
+  assert.ok(
+    await evaluate(
+      "fixture.controlFrame.src === fixture.controlSource && fixture.controlFrame.contentDocument === fixture.controlDocument",
+    ),
+    "Moving and resizing retain the iframe document",
+  );
   const patches = await evaluate("fixture.patches");
   assert.equal(patches.at(-1).type, "ARCABLE_PANELS_PATCH");
-  assert.equal(patches.at(-1).patch.width, afterResize.width);
+  assert.equal(patches.at(-1).patch.width, afterKeyboardResize.width);
   console.log(
     "Production renderer pointer dragging, resizing, and layout messages passed.",
   );
