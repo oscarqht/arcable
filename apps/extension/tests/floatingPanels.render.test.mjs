@@ -242,7 +242,7 @@ try {
   );
   // Footer controls now live in the header; the resize handle overlays the frame.
   for (const theme of ["light", "dark"]) {
-    for (const width of [240, 320, 440, 700]) {
+    for (const width of [240, 320, 440, 522, 523, 700]) {
       await evaluate(`fixture.setPanels([{ ...fixture.panels[0], width: ${width} }]);
         document.querySelector('[data-arcable-floating-panels]').dataset.theme = '${theme}'`);
       const layout = await evaluate(`(() => {
@@ -254,6 +254,11 @@ try {
         const bounds = panel.getBoundingClientRect();
         const css = getComputedStyle(panel);
         return {
+          compact: ['.login-help-button', '.open-tab', '.dock-control select'].every(selector =>
+            getComputedStyle(panel.querySelector(selector)).fontSize === '0px'),
+          singleRow: [...panel.querySelectorAll('header button, header select')].every(b =>
+            Math.abs(b.getBoundingClientRect().top - panel.querySelector('header > span').getBoundingClientRect().top) < 8),
+          accessible: [...panel.querySelectorAll('header button, header select')].every(b => b.getAttribute('aria-label') && b.title),
           footer: Boolean(panel.querySelector('footer')),
           rounded: css.borderBottomLeftRadius === '10px' && css.borderBottomRightRadius === '10px' && css.overflow === 'hidden',
           headerControls: Boolean(panel.querySelector('header .login-help-button')) &&
@@ -271,6 +276,9 @@ try {
       assert.deepEqual(
         layout,
         {
+          compact: width <= 522,
+          singleRow: true,
+          accessible: true,
           footer: false,
           rounded: true,
           headerControls: true,
@@ -301,6 +309,14 @@ try {
   await evaluate(
     "fixture.controlDocument = fixture.controlFrame.contentDocument",
   );
+  assert.ok(await evaluate(`(() => {
+    const select = fixture.controlPanel.querySelector('select');
+    const r = select.getBoundingClientRect();
+    return fixture.shadow.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === select;
+  })()`), "Compact dock icon forwards pointer input to the native select");
+  await evaluate("fixture.dock('left')");
+  assert.equal(await evaluate("fixture.controlPanel.querySelector('select').value"), "left");
+  await evaluate("fixture.dock('')");
   const beforeHelp = await geometry();
   await drag(".login-help-button", 0, 0);
   assert.deepEqual(
