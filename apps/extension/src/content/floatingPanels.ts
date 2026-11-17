@@ -107,8 +107,10 @@ export function initFloatingPanels() {
       :host([data-theme="dark"]) { ${darkTheme} }
       * { box-sizing:border-box; }
       section { position:fixed; pointer-events:auto; color-scheme:var(--panel-scheme); background:var(--panel-surface); color:var(--panel-text); border:1px solid var(--panel-border); border-radius:10px; box-shadow:var(--panel-shadow); display:flex; flex-direction:column; overflow:hidden; font:13px system-ui,sans-serif; }
-      header { display:flex; align-items:center; gap:8px; padding:7px 9px; background:var(--panel-chrome); border-bottom:1px solid var(--panel-border); min-height:42px; cursor:move; touch-action:none; }
-      header span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+      header { display:flex; flex-wrap:wrap; flex-shrink:0; align-items:center; gap:8px; padding:7px 9px; background:var(--panel-chrome); border-bottom:1px solid var(--panel-border); min-height:42px; cursor:move; touch-action:none; }
+      header span { flex:1; min-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+      .panel-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:6px; max-width:100%; margin-left:auto; }
+      .panel-actions > * { flex-shrink:0; white-space:nowrap; }
       button,select { font:12px system-ui,sans-serif; color-scheme:var(--panel-scheme); color:var(--panel-text); background:var(--panel-control); border:1px solid var(--panel-control-border); border-radius:6px; min-height:28px; padding:4px 8px; cursor:pointer; }
       button { min-width:28px; }
       button:hover,select:hover { background:var(--panel-hover); border-color:var(--panel-muted); }
@@ -126,10 +128,9 @@ export function initFloatingPanels() {
       .login-help li { margin:8px 0; }
       .login-help a { color:var(--panel-accent); }
       .login-help a:focus-visible { outline:2px solid var(--panel-accent); outline-offset:2px; }
-      .login-help-button { flex:1; min-width:0; padding:0; border:0; border-radius:0; background:transparent; color:var(--panel-muted); font-size:11px; text-align:left; }
+      .login-help-button { min-width:0; padding:0; border:0; border-radius:0; background:transparent; color:var(--panel-muted); font-size:11px; text-align:left; }
       .login-help-button:hover,.login-help-button:active { background:transparent; color:var(--panel-text); text-decoration:underline; }
-      footer { flex-shrink:0; display:flex; align-items:center; gap:6px; padding:5px 9px; background:var(--panel-chrome); border-top:1px solid var(--panel-border); color:var(--panel-muted); font-size:11px; min-height:38px; }
-      footer span { flex:1; } .resize { touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; }
+      .resize { position:absolute; right:6px; bottom:6px; touch-action:none; cursor:nwse-resize; color:var(--panel-muted); padding:3px; box-shadow:0 2px 8px #0003; }
       .edge { position:fixed; inset:0; pointer-events:none; color-scheme:var(--panel-scheme); }
       .edge button { position:fixed; touch-action:none; cursor:grab; pointer-events:auto; max-width:160px; overflow:hidden; white-space:nowrap; box-shadow:0 2px 8px #0003; background:var(--panel-chrome); border-color:var(--panel-border); padding:5px 9px; }
       .edge button span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -227,11 +228,12 @@ export function initFloatingPanels() {
     hide.textContent = "−";
     hide.title = "Dock to right edge";
     hide.setAttribute("aria-label", "Dock to right edge");
-    header.append(title, select, reload, hide);
+    const actions = document.createElement("div");
+    actions.className = "panel-actions";
+    header.append(title, actions);
     const frame = document.createElement("iframe");
     frame.title = panel.title || "Floating panel";
     frame.src = panelSource(panel);
-    const footer = document.createElement("footer");
     const content = document.createElement("div");
     content.className = "panel-content";
     const help = createLoginHelp(element, frame, () => view.panel.url);
@@ -245,8 +247,9 @@ export function initFloatingPanels() {
     resize.textContent = "◢";
     resize.className = "resize";
     resize.setAttribute("aria-label", "Resize panel");
-    footer.append(help.button, open, resize);
-    element.append(header, content, footer);
+    actions.append(help.button, open, select, reload, hide);
+    content.append(resize);
+    element.append(header, content);
     const chip = document.createElement("button");
     chip.setAttribute("aria-expanded", "false");
     const chipLabel = document.createElement("span");
